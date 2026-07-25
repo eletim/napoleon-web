@@ -1,0 +1,26 @@
+{
+  "name": "@napoleon/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "dev": "pnpm --filter @napoleon/game-core --filter @napoleon/protocol --filter @napoleon/ai --filter @napoleon/server build && node dist/index.js",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.2",
+    "@napoleon/ai": "workspace:*",
+    "@napoleon/game-core": "workspace:*",
+    "@napoleon/protocol": "workspace:*",
+    "fastify": "^5.2.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
