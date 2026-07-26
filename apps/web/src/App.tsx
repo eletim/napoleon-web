@@ -8,6 +8,7 @@ import type {
   PublicStandardCard,
   PublicSuit
 } from "@napoleon/protocol";
+import { BiddingPanel } from "./BiddingPanel";
 import { CardButton } from "./CardButton";
 import { createGame, nextTrick, sendAction } from "./api";
 import { isRedSuit, suitSymbols } from "./cardSymbols";
@@ -297,77 +298,47 @@ export function App() {
               <span>裏J: {formatOptionalCardId(session?.state.specialCards.uraJackCardId)}</span>
             </div>
 
-            <div className="trick-board" aria-label="中央の場">
-              {tablePlayers.map(renderTrickSlot)}
-              <div className="trick-message">
-                <span>現在のトリック</span>
-                <strong>{session?.state.currentTrick.length ?? 0} / 5</strong>
-              </div>
-            </div>
+            {session?.state.phase === "bidding" ? (
+              <BiddingPanel
+                bidding={session.state.bidding}
+                canPass={canPass}
+                currentPlayerId={session.state.currentPlayerId}
+                formatPlayerLabel={(playerId) => formatPlayerLabel(playerId, tablePlayers)}
+                isBusy={isBusy}
+                legalBidActions={legalBidActions}
+                onBid={(action) => void handleSendAction(action)}
+                onPass={() => void handleSendAction({ type: "pass" })}
+                selfPlayerId={session.playerId}
+              />
+            ) : (
+              <>
+                <div className="trick-board" aria-label="中央の場">
+                  {tablePlayers.map(renderTrickSlot)}
+                  <div className="trick-message">
+                    <span>現在のトリック</span>
+                    <strong>{session?.state.currentTrick.length ?? 0} / 5</strong>
+                  </div>
+                </div>
 
-            <button
-              className="secondary-button next-trick-button"
-              disabled={
-                !session?.state.isTrickComplete ||
-                session.state.isGameOver ||
-                session.state.phase !== "playing" ||
-                isBusy
-              }
-              onClick={handleNextTrick}
-              type="button"
-            >
-              次のトリック
-            </button>
+                <button
+                  className="secondary-button next-trick-button"
+                  disabled={
+                    !session?.state.isTrickComplete ||
+                    session.state.isGameOver ||
+                    session.state.phase !== "playing" ||
+                    isBusy
+                  }
+                  onClick={handleNextTrick}
+                  type="button"
+                >
+                  次のトリック
+                </button>
+              </>
+            )}
           </div>
         </div>
 
         <div className="action-area">
-          {session?.state.phase === "bidding" ? (
-            <section className="bidding-panel" aria-label="競り">
-              <div className="bidding-summary">
-                <span>競り開始: {formatPlayerLabel(session.state.bidding?.starterPlayerId, tablePlayers)}</span>
-                <span>最高入札: {formatBid(session.state.bidding?.highestBid ?? null, tablePlayers)}</span>
-                <span>連続パス: {session.state.bidding?.consecutivePassCount ?? 0}</span>
-              </div>
-              <div className="bidding-actions">
-                <button
-                  className="secondary-button"
-                  disabled={!canPass || isBusy}
-                  onClick={() => void handleSendAction({ type: "pass" })}
-                  type="button"
-                >
-                  パス
-                </button>
-                <div className="bid-buttons">
-                  {legalBidActions.map((action) => (
-                    <button
-                      className="bid-button"
-                      disabled={isBusy}
-                      key={`${action.suit}-${action.targetPointCards}`}
-                      onClick={() => void handleSendAction(action)}
-                      type="button"
-                    >
-                      {formatBidAction(action)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="bidding-history" aria-label="競り履歴">
-                {(session.state.bidding?.history.length ?? 0) > 0 ? (
-                  session.state.bidding?.history.map((entry, index) => (
-                    <span key={`${entry.playerId}-${entry.type}-${index}`}>
-                      {entry.type === "bid"
-                        ? `${formatPlayerLabel(entry.playerId, tablePlayers)}: ${formatSuit(entry.suit)}${entry.targetPointCards}`
-                        : `${formatPlayerLabel(entry.playerId, tablePlayers)}: パス`}
-                    </span>
-                  ))
-                ) : (
-                  <span>履歴はまだありません。</span>
-                )}
-              </div>
-            </section>
-          ) : null}
-
           {session?.state.phase === "exchanging" ? (
             <section className="exchange-panel" aria-label="埋札交換">
               <div>
@@ -663,19 +634,6 @@ const rankOptions: readonly PublicRank[] = [
 
 function formatSuit(suit: PublicBidAction["suit"]): string {
   return suitSymbols[suit];
-}
-
-function formatBidAction(action: PublicBidAction): string {
-  return `${formatSuit(action.suit)} ${action.targetPointCards}`;
-}
-
-function formatBid(
-  bid: NonNullable<PublicGameState["bidding"]>["highestBid"],
-  players: readonly TablePlayer[]
-): string {
-  return bid === null
-    ? "なし"
-    : `${formatPlayerLabel(bid.playerId, players)} ${formatSuit(bid.suit)}${bid.targetPointCards}`;
 }
 
 function formatContract(state: PublicGameState | null): string {
