@@ -18,13 +18,16 @@ export const ranks: readonly Rank[] = [
 ];
 
 export function createDeck(): readonly Card[] {
-  return suits.flatMap((suit) =>
+  const standardCards: readonly Card[] = suits.flatMap((suit) =>
     ranks.map((rank) => ({
+      type: "standard" as const,
       id: `${suit}-${rank}`,
       suit,
       rank
     }))
   );
+
+  return [...standardCards, { type: "joker", id: "joker" }];
 }
 
 export function shuffleDeck(

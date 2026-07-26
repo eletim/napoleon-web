@@ -15,11 +15,19 @@ export type Rank =
   | "Q"
   | "K";
 
-export interface Card {
+export interface StandardCard {
+  type: "standard";
   id: string;
   suit: Suit;
   rank: Rank;
 }
+
+export interface JokerCard {
+  type: "joker";
+  id: "joker";
+}
+
+export type Card = StandardCard | JokerCard;
 
 export type PlayerId = string;
 

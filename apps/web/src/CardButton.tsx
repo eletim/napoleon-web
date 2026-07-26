@@ -8,6 +8,19 @@ interface CardButtonProps {
 }
 
 export function CardButton({ card, disabled, onPlay }: CardButtonProps) {
+  if (card.type === "joker") {
+    return (
+      <button
+        className="card card-joker"
+        disabled={disabled}
+        onClick={() => onPlay(card)}
+        type="button"
+      >
+        <span>JOKER</span>
+      </button>
+    );
+  }
+
   return (
     <button
       className={`card ${isRedSuit(card.suit) ? "card-red" : "card-black"}`}

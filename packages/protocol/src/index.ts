@@ -15,11 +15,19 @@ export type PublicRank =
   | "Q"
   | "K";
 
-export interface PublicCard {
+export interface PublicStandardCard {
+  type: "standard";
   id: string;
   suit: PublicSuit;
   rank: PublicRank;
 }
+
+export interface PublicJokerCard {
+  type: "joker";
+  id: "joker";
+}
+
+export type PublicCard = PublicStandardCard | PublicJokerCard;
 
 export interface PublicPlayedCard {
   playerId: string;

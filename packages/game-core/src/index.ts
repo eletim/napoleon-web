@@ -1,4 +1,5 @@
 export { createDeck, ranks, shuffleDeck, suits } from "./deck.js";
+export { isJokerCard, isStandardCard } from "./cards.js";
 export { GameRuleError } from "./errors.js";
 export {
   biddingSuitOrder,
@@ -27,6 +28,7 @@ export {
 } from "./game.js";
 export type {
   Card,
+  JokerCard,
   Bid,
   BidAction,
   BiddingHistoryEntry,
@@ -45,6 +47,7 @@ export type {
   PublicBiddingView,
   PublicPlayerState,
   Rank,
+  StandardCard,
   Suit
 } from "./types.js";
 export type { TrickCardCategory, TrickCardStrength, TrickContext } from "./trick.js";

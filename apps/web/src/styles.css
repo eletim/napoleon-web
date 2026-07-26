@@ -229,6 +229,12 @@ button {
   font-weight: 800;
 }
 
+.joker-text {
+  color: #6d28d9;
+  font-size: 1.1rem;
+  font-weight: 900;
+}
+
 .self-panel {
   padding: 16px;
 }
@@ -279,6 +285,12 @@ button {
 
 .card-black {
   color: #111827;
+}
+
+.card-joker {
+  color: #6d28d9;
+  font-size: 0.9rem;
+  letter-spacing: 0;
 }
 
 .card-suit {

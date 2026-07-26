@@ -85,7 +85,7 @@ export function getLegalActions(state: GameState, playerId: PlayerId): readonly 
   }
 
   const player = getPlayer(state, playerId);
-  return getPlayableCards(player.hand, state.currentTrick).map((card) => ({
+  return getPlayableCards(player.hand, state.currentTrick, { trumpSuit: state.trumpSuit }).map((card) => ({
     type: "play-card",
     playerId,
     cardId: card.id
@@ -167,6 +167,10 @@ function playCard(state: GameState, playerId: PlayerId, cardId: string): GameSta
     throw new GameRuleError("TRICK_COMPLETE", "Advance to the next trick before playing.");
   }
 
+  if (state.trumpSuit === null) {
+    throw new GameRuleError("TRUMP_NOT_SET", "Trump suit must be set before playing cards.");
+  }
+
   if (state.currentPlayerId !== playerId) {
     throw new GameRuleError("NOT_PLAYERS_TURN", "It is not this player's turn.");
   }
@@ -178,7 +182,9 @@ function playCard(state: GameState, playerId: PlayerId, cardId: string): GameSta
     throw new GameRuleError("CARD_NOT_IN_HAND", "The card is not in this player's hand.");
   }
 
-  const playableCards = getPlayableCards(player.hand, state.currentTrick);
+  const playableCards = getPlayableCards(player.hand, state.currentTrick, {
+    trumpSuit: state.trumpSuit
+  });
 
   if (!playableCards.some((candidate) => candidate.id === cardId)) {
     throw new GameRuleError("MUST_FOLLOW_SUIT", "The player must follow the lead suit.");

@@ -188,10 +188,14 @@ export function App() {
               session.state.currentTrick.map((played) => (
                 <div className="played-card" key={`${played.playerId}-${played.card.id}`}>
                   <span className="played-owner">{played.playerId}</span>
-                  <span className={isRedSuit(played.card.suit) ? "red-text" : "black-text"}>
-                    {played.card.rank}
-                    {suitSymbols[played.card.suit]}
-                  </span>
+                  {played.card.type === "joker" ? (
+                    <span className="joker-text">JOKER</span>
+                  ) : (
+                    <span className={isRedSuit(played.card.suit) ? "red-text" : "black-text"}>
+                      {played.card.rank}
+                      {suitSymbols[played.card.suit]}
+                    </span>
+                  )}
                 </div>
               ))
             ) : (

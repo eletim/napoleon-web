@@ -1,5 +1,6 @@
 import {
   createPlayerView,
+  isJokerCard,
   type Bid,
   type BiddingHistoryEntry,
   type BiddingState,
@@ -62,7 +63,15 @@ export function toPublicGameState(state: GameState, playerId: PlayerId): PublicG
 }
 
 function toPublicCard(card: Card): PublicCard {
+  if (isJokerCard(card)) {
+    return {
+      type: "joker",
+      id: card.id
+    };
+  }
+
   return {
+    type: "standard",
     id: card.id,
     suit: card.suit,
     rank: card.rank

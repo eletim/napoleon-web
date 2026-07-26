@@ -1,5 +1,6 @@
 import { GameRuleError } from "./errors.js";
 import { getRankValue } from "./ranks.js";
+import { isJokerCard, isStandardCard } from "./cards.js";
 import type { Card, PlayedCard, PlayerId, Suit } from "./types.js";
 
 export type TrickCardCategory = "trump" | "lead" | "other";
@@ -19,36 +20,61 @@ const categoryPriorities: Record<TrickCardCategory, number> = {
   lead: 1,
   trump: 2
 };
+const jokerRankPriority = 1;
 
-export function getLeadSuit(currentTrick: readonly PlayedCard[]): Suit | undefined {
-  return currentTrick[0]?.card.suit;
+export function getLeadSuit(
+  currentTrick: readonly PlayedCard[],
+  context: TrickContext
+): Suit | undefined {
+  const leadCard = currentTrick[0]?.card;
+
+  if (leadCard === undefined) {
+    return undefined;
+  }
+
+  if (isStandardCard(leadCard)) {
+    return leadCard.suit;
+  }
+
+  if (context.trumpSuit === null) {
+    throw new GameRuleError(
+      "TRUMP_NOT_SET",
+      "Trump suit must be set when joker leads a trick."
+    );
+  }
+
+  return context.trumpSuit;
 }
 
 export function getPlayableCards(
   hand: readonly Card[],
-  currentTrick: readonly PlayedCard[]
+  currentTrick: readonly PlayedCard[],
+  context: TrickContext
 ): readonly Card[] {
-  const leadSuit = getLeadSuit(currentTrick);
+  const leadSuit = getLeadSuit(currentTrick, context);
 
   if (leadSuit === undefined) {
     return hand;
   }
 
-  const followCards = hand.filter((card) => card.suit === leadSuit);
-  return followCards.length > 0 ? followCards : hand;
+  const hasFollowCards = hand.some((card) => isStandardCard(card) && card.suit === leadSuit);
+  return hasFollowCards
+    ? hand.filter((card) => isJokerCard(card) || (isStandardCard(card) && card.suit === leadSuit))
+    : hand;
 }
 
 export function getTrickCardStrength(
   card: Card,
   leadSuit: Suit,
-  context: TrickContext
+  context: TrickContext,
+  options: { isLeadCard?: boolean } = {}
 ): TrickCardStrength {
-  const category = getTrickCardCategory(card, leadSuit, context);
+  const category = getTrickCardCategory(card, leadSuit, context, options);
 
   return {
     category,
     categoryPriority: categoryPriorities[category],
-    rankPriority: getRankValue(card.rank)
+    rankPriority: isJokerCard(card) ? jokerRankPriority : getRankValue(card.rank)
   };
 }
 
@@ -56,14 +82,23 @@ export function determineTrickWinner(
   trick: readonly PlayedCard[],
   context: TrickContext
 ): PlayerId {
-  const leadSuit = getLeadSuit(trick);
+  const leadSuit = getLeadSuit(trick, context);
 
   if (leadSuit === undefined) {
     throw new GameRuleError("TRICK_NOT_COMPLETE", "Cannot determine a winner for an empty trick.");
   }
 
-  const winningCard = trick.reduce((winner, candidate) =>
-    comparePlayedCards(candidate, winner, leadSuit, context) > 0 ? candidate : winner
+  const winningCard = trick.reduce((winner, candidate, candidateIndex) =>
+    comparePlayedCards(
+      candidate,
+      winner,
+      leadSuit,
+      context,
+      candidateIndex,
+      trick.indexOf(winner)
+    ) > 0
+      ? candidate
+      : winner
   );
 
   return winningCard.playerId;
@@ -72,8 +107,13 @@ export function determineTrickWinner(
 function getTrickCardCategory(
   card: Card,
   leadSuit: Suit,
-  context: TrickContext
+  context: TrickContext,
+  options: { isLeadCard?: boolean }
 ): TrickCardCategory {
+  if (isJokerCard(card)) {
+    return options.isLeadCard === true ? "trump" : "lead";
+  }
+
   if (context.trumpSuit !== null && card.suit === context.trumpSuit) {
     return "trump";
   }
@@ -89,10 +129,16 @@ function comparePlayedCards(
   left: PlayedCard,
   right: PlayedCard,
   leadSuit: Suit,
-  context: TrickContext
+  context: TrickContext,
+  leftIndex: number,
+  rightIndex: number
 ): number {
-  const leftStrength = getTrickCardStrength(left.card, leadSuit, context);
-  const rightStrength = getTrickCardStrength(right.card, leadSuit, context);
+  const leftStrength = getTrickCardStrength(left.card, leadSuit, context, {
+    isLeadCard: leftIndex === 0
+  });
+  const rightStrength = getTrickCardStrength(right.card, leadSuit, context, {
+    isLeadCard: rightIndex === 0
+  });
 
   if (leftStrength.categoryPriority !== rightStrength.categoryPriority) {
     return leftStrength.categoryPriority - rightStrength.categoryPriority;

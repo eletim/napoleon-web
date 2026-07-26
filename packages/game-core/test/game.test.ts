@@ -13,9 +13,13 @@ import {
   getPlayableCards,
   getRankValue,
   getTrickCardStrength,
+  isJokerCard,
+  isStandardCard,
   type Bid,
   type Card,
-  type GameState
+  type GameState,
+  type Rank,
+  type Suit
 } from "../src/index.js";
 
 const noShuffle = (): number => 0;
@@ -26,11 +30,19 @@ const defaultContract = {
   targetPointCards: 13
 };
 
-function card(suit: Card["suit"], rank: Card["rank"]): Card {
+function card(suit: Suit, rank: Rank): Card {
   return {
+    type: "standard",
     id: `${suit}-${rank}`,
     suit,
     rank
+  };
+}
+
+function joker(): Card {
+  return {
+    type: "joker",
+    id: "joker"
   };
 }
 
@@ -77,8 +89,25 @@ describe("game-core", () => {
     const deck = createDeck();
     const ids = new Set(deck.map((card) => card.id));
 
-    expect(deck).toHaveLength(52);
-    expect(ids.size).toBe(52);
+    expect(deck).toHaveLength(53);
+    expect(ids.size).toBe(53);
+    expect(deck.filter(isStandardCard)).toHaveLength(52);
+    expect(deck.filter(isJokerCard)).toHaveLength(1);
+    expect(deck.at(-1)).toEqual({ type: "joker", id: "joker" });
+  });
+
+  it("represents standard cards and the joker with discriminated card types", () => {
+    const standard = card("spades", "A");
+    const jokerCard = joker();
+
+    expect(standard.type).toBe("standard");
+    expect(isStandardCard(standard)).toBe(true);
+    expect(isJokerCard(standard)).toBe(false);
+    expect(jokerCard.type).toBe("joker");
+    expect(isJokerCard(jokerCard)).toBe(true);
+    expect(isStandardCard(jokerCard)).toBe(false);
+    expect(hasOwn(jokerCard, "suit")).toBe(false);
+    expect(hasOwn(jokerCard, "rank")).toBe(false);
   });
 
   it("creates 5 players after initialization", () => {
@@ -86,7 +115,13 @@ describe("game-core", () => {
 
     expect(state.players).toHaveLength(5);
     expect(state.players.every((player) => player.hand.length === 10)).toBe(true);
-    expect(state.unusedCards).toHaveLength(2);
+    const allCards = [...state.players.flatMap((player) => player.hand), ...state.unusedCards];
+    const allCardIds = new Set(allCards.map((card) => card.id));
+
+    expect(state.unusedCards).toHaveLength(3);
+    expect(allCards).toHaveLength(53);
+    expect(allCardIds.size).toBe(53);
+    expect(allCards.filter(isJokerCard)).toHaveLength(1);
     expect(state.phase).toBe("bidding");
     expect(state.trumpSuit).toBeNull();
     expect(state.contract).toBeNull();
@@ -112,7 +147,7 @@ describe("game-core", () => {
   });
 
   it("orders bids by target count and then bidding suit priority", () => {
-    const bid = (suit: Card["suit"], targetPointCards: number): Bid => ({
+    const bid = (suit: Suit, targetPointCards: number): Bid => ({
       playerId: "player-0",
       suit,
       targetPointCards
@@ -463,7 +498,7 @@ describe("game-core", () => {
   });
 
   it("returns undefined lead suit for an empty trick", () => {
-    expect(getLeadSuit([])).toBeUndefined();
+    expect(getLeadSuit([], { trumpSuit: "spades" })).toBeUndefined();
   });
 
   it("uses the first played card as the lead suit", () => {
@@ -471,31 +506,50 @@ describe("game-core", () => {
       getLeadSuit([
         { playerId: "player-0", card: card("hearts", "7") },
         { playerId: "player-1", card: card("spades", "A") }
-      ])
+      ], { trumpSuit: "spades" })
     ).toBe("hearts");
   });
 
-  it("allows every card when leading a trick", () => {
-    const hand = [card("hearts", "7"), card("spades", "A")];
+  it("uses trump as the lead suit when joker leads", () => {
+    const trick = [{ playerId: "player-0", card: joker() }];
 
-    expect(getPlayableCards(hand, [])).toEqual(hand);
+    expect(getLeadSuit(trick, { trumpSuit: "spades" })).toBe("spades");
+    expect(getLeadSuit(trick, { trumpSuit: "hearts" })).toBe("hearts");
+    expectRuleError(() => getLeadSuit(trick, { trumpSuit: null }), "TRUMP_NOT_SET");
+  });
+
+  it("allows every card when leading a trick", () => {
+    const hand = [card("hearts", "7"), card("spades", "A"), joker()];
+
+    expect(getPlayableCards(hand, [], { trumpSuit: "spades" })).toEqual(hand);
   });
 
   it("requires follow suit when the player has the lead suit", () => {
-    const hand = [card("hearts", "7"), card("spades", "A"), card("hearts", "K")];
+    const hand = [card("hearts", "7"), card("spades", "A"), joker(), card("hearts", "K")];
     const trick = [{ playerId: "player-0", card: card("hearts", "2") }];
 
-    expect(getPlayableCards(hand, trick).map((candidate) => candidate.id)).toEqual([
+    expect(getPlayableCards(hand, trick, { trumpSuit: "spades" }).map((candidate) => candidate.id)).toEqual([
       "hearts-7",
+      "joker",
       "hearts-K"
     ]);
   });
 
   it("allows every card when the player cannot follow suit", () => {
-    const hand = [card("clubs", "7"), card("spades", "A")];
+    const hand = [card("clubs", "7"), card("spades", "A"), joker()];
     const trick = [{ playerId: "player-0", card: card("hearts", "2") }];
 
-    expect(getPlayableCards(hand, trick)).toEqual(hand);
+    expect(getPlayableCards(hand, trick, { trumpSuit: "spades" })).toEqual(hand);
+  });
+
+  it("uses trump as follow suit when joker leads", () => {
+    const hand = [card("spades", "2"), card("hearts", "A"), joker()];
+    const trick = [{ playerId: "player-0", card: joker() }];
+
+    expect(getPlayableCards(hand, trick, { trumpSuit: "spades" }).map((candidate) => candidate.id)).toEqual([
+      "spades-2",
+      "joker"
+    ]);
   });
 
   it("rejects directly playing off suit when the player can follow suit", () => {
@@ -521,6 +575,30 @@ describe("game-core", () => {
         cardId: "spades-A"
       })
     ).toThrow("follow the lead suit");
+  });
+
+  it("allows directly playing joker even when the player can follow suit", () => {
+    const state = createStateWithHands({
+      hands: [
+        [card("hearts", "2")],
+        [card("hearts", "K"), card("spades", "A"), joker()],
+        [card("clubs", "3")],
+        [card("diamonds", "4")],
+        [card("clubs", "5")]
+      ]
+    });
+    const led = applyAction(state, {
+      type: "play-card",
+      playerId: "player-0",
+      cardId: "hearts-2"
+    });
+    const next = applyAction(led, {
+      type: "play-card",
+      playerId: "player-1",
+      cardId: "joker"
+    });
+
+    expect(next.currentTrick[1]).toEqual({ playerId: "player-1", card: joker() });
   });
 
   it("allows playing off suit when the player cannot follow suit", () => {
@@ -584,7 +662,7 @@ describe("game-core", () => {
         [card("hearts", "3"), card("diamonds", "4")],
         [card("clubs", "Q"), card("spades", "5")]
       ],
-      trumpSuit: null
+      trumpSuit: "diamonds"
     });
     const completed = [
       { playerId: "player-0", cardId: "hearts-7" },
@@ -671,6 +749,102 @@ describe("game-core", () => {
     expect(winnerId).toBe("player-2");
   });
 
+  it("lets a leading joker win when no trump is played", () => {
+    expect(
+      determineTrickWinner(
+        [
+          { playerId: "player-0", card: joker() },
+          { playerId: "player-1", card: card("hearts", "A") },
+          { playerId: "player-2", card: card("clubs", "A") },
+          { playerId: "player-3", card: card("diamonds", "A") },
+          { playerId: "player-4", card: card("hearts", "K") }
+        ],
+        { trumpSuit: "spades" }
+      )
+    ).toBe("player-0");
+    expect(
+      determineTrickWinner(
+        [
+          { playerId: "player-0", card: joker() },
+          { playerId: "player-1", card: card("spades", "A") },
+          { playerId: "player-2", card: card("clubs", "A") },
+          { playerId: "player-3", card: card("diamonds", "A") },
+          { playerId: "player-4", card: card("spades", "K") }
+        ],
+        { trumpSuit: "hearts" }
+      )
+    ).toBe("player-0");
+  });
+
+  it("lets the weakest standard trump beat a leading joker", () => {
+    expect(
+      determineTrickWinner(
+        [
+          { playerId: "player-0", card: joker() },
+          { playerId: "player-1", card: card("spades", "2") },
+          { playerId: "player-2", card: card("hearts", "A") },
+          { playerId: "player-3", card: card("clubs", "A") },
+          { playerId: "player-4", card: card("diamonds", "A") }
+        ],
+        { trumpSuit: "spades" }
+      )
+    ).toBe("player-1");
+    expect(
+      determineTrickWinner(
+        [
+          { playerId: "player-0", card: joker() },
+          { playerId: "player-1", card: card("hearts", "2") },
+          { playerId: "player-2", card: card("spades", "A") },
+          { playerId: "player-3", card: card("clubs", "A") },
+          { playerId: "player-4", card: card("diamonds", "A") }
+        ],
+        { trumpSuit: "hearts" }
+      )
+    ).toBe("player-1");
+  });
+
+  it("treats a later joker as weaker than standard lead-suit cards", () => {
+    expect(
+      determineTrickWinner(
+        [
+          { playerId: "player-0", card: card("hearts", "3") },
+          { playerId: "player-1", card: joker() },
+          { playerId: "player-2", card: card("clubs", "A") },
+          { playerId: "player-3", card: card("diamonds", "A") },
+          { playerId: "player-4", card: card("hearts", "2") }
+        ],
+        { trumpSuit: "spades" }
+      )
+    ).toBe("player-0");
+    expect(
+      determineTrickWinner(
+        [
+          { playerId: "player-0", card: card("hearts", "2") },
+          { playerId: "player-1", card: joker() },
+          { playerId: "player-2", card: card("clubs", "A") },
+          { playerId: "player-3", card: card("diamonds", "A") },
+          { playerId: "player-4", card: card("clubs", "K") }
+        ],
+        { trumpSuit: "spades" }
+      )
+    ).toBe("player-0");
+  });
+
+  it("still lets trump beat a later joker and lead-suit cards", () => {
+    const winnerId = determineTrickWinner(
+      [
+        { playerId: "player-0", card: card("hearts", "A") },
+        { playerId: "player-1", card: joker() },
+        { playerId: "player-2", card: card("spades", "2") },
+        { playerId: "player-3", card: card("clubs", "A") },
+        { playerId: "player-4", card: card("diamonds", "A") }
+      ],
+      { trumpSuit: "spades" }
+    );
+
+    expect(winnerId).toBe("player-2");
+  });
+
   it("does not let an off-suit ace win unless it is trump", () => {
     const winnerId = determineTrickWinner(
       [
@@ -705,14 +879,14 @@ describe("game-core", () => {
     const trick = [{ playerId: "player-0", card: card("hearts", "K") }];
 
     expect(
-      getPlayableCards([card("hearts", "3"), card("spades", "A")], trick).map(
-        (candidate) => candidate.id
-      )
+      getPlayableCards([card("hearts", "3"), card("spades", "A")], trick, {
+        trumpSuit: "spades"
+      }).map((candidate) => candidate.id)
     ).toEqual(["hearts-3"]);
     expect(
-      getPlayableCards([card("spades", "A"), card("clubs", "3")], trick).map(
-        (candidate) => candidate.id
-      )
+      getPlayableCards([card("spades", "A"), card("clubs", "3")], trick, {
+        trumpSuit: "spades"
+      }).map((candidate) => candidate.id)
     ).toEqual(["spades-A", "clubs-3"]);
   });
 
@@ -970,4 +1144,8 @@ function createStateWithHands(options: {
     isGameOver: options.isGameOver ?? false,
     unusedCards: []
   };
+}
+
+function hasOwn(value: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
 }

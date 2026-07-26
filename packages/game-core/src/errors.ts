@@ -10,7 +10,8 @@ export type GameRuleErrorCode =
   | "INVALID_ACTION_FOR_PHASE"
   | "INVALID_BID"
   | "BIDDING_NOT_AVAILABLE"
-  | "BID_TOO_LOW";
+  | "BID_TOO_LOW"
+  | "TRUMP_NOT_SET";
 
 export class GameRuleError extends Error {
   readonly code: GameRuleErrorCode;

@@ -6,10 +6,13 @@ import {
   applyAction,
   createInitialGame,
   getLegalActions,
+  isJokerCard,
+  isStandardCard,
   type Bid,
   type Card,
   type GameAction,
   type GameState,
+  type Rank,
   type Suit
 } from "@napoleon/game-core";
 import type {
@@ -155,6 +158,53 @@ describe("server API", () => {
     expect(body.state.legalActions.some((action) => action.type === "pass")).toBe(true);
     expect(body.state.legalActions.some((action) => action.type === "bid")).toBe(true);
     expect(body.state.legalActions.some((action) => hasOwn(action, "playerId"))).toBe(false);
+    expect(hasOwn(body.state, "unusedCards")).toBe(false);
+
+    const record = games.get(body.gameId);
+    expect(record).toBeDefined();
+    if (record !== undefined) {
+      const allCards = [
+        ...record.state.players.flatMap((player) => player.hand),
+        ...record.state.unusedCards
+      ];
+      expect(allCards).toHaveLength(53);
+      expect(record.state.unusedCards).toHaveLength(3);
+      expect(allCards.filter(isStandardCard)).toHaveLength(52);
+      expect(allCards.filter(isJokerCard)).toHaveLength(1);
+    }
+  });
+
+  it("returns joker cards as public discriminated DTOs without suit or rank", async () => {
+    games.set("joker-dto", {
+      state: createStateWithHands([
+        [joker(), card("hearts", "3")],
+        [card("spades", "A")],
+        [card("clubs", "A")],
+        [card("diamonds", "A")],
+        [card("hearts", "A")]
+      ]),
+      humanPlayerId: "player-0",
+      agents: createAgents(["player-1", "player-2", "player-3", "player-4"])
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/games/joker-dto"
+    });
+    const body = response.json<GetGameResponse>();
+    const publicJoker = body.state.self.hand.find((card) => card.type === "joker");
+
+    expect(response.statusCode).toBe(200);
+    expect(body.state.self.hand.every((card) => card.type === "standard" || card.type === "joker")).toBe(
+      true
+    );
+    expect(publicJoker).toEqual({ type: "joker", id: "joker" });
+    expect(publicJoker).toBeDefined();
+    if (publicJoker !== undefined) {
+      expect(hasOwn(publicJoker, "suit")).toBe(false);
+      expect(hasOwn(publicJoker, "rank")).toBe(false);
+    }
+    expect(body.state.opponents.some((opponent) => hasOwn(opponent, "hand"))).toBe(false);
   });
 
   it("gets an existing game and returns 404 for a missing game", async () => {
@@ -214,6 +264,85 @@ describe("server API", () => {
     expect(body.state.trumpSuit).toBe("spades");
     expect(body.state.self.handCount).toBe(1);
     expect(body.state.opponents.some((opponent) => hasOwn(opponent, "hand"))).toBe(false);
+  });
+
+  it("allows the human to play joker while holding the lead suit and continues AI play", async () => {
+    games.set("joker-follow", {
+      state: {
+        ...createStateWithHands([
+          [card("hearts", "3"), card("spades", "A"), joker()],
+          [card("hearts", "K")],
+          [card("clubs", "A")],
+          [card("diamonds", "A")],
+          [card("clubs", "Q")]
+        ]),
+        currentPlayerId: "player-0",
+        currentTrick: [{ playerId: "player-4", card: card("hearts", "J") }]
+      },
+      humanPlayerId: "player-0",
+      agents: createAgents(["player-1", "player-2", "player-3", "player-4"])
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games/joker-follow/actions",
+      payload: {
+        action: {
+          type: "play-card",
+          cardId: "joker"
+        }
+      }
+    });
+    const body = response.json<SendActionResponse>();
+    const playedJoker = body.state.currentTrick.find((played) => played.card.type === "joker");
+
+    expect(response.statusCode).toBe(200);
+    expect(body.state.currentTrick).toHaveLength(5);
+    expect(playedJoker).toMatchObject({
+      playerId: "player-0",
+      card: {
+        type: "joker",
+        id: "joker"
+      }
+    });
+    expect(body.state.opponents.some((opponent) => hasOwn(opponent, "hand"))).toBe(false);
+  });
+
+  it("uses trump follow and trump winner when joker leads", async () => {
+    games.set("joker-lead", {
+      state: createStateWithHands([
+        [joker()],
+        [card("spades", "2")],
+        [card("hearts", "A")],
+        [card("clubs", "A")],
+        [card("diamonds", "A")]
+      ]),
+      humanPlayerId: "player-0",
+      agents: createAgents(["player-1", "player-2", "player-3", "player-4"])
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games/joker-lead/actions",
+      payload: {
+        action: {
+          type: "play-card",
+          cardId: "joker"
+        }
+      }
+    });
+    const body = response.json<SendActionResponse>();
+
+    expect(response.statusCode).toBe(200);
+    expect(body.state.currentTrick.map((played) => played.card)).toEqual([
+      { type: "joker", id: "joker" },
+      { type: "standard", id: "spades-2", suit: "spades", rank: "2" },
+      { type: "standard", id: "hearts-A", suit: "hearts", rank: "A" },
+      { type: "standard", id: "clubs-A", suit: "clubs", rank: "A" },
+      { type: "standard", id: "diamonds-A", suit: "diamonds", rank: "A" }
+    ]);
+    expect(body.state.isTrickComplete).toBe(true);
+    expect(body.state.currentPlayerId).toBe("player-1");
   });
 
   it("passes bidding public view fields to AI agents", async () => {
@@ -722,6 +851,45 @@ describe("server API", () => {
     }
   });
 
+  it("does not persist partial state when AI plays joker before a later AI failure", async () => {
+    const state = createStateWithHands([
+      [card("hearts", "A"), card("clubs", "6")],
+      [joker()],
+      [card("hearts", "K")],
+      [card("hearts", "3")],
+      [card("clubs", "Q")]
+    ]);
+    games.set("ai-joker-failure", {
+      state,
+      humanPlayerId: "player-0",
+      agents: new Map([
+        ["player-1", new PassAgent()],
+        ["player-2", new ThrowingAgent()],
+        ...createAgents(["player-3", "player-4"])
+      ])
+    });
+    const snapshot = createStateSnapshot(state);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games/ai-joker-failure/actions",
+      payload: {
+        action: {
+          type: "play-card",
+          cardId: "hearts-A"
+        }
+      }
+    });
+    const storedAfter = games.get("ai-joker-failure");
+
+    expect(response.statusCode).toBeGreaterThanOrEqual(500);
+    expect(storedAfter).toBeDefined();
+    if (storedAfter !== undefined) {
+      expect(createStateSnapshot(storedAfter.state)).toEqual(snapshot);
+      expect(storedAfter.state.currentTrick.some((played) => isJokerCard(played.card))).toBe(false);
+    }
+  });
+
   it("does not persist partial state when AI advancement fails after next-trick", async () => {
     const state = createCompletedTrickWonByAi();
     games.set("ai-lead-failure", {
@@ -843,11 +1011,19 @@ function hasOwn(value: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
 }
 
-function card(suit: Card["suit"], rank: Card["rank"]): Card {
+function card(suit: Suit, rank: Rank): Card {
   return {
+    type: "standard",
     id: `${suit}-${rank}`,
     suit,
     rank
+  };
+}
+
+function joker(): Card {
+  return {
+    type: "joker",
+    id: "joker"
   };
 }
 
