@@ -149,7 +149,9 @@ button {
 }
 
 .exchange-panel,
-.adjutant-panel {
+.adjutant-panel,
+.buried-panel,
+.result-panel {
   align-items: center;
   background: #f8fafc;
   border-radius: 8px;
@@ -163,7 +165,9 @@ button {
 }
 
 .exchange-panel h2,
-.adjutant-panel h2 {
+.adjutant-panel h2,
+.buried-panel h2,
+.result-panel h2 {
   font-size: 1rem;
   margin: 0 0 4px;
 }
@@ -197,6 +201,45 @@ button {
   min-height: 38px;
   min-width: 86px;
   padding: 0 10px;
+}
+
+.buried-panel,
+.result-panel {
+  align-items: stretch;
+  display: grid;
+}
+
+.buried-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.inline-cards {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mini-card {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 5px 7px;
+}
+
+.result-grid {
+  display: grid;
+  gap: 8px 16px;
+  grid-template-columns: max-content minmax(0, 1fr);
+}
+
+.result-grid span {
+  color: #64748b;
 }
 
 .bidding-summary,

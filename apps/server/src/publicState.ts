@@ -7,9 +7,11 @@ import {
   type Card,
   type Contract,
   type GameAction,
+  type GameResult,
   type GameState,
   type PlayedCard,
-  type PlayerId
+  type PlayerId,
+  type StandardCard
 } from "@napoleon/game-core";
 import type {
   PublicCard,
@@ -20,6 +22,7 @@ import type {
   PublicAdjutantChoiceState,
   PublicExchangeState,
   PublicGameState,
+  PublicGameResult,
   PublicLegalAction,
   PublicOpponentPlayer,
   PublicPlayedCard,
@@ -60,6 +63,14 @@ export function toPublicGameState(state: GameState, playerId: PlayerId): PublicG
             calledCardId: view.adjutant.calledCardId,
             revealedPlayerId: view.adjutant.revealedPlayerId
           },
+    buriedCards:
+      view.buriedCards === null
+        ? null
+        : {
+            revealedPointCards: view.buriedCards.revealedPointCards.map(toPublicStandardCard),
+            hiddenCardCount: view.buriedCards.hiddenCardCount
+          },
+    result: view.result === null ? null : toPublicGameResult(view.result),
     bidding: view.bidding === null ? null : toPublicBiddingState(view.bidding),
     exchange: toPublicExchangeState(view),
     adjutantChoice: toPublicAdjutantChoiceState(view),
@@ -107,11 +118,27 @@ function toPublicCard(card: Card): PublicCard {
     };
   }
 
+  return toPublicStandardCard(card);
+}
+
+function toPublicStandardCard(card: StandardCard): Extract<PublicCard, { type: "standard" }> {
   return {
     type: "standard",
     id: card.id,
     suit: card.suit,
     rank: card.rank
+  };
+}
+
+function toPublicGameResult(result: GameResult): PublicGameResult {
+  return {
+    winner: result.winner,
+    napoleonTeamPointCards: result.napoleonTeamPointCards,
+    alliancePointCards: result.alliancePointCards,
+    buriedPointCards: result.buriedPointCards,
+    targetPointCards: result.targetPointCards,
+    napoleonPlayerId: result.napoleonPlayerId,
+    adjutantPlayerId: result.adjutantPlayerId
   };
 }
 

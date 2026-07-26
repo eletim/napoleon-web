@@ -310,6 +310,55 @@ export function App() {
             </section>
           ) : null}
 
+          {session?.state.buriedCards !== null && session?.state.buriedCards !== undefined ? (
+            <section className="buried-panel" aria-label="埋札公開情報">
+              <h2>埋札</h2>
+              <div className="buried-row">
+                <span>公開得点札:</span>
+                <div className="inline-cards">
+                  {session.state.buriedCards.revealedPointCards.length > 0 ? (
+                    session.state.buriedCards.revealedPointCards.map((card) => (
+                      <span
+                        className={isRedSuit(card.suit) ? "mini-card red-text" : "mini-card black-text"}
+                        key={card.id}
+                      >
+                        {formatStandardCard(card)}
+                      </span>
+                    ))
+                  ) : (
+                    <span>なし</span>
+                  )}
+                </div>
+              </div>
+              <div className="buried-row">
+                <span>非公開札:</span>
+                <strong>{session.state.buriedCards.hiddenCardCount}枚</strong>
+              </div>
+            </section>
+          ) : null}
+
+          {session?.state.result !== null && session?.state.result !== undefined ? (
+            <section className="result-panel" aria-label="ゲーム結果">
+              <h2>ゲーム終了</h2>
+              <div className="result-grid">
+                <span>勝者</span>
+                <strong>{formatWinningTeam(session.state.result.winner)}</strong>
+                <span>契約</span>
+                <strong>{session.state.result.targetPointCards}枚</strong>
+                <span>ナポレオン陣営</span>
+                <strong>{session.state.result.napoleonTeamPointCards}枚</strong>
+                <span>連合軍</span>
+                <strong>{session.state.result.alliancePointCards}枚</strong>
+                <span>うち埋札得点札</span>
+                <strong>{session.state.result.buriedPointCards}枚</strong>
+                <span>ナポレオン</span>
+                <strong>{session.state.result.napoleonPlayerId}</strong>
+                <span>副官</span>
+                <strong>{session.state.result.adjutantPlayerId ?? "なし"}</strong>
+              </div>
+            </section>
+          ) : null}
+
           <div className="trick" aria-label="中央の場">
             {session?.state.currentTrick.length ? (
               session.state.currentTrick.map((played) => (
@@ -380,7 +429,9 @@ export function App() {
 
 function createMessage(state: PublicGameState, playerId: string): string {
   if (state.isGameOver) {
-    return "ゲーム終了です。";
+    return state.result === null
+      ? "ゲーム終了です。"
+      : `ゲーム終了です。勝者: ${formatWinningTeam(state.result.winner)}`;
   }
 
   if (state.phase === "bidding") {
@@ -478,6 +529,14 @@ function formatAdjutant(adjutant: PublicGameState["adjutant"]): string {
   const card = formatCardId(adjutant.calledCardId);
   const owner = adjutant.revealedPlayerId === null ? "未判明" : adjutant.revealedPlayerId;
   return `${card} / ${owner}`;
+}
+
+function formatWinningTeam(winner: NonNullable<PublicGameState["result"]>["winner"]): string {
+  return winner === "napoleon-team" ? "ナポレオン陣営" : "連合軍";
+}
+
+function formatStandardCard(card: Extract<PublicCard, { type: "standard" }>): string {
+  return `${card.rank}${suitSymbols[card.suit]}`;
 }
 
 function formatCardId(cardId: string): string {

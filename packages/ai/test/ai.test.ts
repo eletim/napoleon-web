@@ -4,6 +4,7 @@ import {
   createInitialGame,
   createPlayerView,
   getLegalActions,
+  type Card,
   type GameState
 } from "@napoleon/game-core";
 import { NoLegalActionsError, RandomAgent } from "../src/index.js";
@@ -89,5 +90,44 @@ describe("RandomAgent", () => {
       cardId: expect.stringMatching(/^(spades|hearts|diamonds|clubs)-/)
     });
     expect(action.type === "choose-adjutant" ? action.cardId : "joker").not.toBe("joker");
+  });
+
+  it("prefers adjutant cards by rank before suit", async () => {
+    const exchange = Array.from({ length: 5 }).reduce<GameState>(
+      (current) => applyAction(current, { type: "pass", playerId: current.currentPlayerId }),
+      createInitialGame({ rng: () => 0 })
+    );
+    const choosing = applyAction(exchange, {
+      type: "discard-cards",
+      playerId: exchange.currentPlayerId,
+      cardIds: exchange.players[0].hand.slice(0, 3).map((card) => card.id)
+    });
+    const playerId = choosing.currentPlayerId;
+    const view = createPlayerView(choosing, playerId);
+    const spadeAce: Card = {
+      type: "standard",
+      id: "spades-A",
+      suit: "spades",
+      rank: "A"
+    };
+    const adjustedView = {
+      ...view,
+      players: view.players.map((player) =>
+        player.id === playerId ? { ...player, hand: [spadeAce], handCount: 1 } : player
+      )
+    };
+    const agent = new RandomAgent(() => 0);
+
+    const action = await agent.selectAction({
+      playerId,
+      view: adjustedView,
+      legalActions: []
+    });
+
+    expect(action).toEqual({
+      type: "choose-adjutant",
+      playerId,
+      cardId: "hearts-A"
+    });
   });
 });

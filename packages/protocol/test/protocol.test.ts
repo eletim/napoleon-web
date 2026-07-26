@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { PublicCard, PublicGameAction, PublicGameState } from "../src/index.js";
+import type {
+  PublicBuriedCardsState,
+  PublicCard,
+  PublicGameAction,
+  PublicGameResult,
+  PublicGameState
+} from "../src/index.js";
 
 describe("protocol DTOs", () => {
   it("represents public standard cards and joker cards as a discriminated union", () => {
@@ -85,6 +91,8 @@ describe("protocol DTOs", () => {
         calledCardId: "hearts-A",
         revealedPlayerId: null
       },
+      buriedCards: null,
+      result: null,
       bidding: null,
       exchange: {
         napoleonPlayerId: "player-0",
@@ -107,7 +115,46 @@ describe("protocol DTOs", () => {
       napoleonPlayerId: "player-0",
       requiredDiscardCount: 3
     });
-    expect(Object.prototype.hasOwnProperty.call(state, "buriedCards")).toBe(false);
+    expect(state.buriedCards).toBeNull();
     expect(Object.prototype.hasOwnProperty.call(state.adjutant, "playerId")).toBe(false);
+  });
+
+  it("exposes buried card summary and game result without internal-only fields", () => {
+    const buriedCards: PublicBuriedCardsState = {
+      revealedPointCards: [
+        {
+          type: "standard",
+          id: "spades-A",
+          suit: "spades",
+          rank: "A"
+        }
+      ],
+      hiddenCardCount: 2
+    };
+    const result: PublicGameResult = {
+      winner: "napoleon-team",
+      napoleonTeamPointCards: 15,
+      alliancePointCards: 5,
+      buriedPointCards: 1,
+      targetPointCards: 15,
+      napoleonPlayerId: "player-0",
+      adjutantPlayerId: null
+    };
+
+    expect(buriedCards).toEqual({
+      revealedPointCards: [
+        {
+          type: "standard",
+          id: "spades-A",
+          suit: "spades",
+          rank: "A"
+        }
+      ],
+      hiddenCardCount: 2
+    });
+    expect(Object.keys(buriedCards)).toEqual(["revealedPointCards", "hiddenCardCount"]);
+    expect(Object.prototype.hasOwnProperty.call(buriedCards, "hiddenCards")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(result, "adjutant")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(result, "completedTricks")).toBe(false);
   });
 });

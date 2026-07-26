@@ -1,6 +1,7 @@
 export { createDeck, ranks, shuffleDeck, suits } from "./deck.js";
-export { isJokerCard, isStandardCard, isStandardCardId } from "./cards.js";
+export { isJokerCard, isPointCard, isStandardCard, isStandardCardId } from "./cards.js";
 export { GameRuleError } from "./errors.js";
+export { calculateGameResult } from "./scoring.js";
 export {
   biddingSuitOrder,
   biddingSuitPriority,
@@ -31,6 +32,7 @@ export type {
   AdjutantChoiceRequirement,
   AdjutantState,
   AdjutantView,
+  BuriedCardsView,
   JokerCard,
   Bid,
   BidAction,
@@ -44,6 +46,7 @@ export type {
   ExchangeRequirement,
   GameAction,
   GamePhase,
+  GameResult,
   GameState,
   PassAction,
   PlayedCard,
@@ -54,6 +57,7 @@ export type {
   PublicPlayerState,
   Rank,
   StandardCard,
-  Suit
+  Suit,
+  WinningTeam
 } from "./types.js";
 export type { TrickCardCategory, TrickCardStrength, TrickContext } from "./trick.js";

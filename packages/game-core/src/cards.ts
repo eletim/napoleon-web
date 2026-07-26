@@ -1,4 +1,4 @@
-import type { Card, JokerCard, StandardCard } from "./types.js";
+import type { Card, JokerCard, Rank, StandardCard } from "./types.js";
 import { ranks, suits } from "./deck.js";
 
 export function isStandardCard(card: Card): card is StandardCard {
@@ -7,6 +7,12 @@ export function isStandardCard(card: Card): card is StandardCard {
 
 export function isJokerCard(card: Card): card is JokerCard {
   return card.type === "joker";
+}
+
+const pointRanks = new Set<Rank>(["10", "J", "Q", "K", "A"]);
+
+export function isPointCard(card: Card): card is StandardCard {
+  return isStandardCard(card) && pointRanks.has(card.rank);
 }
 
 const standardCardIds = new Set<string>(

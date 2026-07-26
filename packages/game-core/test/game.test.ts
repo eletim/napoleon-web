@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   advanceToNextTrick,
   applyAction,
+  calculateGameResult,
   compareBids,
   createDeck,
   createInitialGame,
@@ -14,6 +15,7 @@ import {
   getRankValue,
   getTrickCardStrength,
   isJokerCard,
+  isPointCard,
   isStandardCard,
   type Bid,
   type Card,
@@ -111,6 +113,25 @@ describe("game-core", () => {
     expect(hasOwn(jokerCard, "rank")).toBe(false);
   });
 
+  it("identifies point cards as each suit's 10, J, Q, K, and A", () => {
+    const pointRanks: readonly Rank[] = ["10", "J", "Q", "K", "A"];
+    const nonPointRanks: readonly Rank[] = ["2", "3", "4", "5", "6", "7", "8", "9"];
+    const suits: readonly Suit[] = ["spades", "hearts", "diamonds", "clubs"];
+
+    for (const suit of suits) {
+      for (const rank of pointRanks) {
+        expect(isPointCard(card(suit, rank))).toBe(true);
+      }
+
+      for (const rank of nonPointRanks) {
+        expect(isPointCard(card(suit, rank))).toBe(false);
+      }
+    }
+
+    expect(isPointCard(joker())).toBe(false);
+    expect(createDeck().filter(isPointCard)).toHaveLength(20);
+  });
+
   it("creates 5 players after initialization", () => {
     const state = createInitialGame({ rng: noShuffle });
 
@@ -127,6 +148,7 @@ describe("game-core", () => {
     expect(state.trumpSuit).toBeNull();
     expect(state.contract).toBeNull();
     expect(state.adjutant).toBeNull();
+    expect(state.result).toBeNull();
     expect(state.bidding).toMatchObject({
       starterPlayerId: "player-0",
       highestBid: null,
@@ -418,6 +440,48 @@ describe("game-core", () => {
     expect(next.phase).toBe("choosing-adjutant");
     expect(next.players[0].hand.some(isJokerCard)).toBe(false);
     expect(next.buriedCards.some(isJokerCard)).toBe(true);
+  });
+
+  it("exposes only point cards and hidden count for buried cards in player views", () => {
+    const mixed = createStateWithHands({
+      hands: [[card("clubs", "2")], [], [], [], []],
+      phase: "choosing-adjutant",
+      buriedCards: [card("spades", "A"), card("hearts", "10"), card("clubs", "3")]
+    });
+    const jokerOnlyHidden = createStateWithHands({
+      hands: [[card("clubs", "2")], [], [], [], []],
+      buriedCards: [joker(), card("clubs", "3"), card("diamonds", "8")]
+    });
+    const allPointCards = createStateWithHands({
+      hands: [[card("clubs", "2")], [], [], [], []],
+      buriedCards: [card("spades", "A"), card("hearts", "K"), card("diamonds", "10")]
+    });
+    const allHidden = createStateWithHands({
+      hands: [[card("clubs", "2")], [], [], [], []],
+      buriedCards: [card("spades", "2"), card("hearts", "5"), joker()]
+    });
+
+    expect(createPlayerView(mixed, "player-0").buriedCards).toEqual({
+      revealedPointCards: [card("spades", "A"), card("hearts", "10")],
+      hiddenCardCount: 1
+    });
+    expect(createPlayerView(jokerOnlyHidden, "player-0").buriedCards).toEqual({
+      revealedPointCards: [],
+      hiddenCardCount: 3
+    });
+    expect(createPlayerView(allPointCards, "player-1").buriedCards).toEqual({
+      revealedPointCards: [card("spades", "A"), card("hearts", "K"), card("diamonds", "10")],
+      hiddenCardCount: 0
+    });
+    expect(createPlayerView(allHidden, "player-2").buriedCards).toEqual({
+      revealedPointCards: [],
+      hiddenCardCount: 3
+    });
+
+    const publicBuriedCards = createPlayerView(jokerOnlyHidden, "player-0").buriedCards;
+    expect(JSON.stringify(publicBuriedCards)).not.toContain("joker");
+    expect(JSON.stringify(publicBuriedCards)).not.toContain("clubs-3");
+    expect(JSON.stringify(publicBuriedCards)).not.toContain("diamonds-8");
   });
 
   it("lets Napoleon choose a standard adjutant card before play starts", () => {
@@ -1306,6 +1370,123 @@ describe("game-core", () => {
     expect(next.currentPlayerId).toBe("player-1");
   });
 
+  it("calculates point cards by the trick winner's team and adds buried point cards to Napoleon", () => {
+    const state = createStateWithHands({
+      hands: [[], [], [], [], []],
+      phase: "finished",
+      isGameOver: true,
+      completedTricks: [
+        createCompletedTrick(1, "player-0", [
+          card("spades", "A"),
+          card("spades", "K"),
+          card("spades", "Q"),
+          card("spades", "J"),
+          card("spades", "10")
+        ]),
+        createCompletedTrick(2, "player-1", [
+          card("hearts", "A"),
+          card("hearts", "K"),
+          card("hearts", "Q"),
+          card("hearts", "J"),
+          card("clubs", "2")
+        ]),
+        createCompletedTrick(3, "player-2", [
+          card("diamonds", "A"),
+          card("diamonds", "K"),
+          card("diamonds", "Q"),
+          card("diamonds", "J"),
+          card("diamonds", "10")
+        ]),
+        createCompletedTrick(4, "player-3", [
+          card("clubs", "K"),
+          card("clubs", "Q"),
+          card("clubs", "J"),
+          card("clubs", "10"),
+          card("clubs", "3")
+        ]),
+        ...createCompletedTricksFromPointCounts([0, 0, 0, 0, 0, 0], 5)
+      ],
+      buriedCards: [card("clubs", "A"), card("hearts", "10"), joker()],
+      adjutant: {
+        calledCardId: "hearts-A",
+        playerId: "player-1",
+        revealed: false
+      },
+      contract: {
+        napoleonPlayerId: "player-0",
+        trumpSuit: "spades",
+        targetPointCards: 11
+      }
+    });
+
+    expect(calculateGameResult(state)).toEqual({
+      winner: "napoleon-team",
+      napoleonTeamPointCards: 11,
+      alliancePointCards: 9,
+      buriedPointCards: 2,
+      targetPointCards: 11,
+      napoleonPlayerId: "player-0",
+      adjutantPlayerId: "player-1"
+    });
+  });
+
+  it("uses only Napoleon as the Napoleon team when no adjutant exists", () => {
+    const state = createResultStateWithNapoleonPointCards(15, 15, {
+      calledCardId: "spades-A",
+      playerId: null,
+      revealed: false
+    });
+
+    expect(calculateGameResult(state)).toMatchObject({
+      winner: "napoleon-team",
+      napoleonTeamPointCards: 15,
+      alliancePointCards: 5,
+      adjutantPlayerId: null
+    });
+  });
+
+  it("compares Napoleon team point cards against the contract target", () => {
+    expect(createResultStateWithNapoleonPointCards(15, 15).result).toBeNull();
+    expect(calculateGameResult(createResultStateWithNapoleonPointCards(15, 15)).winner).toBe(
+      "napoleon-team"
+    );
+    expect(calculateGameResult(createResultStateWithNapoleonPointCards(14, 15)).winner).toBe(
+      "alliance"
+    );
+  });
+
+  it("rejects result calculation when the result state is inconsistent", () => {
+    const invalid = createResultStateWithNapoleonPointCards(14, 15);
+
+    expectRuleError(
+      () =>
+        calculateGameResult({
+          ...invalid,
+          completedTricks: invalid.completedTricks.slice(0, 9)
+        }),
+      "INVALID_RESULT_STATE"
+    );
+    expectRuleError(
+      () =>
+        calculateGameResult({
+          ...invalid,
+          completedTricks: invalid.completedTricks.map((trick, index) =>
+            index === 0
+              ? {
+                  ...trick,
+                  cards: trick.cards.map((playedCard, cardIndex) =>
+                    cardIndex === 0
+                      ? { ...playedCard, card: card("spades", "2") }
+                      : playedCard
+                  )
+                }
+              : trick
+          )
+        }),
+      "POINT_CARD_COUNT_MISMATCH"
+    );
+  });
+
   it("sets phase to finished when the final trick completes", () => {
     const state = createStateWithHands({
       hands: [
@@ -1314,7 +1495,25 @@ describe("game-core", () => {
         [card("spades", "Q")],
         [card("spades", "J")],
         [card("spades", "10")]
-      ]
+      ],
+      completedTricks: createCompletedTricksFromPointCounts([
+        5,
+        5,
+        5,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]),
+      trickNumber: 10,
+      buriedCards: [card("clubs", "2"), card("clubs", "3"), joker()],
+      adjutant: {
+        calledCardId: "hearts-A",
+        playerId: "player-1",
+        revealed: false
+      }
     });
     const completed = Array.from({ length: 5 }).reduce<GameState>(
       (current) => playCurrentPlayerFirstCard(current),
@@ -1323,6 +1522,13 @@ describe("game-core", () => {
 
     expect(completed.isGameOver).toBe(true);
     expect(completed.phase).toBe("finished");
+    expect(completed.result).toMatchObject({
+      napoleonTeamPointCards: 20,
+      alliancePointCards: 0,
+      buriedPointCards: 0
+    });
+    expect(completed.completedTricks).toHaveLength(10);
+    expect(completed.players.every((player) => player.hand.length === 0)).toBe(true);
     expect(getLegalActions(completed, completed.currentPlayerId)).toEqual([]);
     expectRuleError(
       () => applyAction(completed, { type: "pass", playerId: completed.currentPlayerId }),
@@ -1420,7 +1626,8 @@ describe("game-core", () => {
     expect(opponentView.players[1].hand).toHaveLength(10);
     expect(opponentView.exchangeRequirement).toBeNull();
     expect(opponentView.adjutantChoiceRequirement).toBeNull();
-    expect(hasOwn(opponentView, "buriedCards")).toBe(false);
+    expect(opponentView.buriedCards).toBeNull();
+    expect(opponentView.result).toBeNull();
   });
 
   it("exposes adjutant choice requirement only to Napoleon during adjutant choice", () => {
@@ -1442,6 +1649,8 @@ describe("game-core", () => {
     expect(opponentView.players[0].hand).toBeUndefined();
     expect(opponentView.adjutantChoiceRequirement).toBeNull();
     expect(opponentView.adjutant).toBeNull();
+    expect(opponentView.buriedCards).not.toBeNull();
+    expect(JSON.stringify(opponentView.buriedCards)).not.toContain("joker");
   });
 
   it("clears exchange and adjutant requirements after adjutant choice completes", () => {
@@ -1458,7 +1667,7 @@ describe("game-core", () => {
     expect(view.exchangeRequirement).toBeNull();
     expect(view.adjutantChoiceRequirement).toBeNull();
     expect(view.players[0].handCount).toBe(10);
-    expect(hasOwn(view, "buriedCards")).toBe(false);
+    expect(view.buriedCards).not.toBeNull();
   });
 
   it("exposes null trump suit through createPlayerView", () => {
@@ -1515,6 +1724,7 @@ function createStateWithHands(options: {
   adjutant?: GameState["adjutant"];
   bidding?: GameState["bidding"];
   buriedCards?: GameState["buriedCards"];
+  result?: GameState["result"];
 }): GameState {
   const playerIds = ["player-0", "player-1", "player-2", "player-3", "player-4"];
 
@@ -1539,6 +1749,7 @@ function createStateWithHands(options: {
     adjutant: options.adjutant ?? null,
     bidding: options.bidding ?? null,
     buriedCards: options.buriedCards ?? [],
+    result: options.result ?? null,
     trickNumber: options.trickNumber ?? 1,
     isTrickComplete: options.isTrickComplete ?? false,
     isGameOver: options.isGameOver ?? false,
@@ -1563,6 +1774,118 @@ function chooseAdjutant(state: GameState, cardId = "spades-A"): GameState {
     playerId: state.contract?.napoleonPlayerId ?? state.currentPlayerId,
     cardId
   });
+}
+
+function createResultStateWithNapoleonPointCards(
+  napoleonPointCards: number,
+  targetPointCards: number,
+  adjutant: NonNullable<GameState["adjutant"]> = {
+    calledCardId: "hearts-A",
+    playerId: "player-1",
+    revealed: false
+  }
+): GameState {
+  const completedTricks = createCompletedTricksForTeamPointSplit(napoleonPointCards);
+
+  return createStateWithHands({
+    hands: [[], [], [], [], []],
+    phase: "finished",
+    isGameOver: true,
+    completedTricks,
+    buriedCards: [card("clubs", "2"), card("clubs", "3"), joker()],
+    contract: {
+      napoleonPlayerId: "player-0",
+      trumpSuit: "spades",
+      targetPointCards
+    },
+    adjutant
+  });
+}
+
+function createCompletedTricksForTeamPointSplit(
+  napoleonPointCards: number
+): GameState["completedTricks"] {
+  const trickPointCounts: number[] = [];
+  let remainingNapoleonPoints = napoleonPointCards;
+  let remainingAlliancePoints = 20 - napoleonPointCards;
+
+  while (remainingNapoleonPoints > 0) {
+    const count = Math.min(5, remainingNapoleonPoints);
+    trickPointCounts.push(count);
+    remainingNapoleonPoints -= count;
+  }
+
+  while (remainingAlliancePoints > 0) {
+    const count = Math.min(5, remainingAlliancePoints);
+    trickPointCounts.push(-count);
+    remainingAlliancePoints -= count;
+  }
+
+  while (trickPointCounts.length < 10) {
+    trickPointCounts.push(0);
+  }
+
+  return trickPointCounts.map((pointCount, index) =>
+    createCompletedTrickWithPointCount(
+      index + 1,
+      pointCount >= 0 ? "player-0" : "player-2",
+      Math.abs(pointCount),
+      index * 5
+    )
+  );
+}
+
+function createCompletedTricksFromPointCounts(
+  pointCounts: readonly number[],
+  firstTrickNumber = 1
+): GameState["completedTricks"] {
+  return pointCounts.map((pointCount, index) =>
+    createCompletedTrickWithPointCount(
+      firstTrickNumber + index,
+      "player-0",
+      pointCount,
+      index * 5
+    )
+  );
+}
+
+function createCompletedTrickWithPointCount(
+  trickNumber: number,
+  winnerId: string,
+  pointCount: number,
+  cardOffset: number
+): GameState["completedTricks"][number] {
+  const pointCards = createDeck().filter(isPointCard);
+  const nonPointCards = createDeck().filter((candidate) => !isPointCard(candidate));
+  const cards = [
+    ...Array.from(
+      { length: pointCount },
+      (_, index) => pointCards[(cardOffset + index) % pointCards.length]
+    ),
+    ...Array.from(
+      { length: 5 - pointCount },
+      (_, index) => nonPointCards[(cardOffset + index) % nonPointCards.length]
+    )
+  ];
+
+  return createCompletedTrick(trickNumber, winnerId, cards);
+}
+
+function createCompletedTrick(
+  trickNumber: number,
+  winnerId: string,
+  cards: readonly Card[]
+): GameState["completedTricks"][number] {
+  const playerIds = ["player-0", "player-1", "player-2", "player-3", "player-4"];
+
+  return {
+    trickNumber,
+    winnerId,
+    cards: playerIds.map((playerId, index) => ({
+      playerId,
+      card: cards[index]
+    }))
+  };
 }
 
 function countKnownCards(state: GameState): number {

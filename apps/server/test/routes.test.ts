@@ -4,9 +4,11 @@ import type { Agent } from "@napoleon/ai";
 import {
   advanceToNextTrick,
   applyAction,
+  createDeck,
   createInitialGame,
   getLegalActions,
   isJokerCard,
+  isPointCard,
   isStandardCard,
   type Bid,
   type Card,
@@ -379,7 +381,7 @@ describe("server API", () => {
   it("uses trump follow and trump winner when joker leads", async () => {
     games.set("joker-lead", {
       state: createStateWithHands([
-        [joker()],
+        [joker(), card("clubs", "2")],
         [card("spades", "2")],
         [card("hearts", "A")],
         [card("clubs", "A")],
@@ -501,7 +503,8 @@ describe("server API", () => {
     expect(body.state.adjutantChoice).toBeNull();
     expect(body.state.self.hand).toHaveLength(13);
     expect(body.state.opponents.some((opponent) => hasOwn(opponent, "hand"))).toBe(false);
-    expect(hasOwn(body.state, "buriedCards")).toBe(false);
+    expect(body.state.buriedCards).toBeNull();
+    expect(body.state.result).toBeNull();
   });
 
   it("creates the special spades-12 contract when everyone passes", async () => {
@@ -655,10 +658,126 @@ describe("server API", () => {
     expect(body.state.adjutant).toBeNull();
     expect(body.state.self.hand).toHaveLength(10);
     expect(body.state.legalActions).toEqual([]);
-    expect(hasOwn(body.state, "buriedCards")).toBe(false);
+    expect(body.state.buriedCards).not.toBeNull();
     expect(games.get("human-exchange")?.state.buriedCards.map((card) => card.id)).toEqual(
       discardIds
     );
+  });
+
+  it("reveals only point cards from buried cards after human exchange", async () => {
+    const state = {
+      ...createAllPassExchangeState(),
+      players: [
+        {
+          id: "player-0",
+          hand: [
+            card("spades", "A"),
+            card("hearts", "10"),
+            card("clubs", "3"),
+            card("spades", "2"),
+            card("spades", "3"),
+            card("spades", "4"),
+            card("spades", "5"),
+            card("spades", "6"),
+            card("spades", "7"),
+            card("spades", "8"),
+            card("hearts", "2"),
+            card("hearts", "3"),
+            card("hearts", "4")
+          ]
+        },
+        { id: "player-1", hand: [card("clubs", "A")] },
+        { id: "player-2", hand: [card("diamonds", "A")] },
+        { id: "player-3", hand: [card("clubs", "K")] },
+        { id: "player-4", hand: [card("diamonds", "K")] }
+      ]
+    };
+    games.set("buried-summary", {
+      state,
+      humanPlayerId: "player-0",
+      agents: createAgents(["player-1", "player-2", "player-3", "player-4"])
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games/buried-summary/actions",
+      payload: {
+        action: {
+          type: "discard-cards",
+          cardIds: ["spades-A", "hearts-10", "clubs-3"]
+        }
+      }
+    });
+    const body = response.json<SendActionResponse>();
+    const serializedBuriedCards = JSON.stringify(body.state.buriedCards);
+
+    expect(response.statusCode).toBe(200);
+    expect(body.state.buriedCards).toEqual({
+      revealedPointCards: [
+        { type: "standard", id: "spades-A", suit: "spades", rank: "A" },
+        { type: "standard", id: "hearts-10", suit: "hearts", rank: "10" }
+      ],
+      hiddenCardCount: 1
+    });
+    expect(serializedBuriedCards).not.toContain("clubs-3");
+    expect(hasOwn(body.state, "unusedCards")).toBe(false);
+  });
+
+  it("counts buried joker as a hidden card without exposing the joker id", async () => {
+    const state = {
+      ...createAllPassExchangeState(),
+      players: [
+        {
+          id: "player-0",
+          hand: [
+            joker(),
+            card("clubs", "3"),
+            card("diamonds", "8"),
+            card("spades", "2"),
+            card("spades", "3"),
+            card("spades", "4"),
+            card("spades", "5"),
+            card("spades", "6"),
+            card("spades", "7"),
+            card("spades", "8"),
+            card("hearts", "2"),
+            card("hearts", "3"),
+            card("hearts", "4")
+          ]
+        },
+        { id: "player-1", hand: [card("clubs", "A")] },
+        { id: "player-2", hand: [card("diamonds", "A")] },
+        { id: "player-3", hand: [card("clubs", "K")] },
+        { id: "player-4", hand: [card("diamonds", "K")] }
+      ]
+    };
+    games.set("buried-joker", {
+      state,
+      humanPlayerId: "player-0",
+      agents: createAgents(["player-1", "player-2", "player-3", "player-4"])
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games/buried-joker/actions",
+      payload: {
+        action: {
+          type: "discard-cards",
+          cardIds: ["joker", "clubs-3", "diamonds-8"]
+        }
+      }
+    });
+    const body = response.json<SendActionResponse>();
+    const serializedBuriedCards = JSON.stringify(body.state.buriedCards);
+
+    expect(response.statusCode).toBe(200);
+    expect(body.state.buriedCards).toEqual({
+      revealedPointCards: [],
+      hiddenCardCount: 3
+    });
+    expect(serializedBuriedCards).not.toContain("joker");
+    expect(serializedBuriedCards).not.toContain("clubs-3");
+    expect(serializedBuriedCards).not.toContain("diamonds-8");
   });
 
   it("lets a human Napoleon choose an adjutant card and starts play", async () => {
@@ -702,7 +821,7 @@ describe("server API", () => {
     expect(body.state.adjutantChoice).toBeNull();
     expect(body.state.self.hand).toHaveLength(10);
     expect(body.state.legalActions.some((action) => action.type === "play-card")).toBe(true);
-    expect(hasOwn(body.state, "buriedCards")).toBe(false);
+    expect(body.state.buriedCards).not.toBeNull();
     expect(games.get("human-adjutant")?.state.adjutant).toEqual({
       calledCardId: calledCard.id,
       playerId: "player-1",
@@ -1094,6 +1213,41 @@ describe("server API", () => {
     }
   });
 
+  it("does not persist result or final trick when AI fails during the final trick", async () => {
+    const state = createFinalTrickScoringState();
+    games.set("final-result-failure", {
+      state,
+      humanPlayerId: "player-0",
+      agents: new Map([
+        ["player-1", new ThrowingAgent()],
+        ...createAgents(["player-2", "player-3", "player-4"])
+      ])
+    });
+    const snapshot = createStateSnapshot(state);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games/final-result-failure/actions",
+      payload: {
+        action: {
+          type: "play-card",
+          cardId: "spades-A"
+        }
+      }
+    });
+    const storedAfter = games.get("final-result-failure");
+
+    expect(response.statusCode).toBeGreaterThanOrEqual(500);
+    expect(storedAfter).toBeDefined();
+    if (storedAfter !== undefined) {
+      expect(createStateSnapshot(storedAfter.state)).toEqual(snapshot);
+      expect(storedAfter.state.result).toBeNull();
+      expect(storedAfter.state.phase).toBe("playing");
+      expect(storedAfter.state.completedTricks).toHaveLength(9);
+      expect(storedAfter.state.currentTrick).toEqual([]);
+    }
+  });
+
   it("rejects an invalid card id", async () => {
     games.set("invalid-card", {
       state: createStateWithHands([
@@ -1122,6 +1276,49 @@ describe("server API", () => {
     expect(response.statusCode).toBeGreaterThanOrEqual(400);
     expect(response.statusCode).toBeLessThan(500);
     expect(body.error.code).toBe("CARD_NOT_IN_HAND");
+  });
+
+  it("returns scoring result and fully reveals the adjutant after the final trick", async () => {
+    const state = createFinalTrickScoringState();
+    games.set("final-result", {
+      state,
+      humanPlayerId: "player-0",
+      agents: createAgents(["player-1", "player-2", "player-3", "player-4"])
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games/final-result/actions",
+      payload: {
+        action: {
+          type: "play-card",
+          cardId: "spades-A"
+        }
+      }
+    });
+    const body = response.json<SendActionResponse>();
+
+    expect(response.statusCode).toBe(200);
+    expect(body.state.phase).toBe("finished");
+    expect(body.state.isGameOver).toBe(true);
+    expect(body.state.result).toEqual({
+      winner: "napoleon-team",
+      napoleonTeamPointCards: 20,
+      alliancePointCards: 0,
+      buriedPointCards: 0,
+      targetPointCards: 13,
+      napoleonPlayerId: "player-0",
+      adjutantPlayerId: "player-1"
+    });
+    expect(body.state.adjutant).toEqual({
+      calledCardId: "hearts-A",
+      revealedPlayerId: "player-1"
+    });
+    expect(body.state.buriedCards).toEqual({
+      revealedPointCards: [],
+      hiddenCardCount: 3
+    });
+    expect(JSON.stringify(body.state.buriedCards)).not.toContain("joker");
   });
 
   it("rejects follow-suit violations and leaves stored state unchanged", async () => {
@@ -1431,6 +1628,7 @@ function createStateSnapshot(state: GameState) {
     trumpSuit: state.trumpSuit,
     contract: structuredClone(state.contract),
     adjutant: structuredClone(state.adjutant),
+    result: structuredClone(state.result),
     bidding: structuredClone(state.bidding),
     buriedCards: structuredClone(state.buriedCards),
     unusedCards: structuredClone(state.unusedCards),
@@ -1487,10 +1685,68 @@ function createStateWithHands(
     adjutant: null,
     bidding: null,
     buriedCards: [],
+    result: null,
     trickNumber: 1,
     isTrickComplete: false,
     isGameOver: false,
     unusedCards: []
+  };
+}
+
+function createFinalTrickScoringState(): GameState {
+  return {
+    ...createStateWithHands([
+      [card("spades", "A")],
+      [card("spades", "K")],
+      [card("spades", "Q")],
+      [card("spades", "J")],
+      [card("spades", "10")]
+    ]),
+    completedTricks: createCompletedTricksFromPointCounts([5, 5, 5, 0, 0, 0, 0, 0, 0]),
+    buriedCards: [card("clubs", "2"), card("clubs", "3"), joker()],
+    adjutant: {
+      calledCardId: "hearts-A",
+      playerId: "player-1",
+      revealed: false
+    },
+    trickNumber: 10
+  };
+}
+
+function createCompletedTricksFromPointCounts(
+  pointCounts: readonly number[]
+): GameState["completedTricks"] {
+  return pointCounts.map((pointCount, index) =>
+    createCompletedTrickWithPointCount(index + 1, pointCount, index * 5)
+  );
+}
+
+function createCompletedTrickWithPointCount(
+  trickNumber: number,
+  pointCount: number,
+  cardOffset: number
+): GameState["completedTricks"][number] {
+  const pointCards = createDeck().filter(isPointCard);
+  const nonPointCards = createDeck().filter((candidate) => !isPointCard(candidate));
+  const cards = [
+    ...Array.from(
+      { length: pointCount },
+      (_, index) => pointCards[(cardOffset + index) % pointCards.length]
+    ),
+    ...Array.from(
+      { length: 5 - pointCount },
+      (_, index) => nonPointCards[(cardOffset + index) % nonPointCards.length]
+    )
+  ];
+  const playerIds = ["player-0", "player-1", "player-2", "player-3", "player-4"];
+
+  return {
+    trickNumber,
+    winnerId: "player-0",
+    cards: playerIds.map((playerId, index) => ({
+      playerId,
+      card: cards[index]
+    }))
   };
 }
 

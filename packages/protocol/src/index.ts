@@ -87,6 +87,23 @@ export interface PublicAdjutantChoiceState {
   standardCardsOnly: true;
 }
 
+export interface PublicBuriedCardsState {
+  revealedPointCards: readonly PublicStandardCard[];
+  hiddenCardCount: number;
+}
+
+export type PublicWinningTeam = "napoleon-team" | "alliance";
+
+export interface PublicGameResult {
+  winner: PublicWinningTeam;
+  napoleonTeamPointCards: number;
+  alliancePointCards: number;
+  buriedPointCards: number;
+  targetPointCards: number;
+  napoleonPlayerId: string;
+  adjutantPlayerId: string | null;
+}
+
 export interface PublicSelfPlayer {
   id: string;
   handCount: number;
@@ -132,6 +149,8 @@ export interface PublicGameState {
   trumpSuit: PublicSuit | null;
   contract: PublicContract | null;
   adjutant: PublicAdjutantState | null;
+  buriedCards: PublicBuriedCardsState | null;
+  result: PublicGameResult | null;
   bidding: PublicBiddingState | null;
   exchange: PublicExchangeState | null;
   adjutantChoice: PublicAdjutantChoiceState | null;

@@ -19,7 +19,9 @@ export type GameRuleErrorCode =
   | "INVALID_EXCHANGE_STATE"
   | "INVALID_ADJUTANT_CARD"
   | "ADJUTANT_ALREADY_CHOSEN"
-  | "INVALID_ADJUTANT_STATE";
+  | "INVALID_ADJUTANT_STATE"
+  | "INVALID_RESULT_STATE"
+  | "POINT_CARD_COUNT_MISMATCH";
 
 export class GameRuleError extends Error {
   readonly code: GameRuleErrorCode;

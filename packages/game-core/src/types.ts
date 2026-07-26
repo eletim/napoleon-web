@@ -77,6 +77,23 @@ export interface AdjutantView {
   revealedPlayerId: PlayerId | null;
 }
 
+export type WinningTeam = "napoleon-team" | "alliance";
+
+export interface GameResult {
+  winner: WinningTeam;
+  napoleonTeamPointCards: number;
+  alliancePointCards: number;
+  buriedPointCards: number;
+  targetPointCards: number;
+  napoleonPlayerId: PlayerId;
+  adjutantPlayerId: PlayerId | null;
+}
+
+export interface BuriedCardsView {
+  revealedPointCards: readonly StandardCard[];
+  hiddenCardCount: number;
+}
+
 export type BiddingHistoryEntry =
   | {
       type: "bid";
@@ -109,6 +126,7 @@ export interface GameState {
   adjutant: AdjutantState | null;
   bidding: BiddingState | null;
   buriedCards: readonly Card[];
+  result: GameResult | null;
   trickNumber: number;
   isTrickComplete: boolean;
   isGameOver: boolean;
@@ -173,6 +191,8 @@ export interface PlayerView {
   trumpSuit: Suit | null;
   contract: Contract | null;
   adjutant: AdjutantView | null;
+  buriedCards: BuriedCardsView | null;
+  result: GameResult | null;
   bidding: PublicBiddingView | null;
   exchangeRequirement: ExchangeRequirement | null;
   adjutantChoiceRequirement: AdjutantChoiceRequirement | null;

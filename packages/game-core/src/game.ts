@@ -2,9 +2,11 @@ import { createDeck, shuffleDeck } from "./deck.js";
 import { GameRuleError } from "./errors.js";
 import { determineTrickWinner, getPlayableCards } from "./trick.js";
 import { getLegalBidActions, isBidHigher, isSuit, validateBidRange } from "./bidding.js";
-import { isStandardCardId } from "./cards.js";
+import { isPointCard, isStandardCardId } from "./cards.js";
+import { calculateGameResult } from "./scoring.js";
 import type {
   AdjutantState,
+  BuriedCardsView,
   Bid,
   Card,
   Contract,
@@ -60,6 +62,7 @@ export function createInitialGame(options: CreateInitialGameOptions = {}): GameS
       history: []
     },
     buriedCards: [],
+    result: null,
     trickNumber: 1,
     isTrickComplete: false,
     isGameOver: false,
@@ -152,7 +155,9 @@ export function createPlayerView(state: GameState, playerId: PlayerId): PlayerVi
     phase: state.phase,
     trumpSuit: state.trumpSuit,
     contract: state.contract,
-    adjutant: toAdjutantView(state.adjutant ?? null),
+    adjutant: toAdjutantView(state.adjutant ?? null, state.isGameOver),
+    buriedCards: toBuriedCardsView(state),
+    result: state.result,
     bidding: state.bidding,
     exchangeRequirement:
       state.phase === "exchanging" &&
@@ -238,17 +243,23 @@ function playCard(state: GameState, playerId: PlayerId, cardId: string): GameSta
       ]
     : state.completedTricks;
   const isGameOver = trickComplete && players.every((candidate) => candidate.hand.length === 0);
-
-  return {
+  const adjutantForState = isGameOver ? revealAdjutantAtGameOver(adjutant) : adjutant;
+  const nextStateWithoutResult: GameState = {
     ...state,
     players,
-    adjutant,
+    adjutant: adjutantForState,
     phase: isGameOver ? "finished" : state.phase,
     currentPlayerId: winnerId,
     currentTrick,
     completedTricks,
     isTrickComplete: trickComplete,
-    isGameOver
+    isGameOver,
+    result: null
+  };
+
+  return {
+    ...nextStateWithoutResult,
+    result: isGameOver ? calculateGameResult(nextStateWithoutResult) : state.result
   };
 }
 
@@ -384,7 +395,8 @@ function completeBidding(state: GameState, contract: Contract): GameState {
     bidding: null,
     unusedCards: [],
     buriedCards: [],
-    adjutant: null
+    adjutant: null,
+    result: null
   };
 }
 
@@ -457,6 +469,7 @@ function discardCards(
     ...state,
     players,
     buriedCards: discardedCards,
+    result: null,
     phase: "choosing-adjutant",
     adjutant: null,
     currentPlayerId: playerId,
@@ -563,14 +576,45 @@ function revealAdjutantIfNeeded(
   };
 }
 
-function toAdjutantView(adjutant: AdjutantState | null): PlayerView["adjutant"] {
+function toAdjutantView(
+  adjutant: AdjutantState | null,
+  revealAll: boolean
+): PlayerView["adjutant"] {
   if (adjutant === null) {
     return null;
   }
 
   return {
     calledCardId: adjutant.calledCardId,
-    revealedPlayerId: adjutant.revealed ? adjutant.playerId : null
+    revealedPlayerId: adjutant.revealed || revealAll ? adjutant.playerId : null
+  };
+}
+
+function revealAdjutantAtGameOver(adjutant: AdjutantState | null): AdjutantState | null {
+  if (adjutant === null || adjutant.playerId === null) {
+    return adjutant;
+  }
+
+  return {
+    ...adjutant,
+    revealed: true
+  };
+}
+
+function toBuriedCardsView(state: GameState): BuriedCardsView | null {
+  if (
+    state.phase === "bidding" ||
+    state.phase === "exchanging" ||
+    state.buriedCards.length === 0
+  ) {
+    return null;
+  }
+
+  const revealedPointCards = state.buriedCards.filter(isPointCard);
+
+  return {
+    revealedPointCards,
+    hiddenCardCount: state.buriedCards.length - revealedPointCards.length
   };
 }
 

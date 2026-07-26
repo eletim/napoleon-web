@@ -85,8 +85,8 @@ const adjutantRankPreference: readonly Rank[] = [
   "2"
 ];
 
-const standardAdjutantCardIds = adjutantSuitPreference.flatMap((suit) =>
-  adjutantRankPreference.map((rank) => `${suit}-${rank}`)
+const standardAdjutantCardIds = adjutantRankPreference.flatMap((rank) =>
+  adjutantSuitPreference.map((suit) => `${suit}-${rank}`)
 );
 
 function getRandomCandidates(legalActions: readonly GameAction[]): readonly GameAction[] {
