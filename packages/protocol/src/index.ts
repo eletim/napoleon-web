@@ -1,8 +1,60 @@
-import type { GameAction, PlayerView } from "@napoleon/game-core";
+export type PublicSuit = "spades" | "hearts" | "diamonds" | "clubs";
 
-export interface CreateGameRequest {
-  humanPlayerName?: string;
+export type PublicRank =
+  | "A"
+  | "2"
+  | "3"
+  | "4"
+  | "5"
+  | "6"
+  | "7"
+  | "8"
+  | "9"
+  | "10"
+  | "J"
+  | "Q"
+  | "K";
+
+export interface PublicCard {
+  id: string;
+  suit: PublicSuit;
+  rank: PublicRank;
 }
+
+export interface PublicPlayedCard {
+  playerId: string;
+  card: PublicCard;
+}
+
+export interface PublicSelfPlayer {
+  id: string;
+  handCount: number;
+  hand: readonly PublicCard[];
+}
+
+export interface PublicOpponentPlayer {
+  id: string;
+  handCount: number;
+}
+
+export type PublicLegalAction = {
+  type: "play-card";
+  cardId: string;
+};
+
+export interface PublicGameState {
+  self: PublicSelfPlayer;
+  opponents: readonly PublicOpponentPlayer[];
+  currentPlayerId: string;
+  currentTrick: readonly PublicPlayedCard[];
+  completedTrickCount: number;
+  trickNumber: number;
+  isTrickComplete: boolean;
+  isGameOver: boolean;
+  legalActions: readonly PublicLegalAction[];
+}
+
+export type CreateGameRequest = Record<string, never>;
 
 export interface CreateGameResponse {
   gameId: string;
@@ -10,10 +62,13 @@ export interface CreateGameResponse {
   state: PublicGameState;
 }
 
-export type PublicGameState = PlayerView;
+export interface PlayCardRequest {
+  type: "play-card";
+  cardId: string;
+}
 
 export interface SendActionRequest {
-  action: GameAction;
+  action: PlayCardRequest;
 }
 
 export interface SendActionResponse {

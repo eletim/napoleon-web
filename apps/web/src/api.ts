@@ -2,9 +2,9 @@ import type {
   CreateGameResponse,
   GetGameResponse,
   NextTrickResponse,
+  PlayCardRequest,
   SendActionResponse
 } from "@napoleon/protocol";
-import type { GameAction } from "@napoleon/game-core";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3000";
 
@@ -21,7 +21,7 @@ export async function getGame(gameId: string): Promise<GetGameResponse> {
 
 export async function sendAction(
   gameId: string,
-  action: GameAction
+  action: PlayCardRequest
 ): Promise<SendActionResponse> {
   return request<SendActionResponse>(`/api/games/${gameId}/actions`, {
     method: "POST",

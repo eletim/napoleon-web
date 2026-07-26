@@ -23,7 +23,7 @@ export function createInitialGame(options: CreateInitialGameOptions = {}): GameS
   const playerIds = options.playerIds ?? defaultPlayerIds;
 
   if (playerIds.length !== playerCount) {
-    throw new GameRuleError("PLAYER_NOT_FOUND", "A game must have exactly 5 players.");
+    throw new GameRuleError("INVALID_PLAYER_COUNT", "A game must have exactly 5 players.");
   }
 
   const deck = shuffleDeck(createDeck(), options.rng);
@@ -56,9 +56,7 @@ export function getLegalActions(state: GameState, playerId: PlayerId): readonly 
   }
 
   if (state.isTrickComplete) {
-    return state.currentPlayerId === playerId
-      ? [{ type: "next-trick", playerId }]
-      : [];
+    return [];
   }
 
   if (state.currentPlayerId !== playerId) {
@@ -77,9 +75,24 @@ export function applyAction(state: GameState, action: GameAction): GameState {
   switch (action.type) {
     case "play-card":
       return playCard(state, action.playerId, action.cardId);
-    case "next-trick":
-      return nextTrick(state, action.playerId);
   }
+}
+
+export function advanceToNextTrick(state: GameState): GameState {
+  if (state.isGameOver) {
+    throw new GameRuleError("GAME_OVER", "The game is already over.");
+  }
+
+  if (!state.isTrickComplete) {
+    throw new GameRuleError("TRICK_NOT_COMPLETE", "The current trick is not complete.");
+  }
+
+  return {
+    ...state,
+    currentTrick: [],
+    trickNumber: state.trickNumber + 1,
+    isTrickComplete: false
+  };
 }
 
 export function createPlayerView(state: GameState, playerId: PlayerId): PlayerView {
@@ -151,27 +164,6 @@ function playCard(state: GameState, playerId: PlayerId, cardId: string): GameSta
     completedTricks,
     isTrickComplete: trickComplete,
     isGameOver
-  };
-}
-
-function nextTrick(state: GameState, playerId: PlayerId): GameState {
-  if (state.isGameOver) {
-    throw new GameRuleError("GAME_OVER", "The game is already over.");
-  }
-
-  if (!state.isTrickComplete) {
-    throw new GameRuleError("TRICK_NOT_COMPLETE", "The current trick is not complete.");
-  }
-
-  if (state.currentPlayerId !== playerId) {
-    throw new GameRuleError("NOT_PLAYERS_TURN", "Only the next lead player can advance.");
-  }
-
-  return {
-    ...state,
-    currentTrick: [],
-    trickNumber: state.trickNumber + 1,
-    isTrickComplete: false
   };
 }
 

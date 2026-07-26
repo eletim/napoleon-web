@@ -1,10 +1,10 @@
-import type { Card } from "@napoleon/game-core";
+import type { PublicCard } from "@napoleon/protocol";
 import { isRedSuit, suitSymbols } from "./cardSymbols";
 
 interface CardButtonProps {
-  card: Card;
+  card: PublicCard;
   disabled: boolean;
-  onPlay: (card: Card) => void;
+  onPlay: (card: PublicCard) => void;
 }
 
 export function CardButton({ card, disabled, onPlay }: CardButtonProps) {

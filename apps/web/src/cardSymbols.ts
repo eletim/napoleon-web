@@ -1,12 +1,12 @@
-import type { Suit } from "@napoleon/game-core";
+import type { PublicSuit } from "@napoleon/protocol";
 
-export const suitSymbols: Record<Suit, string> = {
+export const suitSymbols: Record<PublicSuit, string> = {
   spades: "♠",
   hearts: "♥",
   diamonds: "♦",
   clubs: "♣"
 };
 
-export function isRedSuit(suit: Suit): boolean {
+export function isRedSuit(suit: PublicSuit): boolean {
   return suit === "hearts" || suit === "diamonds";
 }

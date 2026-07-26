@@ -1,27 +1,32 @@
-import type { GameAction } from "@napoleon/game-core";
+import type { PlayCardRequest } from "@napoleon/protocol";
 
-export function isGameAction(value: unknown): value is GameAction {
+export function isPlayCardRequest(value: unknown): value is PlayCardRequest {
   if (!isRecord(value)) {
     return false;
   }
 
-  if (value.type === "play-card") {
-    return typeof value.playerId === "string" && typeof value.cardId === "string";
-  }
-
-  if (value.type === "next-trick") {
-    return typeof value.playerId === "string";
-  }
-
-  return false;
+  const keys = Object.keys(value);
+  return (
+    keys.length === 2 &&
+    keys.includes("type") &&
+    keys.includes("cardId") &&
+    value.type === "play-card" &&
+    typeof value.cardId === "string"
+  );
 }
 
-export function readActionBody(value: unknown): GameAction | undefined {
+export function readActionBody(value: unknown): PlayCardRequest | undefined {
   if (!isRecord(value) || !("action" in value)) {
     return undefined;
   }
 
-  return isGameAction(value.action) ? value.action : undefined;
+  const keys = Object.keys(value);
+
+  if (keys.length !== 1) {
+    return undefined;
+  }
+
+  return isPlayCardRequest(value.action) ? value.action : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

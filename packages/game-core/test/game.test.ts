@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  advanceToNextTrick,
   applyAction,
   createDeck,
   createInitialGame,
   createPlayerView,
+  GameRuleError,
   getLegalActions,
   type GameState
 } from "../src/index.js";
@@ -37,6 +39,18 @@ describe("game-core", () => {
     expect(state.players).toHaveLength(5);
     expect(state.players.every((player) => player.hand.length === 10)).toBe(true);
     expect(state.unusedCards).toHaveLength(2);
+  });
+
+  it("uses a distinct error when initialized with the wrong player count", () => {
+    try {
+      createInitialGame({ playerIds: ["a", "b", "c", "d"] });
+      throw new Error("Expected createInitialGame to fail.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(GameRuleError);
+      if (error instanceof GameRuleError) {
+        expect(error.code).toBe("INVALID_PLAYER_COUNT");
+      }
+    }
   });
 
   it("removes a played card from hand and adds it to the trick", () => {
@@ -98,14 +112,67 @@ describe("game-core", () => {
       (current) => playCurrentPlayerFirstCard(current),
       createInitialGame({ rng: noShuffle })
     );
-    const next = applyAction(completed, {
-      type: "next-trick",
-      playerId: completed.currentPlayerId
-    });
+    const next = advanceToNextTrick(completed);
 
     expect(next.currentTrick).toHaveLength(0);
     expect(next.trickNumber).toBe(2);
     expect(next.isTrickComplete).toBe(false);
+  });
+
+  it("only exposes play-card as a GameAction", () => {
+    const state = createInitialGame({ rng: noShuffle });
+    const actions = getLegalActions(state, state.currentPlayerId);
+
+    expect(actions.length).toBeGreaterThan(0);
+    expect(actions.every((action) => action.type === "play-card")).toBe(true);
+  });
+
+  it("does not expose next-trick as a legal action after a trick completes", () => {
+    const completed = Array.from({ length: 5 }).reduce<GameState>(
+      (current) => playCurrentPlayerFirstCard(current),
+      createInitialGame({ rng: noShuffle })
+    );
+
+    expect(getLegalActions(completed, completed.currentPlayerId)).toEqual([]);
+  });
+
+  it("rejects advancing to the next trick before the trick is complete", () => {
+    const state = createInitialGame({ rng: noShuffle });
+
+    expect(() => advanceToNextTrick(state)).toThrow("not complete");
+  });
+
+  it("keeps the lead player unchanged when advancing to the next trick", () => {
+    const completed = Array.from({ length: 5 }).reduce<GameState>(
+      (current) => playCurrentPlayerFirstCard(current),
+      createInitialGame({ rng: noShuffle })
+    );
+    const next = advanceToNextTrick(completed);
+
+    expect(next.currentPlayerId).toBe(completed.currentPlayerId);
+  });
+
+  it("advances to the next trick even when an AI player is the lead player", () => {
+    const base = Array.from({ length: 5 }).reduce<GameState>(
+      (current) => playCurrentPlayerFirstCard(current),
+      createInitialGame({ rng: noShuffle })
+    );
+    const completedWithAiLead: GameState = {
+      ...base,
+      currentPlayerId: "player-1",
+      completedTricks: [
+        {
+          trickNumber: base.trickNumber,
+          winnerId: "player-1",
+          cards: base.currentTrick
+        }
+      ]
+    };
+
+    const next = advanceToNextTrick(completedWithAiLead);
+
+    expect(next.currentTrick).toEqual([]);
+    expect(next.currentPlayerId).toBe("player-1");
   });
 
   it("does not leak other players' hands in createPlayerView", () => {

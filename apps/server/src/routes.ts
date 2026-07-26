@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { NoLegalActionsError } from "@napoleon/ai";
 import {
+  advanceToNextTrick,
   applyAction,
   createInitialGame,
   createPlayerView,
@@ -14,6 +15,7 @@ import type {
   SendActionResponse
 } from "@napoleon/protocol";
 import { createAgents, createGameId, games, type InternalGameState } from "./store.js";
+import { toPublicGameState } from "./publicState.js";
 import { readActionBody } from "./validation.js";
 
 interface GameParams {
@@ -54,7 +56,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return {
         gameId: request.params.gameId,
         playerId: record.humanPlayerId,
-        state: createPlayerView(record.state, record.humanPlayerId)
+        state: toPublicGameState(record.state, record.humanPlayerId)
       };
     }
   );
@@ -70,16 +72,16 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
       const action = readActionBody(request.body);
 
-      if (action === undefined || action.type !== "play-card") {
+      if (action === undefined) {
         return sendError(reply, 400, "INVALID_ACTION", "A play-card action is required.");
       }
 
-      if (action.playerId !== record.humanPlayerId) {
-        return sendError(reply, 403, "FORBIDDEN_ACTION", "Only the human player can submit actions.");
-      }
-
       try {
-        record.state = applyAction(record.state, action);
+        record.state = applyAction(record.state, {
+          type: "play-card",
+          playerId: record.humanPlayerId,
+          cardId: action.cardId
+        });
         await advanceAiTurns(record);
       } catch (error) {
         return handleActionError(reply, error);
@@ -88,7 +90,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return {
         gameId: request.params.gameId,
         playerId: record.humanPlayerId,
-        state: createPlayerView(record.state, record.humanPlayerId)
+        state: toPublicGameState(record.state, record.humanPlayerId)
       };
     }
   );
@@ -103,10 +105,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       }
 
       try {
-        record.state = applyAction(record.state, {
-          type: "next-trick",
-          playerId: record.humanPlayerId
-        });
+        record.state = advanceToNextTrick(record.state);
       } catch (error) {
         return handleActionError(reply, error);
       }
@@ -114,7 +113,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return {
         gameId: request.params.gameId,
         playerId: record.humanPlayerId,
-        state: createPlayerView(record.state, record.humanPlayerId)
+        state: toPublicGameState(record.state, record.humanPlayerId)
       };
     }
   );
@@ -159,7 +158,7 @@ function createGameResponse(
   return {
     gameId,
     playerId: record.humanPlayerId,
-    state: createPlayerView(record.state, record.humanPlayerId)
+    state: toPublicGameState(record.state, record.humanPlayerId)
   };
 }
 

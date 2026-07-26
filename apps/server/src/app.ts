@@ -2,9 +2,13 @@ import cors from "@fastify/cors";
 import Fastify from "fastify";
 import { registerRoutes } from "./routes.js";
 
-export async function buildApp() {
+export interface BuildAppOptions {
+  logger?: boolean;
+}
+
+export async function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({
-    logger: true
+    logger: options.logger ?? false
   });
 
   await app.register(cors, {

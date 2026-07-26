@@ -1,6 +1,7 @@
 export type GameRuleErrorCode =
-  | "GAME_OVER"
+  | "INVALID_PLAYER_COUNT"
   | "TRICK_COMPLETE"
+  | "GAME_OVER"
   | "PLAYER_NOT_FOUND"
   | "NOT_PLAYERS_TURN"
   | "CARD_NOT_IN_HAND"

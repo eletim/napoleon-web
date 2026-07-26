@@ -50,16 +50,13 @@ export interface GameState {
   unusedCards: readonly Card[];
 }
 
-export type GameAction =
-  | {
-      type: "play-card";
-      playerId: PlayerId;
-      cardId: string;
-    }
-  | {
-      type: "next-trick";
-      playerId: PlayerId;
-    };
+export interface PlayCardAction {
+  type: "play-card";
+  playerId: PlayerId;
+  cardId: string;
+}
+
+export type GameAction = PlayCardAction;
 
 export interface PublicPlayerState {
   id: PlayerId;

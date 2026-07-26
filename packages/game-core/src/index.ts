@@ -1,6 +1,7 @@
 export { createDeck, ranks, shuffleDeck, suits } from "./deck.js";
 export { GameRuleError } from "./errors.js";
 export {
+  advanceToNextTrick,
   applyAction,
   createInitialGame,
   createPlayerView,

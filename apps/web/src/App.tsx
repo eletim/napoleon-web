@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { Card, GameAction, PlayerView } from "@napoleon/game-core";
+import type { PublicCard, PublicGameState, PublicLegalAction } from "@napoleon/protocol";
 import { CardButton } from "./CardButton";
 import { createGame, nextTrick, sendAction } from "./api";
 import { isRedSuit, suitSymbols } from "./cardSymbols";
@@ -8,7 +8,7 @@ import "./styles.css";
 interface Session {
   gameId: string;
   playerId: string;
-  state: PlayerView;
+  state: PublicGameState;
 }
 
 export function App() {
@@ -20,15 +20,15 @@ export function App() {
     const actions = session?.state.legalActions ?? [];
     return new Set(
       actions
-        .filter((action): action is Extract<GameAction, { type: "play-card" }> => {
+        .filter((action): action is PublicLegalAction => {
           return action.type === "play-card";
         })
         .map((action) => action.cardId)
     );
   }, [session]);
 
-  const self = session?.state.players.find((player) => player.id === session.playerId);
-  const otherPlayers = session?.state.players.filter((player) => player.id !== session.playerId) ?? [];
+  const self = session?.state.self;
+  const otherPlayers = session?.state.opponents ?? [];
 
   async function handleCreateGame(): Promise<void> {
     await runRequest(async () => {
@@ -38,7 +38,7 @@ export function App() {
     });
   }
 
-  async function handlePlay(card: Card): Promise<void> {
+  async function handlePlay(card: PublicCard): Promise<void> {
     if (session === undefined) {
       return;
     }
@@ -46,7 +46,6 @@ export function App() {
     await runRequest(async () => {
       const response = await sendAction(session.gameId, {
         type: "play-card",
-        playerId: session.playerId,
         cardId: card.id
       });
       setSession(response);
@@ -163,7 +162,7 @@ export function App() {
   );
 }
 
-function createMessage(state: PlayerView, playerId: string): string {
+function createMessage(state: PublicGameState, playerId: string): string {
   if (state.isGameOver) {
     return "ゲーム終了です。";
   }
