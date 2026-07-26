@@ -1,5 +1,7 @@
 export { createDeck, ranks, shuffleDeck, suits } from "./deck.js";
 export { GameRuleError } from "./errors.js";
+export { getRankValue } from "./ranks.js";
+export { determineTrickWinner, getLeadSuit, getPlayableCards } from "./trick.js";
 export {
   advanceToNextTrick,
   applyAction,

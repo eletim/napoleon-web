@@ -5,6 +5,7 @@ export type GameRuleErrorCode =
   | "PLAYER_NOT_FOUND"
   | "NOT_PLAYERS_TURN"
   | "CARD_NOT_IN_HAND"
+  | "MUST_FOLLOW_SUIT"
   | "TRICK_NOT_COMPLETE";
 
 export class GameRuleError extends Error {

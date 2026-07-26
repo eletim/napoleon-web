@@ -6,6 +6,7 @@ import {
   applyAction,
   createInitialGame,
   getLegalActions,
+  type Card,
   type GameAction,
   type GameState
 } from "@napoleon/game-core";
@@ -13,8 +14,7 @@ import type {
   ApiError,
   CreateGameResponse,
   GetGameResponse,
-  NextTrickResponse,
-  SendActionResponse
+  NextTrickResponse
 } from "@napoleon/protocol";
 import { buildApp } from "../src/app.js";
 import { createAgents, games } from "../src/store.js";
@@ -126,6 +126,36 @@ describe("server API", () => {
     expect(body.error.code).toBe("CARD_NOT_IN_HAND");
   });
 
+  it("rejects follow-suit violations and leaves stored state unchanged", async () => {
+    const state = createFollowSuitViolationState();
+    games.set("follow-suit", {
+      state,
+      humanPlayerId: "player-0",
+      agents: createAgents(["player-1", "player-2", "player-3", "player-4"])
+    });
+    const snapshot = createStateSnapshot(state);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games/follow-suit/actions",
+      payload: {
+        action: {
+          type: "play-card",
+          cardId: "spades-A"
+        }
+      }
+    });
+    const body = response.json<ApiError>();
+    const storedAfter = games.get("follow-suit");
+
+    expect(response.statusCode).toBe(400);
+    expect(body.error.code).toBe("MUST_FOLLOW_SUIT");
+    expect(storedAfter).toBeDefined();
+    if (storedAfter !== undefined) {
+      expect(createStateSnapshot(storedAfter.state)).toEqual(snapshot);
+    }
+  });
+
   it("rejects a request action that includes a client-supplied playerId", async () => {
     const created = await createGame();
     const card = created.state.self.hand[0];
@@ -158,21 +188,26 @@ describe("server API", () => {
   });
 
   it("advances to the next trick after completion", async () => {
-    const completed = await playOneFullTrick();
+    games.set("human-lead", {
+      state: createCompletedTrickWonByHuman(),
+      humanPlayerId: "player-0",
+      agents: createAgents(["player-1", "player-2", "player-3", "player-4"])
+    });
 
     const response = await app.inject({
       method: "POST",
-      url: `/api/games/${completed.gameId}/next-trick`
+      url: "/api/games/human-lead/next-trick"
     });
     const body = response.json<NextTrickResponse>();
 
     expect(response.statusCode).toBe(200);
     expect(body.state.currentTrick).toEqual([]);
+    expect(body.state.currentPlayerId).toBe("player-0");
     expect(body.state.trickNumber).toBe(2);
   });
 
   it("advances to the next trick even when the next lead player is an AI", async () => {
-    const state = createCompletedTrickWithAiLead();
+    const state = createCompletedTrickWonByAi();
     games.set("ai-lead", {
       state,
       humanPlayerId: "player-0",
@@ -238,7 +273,7 @@ describe("server API", () => {
   });
 
   it("does not persist partial state when AI advancement fails after next-trick", async () => {
-    const state = createCompletedTrickWithAiLead();
+    const state = createCompletedTrickWonByAi();
     games.set("ai-lead-failure", {
       state,
       humanPlayerId: "player-0",
@@ -278,36 +313,65 @@ async function createGame(): Promise<CreateGameResponse> {
   return response.json<CreateGameResponse>();
 }
 
-async function playOneFullTrick(): Promise<SendActionResponse> {
-  const created = await createGame();
-  const card = created.state.self.hand[0];
-  const response = await app.inject({
-    method: "POST",
-    url: `/api/games/${created.gameId}/actions`,
-    payload: {
-      action: {
+function createCompletedTrickWonByAi(): GameState {
+  return [
+    { playerId: "player-0", cardId: "hearts-7" },
+    { playerId: "player-1", cardId: "hearts-K" },
+    { playerId: "player-2", cardId: "spades-A" },
+    { playerId: "player-3", cardId: "hearts-3" },
+    { playerId: "player-4", cardId: "clubs-Q" }
+  ].reduce(
+    (state, action) =>
+      applyAction(state, {
         type: "play-card",
-        cardId: card.id
-      }
-    }
-  });
-
-  expect(response.statusCode).toBe(200);
-  return response.json<SendActionResponse>();
+        playerId: action.playerId,
+        cardId: action.cardId
+      }),
+    createStateWithHands([
+      [card("hearts", "7"), card("clubs", "6")],
+      [card("hearts", "K"), card("clubs", "2")],
+      [card("spades", "A"), card("clubs", "3")],
+      [card("hearts", "3"), card("diamonds", "4")],
+      [card("clubs", "Q"), card("spades", "5")]
+    ])
+  );
 }
 
-function createCompletedTrickWithAiLead(): GameState {
-  const initial = createInitialGame({ rng: () => 0 });
-  const completed = Array.from({ length: 5 }).reduce<GameState>((state) => {
-    const action = getLegalActions(state, state.currentPlayerId)[0];
-    return applyAction(state, action);
-  }, initial);
-  const advanced = advanceToNextTrick(completed);
+function createCompletedTrickWonByHuman(): GameState {
+  return [
+    { playerId: "player-0", cardId: "hearts-A" },
+    { playerId: "player-1", cardId: "hearts-K" },
+    { playerId: "player-2", cardId: "spades-A" },
+    { playerId: "player-3", cardId: "hearts-3" },
+    { playerId: "player-4", cardId: "clubs-Q" }
+  ].reduce(
+    (state, action) =>
+      applyAction(state, {
+        type: "play-card",
+        playerId: action.playerId,
+        cardId: action.cardId
+      }),
+    createStateWithHands([
+      [card("hearts", "A"), card("clubs", "6")],
+      [card("hearts", "K"), card("clubs", "2")],
+      [card("spades", "A"), card("clubs", "3")],
+      [card("hearts", "3"), card("diamonds", "4")],
+      [card("clubs", "Q"), card("spades", "5")]
+    ])
+  );
+}
 
+function createFollowSuitViolationState(): GameState {
   return {
-    ...completed,
-    currentPlayerId: "player-1",
-    trickNumber: advanced.trickNumber - 1
+    ...createStateWithHands([
+      [card("hearts", "2"), card("spades", "A")],
+      [card("hearts", "K")],
+      [card("clubs", "3")],
+      [card("diamonds", "4")],
+      [card("clubs", "5")]
+    ]),
+    currentPlayerId: "player-0",
+    currentTrick: [{ playerId: "player-1", card: card("hearts", "J") }]
   };
 }
 
@@ -323,4 +387,38 @@ function createStateSnapshot(state: GameState) {
 
 function hasOwn(value: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function card(suit: Card["suit"], rank: Card["rank"]): Card {
+  return {
+    id: `${suit}-${rank}`,
+    suit,
+    rank
+  };
+}
+
+function createStateWithHands(
+  hands: readonly [
+    readonly Card[],
+    readonly Card[],
+    readonly Card[],
+    readonly Card[],
+    readonly Card[]
+  ]
+): GameState {
+  const playerIds = ["player-0", "player-1", "player-2", "player-3", "player-4"];
+
+  return {
+    players: playerIds.map((id, index) => ({
+      id,
+      hand: hands[index]
+    })),
+    currentPlayerId: "player-0",
+    currentTrick: [],
+    completedTricks: [],
+    trickNumber: 1,
+    isTrickComplete: false,
+    isGameOver: false,
+    unusedCards: []
+  };
 }

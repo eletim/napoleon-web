@@ -1,5 +1,6 @@
 import { createDeck, shuffleDeck } from "./deck.js";
 import { GameRuleError } from "./errors.js";
+import { determineTrickWinner, getPlayableCards } from "./trick.js";
 import type {
   Card,
   CreateInitialGameOptions,
@@ -64,7 +65,7 @@ export function getLegalActions(state: GameState, playerId: PlayerId): readonly 
   }
 
   const player = getPlayer(state, playerId);
-  return player.hand.map((card) => ({
+  return getPlayableCards(player.hand, state.currentTrick).map((card) => ({
     type: "play-card",
     playerId,
     cardId: card.id
@@ -135,6 +136,12 @@ function playCard(state: GameState, playerId: PlayerId, cardId: string): GameSta
     throw new GameRuleError("CARD_NOT_IN_HAND", "The card is not in this player's hand.");
   }
 
+  const playableCards = getPlayableCards(player.hand, state.currentTrick);
+
+  if (!playableCards.some((candidate) => candidate.id === cardId)) {
+    throw new GameRuleError("MUST_FOLLOW_SUIT", "The player must follow the lead suit.");
+  }
+
   const players = state.players.map((candidate) =>
     candidate.id === playerId
       ? { ...candidate, hand: removeCard(candidate.hand, cardId) }
@@ -142,8 +149,10 @@ function playCard(state: GameState, playerId: PlayerId, cardId: string): GameSta
   );
 
   const currentTrick = [...state.currentTrick, { playerId, card }];
-  const trickComplete = currentTrick.length === playerCount;
-  const winnerId = trickComplete ? currentTrick[0].playerId : getNextPlayerId(state, playerId);
+  const trickComplete = currentTrick.length === state.players.length;
+  const winnerId = trickComplete
+    ? determineTrickWinner(currentTrick)
+    : getNextPlayerId(state, playerId);
   const completedTricks = trickComplete
     ? [
         ...state.completedTricks,
