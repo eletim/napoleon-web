@@ -107,6 +107,7 @@ export function createPlayerView(state: GameState, playerId: PlayerId): PlayerVi
       handCount: player.hand.length,
       ...(player.id === playerId ? { hand: player.hand } : {})
     })),
+    trumpSuit: state.trumpSuit,
     currentPlayerId: state.currentPlayerId,
     currentTrick: state.currentTrick,
     completedTrickCount: state.completedTricks.length,

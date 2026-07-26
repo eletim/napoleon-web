@@ -524,9 +524,43 @@ describe("game-core", () => {
     const state = createInitialGame({ rng: noShuffle });
     const view = createPlayerView(state, "player-0");
 
+    expect(view.trumpSuit).toBe("spades");
     expect(view.players[0].hand).toHaveLength(10);
     expect(view.players[1].hand).toBeUndefined();
     expect(view.players[1].handCount).toBe(10);
+  });
+
+  it("exposes null trump suit through createPlayerView", () => {
+    const state = createStateWithHands({
+      hands: [
+        [card("hearts", "2")],
+        [card("clubs", "3")],
+        [card("diamonds", "4")],
+        [card("hearts", "5")],
+        [card("clubs", "6")]
+      ],
+      trumpSuit: null
+    });
+    const view = createPlayerView(state, "player-0");
+
+    expect(view.trumpSuit).toBeNull();
+  });
+
+  it("exposes the same trump suit to every player view without leaking hands", () => {
+    const state = createInitialGame({ rng: noShuffle });
+
+    for (const player of state.players) {
+      const view = createPlayerView(state, player.id);
+
+      expect(view.trumpSuit).toBe(state.trumpSuit);
+      expect(view.players.find((viewPlayer) => viewPlayer.id === player.id)?.hand).toHaveLength(10);
+      expect(
+        view.players
+          .filter((viewPlayer) => viewPlayer.id !== player.id)
+          .every((viewPlayer) => viewPlayer.hand === undefined && viewPlayer.handCount === 10)
+      ).toBe(true);
+      expect(view.legalActions.every((action) => action.playerId === player.id)).toBe(true);
+    }
   });
 });
 

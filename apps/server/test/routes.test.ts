@@ -8,7 +8,8 @@ import {
   getLegalActions,
   type Card,
   type GameAction,
-  type GameState
+  type GameState,
+  type Suit
 } from "@napoleon/game-core";
 import type {
   ApiError,
@@ -25,6 +26,21 @@ let app: FastifyInstance;
 class ThrowingAgent implements Agent {
   async selectAction(): Promise<GameAction> {
     throw new Error("AI failure for test");
+  }
+}
+
+class InspectingAgent implements Agent {
+  observedTrumpSuit: Suit | null | undefined;
+
+  async selectAction(input: Parameters<Agent["selectAction"]>[0]): Promise<GameAction> {
+    this.observedTrumpSuit = input.view.trumpSuit;
+    const action = input.legalActions[0];
+
+    if (action === undefined) {
+      throw new Error("Expected legal action for inspecting agent.");
+    }
+
+    return action;
   }
 }
 
@@ -112,6 +128,35 @@ describe("server API", () => {
     expect(body.state.trumpSuit).toBe("spades");
     expect(body.state.self.handCount).toBe(9);
     expect(body.state.opponents.some((opponent) => hasOwn(opponent, "hand"))).toBe(false);
+  });
+
+  it("passes trump suit in the player view sent to AI agents", async () => {
+    const created = await createGame();
+    const record = games.get(created.gameId);
+
+    if (record === undefined) {
+      throw new Error("Expected created game to be stored.");
+    }
+
+    const inspectingAgent = new InspectingAgent();
+    games.set(created.gameId, {
+      ...record,
+      agents: new Map(record.agents).set("player-1", inspectingAgent)
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/games/${created.gameId}/actions`,
+      payload: {
+        action: {
+          type: "play-card",
+          cardId: created.state.self.hand[0].id
+        }
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(inspectingAgent.observedTrumpSuit).toBe("spades");
   });
 
   it("rejects an invalid card id", async () => {

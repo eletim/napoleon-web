@@ -68,6 +68,7 @@ export interface PublicPlayerState {
 export interface PlayerView {
   selfId: PlayerId;
   players: readonly PublicPlayerState[];
+  trumpSuit: Suit | null;
   currentPlayerId: PlayerId;
   currentTrick: readonly PlayedCard[];
   completedTrickCount: number;
