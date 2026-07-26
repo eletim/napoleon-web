@@ -8,6 +8,8 @@ import {
   GameRuleError,
   getLegalActions
 } from "@napoleon/game-core";
+import type { GameState, PlayerId } from "@napoleon/game-core";
+import type { Agent } from "@napoleon/ai";
 import type {
   CreateGameResponse,
   GetGameResponse,
@@ -23,6 +25,7 @@ interface GameParams {
 }
 
 const humanPlayerId = "player-0";
+const maxAutomaticAiActions = 20;
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/health", async () => ({ ok: true }));
@@ -77,12 +80,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       }
 
       try {
-        record.state = applyAction(record.state, {
+        let nextState = applyAction(record.state, {
           type: "play-card",
           playerId: record.humanPlayerId,
           cardId: action.cardId
         });
-        await advanceAiTurns(record);
+        nextState = await advanceAiTurns(nextState, record.humanPlayerId, record.agents);
+        record.state = nextState;
       } catch (error) {
         return handleActionError(reply, error);
       }
@@ -105,7 +109,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       }
 
       try {
-        record.state = advanceToNextTrick(record.state);
+        let nextState = advanceToNextTrick(record.state);
+        nextState = await advanceAiTurns(nextState, record.humanPlayerId, record.agents);
+        record.state = nextState;
       } catch (error) {
         return handleActionError(reply, error);
       }
@@ -119,32 +125,39 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   );
 }
 
-async function advanceAiTurns(record: InternalGameState): Promise<void> {
+async function advanceAiTurns(
+  initialState: GameState,
+  humanPlayerId: PlayerId,
+  agents: ReadonlyMap<PlayerId, Agent>
+): Promise<GameState> {
+  let state = initialState;
   let guard = 0;
 
   while (
-    !record.state.isGameOver &&
-    !record.state.isTrickComplete &&
-    record.state.currentPlayerId !== record.humanPlayerId
+    !state.isGameOver &&
+    !state.isTrickComplete &&
+    state.currentPlayerId !== humanPlayerId
   ) {
     guard += 1;
 
-    if (guard > 20) {
+    if (guard > maxAutomaticAiActions) {
       throw new Error("AI turn guard exceeded.");
     }
 
-    const playerId = record.state.currentPlayerId;
-    const agent = record.agents.get(playerId);
+    const playerId = state.currentPlayerId;
+    const agent = agents.get(playerId);
 
     if (agent === undefined) {
       throw new Error(`No AI agent registered for ${playerId}.`);
     }
 
-    const legalActions = getLegalActions(record.state, playerId);
-    const view = createPlayerView(record.state, playerId);
+    const legalActions = getLegalActions(state, playerId);
+    const view = createPlayerView(state, playerId);
     const action = await agent.selectAction({ playerId, view, legalActions });
-    record.state = applyAction(record.state, action);
+    state = applyAction(state, action);
   }
+
+  return state;
 }
 
 function createGameResponse(

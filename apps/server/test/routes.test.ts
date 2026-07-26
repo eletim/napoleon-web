@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
+import type { Agent } from "@napoleon/ai";
 import {
   advanceToNextTrick,
   applyAction,
   createInitialGame,
   getLegalActions,
+  type GameAction,
   type GameState
 } from "@napoleon/game-core";
 import type {
@@ -18,6 +20,12 @@ import { buildApp } from "../src/app.js";
 import { createAgents, games } from "../src/store.js";
 
 let app: FastifyInstance;
+
+class ThrowingAgent implements Agent {
+  async selectAction(): Promise<GameAction> {
+    throw new Error("AI failure for test");
+  }
+}
 
 beforeEach(async () => {
   games.clear();
@@ -178,9 +186,84 @@ describe("server API", () => {
     const body = response.json<NextTrickResponse>();
 
     expect(response.statusCode).toBe(200);
-    expect(body.state.currentTrick).toEqual([]);
-    expect(body.state.currentPlayerId).toBe("player-1");
+    expect(body.state.currentPlayerId).toBe("player-0");
+    expect(body.state.currentTrick).toHaveLength(4);
+    expect(body.state.currentTrick.map((played) => played.playerId)).toEqual([
+      "player-1",
+      "player-2",
+      "player-3",
+      "player-4"
+    ]);
+    expect(body.state.isTrickComplete).toBe(false);
+    expect(body.state.legalActions.length).toBeGreaterThan(0);
     expect(body.state.trickNumber).toBe(2);
+  });
+
+  it("does not persist partial state when AI advancement fails after a human action", async () => {
+    const created = await createGame();
+    const record = games.get(created.gameId);
+
+    if (record === undefined) {
+      throw new Error("Expected created game to be stored.");
+    }
+
+    games.set(created.gameId, {
+      ...record,
+      agents: new Map(record.agents).set("player-2", new ThrowingAgent())
+    });
+    const storedBefore = games.get(created.gameId);
+
+    if (storedBefore === undefined) {
+      throw new Error("Expected game to remain stored.");
+    }
+
+    const snapshot = createStateSnapshot(storedBefore.state);
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/games/${created.gameId}/actions`,
+      payload: {
+        action: {
+          type: "play-card",
+          cardId: created.state.self.hand[0].id
+        }
+      }
+    });
+    const storedAfter = games.get(created.gameId);
+
+    expect(response.statusCode).toBeGreaterThanOrEqual(500);
+    expect(storedAfter).toBeDefined();
+    if (storedAfter !== undefined) {
+      expect(createStateSnapshot(storedAfter.state)).toEqual(snapshot);
+    }
+  });
+
+  it("does not persist partial state when AI advancement fails after next-trick", async () => {
+    const state = createCompletedTrickWithAiLead();
+    games.set("ai-lead-failure", {
+      state,
+      humanPlayerId: "player-0",
+      agents: new Map([
+        ["player-1", new ThrowingAgent()],
+        ...createAgents(["player-2", "player-3", "player-4"])
+      ])
+    });
+    const snapshot = createStateSnapshot(state);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games/ai-lead-failure/next-trick"
+    });
+    const storedAfter = games.get("ai-lead-failure");
+
+    expect(response.statusCode).toBeGreaterThanOrEqual(500);
+    expect(storedAfter).toBeDefined();
+    if (storedAfter !== undefined) {
+      expect(createStateSnapshot(storedAfter.state)).toEqual(snapshot);
+      expect(storedAfter.state.currentTrick).toHaveLength(5);
+      expect(storedAfter.state.isTrickComplete).toBe(true);
+      expect(storedAfter.state.trickNumber).toBe(1);
+      expect(storedAfter.state.currentPlayerId).toBe("player-1");
+    }
   });
 });
 
@@ -225,6 +308,16 @@ function createCompletedTrickWithAiLead(): GameState {
     ...completed,
     currentPlayerId: "player-1",
     trickNumber: advanced.trickNumber - 1
+  };
+}
+
+function createStateSnapshot(state: GameState) {
+  return {
+    humanHandCount: state.players[0].hand.length,
+    currentTrick: structuredClone(state.currentTrick),
+    currentPlayerId: state.currentPlayerId,
+    completedTricks: structuredClone(state.completedTricks),
+    trickNumber: state.trickNumber
   };
 }
 
