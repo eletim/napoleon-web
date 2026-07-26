@@ -29,7 +29,19 @@ export class RandomAgent implements Agent {
       throw new NoLegalActionsError(observation.playerId);
     }
 
-    const index = Math.floor(this.rng() * observation.legalActions.length);
-    return observation.legalActions[Math.min(index, observation.legalActions.length - 1)];
+    const candidates = getRandomCandidates(observation.legalActions);
+    const index = Math.floor(this.rng() * candidates.length);
+    return candidates[Math.min(index, candidates.length - 1)];
   }
+}
+
+function getRandomCandidates(legalActions: readonly GameAction[]): readonly GameAction[] {
+  const passAction = legalActions.find((action) => action.type === "pass");
+  const firstBidAction = legalActions.find((action) => action.type === "bid");
+
+  if (passAction !== undefined && firstBidAction !== undefined) {
+    return [passAction, firstBidAction];
+  }
+
+  return legalActions;
 }

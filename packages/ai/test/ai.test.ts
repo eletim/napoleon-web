@@ -15,6 +15,23 @@ describe("RandomAgent", () => {
     expect(legalActions).toContainEqual(action);
   });
 
+  it("selects pass or the nearest bid candidate during bidding", async () => {
+    const state = createInitialGame({ rng: () => 0 });
+    const playerId = state.currentPlayerId;
+    const view = createPlayerView(state, playerId);
+    const legalActions = getLegalActions(state, playerId);
+    const agent = new RandomAgent(() => 0.99);
+
+    const action = await agent.selectAction({ playerId, view, legalActions });
+
+    expect(action).toEqual({
+      type: "bid",
+      playerId,
+      suit: "clubs",
+      targetPointCards: 13
+    });
+  });
+
   it("throws NoLegalActionsError when no legal actions exist", async () => {
     const state = createInitialGame({ rng: () => 0 });
     const playerId = "player-1";

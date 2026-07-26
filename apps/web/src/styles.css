@@ -139,6 +139,50 @@ button {
   justify-content: center;
 }
 
+.bidding-panel {
+  background: #f8fafc;
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  width: min(100%, 760px);
+}
+
+.bidding-summary,
+.bidding-history {
+  color: #334155;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.92rem;
+  gap: 10px 16px;
+}
+
+.bidding-actions {
+  display: grid;
+  gap: 12px;
+}
+
+.bid-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.bid-button {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  color: #18212f;
+  cursor: pointer;
+  min-height: 36px;
+  padding: 0 10px;
+}
+
+.bid-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 .trick {
   align-items: center;
   background: rgb(255 255 255 / 12%);

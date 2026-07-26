@@ -1,5 +1,10 @@
 import { useMemo, useState } from "react";
-import type { PublicCard, PublicGameState, PublicLegalAction } from "@napoleon/protocol";
+import type {
+  PublicBidAction,
+  PublicCard,
+  PublicGameState,
+  PublicLegalAction
+} from "@napoleon/protocol";
 import { CardButton } from "./CardButton";
 import { createGame, nextTrick, sendAction } from "./api";
 import { isRedSuit, suitSymbols } from "./cardSymbols";
@@ -20,12 +25,18 @@ export function App() {
     const actions = session?.state.legalActions ?? [];
     return new Set(
       actions
-        .filter((action): action is PublicLegalAction => {
-          return action.type === "play-card";
-        })
+        .filter((action) => action.type === "play-card")
         .map((action) => action.cardId)
     );
   }, [session]);
+  const legalBidActions = useMemo(
+    () =>
+      (session?.state.legalActions ?? []).filter(
+        (action): action is PublicBidAction => action.type === "bid"
+      ),
+    [session]
+  );
+  const canPass = (session?.state.legalActions ?? []).some((action) => action.type === "pass");
 
   const self = session?.state.self;
   const otherPlayers = session?.state.opponents ?? [];
@@ -34,7 +45,7 @@ export function App() {
     await runRequest(async () => {
       const response = await createGame();
       setSession(response);
-      setMessage("あなたの番です。カードを1枚選んでください。");
+      setMessage(createMessage(response.state, response.playerId));
     });
   }
 
@@ -48,6 +59,18 @@ export function App() {
         type: "play-card",
         cardId: card.id
       });
+      setSession(response);
+      setMessage(createMessage(response.state, response.playerId));
+    });
+  }
+
+  async function handleSendAction(action: PublicLegalAction): Promise<void> {
+    if (session === undefined) {
+      return;
+    }
+
+    await runRequest(async () => {
+      const response = await sendAction(session.gameId, action);
       setSession(response);
       setMessage(createMessage(response.state, response.playerId));
     });
@@ -108,9 +131,57 @@ export function App() {
         <div className="center-area">
           <div className="status-line">
             <span>現在のプレイヤー: {session?.state.currentPlayerId ?? "-"}</span>
+            <span>フェーズ: {formatPhase(session?.state.phase)}</span>
             <span>トリック: {session?.state.trickNumber ?? "-"}</span>
             <span>切り札: {formatTrumpSuit(session?.state.trumpSuit ?? null)}</span>
+            <span>契約: {formatContract(session?.state ?? null)}</span>
           </div>
+
+          {session?.state.phase === "bidding" ? (
+            <section className="bidding-panel" aria-label="競り">
+              <div className="bidding-summary">
+                <span>競り開始: {session.state.bidding?.starterPlayerId ?? "-"}</span>
+                <span>最高入札: {formatBid(session.state.bidding?.highestBid ?? null)}</span>
+                <span>連続パス: {session.state.bidding?.consecutivePassCount ?? 0}</span>
+              </div>
+              <div className="bidding-actions">
+                <button
+                  className="secondary-button"
+                  disabled={!canPass || isBusy}
+                  onClick={() => void handleSendAction({ type: "pass" })}
+                  type="button"
+                >
+                  パス
+                </button>
+                <div className="bid-buttons">
+                  {legalBidActions.map((action) => (
+                    <button
+                      className="bid-button"
+                      disabled={isBusy}
+                      key={`${action.suit}-${action.targetPointCards}`}
+                      onClick={() => void handleSendAction(action)}
+                      type="button"
+                    >
+                      {formatBidAction(action)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="bidding-history" aria-label="競り履歴">
+                {(session.state.bidding?.history.length ?? 0) > 0 ? (
+                  session.state.bidding?.history.map((entry, index) => (
+                    <span key={`${entry.playerId}-${entry.type}-${index}`}>
+                      {entry.type === "bid"
+                        ? `${entry.playerId}: ${formatSuit(entry.suit)}${entry.targetPointCards}`
+                        : `${entry.playerId}: パス`}
+                    </span>
+                  ))
+                ) : (
+                  <span>履歴はまだありません。</span>
+                )}
+              </div>
+            </section>
+          ) : null}
 
           <div className="trick" aria-label="中央の場">
             {session?.state.currentTrick.length ? (
@@ -130,7 +201,12 @@ export function App() {
 
           <button
             className="secondary-button"
-            disabled={!session?.state.isTrickComplete || session.state.isGameOver || isBusy}
+            disabled={
+              !session?.state.isTrickComplete ||
+              session.state.isGameOver ||
+              session.state.phase !== "playing" ||
+              isBusy
+            }
             onClick={handleNextTrick}
             type="button"
           >
@@ -151,7 +227,9 @@ export function App() {
             {self?.hand?.map((card) => (
               <CardButton
                 card={card}
-                disabled={isBusy || !legalCardIds.has(card.id)}
+                disabled={
+                  isBusy || session?.state.phase !== "playing" || !legalCardIds.has(card.id)
+                }
                 key={card.id}
                 onPlay={handlePlay}
               />
@@ -168,6 +246,12 @@ function createMessage(state: PublicGameState, playerId: string): string {
     return "ゲーム終了です。";
   }
 
+  if (state.phase === "bidding") {
+    return state.currentPlayerId === playerId
+      ? "あなたの競り手番です。入札またはパスを選んでください。"
+      : `${state.currentPlayerId} の競り手番です。`;
+  }
+
   if (state.isTrickComplete) {
     return "5枚出ました。次のトリックへ進めます。";
   }
@@ -180,5 +264,38 @@ function createMessage(state: PublicGameState, playerId: string): string {
 }
 
 function formatTrumpSuit(trumpSuit: PublicGameState["trumpSuit"]): string {
-  return trumpSuit === null ? "なし" : suitSymbols[trumpSuit];
+  return trumpSuit === null ? "未定" : suitSymbols[trumpSuit];
+}
+
+function formatPhase(phase: PublicGameState["phase"] | undefined): string {
+  switch (phase) {
+    case "bidding":
+      return "競り";
+    case "playing":
+      return "プレイ";
+    case "finished":
+      return "終了";
+    default:
+      return "-";
+  }
+}
+
+function formatSuit(suit: PublicBidAction["suit"]): string {
+  return suitSymbols[suit];
+}
+
+function formatBidAction(action: PublicBidAction): string {
+  return `${formatSuit(action.suit)} ${action.targetPointCards}`;
+}
+
+function formatBid(bid: NonNullable<PublicGameState["bidding"]>["highestBid"]): string {
+  return bid === null ? "なし" : `${bid.playerId} ${formatSuit(bid.suit)}${bid.targetPointCards}`;
+}
+
+function formatContract(state: PublicGameState | null): string {
+  if (state?.contract === undefined || state.contract === null) {
+    return "未確定";
+  }
+
+  return `${state.contract.napoleonPlayerId} ${formatSuit(state.contract.trumpSuit)}${state.contract.targetPointCards}`;
 }

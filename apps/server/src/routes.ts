@@ -8,12 +8,13 @@ import {
   GameRuleError,
   getLegalActions
 } from "@napoleon/game-core";
-import type { GameState, PlayerId } from "@napoleon/game-core";
+import type { GameAction, GameState, PlayerId } from "@napoleon/game-core";
 import type { Agent } from "@napoleon/ai";
 import type {
   CreateGameResponse,
   GetGameResponse,
   NextTrickResponse,
+  PublicGameAction,
   SendActionResponse
 } from "@napoleon/protocol";
 import { createAgents, createGameId, games, type InternalGameState } from "./store.js";
@@ -25,7 +26,7 @@ interface GameParams {
 }
 
 const humanPlayerId = "player-0";
-const maxAutomaticAiActions = 20;
+const maxAutomaticAiActions = 100;
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/health", async () => ({ ok: true }));
@@ -76,15 +77,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       const action = readActionBody(request.body);
 
       if (action === undefined) {
-        return sendError(reply, 400, "INVALID_ACTION", "A play-card action is required.");
+        return sendError(reply, 400, "INVALID_ACTION", "A valid action is required.");
       }
 
       try {
-        let nextState = applyAction(record.state, {
-          type: "play-card",
-          playerId: record.humanPlayerId,
-          cardId: action.cardId
-        });
+        let nextState = applyAction(record.state, toInternalAction(action, record.humanPlayerId));
         nextState = await advanceAiTurns(nextState, record.humanPlayerId, record.agents);
         record.state = nextState;
       } catch (error) {
@@ -158,6 +155,29 @@ async function advanceAiTurns(
   }
 
   return state;
+}
+
+function toInternalAction(action: PublicGameAction, playerId: PlayerId): GameAction {
+  switch (action.type) {
+    case "play-card":
+      return {
+        type: "play-card",
+        playerId,
+        cardId: action.cardId
+      };
+    case "bid":
+      return {
+        type: "bid",
+        playerId,
+        suit: action.suit,
+        targetPointCards: action.targetPointCards
+      };
+    case "pass":
+      return {
+        type: "pass",
+        playerId
+      };
+  }
 }
 
 function createGameResponse(

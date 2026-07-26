@@ -39,12 +39,50 @@ export interface CompletedTrick {
   cards: readonly PlayedCard[];
 }
 
+export type GamePhase = "bidding" | "playing" | "finished";
+
+export interface Bid {
+  playerId: PlayerId;
+  suit: Suit;
+  targetPointCards: number;
+}
+
+export interface Contract {
+  napoleonPlayerId: PlayerId;
+  trumpSuit: Suit;
+  targetPointCards: number;
+}
+
+export type BiddingHistoryEntry =
+  | {
+      type: "bid";
+      playerId: PlayerId;
+      suit: Suit;
+      targetPointCards: number;
+    }
+  | {
+      type: "pass";
+      playerId: PlayerId;
+    };
+
+export interface BiddingState {
+  starterPlayerId: PlayerId;
+  highestBid: Bid | null;
+  consecutivePassCount: number;
+  history: readonly BiddingHistoryEntry[];
+}
+
+export type PublicBiddingView = BiddingState;
+
 export interface GameState {
   players: readonly PlayerState[];
+  phase: GamePhase;
   currentPlayerId: PlayerId;
   currentTrick: readonly PlayedCard[];
   completedTricks: readonly CompletedTrick[];
   trumpSuit: Suit | null;
+  contract: Contract | null;
+  bidding: BiddingState | null;
   trickNumber: number;
   isTrickComplete: boolean;
   isGameOver: boolean;
@@ -57,7 +95,19 @@ export interface PlayCardAction {
   cardId: string;
 }
 
-export type GameAction = PlayCardAction;
+export interface BidAction {
+  type: "bid";
+  playerId: PlayerId;
+  suit: Suit;
+  targetPointCards: number;
+}
+
+export interface PassAction {
+  type: "pass";
+  playerId: PlayerId;
+}
+
+export type GameAction = PlayCardAction | BidAction | PassAction;
 
 export interface PublicPlayerState {
   id: PlayerId;
@@ -68,7 +118,10 @@ export interface PublicPlayerState {
 export interface PlayerView {
   selfId: PlayerId;
   players: readonly PublicPlayerState[];
+  phase: GamePhase;
   trumpSuit: Suit | null;
+  contract: Contract | null;
+  bidding: PublicBiddingView | null;
   currentPlayerId: PlayerId;
   currentTrick: readonly PlayedCard[];
   completedTrickCount: number;

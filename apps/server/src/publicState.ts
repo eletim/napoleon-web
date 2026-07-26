@@ -1,6 +1,10 @@
 import {
   createPlayerView,
+  type Bid,
+  type BiddingHistoryEntry,
+  type BiddingState,
   type Card,
+  type Contract,
   type GameAction,
   type GameState,
   type PlayedCard,
@@ -8,6 +12,10 @@ import {
 } from "@napoleon/game-core";
 import type {
   PublicCard,
+  PublicBid,
+  PublicBiddingHistoryEntry,
+  PublicBiddingState,
+  PublicContract,
   PublicGameState,
   PublicLegalAction,
   PublicOpponentPlayer,
@@ -39,7 +47,10 @@ export function toPublicGameState(state: GameState, playerId: PlayerId): PublicG
   return {
     self,
     opponents,
+    phase: view.phase,
     trumpSuit: view.trumpSuit,
+    contract: view.contract === null ? null : toPublicContract(view.contract),
+    bidding: view.bidding === null ? null : toPublicBiddingState(view.bidding),
     currentPlayerId: view.currentPlayerId,
     currentTrick: view.currentTrick.map(toPublicPlayedCard),
     completedTrickCount: view.completedTrickCount,
@@ -66,8 +77,65 @@ function toPublicPlayedCard(playedCard: PlayedCard): PublicPlayedCard {
 }
 
 function toPublicLegalAction(action: GameAction): PublicLegalAction {
+  switch (action.type) {
+    case "play-card":
+      return {
+        type: "play-card",
+        cardId: action.cardId
+      };
+    case "bid":
+      return {
+        type: "bid",
+        suit: action.suit,
+        targetPointCards: action.targetPointCards
+      };
+    case "pass":
+      return {
+        type: "pass"
+      };
+  }
+}
+
+function toPublicBid(bid: Bid): PublicBid {
   return {
-    type: action.type,
-    cardId: action.cardId
+    playerId: bid.playerId,
+    suit: bid.suit,
+    targetPointCards: bid.targetPointCards
   };
+}
+
+function toPublicContract(contract: Contract): PublicContract {
+  return {
+    napoleonPlayerId: contract.napoleonPlayerId,
+    trumpSuit: contract.trumpSuit,
+    targetPointCards: contract.targetPointCards
+  };
+}
+
+function toPublicBiddingState(bidding: BiddingState): PublicBiddingState {
+  return {
+    starterPlayerId: bidding.starterPlayerId,
+    highestBid: bidding.highestBid === null ? null : toPublicBid(bidding.highestBid),
+    consecutivePassCount: bidding.consecutivePassCount,
+    history: bidding.history.map(toPublicBiddingHistoryEntry)
+  };
+}
+
+function toPublicBiddingHistoryEntry(
+  entry: BiddingHistoryEntry
+): PublicBiddingHistoryEntry {
+  switch (entry.type) {
+    case "bid":
+      return {
+        type: "bid",
+        playerId: entry.playerId,
+        suit: entry.suit,
+        targetPointCards: entry.targetPointCards
+      };
+    case "pass":
+      return {
+        type: "pass",
+        playerId: entry.playerId
+      };
+  }
 }

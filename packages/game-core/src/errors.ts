@@ -6,7 +6,11 @@ export type GameRuleErrorCode =
   | "NOT_PLAYERS_TURN"
   | "CARD_NOT_IN_HAND"
   | "MUST_FOLLOW_SUIT"
-  | "TRICK_NOT_COMPLETE";
+  | "TRICK_NOT_COMPLETE"
+  | "INVALID_ACTION_FOR_PHASE"
+  | "INVALID_BID"
+  | "BIDDING_NOT_AVAILABLE"
+  | "BID_TOO_LOW";
 
 export class GameRuleError extends Error {
   readonly code: GameRuleErrorCode;

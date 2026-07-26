@@ -2,7 +2,7 @@ import type {
   CreateGameResponse,
   GetGameResponse,
   NextTrickResponse,
-  PlayCardRequest,
+  PublicGameAction,
   SendActionResponse
 } from "@napoleon/protocol";
 
@@ -21,7 +21,7 @@ export async function getGame(gameId: string): Promise<GetGameResponse> {
 
 export async function sendAction(
   gameId: string,
-  action: PlayCardRequest
+  action: PublicGameAction
 ): Promise<SendActionResponse> {
   return request<SendActionResponse>(`/api/games/${gameId}/actions`, {
     method: "POST",

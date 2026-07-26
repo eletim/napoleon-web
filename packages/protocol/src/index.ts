@@ -26,6 +26,39 @@ export interface PublicPlayedCard {
   card: PublicCard;
 }
 
+export type PublicGamePhase = "bidding" | "playing" | "finished";
+
+export interface PublicBid {
+  playerId: string;
+  suit: PublicSuit;
+  targetPointCards: number;
+}
+
+export interface PublicContract {
+  napoleonPlayerId: string;
+  trumpSuit: PublicSuit;
+  targetPointCards: number;
+}
+
+export type PublicBiddingHistoryEntry =
+  | {
+      type: "bid";
+      playerId: string;
+      suit: PublicSuit;
+      targetPointCards: number;
+    }
+  | {
+      type: "pass";
+      playerId: string;
+    };
+
+export interface PublicBiddingState {
+  starterPlayerId: string;
+  highestBid: PublicBid | null;
+  consecutivePassCount: number;
+  history: readonly PublicBiddingHistoryEntry[];
+}
+
 export interface PublicSelfPlayer {
   id: string;
   handCount: number;
@@ -37,15 +70,30 @@ export interface PublicOpponentPlayer {
   handCount: number;
 }
 
-export type PublicLegalAction = {
+export interface PublicPlayCardAction {
   type: "play-card";
   cardId: string;
-};
+}
+
+export interface PublicBidAction {
+  type: "bid";
+  suit: PublicSuit;
+  targetPointCards: number;
+}
+
+export interface PublicPassAction {
+  type: "pass";
+}
+
+export type PublicLegalAction = PublicPlayCardAction | PublicBidAction | PublicPassAction;
 
 export interface PublicGameState {
   self: PublicSelfPlayer;
   opponents: readonly PublicOpponentPlayer[];
+  phase: PublicGamePhase;
   trumpSuit: PublicSuit | null;
+  contract: PublicContract | null;
+  bidding: PublicBiddingState | null;
   currentPlayerId: string;
   currentTrick: readonly PublicPlayedCard[];
   completedTrickCount: number;
@@ -68,8 +116,20 @@ export interface PlayCardRequest {
   cardId: string;
 }
 
+export interface BidRequest {
+  type: "bid";
+  suit: PublicSuit;
+  targetPointCards: number;
+}
+
+export interface PassRequest {
+  type: "pass";
+}
+
+export type PublicGameAction = PlayCardRequest | BidRequest | PassRequest;
+
 export interface SendActionRequest {
-  action: PlayCardRequest;
+  action: PublicGameAction;
 }
 
 export interface SendActionResponse {
