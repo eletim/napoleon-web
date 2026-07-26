@@ -249,6 +249,10 @@ describe("server API", () => {
     expect(body.playerId).toBe("player-0");
     expect(body.state.self.hand).toHaveLength(10);
     expect(body.state.opponents).toHaveLength(4);
+    expect(body.state.self.capturedPointCards).toEqual([]);
+    expect(body.state.opponents.every((opponent) => opponent.capturedPointCards.length === 0)).toBe(
+      true
+    );
     expect(body.state.phase).toBe("bidding");
     expect(body.state.trumpSuit).toBeNull();
     expect(body.state.contract).toBeNull();
@@ -375,6 +379,48 @@ describe("server API", () => {
     expect(body.state.trumpSuit).toBe("spades");
     expect(body.state.self.handCount).toBe(1);
     expect(body.state.opponents.some((opponent) => hasOwn(opponent, "hand"))).toBe(false);
+  });
+
+  it("returns captured point cards by player after a completed trick", async () => {
+    games.set("captured-points", {
+      state: createStateWithHands([
+        [card("hearts", "A"), card("clubs", "2")],
+        [card("hearts", "K"), card("clubs", "3")],
+        [card("hearts", "Q"), card("clubs", "4")],
+        [card("hearts", "7"), card("clubs", "5")],
+        [card("hearts", "2"), card("clubs", "6")]
+      ]),
+      humanPlayerId: "player-0",
+      agents: new Map([
+        ["player-1", new PreferredCardAgent("hearts-K")],
+        ["player-2", new PreferredCardAgent("hearts-Q")],
+        ["player-3", new PreferredCardAgent("hearts-7")],
+        ["player-4", new PreferredCardAgent("hearts-2")]
+      ])
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games/captured-points/actions",
+      payload: {
+        action: {
+          type: "play-card",
+          cardId: "hearts-A"
+        }
+      }
+    });
+    const body = response.json<SendActionResponse>();
+
+    expect(response.statusCode).toBe(200);
+    expect(body.state.currentPlayerId).toBe("player-0");
+    expect(body.state.self.capturedPointCards).toEqual([
+      { type: "standard", id: "hearts-A", suit: "hearts", rank: "A" },
+      { type: "standard", id: "hearts-K", suit: "hearts", rank: "K" },
+      { type: "standard", id: "hearts-Q", suit: "hearts", rank: "Q" }
+    ]);
+    expect(body.state.opponents.every((opponent) => opponent.capturedPointCards.length === 0)).toBe(
+      true
+    );
   });
 
   it("allows the human to play joker while holding the lead suit and continues AI play", async () => {

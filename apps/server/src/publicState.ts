@@ -40,14 +40,16 @@ export function toPublicGameState(state: GameState, playerId: PlayerId): PublicG
   const self: PublicSelfPlayer = {
     id: selfPlayer.id,
     handCount: selfPlayer.handCount,
-    hand: selfPlayer.hand.map(toPublicCard)
+    hand: selfPlayer.hand.map(toPublicCard),
+    capturedPointCards: selfPlayer.capturedPointCards.map(toPublicStandardCard)
   };
 
   const opponents: readonly PublicOpponentPlayer[] = view.players
     .filter((player) => player.id !== playerId)
     .map((player) => ({
       id: player.id,
-      handCount: player.handCount
+      handCount: player.handCount,
+      capturedPointCards: player.capturedPointCards.map(toPublicStandardCard)
     }));
 
   return {

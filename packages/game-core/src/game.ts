@@ -22,7 +22,8 @@ import type {
   GameState,
   PlayerId,
   PlayerState,
-  PlayerView
+  PlayerView,
+  StandardCard
 } from "./types.js";
 
 const playerCount = 5;
@@ -157,6 +158,7 @@ export function createPlayerView(state: GameState, playerId: PlayerId): PlayerVi
     players: state.players.map((player) => ({
       id: player.id,
       handCount: player.hand.length,
+      capturedPointCards: getCapturedPointCards(state, player.id),
       ...(player.id === playerId ? { hand: player.hand } : {})
     })),
     phase: state.phase,
@@ -633,6 +635,17 @@ function toBuriedCardsView(state: GameState): BuriedCardsView | null {
     revealedPointCards,
     hiddenCardCount: state.buriedCards.length - revealedPointCards.length
   };
+}
+
+function getCapturedPointCards(
+  state: GameState,
+  playerId: PlayerId
+): readonly StandardCard[] {
+  return state.completedTricks
+    .filter((trick) => trick.winnerId === playerId)
+    .flatMap((trick) =>
+      trick.cards.map((playedCard) => playedCard.card).filter(isPointCard)
+    );
 }
 
 function getPlayer(state: GameState, playerId: PlayerId): PlayerState {

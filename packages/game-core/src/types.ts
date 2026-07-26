@@ -188,6 +188,7 @@ export interface AdjutantChoiceRequirement {
 export interface PublicPlayerState {
   id: PlayerId;
   handCount: number;
+  capturedPointCards: readonly StandardCard[];
   hand?: readonly Card[];
 }
 

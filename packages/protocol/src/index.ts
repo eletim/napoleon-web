@@ -115,11 +115,13 @@ export interface PublicSelfPlayer {
   id: string;
   handCount: number;
   hand: readonly PublicCard[];
+  capturedPointCards: readonly PublicStandardCard[];
 }
 
 export interface PublicOpponentPlayer {
   id: string;
   handCount: number;
+  capturedPointCards: readonly PublicStandardCard[];
 }
 
 export interface PublicPlayCardAction {

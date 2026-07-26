@@ -2219,6 +2219,51 @@ describe("game-core", () => {
     expect(view.players[0].hand).toHaveLength(10);
     expect(view.players[1].hand).toBeUndefined();
     expect(view.players[1].handCount).toBe(10);
+    expect(view.players[1].capturedPointCards).toEqual([]);
+  });
+
+  it("derives captured point cards by completed trick winner in createPlayerView", () => {
+    const state = createStateWithHands({
+      hands: [[], [], [], [], []],
+      completedTricks: [
+        createCompletedTrick(1, "player-1", [
+          card("hearts", "A"),
+          card("hearts", "K"),
+          card("hearts", "Q"),
+          card("clubs", "2"),
+          joker()
+        ]),
+        createCompletedTrick(2, "player-1", [
+          card("diamonds", "10"),
+          card("clubs", "3"),
+          card("clubs", "4"),
+          card("clubs", "5"),
+          card("clubs", "6")
+        ]),
+        createCompletedTrick(3, "player-3", [
+          card("spades", "J"),
+          card("diamonds", "2"),
+          card("diamonds", "3"),
+          card("diamonds", "4"),
+          card("diamonds", "5")
+        ])
+      ],
+      buriedCards: [card("clubs", "A"), card("spades", "2"), joker()]
+    });
+    const view = createPlayerView(state, "player-0");
+
+    expect(view.players.find((player) => player.id === "player-0")?.capturedPointCards).toEqual(
+      []
+    );
+    expect(
+      view.players.find((player) => player.id === "player-1")?.capturedPointCards.map((card) => card.id)
+    ).toEqual(["hearts-A", "hearts-K", "hearts-Q", "diamonds-10"]);
+    expect(
+      view.players.find((player) => player.id === "player-3")?.capturedPointCards.map((card) => card.id)
+    ).toEqual(["spades-J"]);
+    expect(
+      view.players.every((player) => !player.capturedPointCards.some((card) => card.id === "clubs-A"))
+    ).toBe(true);
   });
 
   it("exposes public bidding state and only the player's legal bidding actions", () => {

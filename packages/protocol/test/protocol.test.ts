@@ -77,9 +77,16 @@ describe("protocol DTOs", () => {
       self: {
         id: "player-0",
         handCount: 13,
-        hand: []
+        hand: [],
+        capturedPointCards: []
       },
-      opponents: [],
+      opponents: [
+        {
+          id: "player-1",
+          handCount: 10,
+          capturedPointCards: []
+        }
+      ],
       phase: "exchanging",
       trumpSuit: "spades",
       contract: {
@@ -122,6 +129,8 @@ describe("protocol DTOs", () => {
       requiredDiscardCount: 3
     });
     expect(state.buriedCards).toBeNull();
+    expect(state.self.capturedPointCards).toEqual([]);
+    expect(state.opponents[0]?.capturedPointCards).toEqual([]);
     expect(Object.prototype.hasOwnProperty.call(state.adjutant, "playerId")).toBe(false);
     expect(state.specialCards).toEqual({
       orumaCardId: "spades-A",
