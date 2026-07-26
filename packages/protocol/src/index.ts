@@ -45,6 +45,7 @@ export type PublicLegalAction = {
 export interface PublicGameState {
   self: PublicSelfPlayer;
   opponents: readonly PublicOpponentPlayer[];
+  trumpSuit: PublicSuit | null;
   currentPlayerId: string;
   currentTrick: readonly PublicPlayedCard[];
   completedTrickCount: number;

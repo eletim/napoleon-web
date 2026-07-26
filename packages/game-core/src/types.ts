@@ -44,6 +44,7 @@ export interface GameState {
   currentPlayerId: PlayerId;
   currentTrick: readonly PlayedCard[];
   completedTricks: readonly CompletedTrick[];
+  trumpSuit: Suit | null;
   trickNumber: number;
   isTrickComplete: boolean;
   isGameOver: boolean;

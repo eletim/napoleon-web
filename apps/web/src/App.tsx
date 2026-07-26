@@ -109,6 +109,7 @@ export function App() {
           <div className="status-line">
             <span>現在のプレイヤー: {session?.state.currentPlayerId ?? "-"}</span>
             <span>トリック: {session?.state.trickNumber ?? "-"}</span>
+            <span>切り札: {formatTrumpSuit(session?.state.trumpSuit ?? null)}</span>
           </div>
 
           <div className="trick" aria-label="中央の場">
@@ -176,4 +177,8 @@ function createMessage(state: PublicGameState, playerId: string): string {
   }
 
   return `${state.currentPlayerId} の番です。`;
+}
+
+function formatTrumpSuit(trumpSuit: PublicGameState["trumpSuit"]): string {
+  return trumpSuit === null ? "なし" : suitSymbols[trumpSuit];
 }

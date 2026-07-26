@@ -44,6 +44,7 @@ export function createInitialGame(options: CreateInitialGameOptions = {}): GameS
     currentPlayerId: playerIds[0],
     currentTrick: [],
     completedTricks: [],
+    trumpSuit: "spades",
     trickNumber: 1,
     isTrickComplete: false,
     isGameOver: false,
@@ -151,7 +152,7 @@ function playCard(state: GameState, playerId: PlayerId, cardId: string): GameSta
   const currentTrick = [...state.currentTrick, { playerId, card }];
   const trickComplete = currentTrick.length === state.players.length;
   const winnerId = trickComplete
-    ? determineTrickWinner(currentTrick)
+    ? determineTrickWinner(currentTrick, { trumpSuit: state.trumpSuit })
     : getNextPlayerId(state, playerId);
   const completedTricks = trickComplete
     ? [

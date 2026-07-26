@@ -39,6 +39,7 @@ export function toPublicGameState(state: GameState, playerId: PlayerId): PublicG
   return {
     self,
     opponents,
+    trumpSuit: state.trumpSuit,
     currentPlayerId: view.currentPlayerId,
     currentTrick: view.currentTrick.map(toPublicPlayedCard),
     completedTrickCount: view.completedTrickCount,

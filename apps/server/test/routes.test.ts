@@ -14,7 +14,8 @@ import type {
   ApiError,
   CreateGameResponse,
   GetGameResponse,
-  NextTrickResponse
+  NextTrickResponse,
+  SendActionResponse
 } from "@napoleon/protocol";
 import { buildApp } from "../src/app.js";
 import { createAgents, games } from "../src/store.js";
@@ -61,6 +62,7 @@ describe("server API", () => {
     expect(body.playerId).toBe("player-0");
     expect(body.state.self.hand).toHaveLength(10);
     expect(body.state.opponents).toHaveLength(4);
+    expect(body.state.trumpSuit).toBe("spades");
     expect(body.state.opponents.some((opponent) => hasOwn(opponent, "hand"))).toBe(false);
     expect(body.state.legalActions.length).toBeGreaterThan(0);
     expect(body.state.legalActions.some((action) => hasOwn(action, "playerId"))).toBe(false);
@@ -79,7 +81,12 @@ describe("server API", () => {
     });
 
     expect(found.statusCode).toBe(200);
-    expect(found.json<GetGameResponse>().gameId).toBe(created.gameId);
+    expect(found.json<GetGameResponse>()).toMatchObject({
+      gameId: created.gameId,
+      state: {
+        trumpSuit: "spades"
+      }
+    });
     expect(missing.statusCode).toBe(404);
   });
 
@@ -102,6 +109,7 @@ describe("server API", () => {
     expect(response.statusCode).toBe(200);
     expect(body.state.currentTrick).toHaveLength(5);
     expect(body.state.isTrickComplete).toBe(true);
+    expect(body.state.trumpSuit).toBe("spades");
     expect(body.state.self.handCount).toBe(9);
     expect(body.state.opponents.some((opponent) => hasOwn(opponent, "hand"))).toBe(false);
   });
@@ -203,11 +211,14 @@ describe("server API", () => {
     expect(response.statusCode).toBe(200);
     expect(body.state.currentTrick).toEqual([]);
     expect(body.state.currentPlayerId).toBe("player-0");
+    expect(body.state.trumpSuit).toBe("spades");
     expect(body.state.trickNumber).toBe(2);
   });
 
   it("advances to the next trick even when the next lead player is an AI", async () => {
     const state = createCompletedTrickWonByAi();
+    expect(state.completedTricks[0].winnerId).toBe("player-1");
+    expect(state.currentPlayerId).toBe("player-1");
     games.set("ai-lead", {
       state,
       humanPlayerId: "player-0",
@@ -223,6 +234,7 @@ describe("server API", () => {
     expect(response.statusCode).toBe(200);
     expect(body.state.currentPlayerId).toBe("player-0");
     expect(body.state.currentTrick).toHaveLength(4);
+    expect(body.state.trumpSuit).toBe("spades");
     expect(body.state.currentTrick.map((played) => played.playerId)).toEqual([
       "player-1",
       "player-2",
@@ -315,11 +327,11 @@ async function createGame(): Promise<CreateGameResponse> {
 
 function createCompletedTrickWonByAi(): GameState {
   return [
-    { playerId: "player-0", cardId: "hearts-7" },
-    { playerId: "player-1", cardId: "hearts-K" },
-    { playerId: "player-2", cardId: "spades-A" },
-    { playerId: "player-3", cardId: "hearts-3" },
-    { playerId: "player-4", cardId: "clubs-Q" }
+    { playerId: "player-0", cardId: "hearts-A" },
+    { playerId: "player-1", cardId: "spades-2" },
+    { playerId: "player-2", cardId: "hearts-K" },
+    { playerId: "player-3", cardId: "clubs-A" },
+    { playerId: "player-4", cardId: "diamonds-A" }
   ].reduce(
     (state, action) =>
       applyAction(state, {
@@ -328,11 +340,11 @@ function createCompletedTrickWonByAi(): GameState {
         cardId: action.cardId
       }),
     createStateWithHands([
-      [card("hearts", "7"), card("clubs", "6")],
-      [card("hearts", "K"), card("clubs", "2")],
-      [card("spades", "A"), card("clubs", "3")],
-      [card("hearts", "3"), card("diamonds", "4")],
-      [card("clubs", "Q"), card("spades", "5")]
+      [card("hearts", "A"), card("clubs", "6")],
+      [card("spades", "2"), card("clubs", "2")],
+      [card("hearts", "K"), card("clubs", "3")],
+      [card("clubs", "A"), card("diamonds", "4")],
+      [card("diamonds", "A"), card("spades", "5")]
     ])
   );
 }
@@ -341,7 +353,7 @@ function createCompletedTrickWonByHuman(): GameState {
   return [
     { playerId: "player-0", cardId: "hearts-A" },
     { playerId: "player-1", cardId: "hearts-K" },
-    { playerId: "player-2", cardId: "spades-A" },
+    { playerId: "player-2", cardId: "clubs-A" },
     { playerId: "player-3", cardId: "hearts-3" },
     { playerId: "player-4", cardId: "clubs-Q" }
   ].reduce(
@@ -354,7 +366,7 @@ function createCompletedTrickWonByHuman(): GameState {
     createStateWithHands([
       [card("hearts", "A"), card("clubs", "6")],
       [card("hearts", "K"), card("clubs", "2")],
-      [card("spades", "A"), card("clubs", "3")],
+      [card("clubs", "A"), card("clubs", "3")],
       [card("hearts", "3"), card("diamonds", "4")],
       [card("clubs", "Q"), card("spades", "5")]
     ])
@@ -381,6 +393,7 @@ function createStateSnapshot(state: GameState) {
     currentTrick: structuredClone(state.currentTrick),
     currentPlayerId: state.currentPlayerId,
     completedTricks: structuredClone(state.completedTricks),
+    trumpSuit: state.trumpSuit,
     trickNumber: state.trickNumber
   };
 }
@@ -416,6 +429,7 @@ function createStateWithHands(
     currentPlayerId: "player-0",
     currentTrick: [],
     completedTricks: [],
+    trumpSuit: "spades",
     trickNumber: 1,
     isTrickComplete: false,
     isGameOver: false,

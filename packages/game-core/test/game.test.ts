@@ -11,6 +11,7 @@ import {
   getLegalActions,
   getPlayableCards,
   getRankValue,
+  getTrickCardStrength,
   type Card,
   type GameState
 } from "../src/index.js";
@@ -52,6 +53,7 @@ describe("game-core", () => {
     expect(state.players).toHaveLength(5);
     expect(state.players.every((player) => player.hand.length === 10)).toBe(true);
     expect(state.unusedCards).toHaveLength(2);
+    expect(state.trumpSuit).toBe("spades");
   });
 
   it("uses a distinct error when initialized with the wrong player count", () => {
@@ -283,19 +285,22 @@ describe("game-core", () => {
   });
 
   it("determines the highest lead-suit card as the trick winner", () => {
-    const winnerId = determineTrickWinner([
-      { playerId: "player-0", card: card("hearts", "7") },
-      { playerId: "player-1", card: card("hearts", "K") },
-      { playerId: "player-2", card: card("spades", "A") },
-      { playerId: "player-3", card: card("hearts", "3") },
-      { playerId: "player-4", card: card("clubs", "Q") }
-    ]);
+    const winnerId = determineTrickWinner(
+      [
+        { playerId: "player-0", card: card("hearts", "7") },
+        { playerId: "player-1", card: card("hearts", "K") },
+        { playerId: "player-2", card: card("spades", "A") },
+        { playerId: "player-3", card: card("hearts", "3") },
+        { playerId: "player-4", card: card("clubs", "Q") }
+      ],
+      { trumpSuit: null }
+    );
 
     expect(winnerId).toBe("player-1");
   });
 
   it("rejects determining a winner for an empty trick", () => {
-    expect(() => determineTrickWinner([])).toThrow("empty trick");
+    expect(() => determineTrickWinner([], { trumpSuit: "spades" })).toThrow("empty trick");
   });
 
   it("sets the trick winner as current player and completed trick winner", () => {
@@ -306,7 +311,8 @@ describe("game-core", () => {
         [card("spades", "A"), card("clubs", "3")],
         [card("hearts", "3"), card("diamonds", "4")],
         [card("clubs", "Q"), card("spades", "5")]
-      ]
+      ],
+      trumpSuit: null
     });
     const completed = [
       { playerId: "player-0", cardId: "hearts-7" },
@@ -327,6 +333,190 @@ describe("game-core", () => {
 
     expect(completed.currentPlayerId).toBe("player-1");
     expect(completed.completedTricks[0].winnerId).toBe("player-1");
+    expect(next.currentPlayerId).toBe("player-1");
+  });
+
+  it("categorizes trump, lead, and other trick cards", () => {
+    expect(
+      getTrickCardStrength(card("spades", "2"), "hearts", { trumpSuit: "spades" })
+    ).toMatchObject({
+      category: "trump",
+      categoryPriority: 2
+    });
+    expect(
+      getTrickCardStrength(card("hearts", "A"), "hearts", { trumpSuit: "spades" })
+    ).toMatchObject({
+      category: "lead",
+      categoryPriority: 1
+    });
+    expect(
+      getTrickCardStrength(card("clubs", "A"), "hearts", { trumpSuit: "spades" })
+    ).toMatchObject({
+      category: "other",
+      categoryPriority: 0
+    });
+    expect(
+      getTrickCardStrength(card("spades", "A"), "spades", { trumpSuit: "spades" })
+    ).toMatchObject({
+      category: "trump",
+      categoryPriority: 2
+    });
+    expect(
+      getTrickCardStrength(card("spades", "A"), "hearts", { trumpSuit: null })
+    ).toMatchObject({
+      category: "other",
+      categoryPriority: 0
+    });
+  });
+
+  it("lets a low trump beat a high lead-suit card", () => {
+    const winnerId = determineTrickWinner(
+      [
+        { playerId: "player-0", card: card("hearts", "A") },
+        { playerId: "player-1", card: card("spades", "2") },
+        { playerId: "player-2", card: card("hearts", "K") },
+        { playerId: "player-3", card: card("clubs", "A") },
+        { playerId: "player-4", card: card("diamonds", "A") }
+      ],
+      { trumpSuit: "spades" }
+    );
+
+    expect(winnerId).toBe("player-1");
+  });
+
+  it("uses the highest rank among trumps when multiple trumps are played", () => {
+    const winnerId = determineTrickWinner(
+      [
+        { playerId: "player-0", card: card("hearts", "A") },
+        { playerId: "player-1", card: card("spades", "2") },
+        { playerId: "player-2", card: card("spades", "K") },
+        { playerId: "player-3", card: card("hearts", "K") },
+        { playerId: "player-4", card: card("clubs", "A") }
+      ],
+      { trumpSuit: "spades" }
+    );
+
+    expect(winnerId).toBe("player-2");
+  });
+
+  it("does not let an off-suit ace win unless it is trump", () => {
+    const winnerId = determineTrickWinner(
+      [
+        { playerId: "player-0", card: card("hearts", "K") },
+        { playerId: "player-1", card: card("clubs", "A") },
+        { playerId: "player-2", card: card("hearts", "3") },
+        { playerId: "player-3", card: card("diamonds", "A") },
+        { playerId: "player-4", card: card("clubs", "Q") }
+      ],
+      { trumpSuit: "spades" }
+    );
+
+    expect(winnerId).toBe("player-0");
+  });
+
+  it("uses the highest trump when trump is led", () => {
+    const winnerId = determineTrickWinner(
+      [
+        { playerId: "player-0", card: card("spades", "3") },
+        { playerId: "player-1", card: card("spades", "A") },
+        { playerId: "player-2", card: card("hearts", "A") },
+        { playerId: "player-3", card: card("spades", "K") },
+        { playerId: "player-4", card: card("clubs", "A") }
+      ],
+      { trumpSuit: "spades" }
+    );
+
+    expect(winnerId).toBe("player-1");
+  });
+
+  it("keeps follow-suit obligations independent of trump", () => {
+    const trick = [{ playerId: "player-0", card: card("hearts", "K") }];
+
+    expect(
+      getPlayableCards([card("hearts", "3"), card("spades", "A")], trick).map(
+        (candidate) => candidate.id
+      )
+    ).toEqual(["hearts-3"]);
+    expect(
+      getPlayableCards([card("spades", "A"), card("clubs", "3")], trick).map(
+        (candidate) => candidate.id
+      )
+    ).toEqual(["spades-A", "clubs-3"]);
+  });
+
+  it("rejects directly playing trump when the player can follow lead suit", () => {
+    const state = createStateWithHands({
+      hands: [
+        [card("hearts", "2")],
+        [card("hearts", "3"), card("spades", "A")],
+        [card("clubs", "3")],
+        [card("diamonds", "4")],
+        [card("clubs", "5")]
+      ]
+    });
+    const led = applyAction(state, {
+      type: "play-card",
+      playerId: "player-0",
+      cardId: "hearts-2"
+    });
+
+    expect(() =>
+      applyAction(led, {
+        type: "play-card",
+        playerId: "player-1",
+        cardId: "spades-A"
+      })
+    ).toThrow("follow the lead suit");
+  });
+
+  it("allows leading with trump", () => {
+    const state = createStateWithHands({
+      hands: [
+        [card("spades", "A")],
+        [card("hearts", "3")],
+        [card("clubs", "3")],
+        [card("diamonds", "4")],
+        [card("clubs", "5")]
+      ]
+    });
+    const next = applyAction(state, {
+      type: "play-card",
+      playerId: "player-0",
+      cardId: "spades-A"
+    });
+
+    expect(next.currentTrick[0]).toEqual({ playerId: "player-0", card: card("spades", "A") });
+  });
+
+  it("sets an AI trump winner as next lead player", () => {
+    const state = createStateWithHands({
+      hands: [
+        [card("hearts", "A"), card("clubs", "6")],
+        [card("spades", "2"), card("clubs", "2")],
+        [card("hearts", "K"), card("clubs", "3")],
+        [card("clubs", "A"), card("diamonds", "4")],
+        [card("diamonds", "A"), card("spades", "5")]
+      ]
+    });
+    const completed = [
+      { playerId: "player-0", cardId: "hearts-A" },
+      { playerId: "player-1", cardId: "spades-2" },
+      { playerId: "player-2", cardId: "hearts-K" },
+      { playerId: "player-3", cardId: "clubs-A" },
+      { playerId: "player-4", cardId: "diamonds-A" }
+    ].reduce(
+      (current, action) =>
+        applyAction(current, {
+          type: "play-card",
+          playerId: action.playerId,
+          cardId: action.cardId
+        }),
+      state
+    );
+    const next = advanceToNextTrick(completed);
+
+    expect(completed.completedTricks[0].winnerId).toBe("player-1");
+    expect(completed.currentPlayerId).toBe("player-1");
     expect(next.currentPlayerId).toBe("player-1");
   });
 
@@ -354,6 +544,7 @@ function createStateWithHands(options: {
   trickNumber?: number;
   isTrickComplete?: boolean;
   isGameOver?: boolean;
+  trumpSuit?: GameState["trumpSuit"];
 }): GameState {
   const playerIds = ["player-0", "player-1", "player-2", "player-3", "player-4"];
 
@@ -365,6 +556,7 @@ function createStateWithHands(options: {
     currentPlayerId: options.currentPlayerId ?? "player-0",
     currentTrick: options.currentTrick ?? [],
     completedTricks: options.completedTricks ?? [],
+    trumpSuit: options.trumpSuit !== undefined ? options.trumpSuit : "spades",
     trickNumber: options.trickNumber ?? 1,
     isTrickComplete: options.isTrickComplete ?? false,
     isGameOver: options.isGameOver ?? false,
