@@ -413,6 +413,176 @@ describe("game-core", () => {
     ).toBe("player-2");
   });
 
+  it("lets same two win from the second trick when five standard cards share a suit and include the 2", () => {
+    expect(
+      determineTrickWinner(
+        [
+          played("player-0", card("hearts", "A")),
+          played("player-1", card("hearts", "K")),
+          played("player-2", card("hearts", "Q")),
+          played("player-3", card("hearts", "7")),
+          played("player-4", card("hearts", "2"))
+        ],
+        { trumpSuit: "spades" },
+        { trickNumber: 2 }
+      )
+    ).toBe("player-4");
+    expect(
+      determineTrickWinner(
+        [
+          played("player-0", card("clubs", "A")),
+          played("player-1", card("clubs", "K")),
+          played("player-2", card("clubs", "Q")),
+          played("player-3", card("clubs", "7")),
+          played("player-4", card("clubs", "2"))
+        ],
+        { trumpSuit: "hearts" },
+        { trickNumber: 3 }
+      )
+    ).toBe("player-4");
+  });
+
+  it("lets same two win in trump and spade suits when blocking special cards are absent", () => {
+    expect(
+      determineTrickWinner(
+        [
+          played("player-0", card("hearts", "A")),
+          played("player-1", card("hearts", "K")),
+          played("player-2", card("hearts", "10")),
+          played("player-3", card("hearts", "7")),
+          played("player-4", card("hearts", "2"))
+        ],
+        { trumpSuit: "hearts" },
+        { trickNumber: 2 }
+      )
+    ).toBe("player-4");
+    expect(
+      determineTrickWinner(
+        [
+          played("player-0", card("spades", "K")),
+          played("player-1", card("spades", "Q")),
+          played("player-2", card("spades", "10")),
+          played("player-3", card("spades", "7")),
+          played("player-4", card("spades", "2"))
+        ],
+        { trumpSuit: "hearts" },
+        { trickNumber: 2 }
+      )
+    ).toBe("player-4");
+  });
+
+  it("does not apply same two during the first trick", () => {
+    expect(
+      determineTrickWinner(
+        [
+          played("player-0", card("clubs", "A")),
+          played("player-1", card("clubs", "K")),
+          played("player-2", card("clubs", "Q")),
+          played("player-3", card("clubs", "7")),
+          played("player-4", card("clubs", "2"))
+        ],
+        { trumpSuit: "hearts" },
+        { trickNumber: 1 }
+      )
+    ).toBe("player-0");
+  });
+
+  it("falls back when same two lacks one suit or the matching 2", () => {
+    expect(
+      determineTrickWinner(
+        [
+          played("player-0", card("diamonds", "A")),
+          played("player-1", card("diamonds", "2")),
+          played("player-2", card("diamonds", "K")),
+          played("player-3", card("diamonds", "7"))
+        ],
+        { trumpSuit: "hearts" },
+        { trickNumber: 2 }
+      )
+    ).toBe("player-0");
+    expect(
+      determineTrickWinner(
+        [
+          played("player-0", card("diamonds", "A")),
+          played("player-1", card("diamonds", "K")),
+          played("player-2", card("diamonds", "7")),
+          played("player-3", card("diamonds", "2")),
+          played("player-4", card("clubs", "3"))
+        ],
+        { trumpSuit: "hearts" },
+        { trickNumber: 2 }
+      )
+    ).toBe("player-0");
+    expect(
+      determineTrickWinner(
+        [
+          played("player-0", card("clubs", "A")),
+          played("player-1", card("clubs", "K")),
+          played("player-2", card("clubs", "Q")),
+          played("player-3", card("clubs", "7")),
+          played("player-4", card("clubs", "3"))
+        ],
+        { trumpSuit: "hearts" },
+        { trickNumber: 2 }
+      )
+    ).toBe("player-0");
+  });
+
+  it("does not apply same two when oruma, sei jack, ura jack, or joker is present", () => {
+    expect(
+      determineTrickWinner(
+        [
+          played("player-0", card("spades", "A")),
+          played("player-1", card("spades", "K")),
+          played("player-2", card("spades", "Q")),
+          played("player-3", card("spades", "7")),
+          played("player-4", card("spades", "2"))
+        ],
+        { trumpSuit: "hearts" },
+        { trickNumber: 2 }
+      )
+    ).toBe("player-0");
+    expect(
+      determineTrickWinner(
+        [
+          played("player-0", card("hearts", "J")),
+          played("player-1", card("hearts", "K")),
+          played("player-2", card("hearts", "10")),
+          played("player-3", card("hearts", "7")),
+          played("player-4", card("hearts", "2"))
+        ],
+        { trumpSuit: "hearts" },
+        { trickNumber: 2 }
+      )
+    ).toBe("player-0");
+    expect(
+      determineTrickWinner(
+        [
+          played("player-0", card("clubs", "J")),
+          played("player-1", card("clubs", "K")),
+          played("player-2", card("clubs", "10")),
+          played("player-3", card("clubs", "7")),
+          played("player-4", card("clubs", "2"))
+        ],
+        { trumpSuit: "spades" },
+        { trickNumber: 2 }
+      )
+    ).toBe("player-0");
+    expect(
+      determineTrickWinner(
+        [
+          played("player-0", card("clubs", "A")),
+          played("player-1", card("clubs", "K")),
+          played("player-2", card("clubs", "7")),
+          played("player-3", card("clubs", "2")),
+          played("player-4", joker())
+        ],
+        { trumpSuit: "spades" },
+        { trickNumber: 2 }
+      )
+    ).toBe("player-0");
+  });
+
   it("creates 5 players after initialization", () => {
     const state = createInitialGame({ rng: noShuffle });
 
@@ -1321,6 +1491,26 @@ describe("game-core", () => {
     );
   });
 
+  it("keeps same two candidate cards under normal follow-suit and lead-suit rules", () => {
+    expect(
+      getPlayableCards(
+        [card("clubs", "2"), card("hearts", "5")],
+        [played("player-0", card("hearts", "A"))],
+        { trumpSuit: "spades" }
+      ).map((candidate) => candidate.id)
+    ).toEqual(["hearts-5"]);
+    expect(
+      getPlayableCards(
+        [card("clubs", "2"), card("hearts", "2")],
+        [played("player-0", card("hearts", "A"))],
+        { trumpSuit: "spades" }
+      ).map((candidate) => candidate.id)
+    ).toEqual(["hearts-2"]);
+    expect(getLeadSuit([played("player-0", card("diamonds", "2"))], { trumpSuit: "spades" })).toBe(
+      "diamonds"
+    );
+  });
+
   it("allows every card when the player cannot follow suit", () => {
     const hand = [card("clubs", "7"), card("spades", "A"), joker()];
     const trick = [{ playerId: "player-0", card: card("hearts", "2") }];
@@ -1522,6 +1712,45 @@ describe("game-core", () => {
     expect(completed.currentPlayerId).toBe("player-1");
     expect(completed.completedTricks[0].winnerId).toBe("player-1");
     expect(next.currentPlayerId).toBe("player-1");
+  });
+
+  it("sets the same two winner as the next lead player and records the completed trick", () => {
+    const state = createStateWithHands({
+      hands: [
+        [card("hearts", "A"), card("clubs", "6")],
+        [card("hearts", "K"), card("clubs", "2")],
+        [card("hearts", "Q"), card("clubs", "3")],
+        [card("hearts", "7"), card("diamonds", "4")],
+        [card("hearts", "2"), card("spades", "5")]
+      ],
+      trumpSuit: "spades",
+      trickNumber: 2
+    });
+    const completed = [
+      { playerId: "player-0", cardId: "hearts-A" },
+      { playerId: "player-1", cardId: "hearts-K" },
+      { playerId: "player-2", cardId: "hearts-Q" },
+      { playerId: "player-3", cardId: "hearts-7" },
+      { playerId: "player-4", cardId: "hearts-2" }
+    ].reduce(
+      (current, action) =>
+        applyAction(current, {
+          type: "play-card",
+          playerId: action.playerId,
+          cardId: action.cardId
+        }),
+      state
+    );
+    const next = advanceToNextTrick(completed);
+
+    expect(completed.currentPlayerId).toBe("player-4");
+    expect(completed.completedTricks[0].winnerId).toBe("player-4");
+    expect(completed.completedTricks[0].cards).toHaveLength(5);
+    expect(
+      completed.completedTricks[0].cards.filter((playedCard) => isPointCard(playedCard.card))
+    ).toHaveLength(3);
+    expect(next.currentPlayerId).toBe("player-4");
+    expect(next.trickNumber).toBe(3);
   });
 
   it("categorizes trump, lead, and other trick cards", () => {

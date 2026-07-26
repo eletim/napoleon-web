@@ -712,6 +712,68 @@ describe("server API", () => {
     expect(body.state.currentPlayerId).toBe("player-1");
   });
 
+  it("uses same two as the trick winner through the API and starts the next trick from that winner", async () => {
+    games.set("same-two-winner", {
+      state: {
+        ...createStateWithHands([
+          [card("hearts", "A"), card("clubs", "6")],
+          [card("hearts", "K"), card("clubs", "2")],
+          [card("hearts", "Q"), card("clubs", "3")],
+          [card("hearts", "7"), card("diamonds", "4")],
+          [card("hearts", "2"), card("spades", "5")]
+        ]),
+        trickNumber: 2
+      },
+      humanPlayerId: "player-0",
+      agents: new Map([
+        ["player-1", new PreferredCardAgent("hearts-K")],
+        ["player-2", new PreferredCardAgent("hearts-Q")],
+        ["player-3", new PreferredCardAgent("hearts-7")],
+        ["player-4", new PreferredCardAgent("hearts-2")]
+      ])
+    });
+
+    const playResponse = await app.inject({
+      method: "POST",
+      url: "/api/games/same-two-winner/actions",
+      payload: {
+        action: {
+          type: "play-card",
+          cardId: "hearts-A"
+        }
+      }
+    });
+    const playBody = playResponse.json<SendActionResponse>();
+
+    expect(playResponse.statusCode).toBe(200);
+    expect(playBody.state.currentTrick.map((played) => played.card.id)).toEqual([
+      "hearts-A",
+      "hearts-K",
+      "hearts-Q",
+      "hearts-7",
+      "hearts-2"
+    ]);
+    expect(playBody.state.currentPlayerId).toBe("player-4");
+    expect(playBody.state.isTrickComplete).toBe(true);
+    expect(playBody.state.specialCards).toEqual({
+      orumaCardId: "spades-A",
+      yoromekiCardId: "hearts-Q",
+      seiJackCardId: "spades-J",
+      uraJackCardId: "clubs-J"
+    });
+
+    const nextResponse = await app.inject({
+      method: "POST",
+      url: "/api/games/same-two-winner/next-trick"
+    });
+    const nextBody = nextResponse.json<NextTrickResponse>();
+
+    expect(nextResponse.statusCode).toBe(200);
+    expect(nextBody.state.currentTrick.map((played) => played.playerId)).toEqual(["player-4"]);
+    expect(nextBody.state.currentPlayerId).toBe("player-0");
+    expect(nextBody.state.trickNumber).toBe(3);
+  });
+
   it("passes bidding public view fields to AI agents", async () => {
     const created = await createGame();
     const record = games.get(created.gameId);
@@ -1950,6 +2012,49 @@ describe("server API", () => {
       expect(storedAfter.state.currentTrick).toEqual([]);
       expect(storedAfter.state.adjutant).toBeNull();
       expect(storedAfter.state.result).toBeNull();
+    }
+  });
+
+  it("does not persist partial state when AI plays toward same two before a later AI failure", async () => {
+    const state = {
+      ...createStateWithHands([
+        [card("hearts", "A"), card("clubs", "6")],
+        [card("hearts", "K")],
+        [card("hearts", "Q")],
+        [card("hearts", "7")],
+        [card("hearts", "2")]
+      ]),
+      trickNumber: 2
+    };
+    games.set("ai-same-two-failure", {
+      state,
+      humanPlayerId: "player-0",
+      agents: new Map([
+        ["player-1", new PreferredCardAgent("hearts-K")],
+        ["player-2", new ThrowingAgent()],
+        ...createAgents(["player-3", "player-4"])
+      ])
+    });
+    const snapshot = createStateSnapshot(state);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games/ai-same-two-failure/actions",
+      payload: {
+        action: {
+          type: "play-card",
+          cardId: "hearts-A"
+        }
+      }
+    });
+    const storedAfter = games.get("ai-same-two-failure");
+
+    expect(response.statusCode).toBeGreaterThanOrEqual(500);
+    expect(storedAfter).toBeDefined();
+    if (storedAfter !== undefined) {
+      expect(createStateSnapshot(storedAfter.state)).toEqual(snapshot);
+      expect(storedAfter.state.currentTrick).toEqual([]);
+      expect(storedAfter.state.currentPlayerId).toBe("player-0");
     }
   });
 

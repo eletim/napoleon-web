@@ -243,7 +243,11 @@ function playCard(state: GameState, playerId: PlayerId, cardId: string): GameSta
   const adjutant = revealAdjutantIfNeeded(state.adjutant ?? null, playerId, card.id);
   const trickComplete = currentTrick.length === state.players.length;
   const winnerId = trickComplete
-    ? determineTrickWinner(currentTrick, { trumpSuit: state.trumpSuit })
+    ? determineTrickWinner(
+        currentTrick,
+        { trumpSuit: state.trumpSuit },
+        { trickNumber: state.trickNumber }
+      )
     : getNextPlayerId(state, playerId);
   const completedTricks = trickComplete
     ? [

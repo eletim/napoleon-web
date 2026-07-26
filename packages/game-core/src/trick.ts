@@ -22,6 +22,10 @@ export interface TrickCardStrength {
   rankPriority: number;
 }
 
+export interface DetermineTrickWinnerOptions {
+  trickNumber?: number;
+}
+
 const categoryPriorities: Record<TrickCardCategory, number> = {
   other: 0,
   lead: 1,
@@ -87,8 +91,15 @@ export function getTrickCardStrength(
 
 export function determineTrickWinner(
   trick: readonly PlayedCard[],
-  context: TrickContext
+  context: TrickContext,
+  options: DetermineTrickWinnerOptions = {}
 ): PlayerId {
+  const sameTwoWinner = findSameTwoWinner(trick, context, options.trickNumber);
+
+  if (sameTwoWinner !== undefined) {
+    return sameTwoWinner;
+  }
+
   const specialWinner = determineSpecialCardWinner(trick, context);
 
   if (specialWinner !== undefined) {
@@ -115,6 +126,59 @@ export function determineTrickWinner(
   );
 
   return winningCard.playerId;
+}
+
+function findSameTwoWinner(
+  trick: readonly PlayedCard[],
+  context: TrickContext,
+  trickNumber: number | undefined
+): PlayerId | undefined {
+  if (trickNumber === undefined || trickNumber <= 1 || trick.length !== 5) {
+    return undefined;
+  }
+
+  if (trick.some((playedCard) => isJokerCard(playedCard.card))) {
+    return undefined;
+  }
+
+  const standardCards = trick.map((playedCard) => playedCard.card).filter(isStandardCard);
+
+  if (standardCards.length !== trick.length) {
+    return undefined;
+  }
+
+  const sameTwoSuit = standardCards[0]?.suit;
+
+  if (sameTwoSuit === undefined || !standardCards.every((card) => card.suit === sameTwoSuit)) {
+    return undefined;
+  }
+
+  if (standardCards.some((card) => isOrumaCard(card))) {
+    return undefined;
+  }
+
+  if (context.trumpSuit === null && standardCards.some((card) => card.rank === "J")) {
+    return undefined;
+  }
+
+  if (context.trumpSuit !== null) {
+    const trumpSuit = context.trumpSuit;
+
+    if (
+      standardCards.some(
+        (card) => isSeiJackCard(card, trumpSuit) || isUraJackCard(card, trumpSuit)
+      )
+    ) {
+      return undefined;
+    }
+  }
+
+  return trick.find(
+    (playedCard) =>
+      isStandardCard(playedCard.card) &&
+      playedCard.card.suit === sameTwoSuit &&
+      playedCard.card.rank === "2"
+  )?.playerId;
 }
 
 function determineSpecialCardWinner(
