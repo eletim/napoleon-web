@@ -53,7 +53,20 @@ describe("protocol DTOs", () => {
     expect(Object.prototype.hasOwnProperty.call(action, "playerId")).toBe(false);
   });
 
-  it("exposes exchange state without buried cards", () => {
+  it("uses choose-adjutant cardId without a playerId", () => {
+    const action: PublicGameAction = {
+      type: "choose-adjutant",
+      cardId: "spades-A"
+    };
+
+    expect(action).toEqual({
+      type: "choose-adjutant",
+      cardId: "spades-A"
+    });
+    expect(Object.prototype.hasOwnProperty.call(action, "playerId")).toBe(false);
+  });
+
+  it("exposes exchange and adjutant state without private fields", () => {
     const state: PublicGameState = {
       self: {
         id: "player-0",
@@ -68,10 +81,18 @@ describe("protocol DTOs", () => {
         trumpSuit: "spades",
         targetPointCards: 13
       },
+      adjutant: {
+        calledCardId: "hearts-A",
+        revealedPlayerId: null
+      },
       bidding: null,
       exchange: {
         napoleonPlayerId: "player-0",
         requiredDiscardCount: 3
+      },
+      adjutantChoice: {
+        napoleonPlayerId: "player-0",
+        standardCardsOnly: true
       },
       currentPlayerId: "player-0",
       currentTrick: [],
@@ -87,5 +108,6 @@ describe("protocol DTOs", () => {
       requiredDiscardCount: 3
     });
     expect(Object.prototype.hasOwnProperty.call(state, "buriedCards")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(state.adjutant, "playerId")).toBe(false);
   });
 });

@@ -183,6 +183,12 @@ function toInternalAction(action: PublicGameAction, playerId: PlayerId): GameAct
         playerId,
         cardIds: action.cardIds
       };
+    case "choose-adjutant":
+      return {
+        type: "choose-adjutant",
+        playerId,
+        cardId: action.cardId
+      };
   }
 }
 

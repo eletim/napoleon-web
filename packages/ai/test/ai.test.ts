@@ -66,4 +66,28 @@ describe("RandomAgent", () => {
       cardIds: view.players[0].hand?.slice(0, 3).map((card) => card.id)
     });
   });
+
+  it("returns a standard adjutant choice during adjutant choice without legal action enumeration", async () => {
+    const exchange = Array.from({ length: 5 }).reduce<GameState>(
+      (current) => applyAction(current, { type: "pass", playerId: current.currentPlayerId }),
+      createInitialGame({ rng: () => 0 })
+    );
+    const choosing = applyAction(exchange, {
+      type: "discard-cards",
+      playerId: exchange.currentPlayerId,
+      cardIds: exchange.players[0].hand.slice(0, 3).map((card) => card.id)
+    });
+    const playerId = choosing.currentPlayerId;
+    const view = createPlayerView(choosing, playerId);
+    const agent = new RandomAgent(() => 0);
+
+    const action = await agent.selectAction({ playerId, view, legalActions: [] });
+
+    expect(action).toEqual({
+      type: "choose-adjutant",
+      playerId,
+      cardId: expect.stringMatching(/^(spades|hearts|diamonds|clubs)-/)
+    });
+    expect(action.type === "choose-adjutant" ? action.cardId : "joker").not.toBe("joker");
+  });
 });

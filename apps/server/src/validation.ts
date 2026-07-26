@@ -1,5 +1,6 @@
 import type {
   BidRequest,
+  ChooseAdjutantRequest,
   DiscardCardsRequest,
   PassRequest,
   PlayCardRequest,
@@ -63,6 +64,21 @@ export function isDiscardCardsRequest(value: unknown): value is DiscardCardsRequ
   );
 }
 
+export function isChooseAdjutantRequest(value: unknown): value is ChooseAdjutantRequest {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const keys = Object.keys(value);
+  return (
+    keys.length === 2 &&
+    keys.includes("type") &&
+    keys.includes("cardId") &&
+    value.type === "choose-adjutant" &&
+    typeof value.cardId === "string"
+  );
+}
+
 export function readActionBody(value: unknown): PublicGameAction | undefined {
   if (!isRecord(value) || !("action" in value)) {
     return undefined;
@@ -78,7 +94,8 @@ export function readActionBody(value: unknown): PublicGameAction | undefined {
     isPlayCardRequest(value.action) ||
     isBidRequest(value.action) ||
     isPassRequest(value.action) ||
-    isDiscardCardsRequest(value.action)
+    isDiscardCardsRequest(value.action) ||
+    isChooseAdjutantRequest(value.action)
   ) {
     return value.action;
   }

@@ -148,7 +148,8 @@ button {
   width: min(100%, 760px);
 }
 
-.exchange-panel {
+.exchange-panel,
+.adjutant-panel {
   align-items: center;
   background: #f8fafc;
   border-radius: 8px;
@@ -161,14 +162,41 @@ button {
   width: min(100%, 760px);
 }
 
-.exchange-panel h2 {
+.exchange-panel h2,
+.adjutant-panel h2 {
   font-size: 1rem;
   margin: 0 0 4px;
 }
 
-.exchange-panel p {
+.exchange-panel p,
+.adjutant-panel p {
   color: #4b5563;
   margin: 0;
+}
+
+.adjutant-controls {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.adjutant-controls label {
+  color: #334155;
+  display: grid;
+  font-size: 0.82rem;
+  font-weight: 700;
+  gap: 4px;
+}
+
+.adjutant-controls select {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  color: #18212f;
+  min-height: 38px;
+  min-width: 86px;
+  padding: 0 10px;
 }
 
 .bidding-summary,

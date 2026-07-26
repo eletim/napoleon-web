@@ -47,7 +47,12 @@ export interface CompletedTrick {
   cards: readonly PlayedCard[];
 }
 
-export type GamePhase = "bidding" | "exchanging" | "playing" | "finished";
+export type GamePhase =
+  | "bidding"
+  | "exchanging"
+  | "choosing-adjutant"
+  | "playing"
+  | "finished";
 
 export interface Bid {
   playerId: PlayerId;
@@ -59,6 +64,17 @@ export interface Contract {
   napoleonPlayerId: PlayerId;
   trumpSuit: Suit;
   targetPointCards: number;
+}
+
+export interface AdjutantState {
+  calledCardId: string;
+  playerId: PlayerId | null;
+  revealed: boolean;
+}
+
+export interface AdjutantView {
+  calledCardId: string;
+  revealedPlayerId: PlayerId | null;
 }
 
 export type BiddingHistoryEntry =
@@ -90,6 +106,7 @@ export interface GameState {
   completedTricks: readonly CompletedTrick[];
   trumpSuit: Suit | null;
   contract: Contract | null;
+  adjutant: AdjutantState | null;
   bidding: BiddingState | null;
   buriedCards: readonly Card[];
   trickNumber: number;
@@ -122,10 +139,25 @@ export interface DiscardCardsAction {
   cardIds: readonly string[];
 }
 
-export type GameAction = PlayCardAction | BidAction | PassAction | DiscardCardsAction;
+export interface ChooseAdjutantAction {
+  type: "choose-adjutant";
+  playerId: PlayerId;
+  cardId: string;
+}
+
+export type GameAction =
+  | PlayCardAction
+  | BidAction
+  | PassAction
+  | DiscardCardsAction
+  | ChooseAdjutantAction;
 
 export interface ExchangeRequirement {
   discardCount: number;
+}
+
+export interface AdjutantChoiceRequirement {
+  standardCardsOnly: true;
 }
 
 export interface PublicPlayerState {
@@ -140,8 +172,10 @@ export interface PlayerView {
   phase: GamePhase;
   trumpSuit: Suit | null;
   contract: Contract | null;
+  adjutant: AdjutantView | null;
   bidding: PublicBiddingView | null;
   exchangeRequirement: ExchangeRequirement | null;
+  adjutantChoiceRequirement: AdjutantChoiceRequirement | null;
   currentPlayerId: PlayerId;
   currentTrick: readonly PlayedCard[];
   completedTrickCount: number;

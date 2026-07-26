@@ -17,6 +17,7 @@ import type {
   PublicBiddingHistoryEntry,
   PublicBiddingState,
   PublicContract,
+  PublicAdjutantChoiceState,
   PublicExchangeState,
   PublicGameState,
   PublicLegalAction,
@@ -52,8 +53,16 @@ export function toPublicGameState(state: GameState, playerId: PlayerId): PublicG
     phase: view.phase,
     trumpSuit: view.trumpSuit,
     contract: view.contract === null ? null : toPublicContract(view.contract),
+    adjutant:
+      view.adjutant === null
+        ? null
+        : {
+            calledCardId: view.adjutant.calledCardId,
+            revealedPlayerId: view.adjutant.revealedPlayerId
+          },
     bidding: view.bidding === null ? null : toPublicBiddingState(view.bidding),
     exchange: toPublicExchangeState(view),
+    adjutantChoice: toPublicAdjutantChoiceState(view),
     currentPlayerId: view.currentPlayerId,
     currentTrick: view.currentTrick.map(toPublicPlayedCard),
     completedTrickCount: view.completedTrickCount,
@@ -61,6 +70,19 @@ export function toPublicGameState(state: GameState, playerId: PlayerId): PublicG
     isTrickComplete: view.isTrickComplete,
     isGameOver: view.isGameOver,
     legalActions: view.legalActions.map(toPublicLegalAction)
+  };
+}
+
+function toPublicAdjutantChoiceState(
+  view: ReturnType<typeof createPlayerView>
+): PublicAdjutantChoiceState | null {
+  if (view.phase !== "choosing-adjutant" || view.contract === null) {
+    return null;
+  }
+
+  return {
+    napoleonPlayerId: view.contract.napoleonPlayerId,
+    standardCardsOnly: true
   };
 }
 
@@ -119,6 +141,8 @@ function toPublicLegalAction(action: GameAction): PublicLegalAction {
       };
     case "discard-cards":
       throw new Error("Discard action should not be exposed as an enumerated legal action.");
+    case "choose-adjutant":
+      throw new Error("Choose-adjutant action should not be exposed as an enumerated legal action.");
   }
 }
 

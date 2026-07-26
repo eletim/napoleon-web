@@ -2,7 +2,9 @@ import { createDeck, shuffleDeck } from "./deck.js";
 import { GameRuleError } from "./errors.js";
 import { determineTrickWinner, getPlayableCards } from "./trick.js";
 import { getLegalBidActions, isBidHigher, isSuit, validateBidRange } from "./bidding.js";
+import { isStandardCardId } from "./cards.js";
 import type {
+  AdjutantState,
   Bid,
   Card,
   Contract,
@@ -50,6 +52,7 @@ export function createInitialGame(options: CreateInitialGameOptions = {}): GameS
     completedTricks: [],
     trumpSuit: null,
     contract: null,
+    adjutant: null,
     bidding: {
       starterPlayerId: playerIds[0],
       highestBid: null,
@@ -81,7 +84,7 @@ export function getLegalActions(state: GameState, playerId: PlayerId): readonly 
     return getLegalBidActions(playerId, state.bidding.highestBid);
   }
 
-  if (state.phase === "exchanging") {
+  if (state.phase === "exchanging" || state.phase === "choosing-adjutant") {
     return [];
   }
 
@@ -107,6 +110,8 @@ export function applyAction(state: GameState, action: GameAction): GameState {
       return pass(state, action.playerId);
     case "discard-cards":
       return discardCards(state, action.playerId, action.cardIds);
+    case "choose-adjutant":
+      return chooseAdjutant(state, action.playerId, action.cardId);
   }
 }
 
@@ -147,12 +152,19 @@ export function createPlayerView(state: GameState, playerId: PlayerId): PlayerVi
     phase: state.phase,
     trumpSuit: state.trumpSuit,
     contract: state.contract,
+    adjutant: toAdjutantView(state.adjutant ?? null),
     bidding: state.bidding,
     exchangeRequirement:
       state.phase === "exchanging" &&
       state.contract !== null &&
       state.contract.napoleonPlayerId === playerId
         ? { discardCount: 3 }
+        : null,
+    adjutantChoiceRequirement:
+      state.phase === "choosing-adjutant" &&
+      state.contract !== null &&
+      state.contract.napoleonPlayerId === playerId
+        ? { standardCardsOnly: true }
         : null,
     currentPlayerId: state.currentPlayerId,
     currentTrick: state.currentTrick,
@@ -210,6 +222,7 @@ function playCard(state: GameState, playerId: PlayerId, cardId: string): GameSta
   );
 
   const currentTrick = [...state.currentTrick, { playerId, card }];
+  const adjutant = revealAdjutantIfNeeded(state.adjutant ?? null, playerId, card.id);
   const trickComplete = currentTrick.length === state.players.length;
   const winnerId = trickComplete
     ? determineTrickWinner(currentTrick, { trumpSuit: state.trumpSuit })
@@ -229,6 +242,7 @@ function playCard(state: GameState, playerId: PlayerId, cardId: string): GameSta
   return {
     ...state,
     players,
+    adjutant,
     phase: isGameOver ? "finished" : state.phase,
     currentPlayerId: winnerId,
     currentTrick,
@@ -369,7 +383,8 @@ function completeBidding(state: GameState, contract: Contract): GameState {
     contract,
     bidding: null,
     unusedCards: [],
-    buriedCards: []
+    buriedCards: [],
+    adjutant: null
   };
 }
 
@@ -442,12 +457,120 @@ function discardCards(
     ...state,
     players,
     buriedCards: discardedCards,
-    phase: "playing",
+    phase: "choosing-adjutant",
+    adjutant: null,
     currentPlayerId: playerId,
     currentTrick: [],
     trickNumber: 1,
     isTrickComplete: false,
     isGameOver: false
+  };
+}
+
+function chooseAdjutant(state: GameState, playerId: PlayerId, cardId: string): GameState {
+  if (state.phase === "finished" || state.isGameOver) {
+    throw new GameRuleError("GAME_OVER", "The game is already over.");
+  }
+
+  if (state.phase !== "choosing-adjutant") {
+    throw new GameRuleError(
+      "INVALID_ACTION_FOR_PHASE",
+      "This action is not allowed in the current game phase."
+    );
+  }
+
+  if (state.contract === null) {
+    throw new GameRuleError("INVALID_ADJUTANT_STATE", "A contract is required to choose an adjutant.");
+  }
+
+  if (playerId !== state.contract.napoleonPlayerId) {
+    throw new GameRuleError("NOT_NAPOLEON", "Only Napoleon can choose the adjutant card.");
+  }
+
+  if (state.currentPlayerId !== playerId) {
+    throw new GameRuleError("NOT_PLAYERS_TURN", "It is not this player's turn.");
+  }
+
+  if (state.adjutant !== null) {
+    throw new GameRuleError("ADJUTANT_ALREADY_CHOSEN", "The adjutant card has already been chosen.");
+  }
+
+  if (!isStandardCardId(cardId)) {
+    throw new GameRuleError("INVALID_ADJUTANT_CARD", "The adjutant card must be a standard card.");
+  }
+
+  if (
+    state.currentTrick.length !== 0 ||
+    state.completedTricks.length !== 0 ||
+    state.trickNumber !== 1 ||
+    state.buriedCards.length !== 3
+  ) {
+    throw new GameRuleError("INVALID_ADJUTANT_STATE", "Adjutant must be chosen before play starts.");
+  }
+
+  const adjutant: AdjutantState = {
+    calledCardId: cardId,
+    playerId: resolveAdjutantPlayerId(state, cardId),
+    revealed: false
+  };
+
+  return {
+    ...state,
+    phase: "playing",
+    currentPlayerId: playerId,
+    adjutant
+  };
+}
+
+function resolveAdjutantPlayerId(state: GameState, cardId: string): PlayerId | null {
+  if (state.contract === null) {
+    throw new GameRuleError("INVALID_ADJUTANT_STATE", "A contract is required to choose an adjutant.");
+  }
+
+  const owner = state.players.find((player) => player.hand.some((card) => card.id === cardId));
+
+  if (owner !== undefined) {
+    return owner.id === state.contract.napoleonPlayerId ? null : owner.id;
+  }
+
+  if (state.buriedCards.some((card) => card.id === cardId)) {
+    return null;
+  }
+
+  throw new GameRuleError("INVALID_ADJUTANT_STATE", "The adjutant card is not in the game state.");
+}
+
+function revealAdjutantIfNeeded(
+  adjutant: AdjutantState | null,
+  playerId: PlayerId,
+  cardId: string
+): AdjutantState | null {
+  if (adjutant === null || adjutant.revealed || adjutant.calledCardId !== cardId) {
+    return adjutant;
+  }
+
+  if (adjutant.playerId === null) {
+    return adjutant;
+  }
+
+  if (adjutant.playerId !== playerId) {
+    throw new GameRuleError("INVALID_ADJUTANT_STATE", "The called adjutant card owner is inconsistent.");
+  }
+
+  return {
+    ...adjutant,
+    revealed: true
+  };
+}
+
+function toAdjutantView(adjutant: AdjutantState | null): PlayerView["adjutant"] {
+  if (adjutant === null) {
+    return null;
+  }
+
+  return {
+    calledCardId: adjutant.calledCardId,
+    revealedPlayerId: adjutant.revealed ? adjutant.playerId : null
   };
 }
 

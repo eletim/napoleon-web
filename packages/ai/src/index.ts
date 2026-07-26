@@ -1,4 +1,5 @@
-import type { GameAction, PlayerId, PlayerView } from "@napoleon/game-core";
+import { isStandardCard } from "@napoleon/game-core";
+import type { GameAction, PlayerId, PlayerView, Rank, Suit } from "@napoleon/game-core";
 
 export interface PlayerObservation {
   playerId: PlayerId;
@@ -38,6 +39,25 @@ export class RandomAgent implements Agent {
       }
     }
 
+    if (observation.view.phase === "choosing-adjutant") {
+      const self = observation.view.players.find((player) => player.id === observation.playerId);
+
+      if (observation.view.adjutantChoiceRequirement !== null && self?.hand !== undefined) {
+        const selfStandardCardIds = new Set(
+          self.hand.filter(isStandardCard).map((card) => card.id)
+        );
+        const preferredCardId =
+          standardAdjutantCardIds.find((cardId) => !selfStandardCardIds.has(cardId)) ??
+          standardAdjutantCardIds[0];
+
+        return {
+          type: "choose-adjutant",
+          playerId: observation.playerId,
+          cardId: preferredCardId
+        };
+      }
+    }
+
     if (observation.legalActions.length === 0) {
       throw new NoLegalActionsError(observation.playerId);
     }
@@ -47,6 +67,27 @@ export class RandomAgent implements Agent {
     return candidates[Math.min(index, candidates.length - 1)];
   }
 }
+
+const adjutantSuitPreference: readonly Suit[] = ["spades", "hearts", "diamonds", "clubs"];
+const adjutantRankPreference: readonly Rank[] = [
+  "A",
+  "K",
+  "Q",
+  "J",
+  "10",
+  "9",
+  "8",
+  "7",
+  "6",
+  "5",
+  "4",
+  "3",
+  "2"
+];
+
+const standardAdjutantCardIds = adjutantSuitPreference.flatMap((suit) =>
+  adjutantRankPreference.map((rank) => `${suit}-${rank}`)
+);
 
 function getRandomCandidates(legalActions: readonly GameAction[]): readonly GameAction[] {
   const passAction = legalActions.find((action) => action.type === "pass");

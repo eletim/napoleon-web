@@ -52,6 +52,18 @@ class InspectingAgent implements Agent {
     this.observedOpponentHandLeak = input.view.players
       .filter((player) => player.id !== input.playerId)
       .some((player) => hasOwn(player, "hand"));
+    const exchangeAction = createExchangeAction(input);
+
+    if (exchangeAction !== undefined) {
+      return exchangeAction;
+    }
+
+    const adjutantAction = createAdjutantAction(input);
+
+    if (adjutantAction !== undefined) {
+      return adjutantAction;
+    }
+
     const action = input.legalActions[0];
 
     if (action === undefined) {
@@ -68,6 +80,12 @@ class PassAgent implements Agent {
 
     if (exchangeAction !== undefined) {
       return exchangeAction;
+    }
+
+    const adjutantAction = createAdjutantAction(input);
+
+    if (adjutantAction !== undefined) {
+      return adjutantAction;
     }
 
     const passAction = input.legalActions.find((action) => action.type === "pass");
@@ -96,6 +114,12 @@ class PreferBidAgent implements Agent {
 
     if (exchangeAction !== undefined) {
       return exchangeAction;
+    }
+
+    const adjutantAction = createAdjutantAction(input);
+
+    if (adjutantAction !== undefined) {
+      return adjutantAction;
     }
 
     const preferred = input.legalActions.find(
@@ -142,6 +166,18 @@ function createExchangeAction(input: Parameters<Agent["selectAction"]>[0]): Game
   };
 }
 
+function createAdjutantAction(input: Parameters<Agent["selectAction"]>[0]): GameAction | undefined {
+  if (input.view.phase !== "choosing-adjutant" || input.view.adjutantChoiceRequirement === null) {
+    return undefined;
+  }
+
+  return {
+    type: "choose-adjutant",
+    playerId: input.playerId,
+    cardId: "spades-A"
+  };
+}
+
 beforeEach(async () => {
   games.clear();
   app = await buildApp();
@@ -179,6 +215,8 @@ describe("server API", () => {
     expect(body.state.phase).toBe("bidding");
     expect(body.state.trumpSuit).toBeNull();
     expect(body.state.contract).toBeNull();
+    expect(body.state.adjutant).toBeNull();
+    expect(body.state.adjutantChoice).toBeNull();
     expect(body.state.bidding).toMatchObject({
       starterPlayerId: "player-0",
       highestBid: null,
@@ -459,6 +497,8 @@ describe("server API", () => {
       napoleonPlayerId: "player-0",
       requiredDiscardCount: 3
     });
+    expect(body.state.adjutant).toBeNull();
+    expect(body.state.adjutantChoice).toBeNull();
     expect(body.state.self.hand).toHaveLength(13);
     expect(body.state.opponents.some((opponent) => hasOwn(opponent, "hand"))).toBe(false);
     expect(hasOwn(body.state, "buriedCards")).toBe(false);
@@ -506,6 +546,8 @@ describe("server API", () => {
       napoleonPlayerId: "player-0",
       requiredDiscardCount: 3
     });
+    expect(body.state.adjutant).toBeNull();
+    expect(body.state.adjutantChoice).toBeNull();
     expect(body.state.self.hand).toHaveLength(13);
   });
 
@@ -567,6 +609,11 @@ describe("server API", () => {
       trumpSuit: "spades",
       targetPointCards: 13
     });
+    expect(playingBody.state.adjutant).toEqual({
+      calledCardId: "spades-A",
+      revealedPlayerId: null
+    });
+    expect(playingBody.state.adjutantChoice).toBeNull();
     expect(playingBody.state.currentPlayerId).toBe("player-0");
     expect(playingBody.state.currentTrick.map((played) => played.playerId)).toEqual([
       "player-1",
@@ -577,7 +624,7 @@ describe("server API", () => {
     expect(playingBody.state.legalActions.length).toBeGreaterThan(0);
   });
 
-  it("lets a human Napoleon discard three buried cards and starts play", async () => {
+  it("lets a human Napoleon discard three buried cards and waits for adjutant choice", async () => {
     const state = createAllPassExchangeState();
     const discardIds = state.players[0].hand.slice(0, 3).map((card) => card.id);
     games.set("human-exchange", {
@@ -599,14 +646,68 @@ describe("server API", () => {
     const body = response.json<SendActionResponse>();
 
     expect(response.statusCode).toBe(200);
-    expect(body.state.phase).toBe("playing");
+    expect(body.state.phase).toBe("choosing-adjutant");
     expect(body.state.exchange).toBeNull();
+    expect(body.state.adjutantChoice).toEqual({
+      napoleonPlayerId: "player-0",
+      standardCardsOnly: true
+    });
+    expect(body.state.adjutant).toBeNull();
     expect(body.state.self.hand).toHaveLength(10);
-    expect(body.state.legalActions.some((action) => action.type === "play-card")).toBe(true);
+    expect(body.state.legalActions).toEqual([]);
     expect(hasOwn(body.state, "buriedCards")).toBe(false);
     expect(games.get("human-exchange")?.state.buriedCards.map((card) => card.id)).toEqual(
       discardIds
     );
+  });
+
+  it("lets a human Napoleon choose an adjutant card and starts play", async () => {
+    const exchange = createAllPassExchangeState();
+    const choosing = applyAction(exchange, {
+      type: "discard-cards",
+      playerId: "player-0",
+      cardIds: exchange.players[0].hand.slice(0, 3).map((card) => card.id)
+    });
+    const calledCard = choosing.players[1].hand.find(isStandardCard);
+
+    expect(calledCard).toBeDefined();
+    if (calledCard === undefined) {
+      throw new Error("Expected player-1 to have a standard card.");
+    }
+
+    games.set("human-adjutant", {
+      state: choosing,
+      humanPlayerId: "player-0",
+      agents: createAgents(["player-1", "player-2", "player-3", "player-4"])
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games/human-adjutant/actions",
+      payload: {
+        action: {
+          type: "choose-adjutant",
+          cardId: calledCard.id
+        }
+      }
+    });
+    const body = response.json<SendActionResponse>();
+
+    expect(response.statusCode).toBe(200);
+    expect(body.state.phase).toBe("playing");
+    expect(body.state.adjutant).toEqual({
+      calledCardId: calledCard.id,
+      revealedPlayerId: null
+    });
+    expect(body.state.adjutantChoice).toBeNull();
+    expect(body.state.self.hand).toHaveLength(10);
+    expect(body.state.legalActions.some((action) => action.type === "play-card")).toBe(true);
+    expect(hasOwn(body.state, "buriedCards")).toBe(false);
+    expect(games.get("human-adjutant")?.state.adjutant).toEqual({
+      calledCardId: calledCard.id,
+      playerId: "player-1",
+      revealed: false
+    });
   });
 
   it("rejects invalid discard requests and leaves exchange state unchanged", async () => {
@@ -673,6 +774,78 @@ describe("server API", () => {
         snapshot
       );
     }
+  });
+
+  it("rejects invalid adjutant requests and leaves choosing state unchanged", async () => {
+    const exchange = createAllPassExchangeState();
+    const choosing = applyAction(exchange, {
+      type: "discard-cards",
+      playerId: "player-0",
+      cardIds: exchange.players[0].hand.slice(0, 3).map((card) => card.id)
+    });
+    games.set("invalid-adjutant", {
+      state: choosing,
+      humanPlayerId: "player-0",
+      agents: createAgents(["player-1", "player-2", "player-3", "player-4"])
+    });
+
+    const malformedPayloads = [
+      { action: { type: "choose-adjutant", cardId: 1 } },
+      { action: { type: "choose-adjutant", cardId: "spades-A", extra: true } }
+    ];
+
+    for (const payload of malformedPayloads) {
+      const snapshot = createStateSnapshot(games.get("invalid-adjutant")?.state ?? choosing);
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/games/invalid-adjutant/actions",
+        payload
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json<ApiError>().error.code).toBe("INVALID_ACTION");
+      expect(createStateSnapshot(games.get("invalid-adjutant")?.state ?? choosing)).toEqual(
+        snapshot
+      );
+    }
+
+    for (const testCase of [
+      { action: { type: "choose-adjutant", cardId: "joker" }, code: "INVALID_ADJUTANT_CARD" },
+      { action: { type: "choose-adjutant", cardId: "spades-1" }, code: "INVALID_ADJUTANT_CARD" }
+    ] as const) {
+      const snapshot = createStateSnapshot(games.get("invalid-adjutant")?.state ?? choosing);
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/games/invalid-adjutant/actions",
+        payload: { action: testCase.action }
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json<ApiError>().error.code).toBe(testCase.code);
+      expect(createStateSnapshot(games.get("invalid-adjutant")?.state ?? choosing)).toEqual(
+        snapshot
+      );
+    }
+
+    games.set("non-napoleon-adjutant", {
+      state: choosing,
+      humanPlayerId: "player-1",
+      agents: createAgents(["player-0", "player-2", "player-3", "player-4"])
+    });
+
+    const nonNapoleonResponse = await app.inject({
+      method: "POST",
+      url: "/api/games/non-napoleon-adjutant/actions",
+      payload: {
+        action: {
+          type: "choose-adjutant",
+          cardId: "spades-A"
+        }
+      }
+    });
+
+    expect(nonNapoleonResponse.statusCode).toBe(400);
+    expect(nonNapoleonResponse.json<ApiError>().error.code).toBe("NOT_NAPOLEON");
   });
 
   it("rejects discard requests outside exchange or by non-Napoleon humans", async () => {
@@ -1257,6 +1430,7 @@ function createStateSnapshot(state: GameState) {
     completedTricks: structuredClone(state.completedTricks),
     trumpSuit: state.trumpSuit,
     contract: structuredClone(state.contract),
+    adjutant: structuredClone(state.adjutant),
     bidding: structuredClone(state.bidding),
     buriedCards: structuredClone(state.buriedCards),
     unusedCards: structuredClone(state.unusedCards),
@@ -1310,6 +1484,7 @@ function createStateWithHands(
       trumpSuit: "spades",
       targetPointCards: 13
     },
+    adjutant: null,
     bidding: null,
     buriedCards: [],
     trickNumber: 1,

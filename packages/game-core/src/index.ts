@@ -1,5 +1,5 @@
 export { createDeck, ranks, shuffleDeck, suits } from "./deck.js";
-export { isJokerCard, isStandardCard } from "./cards.js";
+export { isJokerCard, isStandardCard, isStandardCardId } from "./cards.js";
 export { GameRuleError } from "./errors.js";
 export {
   biddingSuitOrder,
@@ -28,6 +28,9 @@ export {
 } from "./game.js";
 export type {
   Card,
+  AdjutantChoiceRequirement,
+  AdjutantState,
+  AdjutantView,
   JokerCard,
   Bid,
   BidAction,
@@ -36,6 +39,7 @@ export type {
   CompletedTrick,
   Contract,
   CreateInitialGameOptions,
+  ChooseAdjutantAction,
   DiscardCardsAction,
   ExchangeRequirement,
   GameAction,

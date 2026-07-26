@@ -3,7 +3,9 @@ import type {
   PublicBidAction,
   PublicCard,
   PublicGameAction,
-  PublicGameState
+  PublicGameState,
+  PublicRank,
+  PublicSuit
 } from "@napoleon/protocol";
 import { CardButton } from "./CardButton";
 import { createGame, nextTrick, sendAction } from "./api";
@@ -21,6 +23,8 @@ export function App() {
   const [message, setMessage] = useState("ゲームを開始してください。");
   const [isBusy, setIsBusy] = useState(false);
   const [selectedDiscardCardIds, setSelectedDiscardCardIds] = useState<readonly string[]>([]);
+  const [selectedAdjutantSuit, setSelectedAdjutantSuit] = useState<PublicSuit>("spades");
+  const [selectedAdjutantRank, setSelectedAdjutantRank] = useState<PublicRank>("A");
 
   const legalCardIds = useMemo(() => {
     const actions = session?.state.legalActions ?? [];
@@ -42,6 +46,9 @@ export function App() {
   const canExchange =
     session?.state.phase === "exchanging" &&
     session.state.exchange?.napoleonPlayerId === session.playerId;
+  const canChooseAdjutant =
+    session?.state.phase === "choosing-adjutant" &&
+    session.state.adjutantChoice?.napoleonPlayerId === session.playerId;
 
   const self = session?.state.self;
   const otherPlayers = session?.state.opponents ?? [];
@@ -51,6 +58,8 @@ export function App() {
       const response = await createGame();
       setSession(response);
       setSelectedDiscardCardIds([]);
+      setSelectedAdjutantSuit("spades");
+      setSelectedAdjutantRank("A");
       setMessage(createMessage(response.state, response.playerId));
     });
   }
@@ -167,6 +176,7 @@ export function App() {
             <span>トリック: {session?.state.trickNumber ?? "-"}</span>
             <span>切り札: {formatTrumpSuit(session?.state.trumpSuit ?? null)}</span>
             <span>契約: {formatContract(session?.state ?? null)}</span>
+            <span>副官札: {formatAdjutant(session?.state.adjutant ?? null)}</span>
           </div>
 
           {session?.state.phase === "bidding" ? (
@@ -241,6 +251,62 @@ export function App() {
               >
                 3枚を捨てる
               </button>
+            </section>
+          ) : null}
+
+          {session?.state.phase === "choosing-adjutant" ? (
+            <section className="adjutant-panel" aria-label="副官指定">
+              <div>
+                <h2>副官指定</h2>
+                <p>副官として呼ぶ通常カードを1枚指定してください。</p>
+              </div>
+              <div className="adjutant-controls">
+                <label>
+                  スート
+                  <select
+                    disabled={!canChooseAdjutant || isBusy}
+                    onChange={(event) =>
+                      setSelectedAdjutantSuit(event.target.value as PublicSuit)
+                    }
+                    value={selectedAdjutantSuit}
+                  >
+                    {suitOptions.map((suit) => (
+                      <option key={suit} value={suit}>
+                        {suitSymbols[suit]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  ランク
+                  <select
+                    disabled={!canChooseAdjutant || isBusy}
+                    onChange={(event) =>
+                      setSelectedAdjutantRank(event.target.value as PublicRank)
+                    }
+                    value={selectedAdjutantRank}
+                  >
+                    {rankOptions.map((rank) => (
+                      <option key={rank} value={rank}>
+                        {rank}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  className="secondary-button"
+                  disabled={!canChooseAdjutant || isBusy}
+                  onClick={() =>
+                    void handleSendAction({
+                      type: "choose-adjutant",
+                      cardId: `${selectedAdjutantSuit}-${selectedAdjutantRank}`
+                    })
+                  }
+                  type="button"
+                >
+                  副官を指定
+                </button>
+              </div>
             </section>
           ) : null}
 
@@ -329,6 +395,12 @@ function createMessage(state: PublicGameState, playerId: string): string {
       : `${state.exchange?.napoleonPlayerId ?? state.currentPlayerId} が埋札交換中です。`;
   }
 
+  if (state.phase === "choosing-adjutant") {
+    return state.adjutantChoice?.napoleonPlayerId === playerId
+      ? "副官として呼ぶカードを指定してください。"
+      : `${state.adjutantChoice?.napoleonPlayerId ?? state.currentPlayerId} が副官を指定中です。`;
+  }
+
   if (state.isTrickComplete) {
     return "5枚出ました。次のトリックへ進めます。";
   }
@@ -350,6 +422,8 @@ function formatPhase(phase: PublicGameState["phase"] | undefined): string {
       return "競り";
     case "exchanging":
       return "交換";
+    case "choosing-adjutant":
+      return "副官指定";
     case "playing":
       return "プレイ";
     case "finished":
@@ -358,6 +432,23 @@ function formatPhase(phase: PublicGameState["phase"] | undefined): string {
       return "-";
   }
 }
+
+const suitOptions: readonly PublicSuit[] = ["spades", "hearts", "diamonds", "clubs"];
+const rankOptions: readonly PublicRank[] = [
+  "A",
+  "K",
+  "Q",
+  "J",
+  "10",
+  "9",
+  "8",
+  "7",
+  "6",
+  "5",
+  "4",
+  "3",
+  "2"
+];
 
 function formatSuit(suit: PublicBidAction["suit"]): string {
   return suitSymbols[suit];
@@ -377,4 +468,37 @@ function formatContract(state: PublicGameState | null): string {
   }
 
   return `${state.contract.napoleonPlayerId} ${formatSuit(state.contract.trumpSuit)}${state.contract.targetPointCards}`;
+}
+
+function formatAdjutant(adjutant: PublicGameState["adjutant"]): string {
+  if (adjutant === null) {
+    return "未指定";
+  }
+
+  const card = formatCardId(adjutant.calledCardId);
+  const owner = adjutant.revealedPlayerId === null ? "未判明" : adjutant.revealedPlayerId;
+  return `${card} / ${owner}`;
+}
+
+function formatCardId(cardId: string): string {
+  const [suit, rank] = cardId.split("-");
+
+  if (isPublicSuit(suit) && isPublicRank(rank)) {
+    return `${rank}${suitSymbols[suit]}`;
+  }
+
+  return cardId;
+}
+
+function isPublicSuit(value: string | undefined): value is PublicSuit {
+  return (
+    value === "spades" ||
+    value === "hearts" ||
+    value === "diamonds" ||
+    value === "clubs"
+  );
+}
+
+function isPublicRank(value: string | undefined): value is PublicRank {
+  return rankOptions.some((rank) => rank === value);
 }
