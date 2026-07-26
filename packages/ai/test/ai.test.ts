@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createInitialGame, createPlayerView, getLegalActions } from "@napoleon/game-core";
+import {
+  applyAction,
+  createInitialGame,
+  createPlayerView,
+  getLegalActions,
+  type GameState
+} from "@napoleon/game-core";
 import { NoLegalActionsError, RandomAgent } from "../src/index.js";
 
 describe("RandomAgent", () => {
@@ -41,5 +47,23 @@ describe("RandomAgent", () => {
     await expect(
       agent.selectAction({ playerId, view, legalActions: [] })
     ).rejects.toBeInstanceOf(NoLegalActionsError);
+  });
+
+  it("returns a discard action from its own hand during exchange even without legal action enumeration", async () => {
+    const state = Array.from({ length: 5 }).reduce<GameState>(
+      (current) => applyAction(current, { type: "pass", playerId: current.currentPlayerId }),
+      createInitialGame({ rng: () => 0 })
+    );
+    const playerId = state.currentPlayerId;
+    const view = createPlayerView(state, playerId);
+    const agent = new RandomAgent(() => 0);
+
+    const action = await agent.selectAction({ playerId, view, legalActions: [] });
+
+    expect(action).toEqual({
+      type: "discard-cards",
+      playerId,
+      cardIds: view.players[0].hand?.slice(0, 3).map((card) => card.id)
+    });
   });
 });

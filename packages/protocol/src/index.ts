@@ -34,7 +34,7 @@ export interface PublicPlayedCard {
   card: PublicCard;
 }
 
-export type PublicGamePhase = "bidding" | "playing" | "finished";
+export type PublicGamePhase = "bidding" | "exchanging" | "playing" | "finished";
 
 export interface PublicBid {
   playerId: string;
@@ -67,6 +67,11 @@ export interface PublicBiddingState {
   history: readonly PublicBiddingHistoryEntry[];
 }
 
+export interface PublicExchangeState {
+  napoleonPlayerId: string;
+  requiredDiscardCount: number;
+}
+
 export interface PublicSelfPlayer {
   id: string;
   handCount: number;
@@ -93,6 +98,11 @@ export interface PublicPassAction {
   type: "pass";
 }
 
+export interface PublicDiscardCardsAction {
+  type: "discard-cards";
+  cardIds: readonly string[];
+}
+
 export type PublicLegalAction = PublicPlayCardAction | PublicBidAction | PublicPassAction;
 
 export interface PublicGameState {
@@ -102,6 +112,7 @@ export interface PublicGameState {
   trumpSuit: PublicSuit | null;
   contract: PublicContract | null;
   bidding: PublicBiddingState | null;
+  exchange: PublicExchangeState | null;
   currentPlayerId: string;
   currentTrick: readonly PublicPlayedCard[];
   completedTrickCount: number;
@@ -134,7 +145,16 @@ export interface PassRequest {
   type: "pass";
 }
 
-export type PublicGameAction = PlayCardRequest | BidRequest | PassRequest;
+export interface DiscardCardsRequest {
+  type: "discard-cards";
+  cardIds: readonly string[];
+}
+
+export type PublicGameAction =
+  | PlayCardRequest
+  | BidRequest
+  | PassRequest
+  | DiscardCardsRequest;
 
 export interface SendActionRequest {
   action: PublicGameAction;

@@ -131,6 +131,7 @@ describe("game-core", () => {
       consecutivePassCount: 0,
       history: []
     });
+    expect(state.buriedCards).toEqual([]);
     expect(state.currentPlayerId).toBe("player-0");
   });
 
@@ -330,7 +331,7 @@ describe("game-core", () => {
       { type: "pass" as const, playerId: "player-1" }
     ].reduce<GameState>((current, action) => applyAction(current, action), createInitialGame());
 
-    expect(state.phase).toBe("playing");
+    expect(state.phase).toBe("exchanging");
     expect(state.bidding).toBeNull();
     expect(state.contract).toEqual({
       napoleonPlayerId: "player-2",
@@ -339,9 +340,16 @@ describe("game-core", () => {
     });
     expect(state.trumpSuit).toBe("spades");
     expect(state.currentPlayerId).toBe("player-2");
-    expect(getLegalActions(state, "player-2").some((action) => action.type === "play-card")).toBe(
-      true
-    );
+    expect(state.players.find((player) => player.id === "player-2")?.hand).toHaveLength(13);
+    expect(
+      state.players
+        .filter((player) => player.id !== "player-2")
+        .every((player) => player.hand.length === 10)
+    ).toBe(true);
+    expect(state.unusedCards).toHaveLength(0);
+    expect(state.buriedCards).toHaveLength(0);
+    expect(countKnownCards(state)).toBe(53);
+    expect(getLegalActions(state, "player-2")).toEqual([]);
   });
 
   it("creates a special spades-12 contract when everyone passes", () => {
@@ -350,7 +358,7 @@ describe("game-core", () => {
       createInitialGame({ rng: noShuffle })
     );
 
-    expect(state.phase).toBe("playing");
+    expect(state.phase).toBe("exchanging");
     expect(state.contract).toEqual({
       napoleonPlayerId: "player-0",
       trumpSuit: "spades",
@@ -358,6 +366,159 @@ describe("game-core", () => {
     });
     expect(state.trumpSuit).toBe("spades");
     expect(state.currentPlayerId).toBe("player-0");
+    expect(state.players[0].hand).toHaveLength(13);
+    expect(state.unusedCards).toHaveLength(0);
+  });
+
+  it("moves three discarded cards into buriedCards and starts playing", () => {
+    const exchanging = createAllPassExchangeState();
+    const discardIds = exchanging.players[0].hand.slice(0, 3).map((card) => card.id);
+    const next = applyAction(exchanging, {
+      type: "discard-cards",
+      playerId: "player-0",
+      cardIds: discardIds
+    });
+
+    expect(next.phase).toBe("playing");
+    expect(next.currentPlayerId).toBe("player-0");
+    expect(next.players[0].hand).toHaveLength(10);
+    expect(next.players[0].hand.some((card) => discardIds.includes(card.id))).toBe(false);
+    expect(next.buriedCards.map((card) => card.id)).toEqual(discardIds);
+    expect(next.currentTrick).toEqual([]);
+    expect(next.trickNumber).toBe(1);
+    expect(next.isTrickComplete).toBe(false);
+    expect(next.isGameOver).toBe(false);
+    expect(countKnownCards(next)).toBe(53);
+    expect(getLegalActions(next, "player-0").some((action) => action.type === "play-card")).toBe(
+      true
+    );
+  });
+
+  it("allows discarding the joker", () => {
+    const exchanging = createAllPassExchangeState();
+    const jokerCard = exchanging.players[0].hand.find(isJokerCard);
+
+    expect(jokerCard).toBeDefined();
+    if (jokerCard === undefined) {
+      throw new Error("Expected joker in player-0 hand after all-pass exchange with no shuffle.");
+    }
+
+    const discardIds = [
+      jokerCard.id,
+      exchanging.players[0].hand[0].id,
+      exchanging.players[0].hand[1].id
+    ];
+    const next = applyAction(exchanging, {
+      type: "discard-cards",
+      playerId: "player-0",
+      cardIds: discardIds
+    });
+
+    expect(next.phase).toBe("playing");
+    expect(next.players[0].hand.some(isJokerCard)).toBe(false);
+    expect(next.buriedCards.some(isJokerCard)).toBe(true);
+  });
+
+  it("rejects invalid discard counts, duplicate ids, and cards outside Napoleon's hand", () => {
+    const exchanging = createAllPassExchangeState();
+    const ids = exchanging.players[0].hand.map((card) => card.id);
+
+    for (const cardIds of [[], [ids[0]], ids.slice(0, 2), ids.slice(0, 4), ids]) {
+      expectRuleError(
+        () =>
+          applyAction(exchanging, {
+            type: "discard-cards",
+            playerId: "player-0",
+            cardIds
+          }),
+        "INVALID_DISCARD_COUNT"
+      );
+    }
+
+    expectRuleError(
+      () =>
+        applyAction(exchanging, {
+          type: "discard-cards",
+          playerId: "player-0",
+          cardIds: [ids[0], ids[0], ids[1]]
+        }),
+      "DUPLICATE_CARD_ID"
+    );
+    expectRuleError(
+      () =>
+        applyAction(exchanging, {
+          type: "discard-cards",
+          playerId: "player-0",
+          cardIds: [ids[0], ids[1], "not-in-hand"]
+        }),
+      "CARD_NOT_IN_HAND"
+    );
+    expectRuleError(
+      () =>
+        applyAction(exchanging, {
+          type: "discard-cards",
+          playerId: "player-0",
+          cardIds: [ids[0], ids[1], exchanging.players[1].hand[0].id]
+        }),
+      "CARD_NOT_IN_HAND"
+    );
+  });
+
+  it("rejects discard-cards from invalid actors or phases", () => {
+    const exchanging = createAllPassExchangeState();
+    const ids = exchanging.players[0].hand.slice(0, 3).map((card) => card.id);
+    const playing = applyAction(exchanging, {
+      type: "discard-cards",
+      playerId: "player-0",
+      cardIds: ids
+    });
+    const finished = { ...playing, phase: "finished" as const, isGameOver: true };
+
+    expectRuleError(
+      () =>
+        applyAction(exchanging, {
+          type: "discard-cards",
+          playerId: "player-1",
+          cardIds: exchanging.players[1].hand.slice(0, 3).map((card) => card.id)
+        }),
+      "NOT_NAPOLEON"
+    );
+    expectRuleError(
+      () => applyAction(createInitialGame({ rng: noShuffle }), { type: "discard-cards", playerId: "player-0", cardIds: ids }),
+      "INVALID_ACTION_FOR_PHASE"
+    );
+    expectRuleError(
+      () => applyAction(playing, { type: "discard-cards", playerId: "player-0", cardIds: ids }),
+      "INVALID_ACTION_FOR_PHASE"
+    );
+    expectRuleError(
+      () => applyAction(finished, { type: "discard-cards", playerId: "player-0", cardIds: ids }),
+      "GAME_OVER"
+    );
+    expectRuleError(
+      () =>
+        applyAction(exchanging, {
+          type: "play-card",
+          playerId: "player-0",
+          cardId: ids[0]
+        }),
+      "INVALID_ACTION_FOR_PHASE"
+    );
+    expectRuleError(
+      () => applyAction(exchanging, { type: "pass", playerId: "player-0" }),
+      "INVALID_ACTION_FOR_PHASE"
+    );
+    expectRuleError(
+      () =>
+        applyAction(exchanging, {
+          type: "bid",
+          playerId: "player-0",
+          suit: "spades",
+          targetPointCards: 13
+        }),
+      "INVALID_ACTION_FOR_PHASE"
+    );
+    expectRuleError(() => advanceToNextTrick(exchanging), "INVALID_ACTION_FOR_PHASE");
   });
 
   it("rejects card play during bidding and next-trick before playing", () => {
@@ -1049,13 +1210,10 @@ describe("game-core", () => {
   });
 
   it("exposes the finalized contract through createPlayerView", () => {
-    const state = Array.from({ length: 5 }).reduce<GameState>(
-      (current) => applyAction(current, { type: "pass", playerId: current.currentPlayerId }),
-      createInitialGame({ rng: noShuffle })
-    );
+    const state = createAllPassExchangeState();
     const view = createPlayerView(state, "player-0");
 
-    expect(view.phase).toBe("playing");
+    expect(view.phase).toBe("exchanging");
     expect(view.contract).toEqual({
       napoleonPlayerId: "player-0",
       trumpSuit: "spades",
@@ -1063,6 +1221,38 @@ describe("game-core", () => {
     });
     expect(view.bidding).toBeNull();
     expect(view.trumpSuit).toBe("spades");
+    expect(view.exchangeRequirement).toEqual({ discardCount: 3 });
+  });
+
+  it("keeps exchange information private for non-Napoleon views", () => {
+    const state = createAllPassExchangeState();
+    const napoleonView = createPlayerView(state, "player-0");
+    const opponentView = createPlayerView(state, "player-1");
+
+    expect(napoleonView.phase).toBe("exchanging");
+    expect(napoleonView.players[0].hand).toHaveLength(13);
+    expect(napoleonView.exchangeRequirement).toEqual({ discardCount: 3 });
+    expect(opponentView.phase).toBe("exchanging");
+    expect(opponentView.players[0].handCount).toBe(13);
+    expect(opponentView.players[0].hand).toBeUndefined();
+    expect(opponentView.players[1].hand).toHaveLength(10);
+    expect(opponentView.exchangeRequirement).toBeNull();
+    expect(hasOwn(opponentView, "buriedCards")).toBe(false);
+  });
+
+  it("clears exchange requirements after exchange completes", () => {
+    const exchanging = createAllPassExchangeState();
+    const next = applyAction(exchanging, {
+      type: "discard-cards",
+      playerId: "player-0",
+      cardIds: exchanging.players[0].hand.slice(0, 3).map((card) => card.id)
+    });
+    const view = createPlayerView(next, "player-1");
+
+    expect(view.phase).toBe("playing");
+    expect(view.exchangeRequirement).toBeNull();
+    expect(view.players[0].handCount).toBe(10);
+    expect(hasOwn(view, "buriedCards")).toBe(false);
   });
 
   it("exposes null trump suit through createPlayerView", () => {
@@ -1117,6 +1307,7 @@ function createStateWithHands(options: {
   phase?: GameState["phase"];
   contract?: GameState["contract"];
   bidding?: GameState["bidding"];
+  buriedCards?: GameState["buriedCards"];
 }): GameState {
   const playerIds = ["player-0", "player-1", "player-2", "player-3", "player-4"];
 
@@ -1137,8 +1328,9 @@ function createStateWithHands(options: {
             napoleonPlayerId: "player-0",
             trumpSuit: options.trumpSuit ?? "spades",
             targetPointCards: 13
-          },
+    },
     bidding: options.bidding ?? null,
+    buriedCards: options.buriedCards ?? [],
     trickNumber: options.trickNumber ?? 1,
     isTrickComplete: options.isTrickComplete ?? false,
     isGameOver: options.isGameOver ?? false,
@@ -1148,4 +1340,21 @@ function createStateWithHands(options: {
 
 function hasOwn(value: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function createAllPassExchangeState(): GameState {
+  return Array.from({ length: 5 }).reduce<GameState>(
+    (current) => applyAction(current, { type: "pass", playerId: current.currentPlayerId }),
+    createInitialGame({ rng: noShuffle })
+  );
+}
+
+function countKnownCards(state: GameState): number {
+  return [
+    ...state.players.flatMap((player) => player.hand),
+    ...state.buriedCards,
+    ...state.unusedCards,
+    ...state.currentTrick.map((played) => played.card),
+    ...state.completedTricks.flatMap((trick) => trick.cards.map((played) => played.card))
+  ].length;
 }

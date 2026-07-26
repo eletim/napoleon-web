@@ -36,6 +36,8 @@ export type {
   CompletedTrick,
   Contract,
   CreateInitialGameOptions,
+  DiscardCardsAction,
+  ExchangeRequirement,
   GameAction,
   GamePhase,
   GameState,

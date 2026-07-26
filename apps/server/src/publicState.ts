@@ -17,6 +17,7 @@ import type {
   PublicBiddingHistoryEntry,
   PublicBiddingState,
   PublicContract,
+  PublicExchangeState,
   PublicGameState,
   PublicLegalAction,
   PublicOpponentPlayer,
@@ -52,6 +53,7 @@ export function toPublicGameState(state: GameState, playerId: PlayerId): PublicG
     trumpSuit: view.trumpSuit,
     contract: view.contract === null ? null : toPublicContract(view.contract),
     bidding: view.bidding === null ? null : toPublicBiddingState(view.bidding),
+    exchange: toPublicExchangeState(view),
     currentPlayerId: view.currentPlayerId,
     currentTrick: view.currentTrick.map(toPublicPlayedCard),
     completedTrickCount: view.completedTrickCount,
@@ -59,6 +61,19 @@ export function toPublicGameState(state: GameState, playerId: PlayerId): PublicG
     isTrickComplete: view.isTrickComplete,
     isGameOver: view.isGameOver,
     legalActions: view.legalActions.map(toPublicLegalAction)
+  };
+}
+
+function toPublicExchangeState(
+  view: ReturnType<typeof createPlayerView>
+): PublicExchangeState | null {
+  if (view.phase !== "exchanging" || view.contract === null) {
+    return null;
+  }
+
+  return {
+    napoleonPlayerId: view.contract.napoleonPlayerId,
+    requiredDiscardCount: view.exchangeRequirement?.discardCount ?? 3
   };
 }
 
@@ -102,6 +117,8 @@ function toPublicLegalAction(action: GameAction): PublicLegalAction {
       return {
         type: "pass"
       };
+    case "discard-cards":
+      throw new Error("Discard action should not be exposed as an enumerated legal action.");
   }
 }
 

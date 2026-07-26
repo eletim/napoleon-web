@@ -56,6 +56,7 @@ export function createInitialGame(options: CreateInitialGameOptions = {}): GameS
       consecutivePassCount: 0,
       history: []
     },
+    buriedCards: [],
     trickNumber: 1,
     isTrickComplete: false,
     isGameOver: false,
@@ -80,6 +81,10 @@ export function getLegalActions(state: GameState, playerId: PlayerId): readonly 
     return getLegalBidActions(playerId, state.bidding.highestBid);
   }
 
+  if (state.phase === "exchanging") {
+    return [];
+  }
+
   if (state.phase !== "playing" || state.isTrickComplete) {
     return [];
   }
@@ -100,6 +105,8 @@ export function applyAction(state: GameState, action: GameAction): GameState {
       return bid(state, action);
     case "pass":
       return pass(state, action.playerId);
+    case "discard-cards":
+      return discardCards(state, action.playerId, action.cardIds);
   }
 }
 
@@ -141,6 +148,12 @@ export function createPlayerView(state: GameState, playerId: PlayerId): PlayerVi
     trumpSuit: state.trumpSuit,
     contract: state.contract,
     bidding: state.bidding,
+    exchangeRequirement:
+      state.phase === "exchanging" &&
+      state.contract !== null &&
+      state.contract.napoleonPlayerId === playerId
+        ? { discardCount: 3 }
+        : null,
     currentPlayerId: state.currentPlayerId,
     currentTrick: state.currentTrick,
     completedTrickCount: state.completedTricks.length,
@@ -338,13 +351,103 @@ function ensureBiddingActionAllowed(state: GameState, playerId: PlayerId): void 
 }
 
 function completeBidding(state: GameState, contract: Contract): GameState {
+  const players = state.players.map((player) =>
+    player.id === contract.napoleonPlayerId
+      ? {
+          ...player,
+          hand: [...player.hand, ...state.unusedCards]
+        }
+      : player
+  );
+
   return {
     ...state,
-    phase: "playing",
+    players,
+    phase: "exchanging",
     currentPlayerId: contract.napoleonPlayerId,
     trumpSuit: contract.trumpSuit,
     contract,
-    bidding: null
+    bidding: null,
+    unusedCards: [],
+    buriedCards: []
+  };
+}
+
+function discardCards(
+  state: GameState,
+  playerId: PlayerId,
+  cardIds: readonly string[]
+): GameState {
+  if (state.phase === "finished" || state.isGameOver) {
+    throw new GameRuleError("GAME_OVER", "The game is already over.");
+  }
+
+  if (state.phase !== "exchanging") {
+    throw new GameRuleError(
+      "INVALID_ACTION_FOR_PHASE",
+      "This action is not allowed in the current game phase."
+    );
+  }
+
+  if (state.contract === null) {
+    throw new GameRuleError("INVALID_EXCHANGE_STATE", "A contract is required for exchange.");
+  }
+
+  if (playerId !== state.contract.napoleonPlayerId) {
+    throw new GameRuleError("NOT_NAPOLEON", "Only Napoleon can discard buried cards.");
+  }
+
+  if (state.currentPlayerId !== playerId) {
+    throw new GameRuleError("NOT_PLAYERS_TURN", "It is not this player's turn.");
+  }
+
+  if (state.buriedCards.length !== 0) {
+    throw new GameRuleError("EXCHANGE_ALREADY_COMPLETED", "Buried card exchange is already complete.");
+  }
+
+  if (cardIds.length !== 3) {
+    throw new GameRuleError("INVALID_DISCARD_COUNT", "Exactly 3 cards must be discarded.");
+  }
+
+  if (new Set(cardIds).size !== cardIds.length) {
+    throw new GameRuleError("DUPLICATE_CARD_ID", "Discarded card ids must be distinct.");
+  }
+
+  const player = getPlayer(state, playerId);
+
+  if (player.hand.length !== 13) {
+    throw new GameRuleError("INVALID_EXCHANGE_STATE", "Napoleon must have 13 cards before exchange.");
+  }
+
+  const discardedCards = cardIds.map((cardId) => {
+    const card = player.hand.find((candidate) => candidate.id === cardId);
+
+    if (card === undefined) {
+      throw new GameRuleError("CARD_NOT_IN_HAND", "The card is not in this player's hand.");
+    }
+
+    return card;
+  });
+  const discardedIdSet = new Set(cardIds);
+  const players = state.players.map((candidate) =>
+    candidate.id === playerId
+      ? {
+          ...candidate,
+          hand: candidate.hand.filter((card) => !discardedIdSet.has(card.id))
+        }
+      : candidate
+  );
+
+  return {
+    ...state,
+    players,
+    buriedCards: discardedCards,
+    phase: "playing",
+    currentPlayerId: playerId,
+    currentTrick: [],
+    trickNumber: 1,
+    isTrickComplete: false,
+    isGameOver: false
   };
 }
 

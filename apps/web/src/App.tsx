@@ -2,8 +2,8 @@ import { useMemo, useState } from "react";
 import type {
   PublicBidAction,
   PublicCard,
-  PublicGameState,
-  PublicLegalAction
+  PublicGameAction,
+  PublicGameState
 } from "@napoleon/protocol";
 import { CardButton } from "./CardButton";
 import { createGame, nextTrick, sendAction } from "./api";
@@ -20,6 +20,7 @@ export function App() {
   const [session, setSession] = useState<Session | undefined>();
   const [message, setMessage] = useState("ゲームを開始してください。");
   const [isBusy, setIsBusy] = useState(false);
+  const [selectedDiscardCardIds, setSelectedDiscardCardIds] = useState<readonly string[]>([]);
 
   const legalCardIds = useMemo(() => {
     const actions = session?.state.legalActions ?? [];
@@ -37,6 +38,10 @@ export function App() {
     [session]
   );
   const canPass = (session?.state.legalActions ?? []).some((action) => action.type === "pass");
+  const requiredDiscardCount = session?.state.exchange?.requiredDiscardCount ?? 3;
+  const canExchange =
+    session?.state.phase === "exchanging" &&
+    session.state.exchange?.napoleonPlayerId === session.playerId;
 
   const self = session?.state.self;
   const otherPlayers = session?.state.opponents ?? [];
@@ -45,12 +50,18 @@ export function App() {
     await runRequest(async () => {
       const response = await createGame();
       setSession(response);
+      setSelectedDiscardCardIds([]);
       setMessage(createMessage(response.state, response.playerId));
     });
   }
 
   async function handlePlay(card: PublicCard): Promise<void> {
     if (session === undefined) {
+      return;
+    }
+
+    if (session.state.phase === "exchanging") {
+      toggleDiscardSelection(card.id);
       return;
     }
 
@@ -64,7 +75,7 @@ export function App() {
     });
   }
 
-  async function handleSendAction(action: PublicLegalAction): Promise<void> {
+  async function handleSendAction(action: PublicGameAction): Promise<void> {
     if (session === undefined) {
       return;
     }
@@ -72,7 +83,28 @@ export function App() {
     await runRequest(async () => {
       const response = await sendAction(session.gameId, action);
       setSession(response);
+      if (action.type === "discard-cards") {
+        setSelectedDiscardCardIds([]);
+      }
       setMessage(createMessage(response.state, response.playerId));
+    });
+  }
+
+  function toggleDiscardSelection(cardId: string): void {
+    if (!canExchange) {
+      return;
+    }
+
+    setSelectedDiscardCardIds((current) => {
+      if (current.includes(cardId)) {
+        return current.filter((selectedCardId) => selectedCardId !== cardId);
+      }
+
+      if (current.length >= requiredDiscardCount) {
+        return current;
+      }
+
+      return [...current, cardId];
     });
   }
 
@@ -183,6 +215,35 @@ export function App() {
             </section>
           ) : null}
 
+          {session?.state.phase === "exchanging" ? (
+            <section className="exchange-panel" aria-label="埋札交換">
+              <div>
+                <h2>埋札交換</h2>
+                <p>埋札3枚を受け取りました。捨てるカードを3枚選んでください。</p>
+              </div>
+              <span>
+                選択中: {selectedDiscardCardIds.length} / {requiredDiscardCount}
+              </span>
+              <button
+                className="secondary-button"
+                disabled={
+                  !canExchange ||
+                  selectedDiscardCardIds.length !== requiredDiscardCount ||
+                  isBusy
+                }
+                onClick={() =>
+                  void handleSendAction({
+                    type: "discard-cards",
+                    cardIds: selectedDiscardCardIds
+                  })
+                }
+                type="button"
+              >
+                3枚を捨てる
+              </button>
+            </section>
+          ) : null}
+
           <div className="trick" aria-label="中央の場">
             {session?.state.currentTrick.length ? (
               session.state.currentTrick.map((played) => (
@@ -232,10 +293,16 @@ export function App() {
               <CardButton
                 card={card}
                 disabled={
-                  isBusy || session?.state.phase !== "playing" || !legalCardIds.has(card.id)
+                  isBusy ||
+                  (session?.state.phase === "playing"
+                    ? !legalCardIds.has(card.id)
+                    : session?.state.phase === "exchanging"
+                      ? !canExchange
+                      : true)
                 }
                 key={card.id}
                 onPlay={handlePlay}
+                selected={selectedDiscardCardIds.includes(card.id)}
               />
             ))}
           </div>
@@ -254,6 +321,12 @@ function createMessage(state: PublicGameState, playerId: string): string {
     return state.currentPlayerId === playerId
       ? "あなたの競り手番です。入札またはパスを選んでください。"
       : `${state.currentPlayerId} の競り手番です。`;
+  }
+
+  if (state.phase === "exchanging") {
+    return state.exchange?.napoleonPlayerId === playerId
+      ? "埋札交換です。捨てるカードを3枚選んでください。"
+      : `${state.exchange?.napoleonPlayerId ?? state.currentPlayerId} が埋札交換中です。`;
   }
 
   if (state.isTrickComplete) {
@@ -275,6 +348,8 @@ function formatPhase(phase: PublicGameState["phase"] | undefined): string {
   switch (phase) {
     case "bidding":
       return "競り";
+    case "exchanging":
+      return "交換";
     case "playing":
       return "プレイ";
     case "finished":

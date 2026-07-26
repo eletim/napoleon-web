@@ -11,7 +11,12 @@ export type GameRuleErrorCode =
   | "INVALID_BID"
   | "BIDDING_NOT_AVAILABLE"
   | "BID_TOO_LOW"
-  | "TRUMP_NOT_SET";
+  | "TRUMP_NOT_SET"
+  | "NOT_NAPOLEON"
+  | "INVALID_DISCARD_COUNT"
+  | "DUPLICATE_CARD_ID"
+  | "EXCHANGE_ALREADY_COMPLETED"
+  | "INVALID_EXCHANGE_STATE";
 
 export class GameRuleError extends Error {
   readonly code: GameRuleErrorCode;

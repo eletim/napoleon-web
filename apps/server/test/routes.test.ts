@@ -64,6 +64,12 @@ class InspectingAgent implements Agent {
 
 class PassAgent implements Agent {
   async selectAction(input: Parameters<Agent["selectAction"]>[0]): Promise<GameAction> {
+    const exchangeAction = createExchangeAction(input);
+
+    if (exchangeAction !== undefined) {
+      return exchangeAction;
+    }
+
     const passAction = input.legalActions.find((action) => action.type === "pass");
     const fallback = input.legalActions[0];
 
@@ -86,6 +92,12 @@ class PreferBidAgent implements Agent {
   ) {}
 
   async selectAction(input: Parameters<Agent["selectAction"]>[0]): Promise<GameAction> {
+    const exchangeAction = createExchangeAction(input);
+
+    if (exchangeAction !== undefined) {
+      return exchangeAction;
+    }
+
     const preferred = input.legalActions.find(
       (action) =>
         action.type === "bid" &&
@@ -110,6 +122,24 @@ class PreferBidAgent implements Agent {
 
     return fallback;
   }
+}
+
+function createExchangeAction(input: Parameters<Agent["selectAction"]>[0]): GameAction | undefined {
+  if (input.view.phase !== "exchanging" || input.view.exchangeRequirement === null) {
+    return undefined;
+  }
+
+  const self = input.view.players.find((player) => player.id === input.playerId);
+
+  if (self?.hand === undefined) {
+    return undefined;
+  }
+
+  return {
+    type: "discard-cards",
+    playerId: input.playerId,
+    cardIds: self.hand.slice(0, input.view.exchangeRequirement.discardCount).map((card) => card.id)
+  };
 }
 
 beforeEach(async () => {
@@ -417,7 +447,7 @@ describe("server API", () => {
     const body = response.json<SendActionResponse>();
 
     expect(response.statusCode).toBe(200);
-    expect(body.state.phase).toBe("playing");
+    expect(body.state.phase).toBe("exchanging");
     expect(body.state.contract).toEqual({
       napoleonPlayerId: "player-0",
       trumpSuit: "hearts",
@@ -425,6 +455,13 @@ describe("server API", () => {
     });
     expect(body.state.currentPlayerId).toBe("player-0");
     expect(body.state.trumpSuit).toBe("hearts");
+    expect(body.state.exchange).toEqual({
+      napoleonPlayerId: "player-0",
+      requiredDiscardCount: 3
+    });
+    expect(body.state.self.hand).toHaveLength(13);
+    expect(body.state.opponents.some((opponent) => hasOwn(opponent, "hand"))).toBe(false);
+    expect(hasOwn(body.state, "buriedCards")).toBe(false);
   });
 
   it("creates the special spades-12 contract when everyone passes", async () => {
@@ -457,7 +494,7 @@ describe("server API", () => {
     const body = response.json<SendActionResponse>();
 
     expect(response.statusCode).toBe(200);
-    expect(body.state.phase).toBe("playing");
+    expect(body.state.phase).toBe("exchanging");
     expect(body.state.contract).toEqual({
       napoleonPlayerId: "player-0",
       trumpSuit: "spades",
@@ -465,6 +502,11 @@ describe("server API", () => {
     });
     expect(body.state.currentPlayerId).toBe("player-0");
     expect(body.state.trumpSuit).toBe("spades");
+    expect(body.state.exchange).toEqual({
+      napoleonPlayerId: "player-0",
+      requiredDiscardCount: 3
+    });
+    expect(body.state.self.hand).toHaveLength(13);
   });
 
   it("finalizes a normal AI winning bid and advances play until the human turn", async () => {
@@ -533,6 +575,153 @@ describe("server API", () => {
       "player-4"
     ]);
     expect(playingBody.state.legalActions.length).toBeGreaterThan(0);
+  });
+
+  it("lets a human Napoleon discard three buried cards and starts play", async () => {
+    const state = createAllPassExchangeState();
+    const discardIds = state.players[0].hand.slice(0, 3).map((card) => card.id);
+    games.set("human-exchange", {
+      state,
+      humanPlayerId: "player-0",
+      agents: createAgents(["player-1", "player-2", "player-3", "player-4"])
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games/human-exchange/actions",
+      payload: {
+        action: {
+          type: "discard-cards",
+          cardIds: discardIds
+        }
+      }
+    });
+    const body = response.json<SendActionResponse>();
+
+    expect(response.statusCode).toBe(200);
+    expect(body.state.phase).toBe("playing");
+    expect(body.state.exchange).toBeNull();
+    expect(body.state.self.hand).toHaveLength(10);
+    expect(body.state.legalActions.some((action) => action.type === "play-card")).toBe(true);
+    expect(hasOwn(body.state, "buriedCards")).toBe(false);
+    expect(games.get("human-exchange")?.state.buriedCards.map((card) => card.id)).toEqual(
+      discardIds
+    );
+  });
+
+  it("rejects invalid discard requests and leaves exchange state unchanged", async () => {
+    const state = createAllPassExchangeState();
+    games.set("invalid-exchange", {
+      state,
+      humanPlayerId: "player-0",
+      agents: createAgents(["player-1", "player-2", "player-3", "player-4"])
+    });
+
+    const malformedPayloads = [
+      { action: { type: "discard-cards", cardIds: "not-array" } },
+      { action: { type: "discard-cards", cardIds: ["a", 1, "c"] } },
+      { action: { type: "discard-cards", cardIds: ["a", "b", "c"], extra: true } }
+    ];
+
+    for (const payload of malformedPayloads) {
+      const snapshot = createStateSnapshot(games.get("invalid-exchange")?.state ?? state);
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/games/invalid-exchange/actions",
+        payload
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(createStateSnapshot(games.get("invalid-exchange")?.state ?? state)).toEqual(
+        snapshot
+      );
+    }
+
+    const validHandIds = state.players[0].hand.map((card) => card.id);
+    const coreInvalidCases = [
+      {
+        action: { type: "discard-cards", cardIds: validHandIds.slice(0, 2) },
+        code: "INVALID_DISCARD_COUNT"
+      },
+      {
+        action: {
+          type: "discard-cards",
+          cardIds: [validHandIds[0], validHandIds[0], validHandIds[1]]
+        },
+        code: "DUPLICATE_CARD_ID"
+      },
+      {
+        action: {
+          type: "discard-cards",
+          cardIds: [validHandIds[0], validHandIds[1], "not-in-hand"]
+        },
+        code: "CARD_NOT_IN_HAND"
+      }
+    ] as const;
+
+    for (const testCase of coreInvalidCases) {
+      const snapshot = createStateSnapshot(games.get("invalid-exchange")?.state ?? state);
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/games/invalid-exchange/actions",
+        payload: { action: testCase.action }
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json<ApiError>().error.code).toBe(testCase.code);
+      expect(createStateSnapshot(games.get("invalid-exchange")?.state ?? state)).toEqual(
+        snapshot
+      );
+    }
+  });
+
+  it("rejects discard requests outside exchange or by non-Napoleon humans", async () => {
+    const playing = createStateWithHands([
+      [card("hearts", "A"), card("clubs", "6"), card("spades", "A")],
+      [card("hearts", "K")],
+      [card("clubs", "A")],
+      [card("hearts", "3")],
+      [card("clubs", "Q")]
+    ]);
+    games.set("playing-discard", {
+      state: playing,
+      humanPlayerId: "player-0",
+      agents: createAgents(["player-1", "player-2", "player-3", "player-4"])
+    });
+
+    const playingResponse = await app.inject({
+      method: "POST",
+      url: "/api/games/playing-discard/actions",
+      payload: {
+        action: {
+          type: "discard-cards",
+          cardIds: playing.players[0].hand.slice(0, 3).map((card) => card.id)
+        }
+      }
+    });
+
+    expect(playingResponse.statusCode).toBe(400);
+    expect(playingResponse.json<ApiError>().error.code).toBe("INVALID_ACTION_FOR_PHASE");
+
+    const exchange = createAllPassExchangeState();
+    games.set("non-napoleon-discard", {
+      state: exchange,
+      humanPlayerId: "player-1",
+      agents: createAgents(["player-0", "player-2", "player-3", "player-4"])
+    });
+    const nonNapoleonResponse = await app.inject({
+      method: "POST",
+      url: "/api/games/non-napoleon-discard/actions",
+      payload: {
+        action: {
+          type: "discard-cards",
+          cardIds: exchange.players[1].hand.slice(0, 3).map((card) => card.id)
+        }
+      }
+    });
+
+    expect(nonNapoleonResponse.statusCode).toBe(400);
+    expect(nonNapoleonResponse.json<ApiError>().error.code).toBe("NOT_NAPOLEON");
   });
 
   it("rejects invalid bidding actions and leaves stored state unchanged", async () => {
@@ -663,6 +852,72 @@ describe("server API", () => {
     expect(storedAfter).toBeDefined();
     if (storedAfter !== undefined) {
       expect(createStateSnapshot(storedAfter.state)).toEqual(snapshot);
+    }
+  });
+
+  it("does not persist partial state when AI exchange succeeds but later AI play fails", async () => {
+    const created = await createGame();
+    const record = games.get(created.gameId);
+
+    if (record === undefined) {
+      throw new Error("Expected created game to be stored.");
+    }
+
+    games.set(created.gameId, {
+      ...record,
+      agents: new Map([
+        ["player-1", new PreferBidAgent("spades", 13)],
+        ["player-2", new PassAgent()],
+        ["player-3", new PassAgent()],
+        ["player-4", new PassAgent()]
+      ])
+    });
+
+    await app.inject({
+      method: "POST",
+      url: `/api/games/${created.gameId}/actions`,
+      payload: {
+        action: {
+          type: "bid",
+          suit: "hearts",
+          targetPointCards: 13
+        }
+      }
+    });
+    const beforePass = games.get(created.gameId);
+
+    if (beforePass === undefined) {
+      throw new Error("Expected game to remain stored.");
+    }
+
+    games.set(created.gameId, {
+      ...beforePass,
+      agents: new Map([
+        ["player-1", new PreferBidAgent("spades", 13)],
+        ["player-2", new ThrowingAgent()],
+        ["player-3", new PassAgent()],
+        ["player-4", new PassAgent()]
+      ])
+    });
+    const snapshot = createStateSnapshot(beforePass.state);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/games/${created.gameId}/actions`,
+      payload: {
+        action: {
+          type: "pass"
+        }
+      }
+    });
+    const storedAfter = games.get(created.gameId);
+
+    expect(response.statusCode).toBeGreaterThanOrEqual(500);
+    expect(storedAfter).toBeDefined();
+    if (storedAfter !== undefined) {
+      expect(createStateSnapshot(storedAfter.state)).toEqual(snapshot);
+      expect(storedAfter.state.buriedCards).toEqual([]);
+      expect(storedAfter.state.phase).toBe("bidding");
     }
   });
 
@@ -1003,6 +1258,8 @@ function createStateSnapshot(state: GameState) {
     trumpSuit: state.trumpSuit,
     contract: structuredClone(state.contract),
     bidding: structuredClone(state.bidding),
+    buriedCards: structuredClone(state.buriedCards),
+    unusedCards: structuredClone(state.unusedCards),
     trickNumber: state.trickNumber
   };
 }
@@ -1054,9 +1311,17 @@ function createStateWithHands(
       targetPointCards: 13
     },
     bidding: null,
+    buriedCards: [],
     trickNumber: 1,
     isTrickComplete: false,
     isGameOver: false,
     unusedCards: []
   };
+}
+
+function createAllPassExchangeState(): GameState {
+  return Array.from({ length: 5 }).reduce<GameState>(
+    (state) => applyAction(state, { type: "pass", playerId: state.currentPlayerId }),
+    createInitialGame({ rng: () => 0 })
+  );
 }

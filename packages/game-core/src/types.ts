@@ -47,7 +47,7 @@ export interface CompletedTrick {
   cards: readonly PlayedCard[];
 }
 
-export type GamePhase = "bidding" | "playing" | "finished";
+export type GamePhase = "bidding" | "exchanging" | "playing" | "finished";
 
 export interface Bid {
   playerId: PlayerId;
@@ -91,6 +91,7 @@ export interface GameState {
   trumpSuit: Suit | null;
   contract: Contract | null;
   bidding: BiddingState | null;
+  buriedCards: readonly Card[];
   trickNumber: number;
   isTrickComplete: boolean;
   isGameOver: boolean;
@@ -115,7 +116,17 @@ export interface PassAction {
   playerId: PlayerId;
 }
 
-export type GameAction = PlayCardAction | BidAction | PassAction;
+export interface DiscardCardsAction {
+  type: "discard-cards";
+  playerId: PlayerId;
+  cardIds: readonly string[];
+}
+
+export type GameAction = PlayCardAction | BidAction | PassAction | DiscardCardsAction;
+
+export interface ExchangeRequirement {
+  discardCount: number;
+}
 
 export interface PublicPlayerState {
   id: PlayerId;
@@ -130,6 +141,7 @@ export interface PlayerView {
   trumpSuit: Suit | null;
   contract: Contract | null;
   bidding: PublicBiddingView | null;
+  exchangeRequirement: ExchangeRequirement | null;
   currentPlayerId: PlayerId;
   currentTrick: readonly PlayedCard[];
   completedTrickCount: number;

@@ -177,6 +177,12 @@ function toInternalAction(action: PublicGameAction, playerId: PlayerId): GameAct
         type: "pass",
         playerId
       };
+    case "discard-cards":
+      return {
+        type: "discard-cards",
+        playerId,
+        cardIds: action.cardIds
+      };
   }
 }
 

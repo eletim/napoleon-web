@@ -4,14 +4,17 @@ import { isRedSuit, suitSymbols } from "./cardSymbols";
 interface CardButtonProps {
   card: PublicCard;
   disabled: boolean;
+  selected?: boolean;
   onPlay: (card: PublicCard) => void;
 }
 
-export function CardButton({ card, disabled, onPlay }: CardButtonProps) {
+export function CardButton({ card, disabled, selected = false, onPlay }: CardButtonProps) {
+  const selectedClassName = selected ? " card-selected" : "";
+
   if (card.type === "joker") {
     return (
       <button
-        className="card card-joker"
+        className={`card card-joker${selectedClassName}`}
         disabled={disabled}
         onClick={() => onPlay(card)}
         type="button"
@@ -23,7 +26,7 @@ export function CardButton({ card, disabled, onPlay }: CardButtonProps) {
 
   return (
     <button
-      className={`card ${isRedSuit(card.suit) ? "card-red" : "card-black"}`}
+      className={`card ${isRedSuit(card.suit) ? "card-red" : "card-black"}${selectedClassName}`}
       disabled={disabled}
       onClick={() => onPlay(card)}
       type="button"

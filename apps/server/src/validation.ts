@@ -1,4 +1,10 @@
-import type { BidRequest, PassRequest, PlayCardRequest, PublicGameAction } from "@napoleon/protocol";
+import type {
+  BidRequest,
+  DiscardCardsRequest,
+  PassRequest,
+  PlayCardRequest,
+  PublicGameAction
+} from "@napoleon/protocol";
 
 export function isPlayCardRequest(value: unknown): value is PlayCardRequest {
   if (!isRecord(value)) {
@@ -41,6 +47,22 @@ export function isPassRequest(value: unknown): value is PassRequest {
   return keys.length === 1 && keys.includes("type") && value.type === "pass";
 }
 
+export function isDiscardCardsRequest(value: unknown): value is DiscardCardsRequest {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const keys = Object.keys(value);
+  return (
+    keys.length === 2 &&
+    keys.includes("type") &&
+    keys.includes("cardIds") &&
+    value.type === "discard-cards" &&
+    Array.isArray(value.cardIds) &&
+    value.cardIds.every((cardId) => typeof cardId === "string")
+  );
+}
+
 export function readActionBody(value: unknown): PublicGameAction | undefined {
   if (!isRecord(value) || !("action" in value)) {
     return undefined;
@@ -52,7 +74,12 @@ export function readActionBody(value: unknown): PublicGameAction | undefined {
     return undefined;
   }
 
-  if (isPlayCardRequest(value.action) || isBidRequest(value.action) || isPassRequest(value.action)) {
+  if (
+    isPlayCardRequest(value.action) ||
+    isBidRequest(value.action) ||
+    isPassRequest(value.action) ||
+    isDiscardCardsRequest(value.action)
+  ) {
     return value.action;
   }
 
