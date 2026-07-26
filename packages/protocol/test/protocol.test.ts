@@ -89,7 +89,9 @@ describe("protocol DTOs", () => {
       },
       specialCards: {
         orumaCardId: "spades-A",
-        yoromekiCardId: "hearts-Q"
+        yoromekiCardId: "hearts-Q",
+        seiJackCardId: "spades-J",
+        uraJackCardId: "clubs-J"
       },
       adjutant: {
         calledCardId: "hearts-A",
@@ -123,22 +125,30 @@ describe("protocol DTOs", () => {
     expect(Object.prototype.hasOwnProperty.call(state.adjutant, "playerId")).toBe(false);
     expect(state.specialCards).toEqual({
       orumaCardId: "spades-A",
-      yoromekiCardId: "hearts-Q"
+      yoromekiCardId: "hearts-Q",
+      seiJackCardId: "spades-J",
+      uraJackCardId: "clubs-J"
     });
   });
 
-  it("exposes fixed oruma and yoromeki card ids without trump-derived fields", () => {
+  it("exposes special card ids and allows undecided jack ids before trump is set", () => {
     const specialCards: PublicGameState["specialCards"] = {
       orumaCardId: "spades-A",
-      yoromekiCardId: "hearts-Q"
+      yoromekiCardId: "hearts-Q",
+      seiJackCardId: null,
+      uraJackCardId: null
     };
 
     expect(specialCards).toEqual({
       orumaCardId: "spades-A",
-      yoromekiCardId: "hearts-Q"
+      yoromekiCardId: "hearts-Q",
+      seiJackCardId: null,
+      uraJackCardId: null
     });
     expect(Object.prototype.hasOwnProperty.call(specialCards, "trumpSuit")).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(specialCards, "orumaSuit")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(specialCards, "seiJackCardId")).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(specialCards, "uraJackCardId")).toBe(true);
   });
 
   it("exposes buried card summary and game result without internal-only fields", () => {

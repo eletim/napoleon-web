@@ -254,7 +254,9 @@ describe("server API", () => {
     expect(body.state.contract).toBeNull();
     expect(body.state.specialCards).toEqual({
       orumaCardId: "spades-A",
-      yoromekiCardId: "hearts-Q"
+      yoromekiCardId: "hearts-Q",
+      seiJackCardId: null,
+      uraJackCardId: null
     });
     expect(body.state.adjutant).toBeNull();
     expect(body.state.adjutantChoice).toBeNull();
@@ -612,6 +614,104 @@ describe("server API", () => {
     expect(clubsBody.state.currentPlayerId).toBe("player-2");
   });
 
+  it("uses sei jack as the trick winner over ura jack, normal trump, and joker", async () => {
+    games.set("sei-jack-winner", {
+      state: {
+        ...createStateWithHands([
+          [card("hearts", "A"), card("clubs", "6")],
+          [card("hearts", "J")],
+          [card("diamonds", "J")],
+          [card("clubs", "A")],
+          [joker()]
+        ]),
+        trumpSuit: "hearts",
+        contract: {
+          napoleonPlayerId: "player-0",
+          trumpSuit: "hearts",
+          targetPointCards: 13
+        }
+      },
+      humanPlayerId: "player-0",
+      agents: new Map([
+        ["player-1", new PreferredCardAgent("hearts-J")],
+        ["player-2", new PreferredCardAgent("diamonds-J")],
+        ["player-3", new PreferredCardAgent("clubs-A")],
+        ["player-4", new PreferredCardAgent("joker")]
+      ])
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games/sei-jack-winner/actions",
+      payload: {
+        action: {
+          type: "play-card",
+          cardId: "hearts-A"
+        }
+      }
+    });
+    const body = response.json<SendActionResponse>();
+
+    expect(response.statusCode).toBe(200);
+    expect(body.state.currentTrick.map((played) => played.card.id)).toEqual([
+      "hearts-A",
+      "hearts-J",
+      "diamonds-J",
+      "clubs-A",
+      "joker"
+    ]);
+    expect(body.state.currentPlayerId).toBe("player-1");
+  });
+
+  it("uses ura jack as the trick winner over normal trump when sei jack and oruma are absent", async () => {
+    games.set("ura-jack-winner", {
+      state: {
+        ...createStateWithHands([
+          [card("hearts", "A"), card("clubs", "6")],
+          [card("diamonds", "J")],
+          [card("hearts", "K")],
+          [card("clubs", "A")],
+          [joker()]
+        ]),
+        trumpSuit: "hearts",
+        contract: {
+          napoleonPlayerId: "player-0",
+          trumpSuit: "hearts",
+          targetPointCards: 13
+        }
+      },
+      humanPlayerId: "player-0",
+      agents: new Map([
+        ["player-1", new PreferredCardAgent("diamonds-J")],
+        ["player-2", new PreferredCardAgent("hearts-K")],
+        ["player-3", new PreferredCardAgent("clubs-A")],
+        ["player-4", new PreferredCardAgent("joker")]
+      ])
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games/ura-jack-winner/actions",
+      payload: {
+        action: {
+          type: "play-card",
+          cardId: "hearts-A"
+        }
+      }
+    });
+    const body = response.json<SendActionResponse>();
+
+    expect(response.statusCode).toBe(200);
+    expect(body.state.currentTrick.map((played) => played.card.id)).toEqual([
+      "hearts-A",
+      "diamonds-J",
+      "hearts-K",
+      "clubs-A",
+      "joker"
+    ]);
+    expect(body.state.currentPlayerId).toBe("player-1");
+  });
+
   it("passes bidding public view fields to AI agents", async () => {
     const created = await createGame();
     const record = games.get(created.gameId);
@@ -650,7 +750,9 @@ describe("server API", () => {
     expect(inspectingAgent.observedContract).toBeNull();
     expect(inspectingAgent.observedSpecialCards).toEqual({
       orumaCardId: "spades-A",
-      yoromekiCardId: "hearts-Q"
+      yoromekiCardId: "hearts-Q",
+      seiJackCardId: null,
+      uraJackCardId: null
     });
     expect(inspectingAgent.observedLegalActions?.length).toBeGreaterThan(0);
     expect(inspectingAgent.observedOpponentHandLeak).toBe(false);
@@ -698,7 +800,9 @@ describe("server API", () => {
     expect(body.state.trumpSuit).toBe("hearts");
     expect(body.state.specialCards).toEqual({
       orumaCardId: "spades-A",
-      yoromekiCardId: "hearts-Q"
+      yoromekiCardId: "hearts-Q",
+      seiJackCardId: "hearts-J",
+      uraJackCardId: "diamonds-J"
     });
     expect(body.state.exchange).toEqual({
       napoleonPlayerId: "player-0",
@@ -1557,6 +1661,46 @@ describe("server API", () => {
     }
   });
 
+  it("does not treat ura jack as trump suit for follow-suit validation", async () => {
+    const state = {
+      ...createStateWithHands([
+        [card("clubs", "J"), card("spades", "5")],
+        [card("hearts", "K")],
+        [card("clubs", "3")],
+        [card("diamonds", "4")],
+        [card("clubs", "5")]
+      ]),
+      currentPlayerId: "player-0",
+      currentTrick: [{ playerId: "player-1", card: card("spades", "2") }]
+    };
+    games.set("ura-jack-follow-suit", {
+      state,
+      humanPlayerId: "player-0",
+      agents: createAgents(["player-1", "player-2", "player-3", "player-4"])
+    });
+    const snapshot = createStateSnapshot(state);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games/ura-jack-follow-suit/actions",
+      payload: {
+        action: {
+          type: "play-card",
+          cardId: "clubs-J"
+        }
+      }
+    });
+    const body = response.json<ApiError>();
+    const storedAfter = games.get("ura-jack-follow-suit");
+
+    expect(response.statusCode).toBe(400);
+    expect(body.error.code).toBe("MUST_FOLLOW_SUIT");
+    expect(storedAfter).toBeDefined();
+    if (storedAfter !== undefined) {
+      expect(createStateSnapshot(storedAfter.state)).toEqual(snapshot);
+    }
+  });
+
   it("rejects a request action that includes a client-supplied playerId", async () => {
     const created = await createGame();
     const card = created.state.self.hand[0];
@@ -1757,6 +1901,55 @@ describe("server API", () => {
     if (storedAfter !== undefined) {
       expect(createStateSnapshot(storedAfter.state)).toEqual(snapshot);
       expect(storedAfter.state.currentTrick).toEqual([]);
+    }
+  });
+
+  it("does not persist partial state when AI plays sei jack before a later AI failure", async () => {
+    const state = {
+      ...createStateWithHands([
+        [card("hearts", "A"), card("clubs", "6")],
+        [card("hearts", "J")],
+        [card("diamonds", "J")],
+        [card("clubs", "A")],
+        [joker()]
+      ]),
+      trumpSuit: "hearts" as const,
+      contract: {
+        napoleonPlayerId: "player-0",
+        trumpSuit: "hearts" as const,
+        targetPointCards: 13
+      }
+    };
+    games.set("ai-sei-jack-failure", {
+      state,
+      humanPlayerId: "player-0",
+      agents: new Map([
+        ["player-1", new PreferredCardAgent("hearts-J")],
+        ["player-2", new ThrowingAgent()],
+        ...createAgents(["player-3", "player-4"])
+      ])
+    });
+    const snapshot = createStateSnapshot(state);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games/ai-sei-jack-failure/actions",
+      payload: {
+        action: {
+          type: "play-card",
+          cardId: "hearts-A"
+        }
+      }
+    });
+    const storedAfter = games.get("ai-sei-jack-failure");
+
+    expect(response.statusCode).toBeGreaterThanOrEqual(500);
+    expect(storedAfter).toBeDefined();
+    if (storedAfter !== undefined) {
+      expect(createStateSnapshot(storedAfter.state)).toEqual(snapshot);
+      expect(storedAfter.state.currentTrick).toEqual([]);
+      expect(storedAfter.state.adjutant).toBeNull();
+      expect(storedAfter.state.result).toBeNull();
     }
   });
 

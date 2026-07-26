@@ -2,7 +2,14 @@ import { createDeck, shuffleDeck } from "./deck.js";
 import { GameRuleError } from "./errors.js";
 import { determineTrickWinner, getPlayableCards } from "./trick.js";
 import { getLegalBidActions, isBidHigher, isSuit, validateBidRange } from "./bidding.js";
-import { isPointCard, isStandardCardId, orumaCardId, yoromekiCardId } from "./cards.js";
+import {
+  getSeiJackCardId,
+  getUraJackCardId,
+  isPointCard,
+  isStandardCardId,
+  orumaCardId,
+  yoromekiCardId
+} from "./cards.js";
 import { calculateGameResult } from "./scoring.js";
 import type {
   AdjutantState,
@@ -157,7 +164,9 @@ export function createPlayerView(state: GameState, playerId: PlayerId): PlayerVi
     contract: state.contract,
     specialCards: {
       orumaCardId,
-      yoromekiCardId
+      yoromekiCardId,
+      seiJackCardId: state.trumpSuit === null ? null : getSeiJackCardId(state.trumpSuit),
+      uraJackCardId: state.trumpSuit === null ? null : getUraJackCardId(state.trumpSuit)
     },
     adjutant: toAdjutantView(state.adjutant ?? null, state.isGameOver),
     buriedCards: toBuriedCardsView(state),

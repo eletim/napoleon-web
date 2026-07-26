@@ -177,6 +177,8 @@ export function App() {
             <span>切り札: {formatTrumpSuit(session?.state.trumpSuit ?? null)}</span>
             <span>オルマ: {formatCardId(session?.state.specialCards.orumaCardId ?? "")}</span>
             <span>よろめき: {formatCardId(session?.state.specialCards.yoromekiCardId ?? "")}</span>
+            <span>正ジャック: {formatOptionalCardId(session?.state.specialCards.seiJackCardId)}</span>
+            <span>裏ジャック: {formatOptionalCardId(session?.state.specialCards.uraJackCardId)}</span>
             <span>契約: {formatContract(session?.state ?? null)}</span>
             <span>副官札: {formatAdjutant(session?.state.adjutant ?? null)}</span>
           </div>
@@ -467,6 +469,10 @@ function createMessage(state: PublicGameState, playerId: string): string {
 
 function formatTrumpSuit(trumpSuit: PublicGameState["trumpSuit"]): string {
   return trumpSuit === null ? "未定" : suitSymbols[trumpSuit];
+}
+
+function formatOptionalCardId(cardId: string | null | undefined): string {
+  return cardId === null || cardId === undefined ? "未決定" : formatCardId(cardId);
 }
 
 function formatPhase(phase: PublicGameState["phase"] | undefined): string {

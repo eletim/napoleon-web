@@ -97,6 +97,8 @@ export interface BuriedCardsView {
 export interface SpecialCardsView {
   orumaCardId: string;
   yoromekiCardId: string;
+  seiJackCardId: string | null;
+  uraJackCardId: string | null;
 }
 
 export type BiddingHistoryEntry =

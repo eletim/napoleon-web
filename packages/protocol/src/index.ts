@@ -107,6 +107,8 @@ export interface PublicGameResult {
 export interface PublicSpecialCardsState {
   orumaCardId: string;
   yoromekiCardId: string;
+  seiJackCardId: string | null;
+  uraJackCardId: string | null;
 }
 
 export interface PublicSelfPlayer {

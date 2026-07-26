@@ -1,6 +1,13 @@
 import { GameRuleError } from "./errors.js";
 import { getRankValue } from "./ranks.js";
-import { isJokerCard, isOrumaCard, isStandardCard, isYoromekiCard } from "./cards.js";
+import {
+  isJokerCard,
+  isOrumaCard,
+  isSeiJackCard,
+  isStandardCard,
+  isUraJackCard,
+  isYoromekiCard
+} from "./cards.js";
 import type { Card, PlayedCard, PlayerId, Suit } from "./types.js";
 
 export type TrickCardCategory = "trump" | "lead" | "other";
@@ -82,7 +89,7 @@ export function determineTrickWinner(
   trick: readonly PlayedCard[],
   context: TrickContext
 ): PlayerId {
-  const specialWinner = determineOrumaYoromekiWinner(trick);
+  const specialWinner = determineSpecialCardWinner(trick, context);
 
   if (specialWinner !== undefined) {
     return specialWinner;
@@ -110,7 +117,10 @@ export function determineTrickWinner(
   return winningCard.playerId;
 }
 
-function determineOrumaYoromekiWinner(trick: readonly PlayedCard[]): PlayerId | undefined {
+function determineSpecialCardWinner(
+  trick: readonly PlayedCard[],
+  context: TrickContext
+): PlayerId | undefined {
   const orumaPlay = trick.find((playedCard) => isOrumaCard(playedCard.card));
   const yoromekiPlay = trick.find((playedCard) => isYoromekiCard(playedCard.card));
 
@@ -118,7 +128,37 @@ function determineOrumaYoromekiWinner(trick: readonly PlayedCard[]): PlayerId | 
     return yoromekiPlay.playerId;
   }
 
-  return orumaPlay?.playerId;
+  if (orumaPlay !== undefined) {
+    return orumaPlay.playerId;
+  }
+
+  if (trick.some((playedCard) => isStandardCard(playedCard.card) && playedCard.card.rank === "J")) {
+    if (context.trumpSuit === null) {
+      throw new GameRuleError(
+        "TRUMP_NOT_SET",
+        "Trump suit must be set to determine sei jack and ura jack."
+      );
+    }
+
+    const trumpSuit = context.trumpSuit;
+    const seiJackPlay = trick.find((playedCard) =>
+      isSeiJackCard(playedCard.card, trumpSuit)
+    );
+
+    if (seiJackPlay !== undefined) {
+      return seiJackPlay.playerId;
+    }
+
+    const uraJackPlay = trick.find((playedCard) =>
+      isUraJackCard(playedCard.card, trumpSuit)
+    );
+
+    if (uraJackPlay !== undefined) {
+      return uraJackPlay.playerId;
+    }
+  }
+
+  return undefined;
 }
 
 function getTrickCardCategory(
