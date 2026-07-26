@@ -94,6 +94,11 @@ export interface BuriedCardsView {
   hiddenCardCount: number;
 }
 
+export interface SpecialCardsView {
+  orumaCardId: string;
+  yoromekiCardId: string;
+}
+
 export type BiddingHistoryEntry =
   | {
       type: "bid";
@@ -190,6 +195,7 @@ export interface PlayerView {
   phase: GamePhase;
   trumpSuit: Suit | null;
   contract: Contract | null;
+  specialCards: SpecialCardsView;
   adjutant: AdjutantView | null;
   buriedCards: BuriedCardsView | null;
   result: GameResult | null;

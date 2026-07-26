@@ -15,13 +15,17 @@ import {
   getRankValue,
   getTrickCardStrength,
   isJokerCard,
+  isOrumaCard,
   isPointCard,
   isStandardCard,
+  isYoromekiCard,
+  orumaCardId,
   type Bid,
   type Card,
   type GameState,
   type Rank,
-  type Suit
+  type Suit,
+  yoromekiCardId
 } from "../src/index.js";
 
 const noShuffle = (): number => 0;
@@ -45,6 +49,13 @@ function joker(): Card {
   return {
     type: "joker",
     id: "joker"
+  };
+}
+
+function played(playerId: string, playedCard: Card): GameState["currentTrick"][number] {
+  return {
+    playerId,
+    card: playedCard
   };
 }
 
@@ -130,6 +141,104 @@ describe("game-core", () => {
 
     expect(isPointCard(joker())).toBe(false);
     expect(createDeck().filter(isPointCard)).toHaveLength(20);
+  });
+
+  it("defines fixed oruma and yoromeki cards", () => {
+    expect(orumaCardId).toBe("spades-A");
+    expect(yoromekiCardId).toBe("hearts-Q");
+    expect(isOrumaCard(card("spades", "A"))).toBe(true);
+    expect(isOrumaCard(card("clubs", "A"))).toBe(false);
+    expect(isYoromekiCard(card("hearts", "Q"))).toBe(true);
+    expect(isYoromekiCard(card("hearts", "K"))).toBe(false);
+  });
+
+  it("lets oruma beat trump, lead cards, and joker unless yoromeki is present", () => {
+    expect(
+      determineTrickWinner(
+        [
+          played("player-0", card("spades", "A")),
+          played("player-1", card("hearts", "A")),
+          played("player-2", card("clubs", "K")),
+          played("player-3", card("diamonds", "K")),
+          played("player-4", joker())
+        ],
+        { trumpSuit: "hearts" }
+      )
+    ).toBe("player-0");
+    expect(
+      determineTrickWinner(
+        [
+          played("player-0", card("spades", "A")),
+          played("player-1", card("spades", "K")),
+          played("player-2", card("clubs", "A")),
+          played("player-3", card("hearts", "A")),
+          played("player-4", card("diamonds", "A"))
+        ],
+        { trumpSuit: "spades" }
+      )
+    ).toBe("player-0");
+    expect(
+      determineTrickWinner(
+        [
+          played("player-0", card("spades", "A")),
+          played("player-1", card("clubs", "A")),
+          played("player-2", card("clubs", "K")),
+          played("player-3", card("hearts", "A")),
+          played("player-4", card("diamonds", "A"))
+        ],
+        { trumpSuit: "clubs" }
+      )
+    ).toBe("player-0");
+    expect(
+      determineTrickWinner(
+        [
+          played("player-0", joker()),
+          played("player-1", card("spades", "A")),
+          played("player-2", card("clubs", "2"))
+        ],
+        { trumpSuit: "hearts" }
+      )
+    ).toBe("player-1");
+  });
+
+  it("lets yoromeki beat oruma only when both are in the same trick", () => {
+    for (const trumpSuit of ["spades", "hearts", "diamonds", "clubs"] satisfies readonly Suit[]) {
+      expect(
+        determineTrickWinner(
+          [
+            played("player-0", card("spades", "A")),
+            played("player-1", card("hearts", "Q")),
+            played("player-2", joker()),
+            played("player-3", card("clubs", "A")),
+            played("player-4", card("diamonds", "A"))
+          ],
+          { trumpSuit }
+        )
+      ).toBe("player-1");
+    }
+  });
+
+  it("treats hearts-Q as a normal card when oruma is absent and clubs-A is not oruma", () => {
+    expect(
+      determineTrickWinner(
+        [
+          played("player-0", card("spades", "K")),
+          played("player-1", card("hearts", "Q")),
+          played("player-2", card("spades", "10"))
+        ],
+        { trumpSuit: "spades" }
+      )
+    ).toBe("player-0");
+    expect(
+      determineTrickWinner(
+        [
+          played("player-0", card("clubs", "A")),
+          played("player-1", card("hearts", "Q")),
+          played("player-2", card("spades", "K"))
+        ],
+        { trumpSuit: "spades" }
+      )
+    ).toBe("player-2");
   });
 
   it("creates 5 players after initialization", () => {
@@ -446,7 +555,7 @@ describe("game-core", () => {
     const mixed = createStateWithHands({
       hands: [[card("clubs", "2")], [], [], [], []],
       phase: "choosing-adjutant",
-      buriedCards: [card("spades", "A"), card("hearts", "10"), card("clubs", "3")]
+      buriedCards: [card("spades", "A"), card("hearts", "Q"), card("clubs", "3")]
     });
     const jokerOnlyHidden = createStateWithHands({
       hands: [[card("clubs", "2")], [], [], [], []],
@@ -462,7 +571,7 @@ describe("game-core", () => {
     });
 
     expect(createPlayerView(mixed, "player-0").buriedCards).toEqual({
-      revealedPointCards: [card("spades", "A"), card("hearts", "10")],
+      revealedPointCards: [card("spades", "A"), card("hearts", "Q")],
       hiddenCardCount: 1
     });
     expect(createPlayerView(jokerOnlyHidden, "player-0").buriedCards).toEqual({
@@ -547,6 +656,18 @@ describe("game-core", () => {
       playerId: null,
       revealed: false
     });
+  });
+
+  it("allows oruma and yoromeki to be chosen as adjutant cards", () => {
+    const exchanging = createAllPassExchangeState();
+    const choosing = applyAction(exchanging, {
+      type: "discard-cards",
+      playerId: "player-0",
+      cardIds: exchanging.players[0].hand.slice(0, 3).map((discardedCard) => discardedCard.id)
+    });
+
+    expect(chooseAdjutant(choosing, orumaCardId).adjutant?.calledCardId).toBe(orumaCardId);
+    expect(chooseAdjutant(choosing, yoromekiCardId).adjutant?.calledCardId).toBe(yoromekiCardId);
   });
 
   it("rejects invalid adjutant choices and phase violations", () => {
@@ -914,6 +1035,15 @@ describe("game-core", () => {
     ).toBe("hearts");
   });
 
+  it("uses oruma and yoromeki lead suits as their normal suits", () => {
+    expect(getLeadSuit([played("player-0", card("spades", "A"))], { trumpSuit: "hearts" })).toBe(
+      "spades"
+    );
+    expect(getLeadSuit([played("player-0", card("hearts", "Q"))], { trumpSuit: "spades" })).toBe(
+      "hearts"
+    );
+  });
+
   it("uses trump as the lead suit when joker leads", () => {
     const trick = [{ playerId: "player-0", card: joker() }];
 
@@ -937,6 +1067,37 @@ describe("game-core", () => {
       "joker",
       "hearts-K"
     ]);
+  });
+
+  it("keeps oruma and yoromeki under normal follow-suit obligations", () => {
+    expect(
+      getPlayableCards(
+        [card("spades", "A"), card("hearts", "5")],
+        [played("player-0", card("spades", "2"))],
+        { trumpSuit: "clubs" }
+      ).map((candidate) => candidate.id)
+    ).toEqual(["spades-A"]);
+    expect(
+      getPlayableCards(
+        [card("hearts", "Q"), card("clubs", "5")],
+        [played("player-0", card("hearts", "2"))],
+        { trumpSuit: "spades" }
+      ).map((candidate) => candidate.id)
+    ).toEqual(["hearts-Q"]);
+    expect(
+      getPlayableCards(
+        [card("spades", "A"), card("hearts", "5")],
+        [played("player-0", card("hearts", "2"))],
+        { trumpSuit: "clubs" }
+      ).map((candidate) => candidate.id)
+    ).toEqual(["hearts-5"]);
+    expect(
+      getPlayableCards(
+        [card("hearts", "Q"), card("clubs", "5")],
+        [played("player-0", card("clubs", "2"))],
+        { trumpSuit: "spades" }
+      ).map((candidate) => candidate.id)
+    ).toEqual(["clubs-5"]);
   });
 
   it("allows every card when the player cannot follow suit", () => {
@@ -1043,7 +1204,7 @@ describe("game-core", () => {
       [
         { playerId: "player-0", card: card("hearts", "7") },
         { playerId: "player-1", card: card("hearts", "K") },
-        { playerId: "player-2", card: card("spades", "A") },
+        { playerId: "player-2", card: card("spades", "K") },
         { playerId: "player-3", card: card("hearts", "3") },
         { playerId: "player-4", card: card("clubs", "Q") }
       ],
@@ -1062,7 +1223,7 @@ describe("game-core", () => {
       hands: [
         [card("hearts", "7"), card("clubs", "6")],
         [card("hearts", "K"), card("clubs", "2")],
-        [card("spades", "A"), card("clubs", "3")],
+        [card("spades", "K"), card("clubs", "3")],
         [card("hearts", "3"), card("diamonds", "4")],
         [card("clubs", "Q"), card("spades", "5")]
       ],
@@ -1071,7 +1232,7 @@ describe("game-core", () => {
     const completed = [
       { playerId: "player-0", cardId: "hearts-7" },
       { playerId: "player-1", cardId: "hearts-K" },
-      { playerId: "player-2", cardId: "spades-A" },
+      { playerId: "player-2", cardId: "spades-K" },
       { playerId: "player-3", cardId: "hearts-3" },
       { playerId: "player-4", cardId: "clubs-Q" }
     ].reduce(
@@ -1170,10 +1331,10 @@ describe("game-core", () => {
       determineTrickWinner(
         [
           { playerId: "player-0", card: joker() },
-          { playerId: "player-1", card: card("spades", "A") },
+          { playerId: "player-1", card: card("spades", "K") },
           { playerId: "player-2", card: card("clubs", "A") },
           { playerId: "player-3", card: card("diamonds", "A") },
-          { playerId: "player-4", card: card("spades", "K") }
+          { playerId: "player-4", card: card("spades", "Q") }
         ],
         { trumpSuit: "hearts" }
       )
@@ -1198,7 +1359,7 @@ describe("game-core", () => {
         [
           { playerId: "player-0", card: joker() },
           { playerId: "player-1", card: card("hearts", "2") },
-          { playerId: "player-2", card: card("spades", "A") },
+          { playerId: "player-2", card: card("spades", "K") },
           { playerId: "player-3", card: card("clubs", "A") },
           { playerId: "player-4", card: card("diamonds", "A") }
         ],
@@ -1693,6 +1854,10 @@ describe("game-core", () => {
       const view = createPlayerView(state, player.id);
 
       expect(view.trumpSuit).toBe(state.trumpSuit);
+      expect(view.specialCards).toEqual({
+        orumaCardId: "spades-A",
+        yoromekiCardId: "hearts-Q"
+      });
       expect(view.players.find((viewPlayer) => viewPlayer.id === player.id)?.hand).toHaveLength(10);
       expect(
         view.players
@@ -1700,6 +1865,25 @@ describe("game-core", () => {
           .every((viewPlayer) => viewPlayer.hand === undefined && viewPlayer.handCount === 10)
       ).toBe(true);
       expect(view.legalActions.every((action) => action.playerId === player.id)).toBe(true);
+    }
+  });
+
+  it("keeps public oruma and yoromeki ids fixed regardless of trump suit", () => {
+    for (const trumpSuit of ["spades", "hearts", "diamonds", "clubs"] satisfies readonly Suit[]) {
+      const view = createPlayerView(createStateWithHands({
+        hands: [[card("clubs", "2")], [], [], [], []],
+        trumpSuit,
+        contract: {
+          napoleonPlayerId: "player-0",
+          trumpSuit,
+          targetPointCards: 13
+        }
+      }), "player-0");
+
+      expect(view.specialCards).toEqual({
+        orumaCardId,
+        yoromekiCardId
+      });
     }
   });
 });

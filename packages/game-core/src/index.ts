@@ -1,5 +1,14 @@
 export { createDeck, ranks, shuffleDeck, suits } from "./deck.js";
-export { isJokerCard, isPointCard, isStandardCard, isStandardCardId } from "./cards.js";
+export {
+  isJokerCard,
+  isOrumaCard,
+  isPointCard,
+  isStandardCard,
+  isStandardCardId,
+  isYoromekiCard,
+  orumaCardId,
+  yoromekiCardId
+} from "./cards.js";
 export { GameRuleError } from "./errors.js";
 export { calculateGameResult } from "./scoring.js";
 export {
@@ -56,6 +65,7 @@ export type {
   PublicBiddingView,
   PublicPlayerState,
   Rank,
+  SpecialCardsView,
   StandardCard,
   Suit,
   WinningTeam

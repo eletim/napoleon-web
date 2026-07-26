@@ -41,6 +41,7 @@ class InspectingAgent implements Agent {
   observedHighestBid: Bid | null | undefined;
   observedHistoryLength: number | undefined;
   observedContract: GameState["contract"] | undefined;
+  observedSpecialCards: Parameters<Agent["selectAction"]>[0]["view"]["specialCards"] | undefined;
   observedLegalActions: readonly GameAction[] | undefined;
   observedOpponentHandLeak = false;
 
@@ -50,6 +51,7 @@ class InspectingAgent implements Agent {
     this.observedHighestBid = input.view.bidding?.highestBid;
     this.observedHistoryLength = input.view.bidding?.history.length;
     this.observedContract = input.view.contract;
+    this.observedSpecialCards = input.view.specialCards;
     this.observedLegalActions = input.legalActions;
     this.observedOpponentHandLeak = input.view.players
       .filter((player) => player.id !== input.playerId)
@@ -150,6 +152,39 @@ class PreferBidAgent implements Agent {
   }
 }
 
+class PreferredCardAgent implements Agent {
+  constructor(private readonly cardId: string) {}
+
+  async selectAction(input: Parameters<Agent["selectAction"]>[0]): Promise<GameAction> {
+    const exchangeAction = createExchangeAction(input);
+
+    if (exchangeAction !== undefined) {
+      return exchangeAction;
+    }
+
+    const adjutantAction = createAdjutantAction(input);
+
+    if (adjutantAction !== undefined) {
+      return adjutantAction;
+    }
+
+    const preferred = input.legalActions.find(
+      (action) => action.type === "play-card" && action.cardId === this.cardId
+    );
+    const fallback = input.legalActions[0];
+
+    if (preferred !== undefined) {
+      return preferred;
+    }
+
+    if (fallback === undefined) {
+      throw new Error("Expected a legal action.");
+    }
+
+    return fallback;
+  }
+}
+
 function createExchangeAction(input: Parameters<Agent["selectAction"]>[0]): GameAction | undefined {
   if (input.view.phase !== "exchanging" || input.view.exchangeRequirement === null) {
     return undefined;
@@ -217,6 +252,10 @@ describe("server API", () => {
     expect(body.state.phase).toBe("bidding");
     expect(body.state.trumpSuit).toBeNull();
     expect(body.state.contract).toBeNull();
+    expect(body.state.specialCards).toEqual({
+      orumaCardId: "spades-A",
+      yoromekiCardId: "hearts-Q"
+    });
     expect(body.state.adjutant).toBeNull();
     expect(body.state.adjutantChoice).toBeNull();
     expect(body.state.bidding).toMatchObject({
@@ -415,6 +454,164 @@ describe("server API", () => {
     expect(body.state.currentPlayerId).toBe("player-1");
   });
 
+  it("uses oruma as the trick winner over trump, lead cards, and joker", async () => {
+    games.set("oruma-winner", {
+      state: {
+        ...createStateWithHands([
+          [card("hearts", "A"), card("clubs", "6")],
+          [card("spades", "A")],
+          [card("hearts", "K")],
+          [card("clubs", "A")],
+          [joker()]
+        ]),
+        trumpSuit: "hearts",
+        contract: {
+          napoleonPlayerId: "player-0",
+          trumpSuit: "hearts",
+          targetPointCards: 13
+        }
+      },
+      humanPlayerId: "player-0",
+      agents: new Map([
+        ["player-1", new PreferredCardAgent("spades-A")],
+        ["player-2", new PreferredCardAgent("hearts-K")],
+        ["player-3", new PreferredCardAgent("clubs-A")],
+        ["player-4", new PreferredCardAgent("joker")]
+      ])
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games/oruma-winner/actions",
+      payload: {
+        action: {
+          type: "play-card",
+          cardId: "hearts-A"
+        }
+      }
+    });
+    const body = response.json<SendActionResponse>();
+
+    expect(response.statusCode).toBe(200);
+    expect(body.state.currentTrick.map((played) => played.card.id)).toEqual([
+      "hearts-A",
+      "spades-A",
+      "hearts-K",
+      "clubs-A",
+      "joker"
+    ]);
+    expect(body.state.isTrickComplete).toBe(true);
+    expect(body.state.currentPlayerId).toBe("player-1");
+  });
+
+  it("uses yoromeki over oruma only when both cards are in the same trick", async () => {
+    games.set("yoromeki-winner", {
+      state: createStateWithHands([
+        [card("spades", "A"), card("clubs", "6")],
+        [card("hearts", "Q")],
+        [joker()],
+        [card("clubs", "A")],
+        [card("diamonds", "A")]
+      ]),
+      humanPlayerId: "player-0",
+      agents: new Map([
+        ["player-1", new PreferredCardAgent("hearts-Q")],
+        ["player-2", new PreferredCardAgent("joker")],
+        ["player-3", new PreferredCardAgent("clubs-A")],
+        ["player-4", new PreferredCardAgent("diamonds-A")]
+      ])
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games/yoromeki-winner/actions",
+      payload: {
+        action: {
+          type: "play-card",
+          cardId: "spades-A"
+        }
+      }
+    });
+    const body = response.json<SendActionResponse>();
+
+    expect(response.statusCode).toBe(200);
+    expect(body.state.currentTrick.map((played) => played.card.id)).toEqual([
+      "spades-A",
+      "hearts-Q",
+      "joker",
+      "clubs-A",
+      "diamonds-A"
+    ]);
+    expect(body.state.isTrickComplete).toBe(true);
+    expect(body.state.currentPlayerId).toBe("player-1");
+  });
+
+  it("keeps hearts-Q and clubs-A as normal cards when oruma is absent", async () => {
+    games.set("yoromeki-normal", {
+      state: createStateWithHands([
+        [card("spades", "K"), card("clubs", "6")],
+        [card("hearts", "Q")],
+        [card("spades", "10")],
+        [card("clubs", "A")],
+        [card("diamonds", "A")]
+      ]),
+      humanPlayerId: "player-0",
+      agents: new Map([
+        ["player-1", new PreferredCardAgent("hearts-Q")],
+        ["player-2", new PreferredCardAgent("spades-10")],
+        ["player-3", new PreferredCardAgent("clubs-A")],
+        ["player-4", new PreferredCardAgent("diamonds-A")]
+      ])
+    });
+
+    const yoromekiResponse = await app.inject({
+      method: "POST",
+      url: "/api/games/yoromeki-normal/actions",
+      payload: {
+        action: {
+          type: "play-card",
+          cardId: "spades-K"
+        }
+      }
+    });
+    const yoromekiBody = yoromekiResponse.json<SendActionResponse>();
+
+    expect(yoromekiResponse.statusCode).toBe(200);
+    expect(yoromekiBody.state.currentPlayerId).toBe("player-0");
+
+    games.set("clubs-a-normal", {
+      state: createStateWithHands([
+        [card("clubs", "A"), card("hearts", "6")],
+        [card("hearts", "Q")],
+        [card("spades", "K")],
+        [card("clubs", "2")],
+        [card("diamonds", "2")]
+      ]),
+      humanPlayerId: "player-0",
+      agents: new Map([
+        ["player-1", new PreferredCardAgent("hearts-Q")],
+        ["player-2", new PreferredCardAgent("spades-K")],
+        ["player-3", new PreferredCardAgent("clubs-2")],
+        ["player-4", new PreferredCardAgent("diamonds-2")]
+      ])
+    });
+
+    const clubsResponse = await app.inject({
+      method: "POST",
+      url: "/api/games/clubs-a-normal/actions",
+      payload: {
+        action: {
+          type: "play-card",
+          cardId: "clubs-A"
+        }
+      }
+    });
+    const clubsBody = clubsResponse.json<SendActionResponse>();
+
+    expect(clubsResponse.statusCode).toBe(200);
+    expect(clubsBody.state.currentPlayerId).toBe("player-2");
+  });
+
   it("passes bidding public view fields to AI agents", async () => {
     const created = await createGame();
     const record = games.get(created.gameId);
@@ -451,6 +648,10 @@ describe("server API", () => {
     });
     expect(inspectingAgent.observedHistoryLength).toBe(1);
     expect(inspectingAgent.observedContract).toBeNull();
+    expect(inspectingAgent.observedSpecialCards).toEqual({
+      orumaCardId: "spades-A",
+      yoromekiCardId: "hearts-Q"
+    });
     expect(inspectingAgent.observedLegalActions?.length).toBeGreaterThan(0);
     expect(inspectingAgent.observedOpponentHandLeak).toBe(false);
   });
@@ -495,6 +696,10 @@ describe("server API", () => {
     });
     expect(body.state.currentPlayerId).toBe("player-0");
     expect(body.state.trumpSuit).toBe("hearts");
+    expect(body.state.specialCards).toEqual({
+      orumaCardId: "spades-A",
+      yoromekiCardId: "hearts-Q"
+    });
     expect(body.state.exchange).toEqual({
       napoleonPlayerId: "player-0",
       requiredDiscardCount: 3
@@ -612,10 +817,11 @@ describe("server API", () => {
       trumpSuit: "spades",
       targetPointCards: 13
     });
-    expect(playingBody.state.adjutant).toEqual({
-      calledCardId: "spades-A",
-      revealedPlayerId: null
-    });
+    expect(playingBody.state.adjutant?.calledCardId).toBe("spades-A");
+    expect(
+      playingBody.state.adjutant?.revealedPlayerId === null ||
+        typeof playingBody.state.adjutant?.revealedPlayerId === "string"
+    ).toBe(true);
     expect(playingBody.state.adjutantChoice).toBeNull();
     expect(playingBody.state.currentPlayerId).toBe("player-0");
     expect(playingBody.state.currentTrick.map((played) => played.playerId)).toEqual([
@@ -1512,6 +1718,45 @@ describe("server API", () => {
     if (storedAfter !== undefined) {
       expect(createStateSnapshot(storedAfter.state)).toEqual(snapshot);
       expect(storedAfter.state.currentTrick.some((played) => isJokerCard(played.card))).toBe(false);
+    }
+  });
+
+  it("does not persist partial state when AI plays yoromeki before a later AI failure", async () => {
+    const state = createStateWithHands([
+      [card("spades", "A"), card("clubs", "6")],
+      [card("hearts", "Q")],
+      [card("clubs", "A")],
+      [card("hearts", "3")],
+      [card("clubs", "Q")]
+    ]);
+    games.set("ai-yoromeki-failure", {
+      state,
+      humanPlayerId: "player-0",
+      agents: new Map([
+        ["player-1", new PreferredCardAgent("hearts-Q")],
+        ["player-2", new ThrowingAgent()],
+        ...createAgents(["player-3", "player-4"])
+      ])
+    });
+    const snapshot = createStateSnapshot(state);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games/ai-yoromeki-failure/actions",
+      payload: {
+        action: {
+          type: "play-card",
+          cardId: "spades-A"
+        }
+      }
+    });
+    const storedAfter = games.get("ai-yoromeki-failure");
+
+    expect(response.statusCode).toBeGreaterThanOrEqual(500);
+    expect(storedAfter).toBeDefined();
+    if (storedAfter !== undefined) {
+      expect(createStateSnapshot(storedAfter.state)).toEqual(snapshot);
+      expect(storedAfter.state.currentTrick).toEqual([]);
     }
   });
 

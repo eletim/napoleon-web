@@ -87,6 +87,10 @@ describe("protocol DTOs", () => {
         trumpSuit: "spades",
         targetPointCards: 13
       },
+      specialCards: {
+        orumaCardId: "spades-A",
+        yoromekiCardId: "hearts-Q"
+      },
       adjutant: {
         calledCardId: "hearts-A",
         revealedPlayerId: null
@@ -117,6 +121,24 @@ describe("protocol DTOs", () => {
     });
     expect(state.buriedCards).toBeNull();
     expect(Object.prototype.hasOwnProperty.call(state.adjutant, "playerId")).toBe(false);
+    expect(state.specialCards).toEqual({
+      orumaCardId: "spades-A",
+      yoromekiCardId: "hearts-Q"
+    });
+  });
+
+  it("exposes fixed oruma and yoromeki card ids without trump-derived fields", () => {
+    const specialCards: PublicGameState["specialCards"] = {
+      orumaCardId: "spades-A",
+      yoromekiCardId: "hearts-Q"
+    };
+
+    expect(specialCards).toEqual({
+      orumaCardId: "spades-A",
+      yoromekiCardId: "hearts-Q"
+    });
+    expect(Object.prototype.hasOwnProperty.call(specialCards, "trumpSuit")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(specialCards, "orumaSuit")).toBe(false);
   });
 
   it("exposes buried card summary and game result without internal-only fields", () => {

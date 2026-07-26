@@ -104,6 +104,11 @@ export interface PublicGameResult {
   adjutantPlayerId: string | null;
 }
 
+export interface PublicSpecialCardsState {
+  orumaCardId: string;
+  yoromekiCardId: string;
+}
+
 export interface PublicSelfPlayer {
   id: string;
   handCount: number;
@@ -148,6 +153,7 @@ export interface PublicGameState {
   phase: PublicGamePhase;
   trumpSuit: PublicSuit | null;
   contract: PublicContract | null;
+  specialCards: PublicSpecialCardsState;
   adjutant: PublicAdjutantState | null;
   buriedCards: PublicBuriedCardsState | null;
   result: PublicGameResult | null;

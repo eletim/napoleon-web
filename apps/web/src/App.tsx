@@ -175,6 +175,8 @@ export function App() {
             <span>フェーズ: {formatPhase(session?.state.phase)}</span>
             <span>トリック: {session?.state.trickNumber ?? "-"}</span>
             <span>切り札: {formatTrumpSuit(session?.state.trumpSuit ?? null)}</span>
+            <span>オルマ: {formatCardId(session?.state.specialCards.orumaCardId ?? "")}</span>
+            <span>よろめき: {formatCardId(session?.state.specialCards.yoromekiCardId ?? "")}</span>
             <span>契約: {formatContract(session?.state ?? null)}</span>
             <span>副官札: {formatAdjutant(session?.state.adjutant ?? null)}</span>
           </div>

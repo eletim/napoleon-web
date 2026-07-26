@@ -1,6 +1,6 @@
 import { GameRuleError } from "./errors.js";
 import { getRankValue } from "./ranks.js";
-import { isJokerCard, isStandardCard } from "./cards.js";
+import { isJokerCard, isOrumaCard, isStandardCard, isYoromekiCard } from "./cards.js";
 import type { Card, PlayedCard, PlayerId, Suit } from "./types.js";
 
 export type TrickCardCategory = "trump" | "lead" | "other";
@@ -82,6 +82,12 @@ export function determineTrickWinner(
   trick: readonly PlayedCard[],
   context: TrickContext
 ): PlayerId {
+  const specialWinner = determineOrumaYoromekiWinner(trick);
+
+  if (specialWinner !== undefined) {
+    return specialWinner;
+  }
+
   const leadSuit = getLeadSuit(trick, context);
 
   if (leadSuit === undefined) {
@@ -102,6 +108,17 @@ export function determineTrickWinner(
   );
 
   return winningCard.playerId;
+}
+
+function determineOrumaYoromekiWinner(trick: readonly PlayedCard[]): PlayerId | undefined {
+  const orumaPlay = trick.find((playedCard) => isOrumaCard(playedCard.card));
+  const yoromekiPlay = trick.find((playedCard) => isYoromekiCard(playedCard.card));
+
+  if (orumaPlay !== undefined && yoromekiPlay !== undefined) {
+    return yoromekiPlay.playerId;
+  }
+
+  return orumaPlay?.playerId;
 }
 
 function getTrickCardCategory(

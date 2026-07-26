@@ -56,6 +56,10 @@ export function toPublicGameState(state: GameState, playerId: PlayerId): PublicG
     phase: view.phase,
     trumpSuit: view.trumpSuit,
     contract: view.contract === null ? null : toPublicContract(view.contract),
+    specialCards: {
+      orumaCardId: view.specialCards.orumaCardId,
+      yoromekiCardId: view.specialCards.yoromekiCardId
+    },
     adjutant:
       view.adjutant === null
         ? null
