@@ -1,34 +1,27 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import type {
   PublicBidAction,
   PublicCard,
   PublicGameAction,
   PublicGameState,
   PublicRank,
-  PublicStandardCard,
   PublicSuit
 } from "@napoleon/protocol";
 import { BiddingPanel } from "./BiddingPanel";
-import { CardButton } from "./CardButton";
+import { PlayerSeat } from "./PlayerSeat";
+import { PointCards } from "./PointCards";
+import { SelfHandPanel } from "./SelfHandPanel";
+import { TrickBoard } from "./TrickBoard";
 import { createGame, nextTrick, sendAction } from "./api";
-import { isRedSuit, suitSymbols } from "./cardSymbols";
+import { suitSymbols } from "./cardSymbols";
+import { createTablePlayers } from "./tablePlayers";
+import type { TablePlayer } from "./tableTypes";
 import "./styles.css";
 
 interface Session {
   gameId: string;
   playerId: string;
   state: PublicGameState;
-}
-
-type Seat = "left" | "top-left" | "top-right" | "right" | "self";
-
-interface TablePlayer {
-  id: string;
-  label: string;
-  seat: Seat;
-  handCount: number;
-  capturedPointCards: readonly PublicStandardCard[];
-  isSelf: boolean;
 }
 
 export function App() {
@@ -65,11 +58,8 @@ export function App() {
 
   const self = session?.state.self;
   const tablePlayers = useMemo(() => createTablePlayers(session?.state), [session?.state]);
-  const playedCardsByPlayerId = useMemo(() => {
-    const entries =
-      session?.state.currentTrick.map((played) => [played.playerId, played] as const) ?? [];
-    return new Map(entries);
-  }, [session?.state.currentTrick]);
+  const aiPlayers = tablePlayers.filter((player) => !player.isSelf);
+  const selfPlayer = tablePlayers.find((player) => player.isSelf);
 
   async function handleCreateGame(): Promise<void> {
     await runRequest(async () => {
@@ -160,111 +150,6 @@ export function App() {
     }
   }
 
-  function renderPointCards(cards: readonly PublicStandardCard[]): ReactNode {
-    if (cards.length === 0) {
-      return <span className="muted-text">なし</span>;
-    }
-
-    return cards.map((card) => (
-      <span
-        className={isRedSuit(card.suit) ? "mini-card red-text" : "mini-card black-text"}
-        key={card.id}
-      >
-        {formatStandardCard(card)}
-      </span>
-    ));
-  }
-
-  function renderPlayerSeat(player: TablePlayer): ReactNode {
-    const isCurrent = session?.state.currentPlayerId === player.id;
-    const isNapoleon = session?.state.contract?.napoleonPlayerId === player.id;
-    const isAdjutant = session?.state.adjutant?.revealedPlayerId === player.id;
-    const seatClassName = [
-      "player-seat",
-      `seat-${player.seat}`,
-      isCurrent ? "current-player" : "",
-      player.isSelf ? "self-seat" : ""
-    ]
-      .filter(Boolean)
-      .join(" ");
-
-    return (
-      <article className={seatClassName} key={player.seat}>
-        <div className="seat-header">
-          <div>
-            <h2>{player.label}</h2>
-            <span className="player-id">{player.id}</span>
-          </div>
-          <div className="role-badges">
-            {player.isSelf ? <span className="role-badge self-badge">自分</span> : null}
-            {isCurrent ? <span className="role-badge turn-badge">手番</span> : null}
-            {isNapoleon ? <span className="role-badge napoleon-badge">ナポレオン</span> : null}
-            {isAdjutant ? <span className="role-badge adjutant-badge">副官</span> : null}
-          </div>
-        </div>
-
-        {!player.isSelf ? (
-          <div className="hidden-hand" aria-label={`${player.label}の手札`}>
-            <div className="card-back-stack" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-            </div>
-            <strong>{player.handCount}枚</strong>
-          </div>
-        ) : (
-          <div className="self-seat-count">
-            <strong>{player.handCount}枚</strong>
-          </div>
-        )}
-
-        <div className="captured-points">
-          <div className="captured-heading">
-            <span>獲得得点札</span>
-            <strong>{player.capturedPointCards.length}</strong>
-          </div>
-          <div className="inline-cards">{renderPointCards(player.capturedPointCards)}</div>
-        </div>
-      </article>
-    );
-  }
-
-  function renderTrickSlot(player: TablePlayer): ReactNode {
-    const played = playedCardsByPlayerId.get(player.id);
-
-    return (
-      <div className={`trick-slot trick-${player.seat}`} key={player.seat}>
-        <span className="played-owner">{player.label}</span>
-        {played === undefined ? (
-          <div className="empty-played-card">未プレイ</div>
-        ) : (
-          <div className="played-card">
-            {played.card.type === "joker" ? (
-              <span className="joker-text">JOKER</span>
-            ) : (
-              <span className={isRedSuit(played.card.suit) ? "red-text" : "black-text"}>
-                {played.card.rank}
-                {suitSymbols[played.card.suit]}
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  function getCardInteractionState(card: PublicCard): "legal" | "blocked" | "selectable" {
-    if (session?.state.phase === "exchanging" && canExchange) {
-      return "selectable";
-    }
-
-    if (session?.state.phase === "playing" && legalCardIds.has(card.id)) {
-      return "legal";
-    }
-
-    return "blocked";
-  }
-
   return (
     <main className="app-shell">
       <section className="top-bar">
@@ -279,7 +164,9 @@ export function App() {
 
       <section className="table" aria-label="ゲームテーブル">
         <div className="table-grid">
-          {tablePlayers.map(renderPlayerSeat)}
+          {aiPlayers.map((player) => (
+            <PlayerSeat key={player.seat} player={player} state={session?.state} />
+          ))}
 
           <div className="table-center">
             <div className="status-line">
@@ -312,13 +199,10 @@ export function App() {
               />
             ) : (
               <>
-                <div className="trick-board" aria-label="中央の場">
-                  {tablePlayers.map(renderTrickSlot)}
-                  <div className="trick-message">
-                    <span>現在のトリック</span>
-                    <strong>{session?.state.currentTrick.length ?? 0} / 5</strong>
-                  </div>
-                </div>
+                <TrickBoard
+                  currentTrick={session?.state.currentTrick ?? []}
+                  players={tablePlayers}
+                />
 
                 <button
                   className="secondary-button next-trick-button"
@@ -430,7 +314,7 @@ export function App() {
               <div className="buried-row">
                 <span>公開得点札:</span>
                 <div className="inline-cards">
-                  {renderPointCards(session.state.buriedCards.revealedPointCards)}
+                  <PointCards cards={session.state.buriedCards.revealedPointCards} />
                 </div>
               </div>
               <div className="buried-row">
@@ -463,42 +347,16 @@ export function App() {
           ) : null}
         </div>
 
-        <article className="self-panel">
-          <div className="self-heading">
-            <div>
-              <h2>自分の手札</h2>
-              <span>{self?.handCount ?? 0}枚</span>
-            </div>
-            <div className="hand-legend" aria-label="手札凡例">
-              <span className="legend-item legal">合法</span>
-              <span className="legend-item blocked">不可</span>
-              <span className="legend-item selectable">選択</span>
-            </div>
-          </div>
-          <div className="hand" aria-label="自分の手札">
-            {self?.hand?.map((card) => {
-              const interactionState = getCardInteractionState(card);
-
-              return (
-                <CardButton
-                  card={card}
-                  disabled={
-                    isBusy ||
-                    (session?.state.phase === "playing"
-                      ? !legalCardIds.has(card.id)
-                      : session?.state.phase === "exchanging"
-                        ? !canExchange
-                        : true)
-                  }
-                  interactionState={interactionState}
-                  key={card.id}
-                  onPlay={handlePlay}
-                  selected={selectedDiscardCardIds.includes(card.id)}
-                />
-              );
-            })}
-          </div>
-        </article>
+        <SelfHandPanel
+          canExchange={canExchange}
+          isBusy={isBusy}
+          legalCardIds={legalCardIds}
+          onPlay={handlePlay}
+          selectedDiscardCardIds={selectedDiscardCardIds}
+          self={self}
+          selfPlayer={selfPlayer}
+          state={session?.state}
+        />
       </section>
     </main>
   );
@@ -538,40 +396,6 @@ function createMessage(state: PublicGameState, playerId: string): string {
   }
 
   return `${state.currentPlayerId} の番です。`;
-}
-
-function createTablePlayers(state: PublicGameState | undefined): ReadonlyArray<TablePlayer> {
-  const opponents = state?.opponents ?? [];
-  const seatDefinitions: ReadonlyArray<{ seat: Seat; label: string }> = [
-    { seat: "left", label: "左側AI" },
-    { seat: "top-left", label: "奥左AI" },
-    { seat: "top-right", label: "奥右AI" },
-    { seat: "right", label: "右側AI" }
-  ];
-  const opponentPlayers = seatDefinitions.map((definition, index) => {
-    const player = opponents[index];
-
-    return {
-      id: player?.id ?? `player-${index + 1}`,
-      label: definition.label,
-      seat: definition.seat,
-      handCount: player?.handCount ?? 0,
-      capturedPointCards: player?.capturedPointCards ?? [],
-      isSelf: false
-    };
-  });
-
-  return [
-    ...opponentPlayers,
-    {
-      id: state?.self.id ?? "player-0",
-      label: "自分",
-      seat: "self",
-      handCount: state?.self.handCount ?? 0,
-      capturedPointCards: state?.self.capturedPointCards ?? [],
-      isSelf: true
-    }
-  ];
 }
 
 function formatPlayerLabel(
@@ -656,10 +480,6 @@ function formatAdjutant(adjutant: PublicGameState["adjutant"]): string {
 
 function formatWinningTeam(winner: NonNullable<PublicGameState["result"]>["winner"]): string {
   return winner === "napoleon-team" ? "ナポレオン陣営" : "連合軍";
-}
-
-function formatStandardCard(card: Extract<PublicCard, { type: "standard" }>): string {
-  return `${card.rank}${suitSymbols[card.suit]}`;
 }
 
 function formatCardId(cardId: string): string {
