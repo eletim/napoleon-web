@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type {
-  PublicBuriedCardsState,
   PublicCard,
   PublicGameAction,
+  PublicGameEvent,
   PublicGameResult,
   PublicGameState
 } from "../src/index.js";
@@ -104,7 +104,7 @@ describe("protocol DTOs", () => {
         calledCardId: "hearts-A",
         revealedPlayerId: null
       },
-      buriedCards: null,
+      latestEvent: null,
       result: null,
       bidding: null,
       exchange: {
@@ -128,7 +128,7 @@ describe("protocol DTOs", () => {
       napoleonPlayerId: "player-0",
       requiredDiscardCount: 3
     });
-    expect(state.buriedCards).toBeNull();
+    expect(state.latestEvent).toBeNull();
     expect(state.self.capturedPointCards).toEqual([]);
     expect(state.opponents[0]?.capturedPointCards).toEqual([]);
     expect(Object.prototype.hasOwnProperty.call(state.adjutant, "playerId")).toBe(false);
@@ -160,9 +160,11 @@ describe("protocol DTOs", () => {
     expect(Object.prototype.hasOwnProperty.call(specialCards, "uraJackCardId")).toBe(true);
   });
 
-  it("exposes buried card summary and game result without internal-only fields", () => {
-    const buriedCards: PublicBuriedCardsState = {
-      revealedPointCards: [
+  it("exposes buried resolution events and game result without internal-only fields", () => {
+    const latestEvent: PublicGameEvent = {
+      type: "buried-cards-resolved",
+      napoleonPlayerId: "player-0",
+      awardedPointCards: [
         {
           type: "standard",
           id: "spades-A",
@@ -170,20 +172,21 @@ describe("protocol DTOs", () => {
           rank: "A"
         }
       ],
-      hiddenCardCount: 2
+      hiddenNonPointCardCount: 2
     };
     const result: PublicGameResult = {
       winner: "napoleon-team",
       napoleonTeamPointCards: 15,
       alliancePointCards: 5,
-      buriedPointCards: 1,
       targetPointCards: 15,
       napoleonPlayerId: "player-0",
       adjutantPlayerId: null
     };
 
-    expect(buriedCards).toEqual({
-      revealedPointCards: [
+    expect(latestEvent).toEqual({
+      type: "buried-cards-resolved",
+      napoleonPlayerId: "player-0",
+      awardedPointCards: [
         {
           type: "standard",
           id: "spades-A",
@@ -191,10 +194,16 @@ describe("protocol DTOs", () => {
           rank: "A"
         }
       ],
-      hiddenCardCount: 2
+      hiddenNonPointCardCount: 2
     });
-    expect(Object.keys(buriedCards)).toEqual(["revealedPointCards", "hiddenCardCount"]);
-    expect(Object.prototype.hasOwnProperty.call(buriedCards, "hiddenCards")).toBe(false);
+    expect(Object.keys(latestEvent)).toEqual([
+      "type",
+      "napoleonPlayerId",
+      "awardedPointCards",
+      "hiddenNonPointCardCount"
+    ]);
+    expect(Object.prototype.hasOwnProperty.call(latestEvent, "hiddenCards")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(result, "buriedPointCards")).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(result, "adjutant")).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(result, "completedTricks")).toBe(false);
   });

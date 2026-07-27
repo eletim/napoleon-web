@@ -36,6 +36,7 @@ export {
 export {
   advanceToNextTrick,
   applyAction,
+  clearLatestEvent,
   createInitialGame,
   createPlayerView,
   getLegalActions
@@ -45,7 +46,8 @@ export type {
   AdjutantChoiceRequirement,
   AdjutantState,
   AdjutantView,
-  BuriedCardsView,
+  AwardedPointCards,
+  BuriedCardsResolvedEvent,
   JokerCard,
   Bid,
   BidAction,
@@ -58,6 +60,7 @@ export type {
   DiscardCardsAction,
   ExchangeRequirement,
   GameAction,
+  GameEvent,
   GamePhase,
   GameResult,
   GameState,

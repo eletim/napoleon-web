@@ -606,7 +606,9 @@ describe("game-core", () => {
       consecutivePassCount: 0,
       history: []
     });
-    expect(state.buriedCards).toEqual([]);
+    expect(state.awardedPointCards).toEqual([]);
+    expect(state.excludedCards).toEqual([]);
+    expect(state.latestEvent).toBeNull();
     expect(state.currentPlayerId).toBe("player-0");
   });
 
@@ -822,7 +824,8 @@ describe("game-core", () => {
         .every((player) => player.hand.length === 10)
     ).toBe(true);
     expect(state.unusedCards).toHaveLength(0);
-    expect(state.buriedCards).toHaveLength(0);
+    expect(state.awardedPointCards).toHaveLength(0);
+    expect(state.excludedCards).toHaveLength(0);
     expect(countKnownCards(state)).toBe(53);
     expect(getLegalActions(state, "player-2")).toEqual([]);
   });
@@ -845,7 +848,7 @@ describe("game-core", () => {
     expect(state.unusedCards).toHaveLength(0);
   });
 
-  it("moves three discarded cards into buriedCards and starts adjutant choice", () => {
+  it("resolves discarded buried cards and starts adjutant choice", () => {
     const exchanging = createAllPassExchangeState();
     const discardIds = exchanging.players[0].hand.slice(0, 3).map((card) => card.id);
     const next = applyAction(exchanging, {
@@ -858,7 +861,14 @@ describe("game-core", () => {
     expect(next.currentPlayerId).toBe("player-0");
     expect(next.players[0].hand).toHaveLength(10);
     expect(next.players[0].hand.some((card) => discardIds.includes(card.id))).toBe(false);
-    expect(next.buriedCards.map((card) => card.id)).toEqual(discardIds);
+    expect([
+      ...next.awardedPointCards.flatMap((award) => award.cards.map((card) => card.id)),
+      ...next.excludedCards.map((card) => card.id)
+    ].sort()).toEqual([...discardIds].sort());
+    expect(next.latestEvent).toMatchObject({
+      type: "buried-cards-resolved",
+      napoleonPlayerId: "player-0"
+    });
     expect(next.currentTrick).toEqual([]);
     expect(next.trickNumber).toBe(1);
     expect(next.isTrickComplete).toBe(false);
@@ -890,49 +900,40 @@ describe("game-core", () => {
 
     expect(next.phase).toBe("choosing-adjutant");
     expect(next.players[0].hand.some(isJokerCard)).toBe(false);
-    expect(next.buriedCards.some(isJokerCard)).toBe(true);
+    expect(next.excludedCards.some(isJokerCard)).toBe(true);
   });
 
-  it("exposes only point cards and hidden count for buried cards in player views", () => {
-    const mixed = createStateWithHands({
-      hands: [[card("clubs", "2")], [], [], [], []],
-      phase: "choosing-adjutant",
-      buriedCards: [card("spades", "J"), card("clubs", "J"), card("clubs", "3")]
-    });
-    const jokerOnlyHidden = createStateWithHands({
-      hands: [[card("clubs", "2")], [], [], [], []],
-      buriedCards: [joker(), card("clubs", "3"), card("diamonds", "8")]
-    });
-    const allPointCards = createStateWithHands({
-      hands: [[card("clubs", "2")], [], [], [], []],
-      buriedCards: [card("spades", "A"), card("hearts", "K"), card("diamonds", "10")]
-    });
-    const allHidden = createStateWithHands({
-      hands: [[card("clubs", "2")], [], [], [], []],
-      buriedCards: [card("spades", "2"), card("hearts", "5"), joker()]
-    });
+  it("exposes the buried-card resolution event without non-point card contents", () => {
+    const exchanging = createAllPassExchangeState();
+    const pointCard = exchanging.players[0].hand.find(isPointCard);
+    const nonPointStandardCard = exchanging.players[0].hand.find(
+      (candidate) => isStandardCard(candidate) && !isPointCard(candidate)
+    );
+    const jokerCard = exchanging.players[0].hand.find(isJokerCard);
 
-    expect(createPlayerView(mixed, "player-0").buriedCards).toEqual({
-      revealedPointCards: [card("spades", "J"), card("clubs", "J")],
-      hiddenCardCount: 1
-    });
-    expect(createPlayerView(jokerOnlyHidden, "player-0").buriedCards).toEqual({
-      revealedPointCards: [],
-      hiddenCardCount: 3
-    });
-    expect(createPlayerView(allPointCards, "player-1").buriedCards).toEqual({
-      revealedPointCards: [card("spades", "A"), card("hearts", "K"), card("diamonds", "10")],
-      hiddenCardCount: 0
-    });
-    expect(createPlayerView(allHidden, "player-2").buriedCards).toEqual({
-      revealedPointCards: [],
-      hiddenCardCount: 3
-    });
+    expect(pointCard).toBeDefined();
+    expect(nonPointStandardCard).toBeDefined();
+    expect(jokerCard).toBeDefined();
+    if (pointCard === undefined || nonPointStandardCard === undefined || jokerCard === undefined) {
+      throw new Error("Expected point, non-point, and joker cards in the exchange hand.");
+    }
 
-    const publicBuriedCards = createPlayerView(jokerOnlyHidden, "player-0").buriedCards;
-    expect(JSON.stringify(publicBuriedCards)).not.toContain("joker");
-    expect(JSON.stringify(publicBuriedCards)).not.toContain("clubs-3");
-    expect(JSON.stringify(publicBuriedCards)).not.toContain("diamonds-8");
+    const discardIds = [pointCard.id, nonPointStandardCard.id, jokerCard.id];
+    const next = applyAction(exchanging, {
+      type: "discard-cards",
+      playerId: "player-0",
+      cardIds: discardIds
+    });
+    const view = createPlayerView(next, "player-1");
+
+    expect(view.latestEvent).toEqual({
+      type: "buried-cards-resolved",
+      napoleonPlayerId: "player-0",
+      awardedPointCards: [pointCard],
+      hiddenNonPointCardCount: 2
+    });
+    expect(JSON.stringify(view.latestEvent)).not.toContain(nonPointStandardCard.id);
+    expect(JSON.stringify(view.latestEvent)).not.toContain(jokerCard.id);
   });
 
   it("lets Napoleon choose a standard adjutant card before play starts", () => {
@@ -980,12 +981,15 @@ describe("game-core", () => {
       cardIds: discardIds
     });
     const selfCard = choosing.players[0].hand.find(isStandardCard);
-    const buriedCard = choosing.buriedCards.find(isStandardCard);
+    const resolvedBuriedCard = [
+      ...choosing.awardedPointCards.flatMap((award) => award.cards),
+      ...choosing.excludedCards
+    ].find(isStandardCard);
 
     expect(selfCard).toBeDefined();
-    expect(buriedCard).toBeDefined();
-    if (selfCard === undefined || buriedCard === undefined) {
-      throw new Error("Expected standard cards in hand and buried cards.");
+    expect(resolvedBuriedCard).toBeDefined();
+    if (selfCard === undefined || resolvedBuriedCard === undefined) {
+      throw new Error("Expected standard cards in hand and resolved buried cards.");
     }
 
     expect(chooseAdjutant(choosing, selfCard.id).adjutant).toEqual({
@@ -993,8 +997,8 @@ describe("game-core", () => {
       playerId: null,
       revealed: false
     });
-    expect(chooseAdjutant(choosing, buriedCard.id).adjutant).toEqual({
-      calledCardId: buriedCard.id,
+    expect(chooseAdjutant(choosing, resolvedBuriedCard.id).adjutant).toEqual({
+      calledCardId: resolvedBuriedCard.id,
       playerId: null,
       revealed: false
     });
@@ -2033,7 +2037,7 @@ describe("game-core", () => {
     expect(next.currentPlayerId).toBe("player-1");
   });
 
-  it("calculates point cards by the trick winner's team and adds buried point cards to Napoleon", () => {
+  it("calculates point cards by the trick winner's team and uses awarded buried point cards", () => {
     const state = createStateWithHands({
       hands: [[], [], [], [], []],
       phase: "finished",
@@ -2069,7 +2073,10 @@ describe("game-core", () => {
         ]),
         ...createCompletedTricksFromPointCounts([0, 0, 0, 0, 0, 0], 5)
       ],
-      buriedCards: [card("clubs", "A"), card("hearts", "10"), joker()],
+      awardedPointCards: [
+        { playerId: "player-0", cards: [card("clubs", "A"), card("hearts", "10")] }
+      ],
+      excludedCards: [joker()],
       adjutant: {
         calledCardId: "hearts-A",
         playerId: "player-1",
@@ -2086,7 +2093,6 @@ describe("game-core", () => {
       winner: "napoleon-team",
       napoleonTeamPointCards: 11,
       alliancePointCards: 9,
-      buriedPointCards: 2,
       targetPointCards: 11,
       napoleonPlayerId: "player-0",
       adjutantPlayerId: "player-1"
@@ -2171,7 +2177,7 @@ describe("game-core", () => {
         0
       ]),
       trickNumber: 10,
-      buriedCards: [card("clubs", "2"), card("clubs", "3"), joker()],
+      excludedCards: [card("clubs", "2"), card("clubs", "3"), joker()],
       adjutant: {
         calledCardId: "hearts-A",
         playerId: "player-1",
@@ -2187,8 +2193,7 @@ describe("game-core", () => {
     expect(completed.phase).toBe("finished");
     expect(completed.result).toMatchObject({
       napoleonTeamPointCards: 20,
-      alliancePointCards: 0,
-      buriedPointCards: 0
+      alliancePointCards: 0
     });
     expect(completed.completedTricks).toHaveLength(10);
     expect(completed.players.every((player) => player.hand.length === 0)).toBe(true);
@@ -2248,13 +2253,14 @@ describe("game-core", () => {
           card("diamonds", "5")
         ])
       ],
-      buriedCards: [card("clubs", "A"), card("spades", "2"), joker()]
+      awardedPointCards: [{ playerId: "player-0", cards: [card("clubs", "A")] }],
+      excludedCards: [card("spades", "2"), joker()]
     });
     const view = createPlayerView(state, "player-0");
 
-    expect(view.players.find((player) => player.id === "player-0")?.capturedPointCards).toEqual(
-      []
-    );
+    expect(
+      view.players.find((player) => player.id === "player-0")?.capturedPointCards.map((card) => card.id)
+    ).toEqual(["clubs-A"]);
     expect(
       view.players.find((player) => player.id === "player-1")?.capturedPointCards.map((card) => card.id)
     ).toEqual(["hearts-A", "hearts-K", "hearts-Q", "diamonds-10"]);
@@ -2262,8 +2268,8 @@ describe("game-core", () => {
       view.players.find((player) => player.id === "player-3")?.capturedPointCards.map((card) => card.id)
     ).toEqual(["spades-J"]);
     expect(
-      view.players.every((player) => !player.capturedPointCards.some((card) => card.id === "clubs-A"))
-    ).toBe(true);
+      view.players.find((player) => player.id === "player-2")?.capturedPointCards
+    ).toEqual([]);
   });
 
   it("exposes public bidding state and only the player's legal bidding actions", () => {
@@ -2334,7 +2340,7 @@ describe("game-core", () => {
     expect(opponentView.players[1].hand).toHaveLength(10);
     expect(opponentView.exchangeRequirement).toBeNull();
     expect(opponentView.adjutantChoiceRequirement).toBeNull();
-    expect(opponentView.buriedCards).toBeNull();
+    expect(opponentView.latestEvent).toBeNull();
     expect(opponentView.result).toBeNull();
   });
 
@@ -2357,8 +2363,8 @@ describe("game-core", () => {
     expect(opponentView.players[0].hand).toBeUndefined();
     expect(opponentView.adjutantChoiceRequirement).toBeNull();
     expect(opponentView.adjutant).toBeNull();
-    expect(opponentView.buriedCards).not.toBeNull();
-    expect(JSON.stringify(opponentView.buriedCards)).not.toContain("joker");
+    expect(opponentView.latestEvent).not.toBeNull();
+    expect(JSON.stringify(opponentView.latestEvent)).not.toContain("joker");
   });
 
   it("clears exchange and adjutant requirements after adjutant choice completes", () => {
@@ -2375,7 +2381,7 @@ describe("game-core", () => {
     expect(view.exchangeRequirement).toBeNull();
     expect(view.adjutantChoiceRequirement).toBeNull();
     expect(view.players[0].handCount).toBe(10);
-    expect(view.buriedCards).not.toBeNull();
+    expect(view.latestEvent).not.toBeNull();
   });
 
   it("exposes null trump suit through createPlayerView", () => {
@@ -2471,7 +2477,9 @@ function createStateWithHands(options: {
   contract?: GameState["contract"];
   adjutant?: GameState["adjutant"];
   bidding?: GameState["bidding"];
-  buriedCards?: GameState["buriedCards"];
+  awardedPointCards?: GameState["awardedPointCards"];
+  excludedCards?: GameState["excludedCards"];
+  latestEvent?: GameState["latestEvent"];
   result?: GameState["result"];
 }): GameState {
   const playerIds = ["player-0", "player-1", "player-2", "player-3", "player-4"];
@@ -2496,7 +2504,9 @@ function createStateWithHands(options: {
     },
     adjutant: options.adjutant ?? null,
     bidding: options.bidding ?? null,
-    buriedCards: options.buriedCards ?? [],
+    awardedPointCards: options.awardedPointCards ?? [],
+    excludedCards: options.excludedCards ?? [],
+    latestEvent: options.latestEvent ?? null,
     result: options.result ?? null,
     trickNumber: options.trickNumber ?? 1,
     isTrickComplete: options.isTrickComplete ?? false,
@@ -2540,7 +2550,7 @@ function createResultStateWithNapoleonPointCards(
     phase: "finished",
     isGameOver: true,
     completedTricks,
-    buriedCards: [card("clubs", "2"), card("clubs", "3"), joker()],
+    excludedCards: [card("clubs", "2"), card("clubs", "3"), joker()],
     contract: {
       napoleonPlayerId: "player-0",
       trumpSuit: "spades",
@@ -2639,7 +2649,8 @@ function createCompletedTrick(
 function countKnownCards(state: GameState): number {
   return [
     ...state.players.flatMap((player) => player.hand),
-    ...state.buriedCards,
+    ...state.awardedPointCards.flatMap((award) => award.cards),
+    ...state.excludedCards,
     ...state.unusedCards,
     ...state.currentTrick.map((played) => played.card),
     ...state.completedTricks.flatMap((trick) => trick.cards.map((played) => played.card))

@@ -7,6 +7,7 @@ import {
   type Card,
   type Contract,
   type GameAction,
+  type GameEvent,
   type GameResult,
   type GameState,
   type PlayedCard,
@@ -19,6 +20,7 @@ import type {
   PublicBiddingHistoryEntry,
   PublicBiddingState,
   PublicContract,
+  PublicGameEvent,
   PublicAdjutantChoiceState,
   PublicExchangeState,
   PublicGameState,
@@ -71,13 +73,7 @@ export function toPublicGameState(state: GameState, playerId: PlayerId): PublicG
             calledCardId: view.adjutant.calledCardId,
             revealedPlayerId: view.adjutant.revealedPlayerId
           },
-    buriedCards:
-      view.buriedCards === null
-        ? null
-        : {
-            revealedPointCards: view.buriedCards.revealedPointCards.map(toPublicStandardCard),
-            hiddenCardCount: view.buriedCards.hiddenCardCount
-          },
+    latestEvent: view.latestEvent === null ? null : toPublicGameEvent(view.latestEvent),
     result: view.result === null ? null : toPublicGameResult(view.result),
     bidding: view.bidding === null ? null : toPublicBiddingState(view.bidding),
     exchange: toPublicExchangeState(view),
@@ -143,11 +139,22 @@ function toPublicGameResult(result: GameResult): PublicGameResult {
     winner: result.winner,
     napoleonTeamPointCards: result.napoleonTeamPointCards,
     alliancePointCards: result.alliancePointCards,
-    buriedPointCards: result.buriedPointCards,
     targetPointCards: result.targetPointCards,
     napoleonPlayerId: result.napoleonPlayerId,
     adjutantPlayerId: result.adjutantPlayerId
   };
+}
+
+function toPublicGameEvent(event: GameEvent): PublicGameEvent {
+  switch (event.type) {
+    case "buried-cards-resolved":
+      return {
+        type: "buried-cards-resolved",
+        napoleonPlayerId: event.napoleonPlayerId,
+        awardedPointCards: event.awardedPointCards.map(toPublicStandardCard),
+        hiddenNonPointCardCount: event.hiddenNonPointCardCount
+      };
+  }
 }
 
 function toPublicPlayedCard(playedCard: PlayedCard): PublicPlayedCard {

@@ -3,7 +3,7 @@ import { GameRuleError } from "./errors.js";
 import type { GameResult, GameState, PlayerId } from "./types.js";
 
 const expectedCompletedTrickCount = 10;
-const expectedBuriedCardCount = 3;
+const expectedResolvedBuriedCardCount = 3;
 const expectedPointCardCount = 20;
 
 export function calculateGameResult(state: GameState): GameResult {
@@ -19,8 +19,12 @@ export function calculateGameResult(state: GameState): GameResult {
     throw new GameRuleError("INVALID_RESULT_STATE", "All player hands must be empty.");
   }
 
-  if (state.buriedCards.length !== expectedBuriedCardCount) {
-    throw new GameRuleError("INVALID_RESULT_STATE", "Exactly 3 buried cards are required.");
+  const resolvedBuriedCardCount =
+    state.excludedCards.length +
+    state.awardedPointCards.reduce((count, award) => count + award.cards.length, 0);
+
+  if (resolvedBuriedCardCount !== expectedResolvedBuriedCardCount) {
+    throw new GameRuleError("INVALID_RESULT_STATE", "Exactly 3 buried cards must be resolved.");
   }
 
   const napoleonTeamPlayerIds = new Set<PlayerId>([state.contract.napoleonPlayerId]);
@@ -46,8 +50,13 @@ export function calculateGameResult(state: GameState): GameResult {
     }
   }
 
-  const buriedPointCards = state.buriedCards.filter(isPointCard).length;
-  napoleonTeamPointCards += buriedPointCards;
+  for (const award of state.awardedPointCards) {
+    if (napoleonTeamPlayerIds.has(award.playerId)) {
+      napoleonTeamPointCards += award.cards.length;
+    } else {
+      alliancePointCards += award.cards.length;
+    }
+  }
 
   if (napoleonTeamPointCards + alliancePointCards !== expectedPointCardCount) {
     throw new GameRuleError(
@@ -63,7 +72,6 @@ export function calculateGameResult(state: GameState): GameResult {
         : "alliance",
     napoleonTeamPointCards,
     alliancePointCards,
-    buriedPointCards,
     targetPointCards: state.contract.targetPointCards,
     napoleonPlayerId: state.contract.napoleonPlayerId,
     adjutantPlayerId: state.adjutant.playerId

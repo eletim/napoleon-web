@@ -83,16 +83,24 @@ export interface GameResult {
   winner: WinningTeam;
   napoleonTeamPointCards: number;
   alliancePointCards: number;
-  buriedPointCards: number;
   targetPointCards: number;
   napoleonPlayerId: PlayerId;
   adjutantPlayerId: PlayerId | null;
 }
 
-export interface BuriedCardsView {
-  revealedPointCards: readonly StandardCard[];
-  hiddenCardCount: number;
+export interface AwardedPointCards {
+  playerId: PlayerId;
+  cards: readonly StandardCard[];
 }
+
+export interface BuriedCardsResolvedEvent {
+  type: "buried-cards-resolved";
+  napoleonPlayerId: PlayerId;
+  awardedPointCards: readonly StandardCard[];
+  hiddenNonPointCardCount: number;
+}
+
+export type GameEvent = BuriedCardsResolvedEvent;
 
 export interface SpecialCardsView {
   orumaCardId: string;
@@ -132,7 +140,9 @@ export interface GameState {
   contract: Contract | null;
   adjutant: AdjutantState | null;
   bidding: BiddingState | null;
-  buriedCards: readonly Card[];
+  awardedPointCards: readonly AwardedPointCards[];
+  excludedCards: readonly Card[];
+  latestEvent: GameEvent | null;
   result: GameResult | null;
   trickNumber: number;
   isTrickComplete: boolean;
@@ -200,7 +210,7 @@ export interface PlayerView {
   contract: Contract | null;
   specialCards: SpecialCardsView;
   adjutant: AdjutantView | null;
-  buriedCards: BuriedCardsView | null;
+  latestEvent: GameEvent | null;
   result: GameResult | null;
   bidding: PublicBiddingView | null;
   exchangeRequirement: ExchangeRequirement | null;

@@ -377,7 +377,6 @@ select:focus-visible {
 .bidding-panel,
 .exchange-panel,
 .adjutant-panel,
-.buried-panel,
 .result-panel {
   background: #f8fafc;
   border-radius: 8px;
@@ -589,7 +588,6 @@ select:focus-visible {
 
 .exchange-panel h2,
 .adjutant-panel h2,
-.buried-panel h2,
 .result-panel h2 {
   font-size: 1rem;
   margin: 0 0 4px;
@@ -626,17 +624,9 @@ select:focus-visible {
   padding: 0 10px;
 }
 
-.buried-panel,
 .result-panel {
   display: grid;
   gap: 10px;
-}
-
-.buried-row {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
 }
 
 .result-grid {

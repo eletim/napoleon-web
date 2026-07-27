@@ -87,22 +87,25 @@ export interface PublicAdjutantChoiceState {
   standardCardsOnly: true;
 }
 
-export interface PublicBuriedCardsState {
-  revealedPointCards: readonly PublicStandardCard[];
-  hiddenCardCount: number;
-}
-
 export type PublicWinningTeam = "napoleon-team" | "alliance";
 
 export interface PublicGameResult {
   winner: PublicWinningTeam;
   napoleonTeamPointCards: number;
   alliancePointCards: number;
-  buriedPointCards: number;
   targetPointCards: number;
   napoleonPlayerId: string;
   adjutantPlayerId: string | null;
 }
+
+export interface PublicBuriedCardsResolvedEvent {
+  type: "buried-cards-resolved";
+  napoleonPlayerId: string;
+  awardedPointCards: readonly PublicStandardCard[];
+  hiddenNonPointCardCount: number;
+}
+
+export type PublicGameEvent = PublicBuriedCardsResolvedEvent;
 
 export interface PublicSpecialCardsState {
   orumaCardId: string;
@@ -159,7 +162,7 @@ export interface PublicGameState {
   contract: PublicContract | null;
   specialCards: PublicSpecialCardsState;
   adjutant: PublicAdjutantState | null;
-  buriedCards: PublicBuriedCardsState | null;
+  latestEvent: PublicGameEvent | null;
   result: PublicGameResult | null;
   bidding: PublicBiddingState | null;
   exchange: PublicExchangeState | null;

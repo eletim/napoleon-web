@@ -13,7 +13,7 @@ import {
 import { calculateGameResult } from "./scoring.js";
 import type {
   AdjutantState,
-  BuriedCardsView,
+  AwardedPointCards,
   Bid,
   Card,
   Contract,
@@ -69,7 +69,9 @@ export function createInitialGame(options: CreateInitialGameOptions = {}): GameS
       consecutivePassCount: 0,
       history: []
     },
-    buriedCards: [],
+    awardedPointCards: [],
+    excludedCards: [],
+    latestEvent: null,
     result: null,
     trickNumber: 1,
     isTrickComplete: false,
@@ -126,6 +128,10 @@ export function applyAction(state: GameState, action: GameAction): GameState {
   }
 }
 
+export function clearLatestEvent(state: GameState): GameState {
+  return state.latestEvent === null ? state : { ...state, latestEvent: null };
+}
+
 export function advanceToNextTrick(state: GameState): GameState {
   if (state.phase === "finished" || state.isGameOver) {
     throw new GameRuleError("GAME_OVER", "The game is already over.");
@@ -171,7 +177,7 @@ export function createPlayerView(state: GameState, playerId: PlayerId): PlayerVi
       uraJackCardId: state.trumpSuit === null ? null : getUraJackCardId(state.trumpSuit)
     },
     adjutant: toAdjutantView(state.adjutant ?? null, state.isGameOver),
-    buriedCards: toBuriedCardsView(state),
+    latestEvent: state.latestEvent,
     result: state.result,
     bidding: state.bidding,
     exchangeRequirement:
@@ -413,7 +419,9 @@ function completeBidding(state: GameState, contract: Contract): GameState {
     contract,
     bidding: null,
     unusedCards: [],
-    buriedCards: [],
+    awardedPointCards: [],
+    excludedCards: [],
+    latestEvent: null,
     adjutant: null,
     result: null
   };
@@ -447,7 +455,7 @@ function discardCards(
     throw new GameRuleError("NOT_PLAYERS_TURN", "It is not this player's turn.");
   }
 
-  if (state.buriedCards.length !== 0) {
+  if (getResolvedBuriedCardCount(state) !== 0) {
     throw new GameRuleError("EXCHANGE_ALREADY_COMPLETED", "Buried card exchange is already complete.");
   }
 
@@ -474,6 +482,8 @@ function discardCards(
 
     return card;
   });
+  const awardedPointCards = discardedCards.filter(isPointCard);
+  const excludedCards = discardedCards.filter((card) => !isPointCard(card));
   const discardedIdSet = new Set(cardIds);
   const players = state.players.map((candidate) =>
     candidate.id === playerId
@@ -487,7 +497,18 @@ function discardCards(
   return {
     ...state,
     players,
-    buriedCards: discardedCards,
+    awardedPointCards: appendAwardedPointCards(
+      state.awardedPointCards,
+      playerId,
+      awardedPointCards
+    ),
+    excludedCards: [...state.excludedCards, ...excludedCards],
+    latestEvent: {
+      type: "buried-cards-resolved",
+      napoleonPlayerId: playerId,
+      awardedPointCards,
+      hiddenNonPointCardCount: excludedCards.length
+    },
     result: null,
     phase: "choosing-adjutant",
     adjutant: null,
@@ -535,7 +556,7 @@ function chooseAdjutant(state: GameState, playerId: PlayerId, cardId: string): G
     state.currentTrick.length !== 0 ||
     state.completedTricks.length !== 0 ||
     state.trickNumber !== 1 ||
-    state.buriedCards.length !== 3
+    getResolvedBuriedCardCount(state) !== 3
   ) {
     throw new GameRuleError("INVALID_ADJUTANT_STATE", "Adjutant must be chosen before play starts.");
   }
@@ -565,7 +586,10 @@ function resolveAdjutantPlayerId(state: GameState, cardId: string): PlayerId | n
     return owner.id === state.contract.napoleonPlayerId ? null : owner.id;
   }
 
-  if (state.buriedCards.some((card) => card.id === cardId)) {
+  if (
+    state.excludedCards.some((card) => card.id === cardId) ||
+    state.awardedPointCards.some((award) => award.cards.some((card) => card.id === cardId))
+  ) {
     return null;
   }
 
@@ -620,32 +644,49 @@ function revealAdjutantAtGameOver(adjutant: AdjutantState | null): AdjutantState
   };
 }
 
-function toBuriedCardsView(state: GameState): BuriedCardsView | null {
-  if (
-    state.phase === "bidding" ||
-    state.phase === "exchanging" ||
-    state.buriedCards.length === 0
-  ) {
-    return null;
-  }
-
-  const revealedPointCards = state.buriedCards.filter(isPointCard);
-
-  return {
-    revealedPointCards,
-    hiddenCardCount: state.buriedCards.length - revealedPointCards.length
-  };
-}
-
 function getCapturedPointCards(
   state: GameState,
   playerId: PlayerId
 ): readonly StandardCard[] {
-  return state.completedTricks
+  const trickPointCards = state.completedTricks
     .filter((trick) => trick.winnerId === playerId)
     .flatMap((trick) =>
       trick.cards.map((playedCard) => playedCard.card).filter(isPointCard)
     );
+  const awardedPointCards = state.awardedPointCards
+    .filter((award) => award.playerId === playerId)
+    .flatMap((award) => award.cards);
+
+  return [...trickPointCards, ...awardedPointCards];
+}
+
+function appendAwardedPointCards(
+  awards: readonly AwardedPointCards[],
+  playerId: PlayerId,
+  cards: readonly StandardCard[]
+): readonly AwardedPointCards[] {
+  if (cards.length === 0) {
+    return awards;
+  }
+
+  const existingAward = awards.find((award) => award.playerId === playerId);
+
+  if (existingAward === undefined) {
+    return [...awards, { playerId, cards }];
+  }
+
+  return awards.map((award) =>
+    award.playerId === playerId
+      ? { ...award, cards: [...award.cards, ...cards] }
+      : award
+  );
+}
+
+function getResolvedBuriedCardCount(state: GameState): number {
+  return (
+    state.excludedCards.length +
+    state.awardedPointCards.reduce((count, award) => count + award.cards.length, 0)
+  );
 }
 
 function getPlayer(state: GameState, playerId: PlayerId): PlayerState {

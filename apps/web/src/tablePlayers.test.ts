@@ -45,7 +45,7 @@ function createPublicState(): PublicGameState {
       uraJackCardId: "clubs-J"
     },
     adjutant: null,
-    buriedCards: null,
+    latestEvent: null,
     result: null,
     bidding: null,
     exchange: null,

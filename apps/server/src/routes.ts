@@ -3,6 +3,7 @@ import { NoLegalActionsError } from "@napoleon/ai";
 import {
   advanceToNextTrick,
   applyAction,
+  clearLatestEvent,
   createInitialGame,
   createPlayerView,
   GameRuleError,
@@ -81,7 +82,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       }
 
       try {
-        let nextState = applyAction(record.state, toInternalAction(action, record.humanPlayerId));
+        let nextState = applyAction(
+          clearLatestEvent(record.state),
+          toInternalAction(action, record.humanPlayerId)
+        );
         nextState = await advanceAiTurns(nextState, record.humanPlayerId, record.agents);
         record.state = nextState;
       } catch (error) {
@@ -106,7 +110,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       }
 
       try {
-        let nextState = advanceToNextTrick(record.state);
+        let nextState = advanceToNextTrick(clearLatestEvent(record.state));
         nextState = await advanceAiTurns(nextState, record.humanPlayerId, record.agents);
         record.state = nextState;
       } catch (error) {

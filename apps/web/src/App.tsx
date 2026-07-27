@@ -5,11 +5,11 @@ import type {
   PublicGameAction,
   PublicGameState,
   PublicRank,
+  PublicStandardCard,
   PublicSuit
 } from "@napoleon/protocol";
 import { BiddingPanel } from "./BiddingPanel";
 import { PlayerSeat } from "./PlayerSeat";
-import { PointCards } from "./PointCards";
 import { SelfHandPanel } from "./SelfHandPanel";
 import { TrickBoard } from "./TrickBoard";
 import { createGame, nextTrick, sendAction } from "./api";
@@ -308,22 +308,6 @@ export function App() {
             </section>
           ) : null}
 
-          {session?.state.buriedCards !== null && session?.state.buriedCards !== undefined ? (
-            <section className="buried-panel" aria-label="埋札公開情報">
-              <h2>埋札</h2>
-              <div className="buried-row">
-                <span>公開得点札:</span>
-                <div className="inline-cards">
-                  <PointCards cards={session.state.buriedCards.revealedPointCards} />
-                </div>
-              </div>
-              <div className="buried-row">
-                <span>非公開札:</span>
-                <strong>{session.state.buriedCards.hiddenCardCount}枚</strong>
-              </div>
-            </section>
-          ) : null}
-
           {session?.state.result !== null && session?.state.result !== undefined ? (
             <section className="result-panel" aria-label="ゲーム結果">
               <h2>ゲーム終了</h2>
@@ -336,8 +320,6 @@ export function App() {
                 <strong>{session.state.result.napoleonTeamPointCards}枚</strong>
                 <span>連合軍</span>
                 <strong>{session.state.result.alliancePointCards}枚</strong>
-                <span>うち埋札得点札</span>
-                <strong>{session.state.result.buriedPointCards}枚</strong>
                 <span>ナポレオン</span>
                 <strong>{formatPlayerLabel(session.state.result.napoleonPlayerId, tablePlayers)}</strong>
                 <span>副官</span>
@@ -363,6 +345,17 @@ export function App() {
 }
 
 function createMessage(state: PublicGameState, playerId: string): string {
+  if (state.latestEvent?.type === "buried-cards-resolved") {
+    const players = createTablePlayers(state);
+    const napoleonLabel = formatPlayerLabel(state.latestEvent.napoleonPlayerId, players);
+    const pointCardText =
+      state.latestEvent.awardedPointCards.length === 0
+        ? "得点札はありません"
+        : `${state.latestEvent.awardedPointCards.map(formatPublicStandardCard).join("、")}を${napoleonLabel}の得点札へ加算しました`;
+
+    return `埋札を確定しました。${pointCardText}。非得点札は${state.latestEvent.hiddenNonPointCardCount}枚です。`;
+  }
+
   if (state.isGameOver) {
     return state.result === null
       ? "ゲーム終了です。"
@@ -396,6 +389,10 @@ function createMessage(state: PublicGameState, playerId: string): string {
   }
 
   return `${state.currentPlayerId} の番です。`;
+}
+
+function formatPublicStandardCard(card: PublicStandardCard): string {
+  return `${card.rank}${suitSymbols[card.suit]}`;
 }
 
 function formatPlayerLabel(
