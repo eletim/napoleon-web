@@ -8,6 +8,82 @@ import type {
 import { suitSymbols } from "./cardSymbols";
 import type { TablePlayer } from "./tableTypes";
 
+export interface StatusChip {
+  label: string;
+  value?: string;
+}
+
+export interface GameStatusDisplay {
+  primary: readonly StatusChip[];
+  secondary: readonly StatusChip[];
+}
+
+export function createGameStatusDisplay(
+  state: PublicGameState | undefined,
+  players: readonly TablePlayer[]
+): GameStatusDisplay {
+  if (state === undefined) {
+    return {
+      primary: [],
+      secondary: []
+    };
+  }
+
+  switch (state.phase) {
+    case "bidding":
+      return {
+        primary: [
+          { label: "競り" },
+          { label: "手番", value: formatPlayerLabel(state.currentPlayerId, players) }
+        ],
+        secondary: []
+      };
+    case "exchanging":
+      return {
+        primary: [
+          { label: "埋札交換" },
+          ...createContractSetupChips(state, players)
+        ],
+        secondary: createSpecialCardChips(state)
+      };
+    case "choosing-adjutant":
+      return {
+        primary: [
+          { label: "副官指定" },
+          ...createContractSetupChips(state, players)
+        ],
+        secondary: createSpecialCardChips(state)
+      };
+    case "playing":
+      return {
+        primary: [
+          { label: `第${state.trickNumber}トリック` },
+          { label: "手番", value: formatPlayerLabel(state.currentPlayerId, players) },
+          ...createTrumpChip(state),
+          ...createContractSummaryChips(state, players)
+        ],
+        secondary: [
+          ...createAdjutantChip(state, players),
+          ...createSpecialCardChips(state)
+        ]
+      };
+    case "finished":
+      return {
+        primary: [
+          { label: "ゲーム終了" },
+          ...(state.result === null
+            ? []
+            : [{ label: "勝者", value: formatWinningTeam(state.result.winner) }]),
+          ...createContractSummaryChips(state, players)
+        ],
+        secondary: [
+          ...createAdjutantChip(state, players),
+          ...createSpecialCardChips(state)
+        ]
+      };
+  }
+}
+
 export function createMessage(
   state: PublicGameState,
   playerId: string,
@@ -78,27 +154,6 @@ export function formatTrumpSuit(trumpSuit: PublicGameState["trumpSuit"]): string
   return trumpSuit === null ? "未定" : suitSymbols[trumpSuit];
 }
 
-export function formatOptionalCardId(cardId: string | null | undefined): string {
-  return cardId === null || cardId === undefined ? "未決定" : formatCardId(cardId);
-}
-
-export function formatPhase(phase: PublicGameState["phase"] | undefined): string {
-  switch (phase) {
-    case "bidding":
-      return "競り";
-    case "exchanging":
-      return "交換";
-    case "choosing-adjutant":
-      return "副官指定";
-    case "playing":
-      return "プレイ";
-    case "finished":
-      return "終了";
-    default:
-      return "-";
-  }
-}
-
 export function formatContract(
   state: PublicGameState | null,
   players: readonly TablePlayer[]
@@ -126,6 +181,22 @@ export function formatAdjutant(
   return `${card} / ${owner}`;
 }
 
+function formatAdjutantStatus(
+  adjutant: PublicGameState["adjutant"],
+  players: readonly TablePlayer[]
+): string {
+  if (adjutant === null) {
+    return "未指定";
+  }
+
+  const card = formatCardId(adjutant.calledCardId);
+  const owner =
+    adjutant.revealedPlayerId === null
+      ? "未判明"
+      : formatPlayerLabel(adjutant.revealedPlayerId, players);
+  return `${card}・${owner}`;
+}
+
 export function formatWinningTeam(
   winner: NonNullable<PublicGameState["result"]>["winner"]
 ): string {
@@ -148,6 +219,76 @@ function formatPublicStandardCard(card: PublicStandardCard): string {
 
 function formatSuit(suit: PublicBidAction["suit"]): string {
   return suitSymbols[suit];
+}
+
+function createContractSetupChips(
+  state: PublicGameState,
+  players: readonly TablePlayer[]
+): readonly StatusChip[] {
+  if (state.contract === null) {
+    return [];
+  }
+
+  return [
+    { label: "ナポレオン", value: formatPlayerLabel(state.contract.napoleonPlayerId, players) },
+    { label: "切り札", value: formatSuit(state.contract.trumpSuit) },
+    { label: "契約", value: `${state.contract.targetPointCards}枚` }
+  ];
+}
+
+function createContractSummaryChips(
+  state: PublicGameState,
+  players: readonly TablePlayer[]
+): readonly StatusChip[] {
+  if (state.contract === null) {
+    return [];
+  }
+
+  return [
+    {
+      label: "契約",
+      value: `${formatPlayerLabel(state.contract.napoleonPlayerId, players)}・${state.contract.targetPointCards}枚`
+    }
+  ];
+}
+
+function createTrumpChip(state: PublicGameState): readonly StatusChip[] {
+  if (state.trumpSuit === null) {
+    return [];
+  }
+
+  return [{ label: "切り札", value: formatTrumpSuit(state.trumpSuit) }];
+}
+
+function createAdjutantChip(
+  state: PublicGameState,
+  players: readonly TablePlayer[]
+): readonly StatusChip[] {
+  if (state.adjutant === null) {
+    return [];
+  }
+
+  return [{ label: "副官札", value: formatAdjutantStatus(state.adjutant, players) }];
+}
+
+function createSpecialCardChips(state: PublicGameState): readonly StatusChip[] {
+  if (state.trumpSuit === null) {
+    return [];
+  }
+
+  return [
+    { label: "オルマ", value: formatCardId(state.specialCards.orumaCardId) },
+    { label: "よろめき", value: formatCardId(state.specialCards.yoromekiCardId) },
+    ...createOptionalCardChip("正J", state.specialCards.seiJackCardId),
+    ...createOptionalCardChip("裏J", state.specialCards.uraJackCardId)
+  ];
+}
+
+function createOptionalCardChip(
+  label: string,
+  cardId: string | null
+): readonly StatusChip[] {
+  return cardId === null ? [] : [{ label, value: formatCardId(cardId) }];
 }
 
 function isPublicSuit(value: string | undefined): value is PublicSuit {

@@ -8,20 +8,16 @@ import type {
   PublicSuit
 } from "@napoleon/protocol";
 import { BiddingPanel } from "./BiddingPanel";
+import { GameStatus } from "./GameStatus";
 import { PlayerSeat } from "./PlayerSeat";
 import { SelfHandPanel } from "./SelfHandPanel";
 import { TrickBoard } from "./TrickBoard";
 import { createGame, nextTrick, sendAction } from "./api";
 import { suitSymbols } from "./cardSymbols";
 import {
+  createGameStatusDisplay,
   createMessage,
-  formatAdjutant,
-  formatCardId,
-  formatContract,
-  formatOptionalCardId,
-  formatPhase,
   formatPlayerLabel,
-  formatTrumpSuit,
   formatWinningTeam
 } from "./displayText";
 import { createTablePlayers } from "./tablePlayers";
@@ -69,6 +65,10 @@ export function App() {
   const tablePlayers = useMemo(() => createTablePlayers(session?.state), [session?.state]);
   const aiPlayers = tablePlayers.filter((player) => !player.isSelf);
   const selfPlayer = tablePlayers.find((player) => player.isSelf);
+  const gameStatusDisplay = useMemo(
+    () => createGameStatusDisplay(session?.state, tablePlayers),
+    [session?.state, tablePlayers]
+  );
 
   async function handleCreateGame(): Promise<void> {
     await runRequest(async () => {
@@ -77,7 +77,9 @@ export function App() {
       setSelectedDiscardCardIds([]);
       setSelectedAdjutantSuit("spades");
       setSelectedAdjutantRank("A");
-      setMessage(createMessage(response.state, response.playerId, createTablePlayers(response.state)));
+      setMessage(
+        createMessage(response.state, response.playerId, createTablePlayers(response.state))
+      );
     });
   }
 
@@ -97,7 +99,9 @@ export function App() {
         cardId: card.id
       });
       setSession(response);
-      setMessage(createMessage(response.state, response.playerId, createTablePlayers(response.state)));
+      setMessage(
+        createMessage(response.state, response.playerId, createTablePlayers(response.state))
+      );
     });
   }
 
@@ -112,7 +116,9 @@ export function App() {
       if (action.type === "discard-cards") {
         setSelectedDiscardCardIds([]);
       }
-      setMessage(createMessage(response.state, response.playerId, createTablePlayers(response.state)));
+      setMessage(
+        createMessage(response.state, response.playerId, createTablePlayers(response.state))
+      );
     });
   }
 
@@ -142,7 +148,9 @@ export function App() {
     await runRequest(async () => {
       const response = await nextTrick(session.gameId);
       setSession(response);
-      setMessage(createMessage(response.state, response.playerId, createTablePlayers(response.state)));
+      setMessage(
+        createMessage(response.state, response.playerId, createTablePlayers(response.state))
+      );
     });
   }
 
@@ -164,7 +172,7 @@ export function App() {
       <section className="top-bar">
         <div>
           <h1>Napoleon Web</h1>
-          <p>{message}</p>
+          <p aria-live="polite">{message}</p>
         </div>
         <button className="primary-button" disabled={isBusy} onClick={handleCreateGame} type="button">
           ゲーム開始
@@ -178,21 +186,7 @@ export function App() {
           ))}
 
           <div className="table-center">
-            <div className="status-line">
-              <span>現在: {formatPlayerLabel(session?.state.currentPlayerId, tablePlayers)}</span>
-              <span>フェーズ: {formatPhase(session?.state.phase)}</span>
-              <span>トリック: {session?.state.trickNumber ?? "-"}</span>
-              <span>切り札: {formatTrumpSuit(session?.state.trumpSuit ?? null)}</span>
-              <span>契約: {formatContract(session?.state ?? null, tablePlayers)}</span>
-              <span>副官札: {formatAdjutant(session?.state.adjutant ?? null, tablePlayers)}</span>
-            </div>
-
-            <div className="special-line">
-              <span>オルマ: {formatCardId(session?.state.specialCards.orumaCardId ?? "")}</span>
-              <span>よろめき: {formatCardId(session?.state.specialCards.yoromekiCardId ?? "")}</span>
-              <span>正J: {formatOptionalCardId(session?.state.specialCards.seiJackCardId)}</span>
-              <span>裏J: {formatOptionalCardId(session?.state.specialCards.uraJackCardId)}</span>
-            </div>
+            <GameStatus display={gameStatusDisplay} />
 
             {session?.state.phase === "bidding" ? (
               <BiddingPanel
