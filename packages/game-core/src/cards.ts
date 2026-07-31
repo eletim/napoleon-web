@@ -3,6 +3,7 @@ import { ranks, suits } from "./deck.js";
 
 export const orumaCardId = "spades-A";
 export const yoromekiCardId = "hearts-Q";
+export const jokerCardId = "joker";
 
 export function isStandardCard(card: Card): card is StandardCard {
   return card.type === "standard";
@@ -54,7 +55,16 @@ export function isUraJackCard(card: Card, trumpSuit: Suit): boolean {
 const standardCardIds = new Set<string>(
   suits.flatMap((suit) => ranks.map((rank) => `${suit}-${rank}`))
 );
+const cardIds = new Set<string>([...standardCardIds, jokerCardId]);
 
 export function isStandardCardId(cardId: string): boolean {
   return standardCardIds.has(cardId);
+}
+
+export function isCardId(cardId: string): boolean {
+  return cardIds.has(cardId);
+}
+
+export function isAdjutantCardId(cardId: string): boolean {
+  return isCardId(cardId);
 }

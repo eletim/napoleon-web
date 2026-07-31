@@ -69,6 +69,7 @@ select {
 
 .primary-button:disabled,
 .secondary-button:disabled,
+.adjutant-shortcut-button:disabled,
 .bid-suit-button:disabled,
 .stepper-button:disabled,
 .card:disabled {
@@ -638,13 +639,17 @@ select:focus-visible {
   padding: 6px 9px;
 }
 
-.exchange-panel,
-.adjutant-panel {
+.exchange-panel {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
   gap: 12px 18px;
   justify-content: space-between;
+}
+
+.adjutant-panel {
+  display: grid;
+  gap: 12px;
 }
 
 .exchange-panel h2,
@@ -658,6 +663,52 @@ select:focus-visible {
 .adjutant-panel p {
   color: #4b5563;
   margin: 0;
+}
+
+.adjutant-shortcuts {
+  display: grid;
+  gap: 7px;
+}
+
+.adjutant-shortcuts > span {
+  color: #475569;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.adjutant-shortcut-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.adjutant-shortcut-button {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  color: #172033;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 7px;
+  min-height: 38px;
+  padding: 7px 10px;
+}
+
+.adjutant-shortcut-button span {
+  color: #475569;
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.adjutant-shortcut-button strong {
+  font-size: 0.88rem;
+}
+
+.adjutant-shortcut-selected {
+  background: #fef3c7;
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 3px rgb(245 158 11 / 18%);
 }
 
 .adjutant-controls {
@@ -683,6 +734,16 @@ select:focus-visible {
   min-height: 38px;
   min-width: 86px;
   padding: 0 10px;
+}
+
+.selected-adjutant {
+  align-self: center;
+  background: #eef2ff;
+  border-radius: 999px;
+  color: #334155;
+  font-size: 0.84rem;
+  font-weight: 800;
+  padding: 8px 10px;
 }
 
 .result-panel {

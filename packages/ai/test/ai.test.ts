@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   applyAction,
+  createDeck,
   createInitialGame,
   createPlayerView,
   getLegalActions,
+  isStandardCard,
   type Card,
   type GameState
 } from "@napoleon/game-core";
@@ -128,6 +130,42 @@ describe("RandomAgent", () => {
       type: "choose-adjutant",
       playerId,
       cardId: "hearts-A"
+    });
+  });
+
+  it("can choose the joker as adjutant when every standard candidate is in its own hand", async () => {
+    const exchange = Array.from({ length: 5 }).reduce<GameState>(
+      (current) => applyAction(current, { type: "pass", playerId: current.currentPlayerId }),
+      createInitialGame({ rng: () => 0 })
+    );
+    const choosing = applyAction(exchange, {
+      type: "discard-cards",
+      playerId: exchange.currentPlayerId,
+      cardIds: exchange.players[0].hand.slice(0, 3).map((card) => card.id)
+    });
+    const playerId = choosing.currentPlayerId;
+    const view = createPlayerView(choosing, playerId);
+    const allStandardCards = createDeck().filter(isStandardCard);
+    const adjustedView = {
+      ...view,
+      players: view.players.map((player) =>
+        player.id === playerId
+          ? { ...player, hand: allStandardCards, handCount: allStandardCards.length }
+          : player
+      )
+    };
+    const agent = new RandomAgent(() => 0);
+
+    const action = await agent.selectAction({
+      playerId,
+      view: adjustedView,
+      legalActions: []
+    });
+
+    expect(action).toEqual({
+      type: "choose-adjutant",
+      playerId,
+      cardId: "joker"
     });
   });
 });

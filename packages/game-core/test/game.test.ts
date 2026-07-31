@@ -16,6 +16,7 @@ import {
   getRankValue,
   getTrickCardStrength,
   getUraJackCardId,
+  isAdjutantCardId,
   isJokerCard,
   isOrumaCard,
   isPointCard,
@@ -23,6 +24,7 @@ import {
   isStandardCard,
   isUraJackCard,
   isYoromekiCard,
+  jokerCardId,
   orumaCardId,
   type Bid,
   type Card,
@@ -126,6 +128,10 @@ describe("game-core", () => {
     expect(isStandardCard(jokerCard)).toBe(false);
     expect(hasOwn(jokerCard, "suit")).toBe(false);
     expect(hasOwn(jokerCard, "rank")).toBe(false);
+    expect(jokerCardId).toBe("joker");
+    expect(isAdjutantCardId("spades-A")).toBe(true);
+    expect(isAdjutantCardId("joker")).toBe(true);
+    expect(isAdjutantCardId("spades-1")).toBe(false);
   });
 
   it("identifies point cards as each suit's 10, J, Q, K, and A", () => {
@@ -1004,6 +1010,72 @@ describe("game-core", () => {
     });
   });
 
+  it("lets Napoleon choose the joker as an adjutant card", () => {
+    const choosing = createStateWithHands({
+      phase: "choosing-adjutant",
+      currentPlayerId: "player-0",
+      hands: [
+        [card("spades", "2")],
+        [joker()],
+        [card("clubs", "3")],
+        [card("diamonds", "4")],
+        [card("hearts", "5")]
+      ],
+      excludedCards: [card("clubs", "2"), card("clubs", "4"), card("diamonds", "3")]
+    });
+
+    const playing = chooseAdjutant(choosing, "joker");
+
+    expect(playing.phase).toBe("playing");
+    expect(playing.adjutant).toEqual({
+      calledCardId: "joker",
+      playerId: "player-1",
+      revealed: false
+    });
+    expect(createPlayerView(playing, "player-0").adjutant).toEqual({
+      calledCardId: "joker",
+      revealedPlayerId: null
+    });
+  });
+
+  it("treats self-held and buried joker adjutant choices as absent adjutants", () => {
+    const selfHeld = createStateWithHands({
+      phase: "choosing-adjutant",
+      currentPlayerId: "player-0",
+      hands: [
+        [joker()],
+        [card("spades", "2")],
+        [card("clubs", "3")],
+        [card("diamonds", "4")],
+        [card("hearts", "5")]
+      ],
+      excludedCards: [card("clubs", "2"), card("clubs", "4"), card("diamonds", "3")]
+    });
+    const buried = createStateWithHands({
+      phase: "choosing-adjutant",
+      currentPlayerId: "player-0",
+      hands: [
+        [card("spades", "2")],
+        [card("clubs", "3")],
+        [card("diamonds", "4")],
+        [card("hearts", "5")],
+        [card("spades", "3")]
+      ],
+      excludedCards: [joker(), card("clubs", "2"), card("clubs", "4")]
+    });
+
+    expect(chooseAdjutant(selfHeld, "joker").adjutant).toEqual({
+      calledCardId: "joker",
+      playerId: null,
+      revealed: false
+    });
+    expect(chooseAdjutant(buried, "joker").adjutant).toEqual({
+      calledCardId: "joker",
+      playerId: null,
+      revealed: false
+    });
+  });
+
   it("allows oruma, yoromeki, sei jack, and ura jack to be chosen as adjutant cards", () => {
     const exchanging = createAllPassExchangeState();
     const choosing = applyAction(exchanging, {
@@ -1027,15 +1099,6 @@ describe("game-core", () => {
     });
     const playing = chooseAdjutant(choosing, "spades-A");
 
-    expectRuleError(
-      () =>
-        applyAction(choosing, {
-          type: "choose-adjutant",
-          playerId: "player-0",
-          cardId: "joker"
-        }),
-      "INVALID_ADJUTANT_CARD"
-    );
     expectRuleError(
       () =>
         applyAction(choosing, {
@@ -1109,6 +1172,72 @@ describe("game-core", () => {
     expect(createPlayerView(next, "player-0").adjutant).toEqual({
       calledCardId: "hearts-A",
       revealedPlayerId: "player-1"
+    });
+  });
+
+  it("reveals a joker adjutant only when the owner plays the joker", () => {
+    const state = createStateWithHands({
+      hands: [
+        [card("clubs", "2")],
+        [joker()],
+        [card("clubs", "3")],
+        [card("clubs", "4")],
+        [card("clubs", "5")]
+      ],
+      currentPlayerId: "player-1",
+      adjutant: {
+        calledCardId: "joker",
+        playerId: "player-1",
+        revealed: false
+      }
+    });
+    const next = applyAction(state, {
+      type: "play-card",
+      playerId: "player-1",
+      cardId: "joker"
+    });
+
+    expect(next.adjutant).toEqual({
+      calledCardId: "joker",
+      playerId: "player-1",
+      revealed: true
+    });
+    expect(createPlayerView(next, "player-0").adjutant).toEqual({
+      calledCardId: "joker",
+      revealedPlayerId: "player-1"
+    });
+  });
+
+  it("does not reveal a joker adjutant when the joker has no adjutant owner", () => {
+    const state = createStateWithHands({
+      hands: [
+        [card("clubs", "2")],
+        [joker()],
+        [card("clubs", "3")],
+        [card("clubs", "4")],
+        [card("clubs", "5")]
+      ],
+      currentPlayerId: "player-1",
+      adjutant: {
+        calledCardId: "joker",
+        playerId: null,
+        revealed: false
+      }
+    });
+    const next = applyAction(state, {
+      type: "play-card",
+      playerId: "player-1",
+      cardId: "joker"
+    });
+
+    expect(next.adjutant).toEqual({
+      calledCardId: "joker",
+      playerId: null,
+      revealed: false
+    });
+    expect(createPlayerView(next, "player-0").adjutant).toEqual({
+      calledCardId: "joker",
+      revealedPlayerId: null
     });
   });
 
@@ -2114,6 +2243,21 @@ describe("game-core", () => {
     });
   });
 
+  it("includes a joker adjutant player in Napoleon team scoring", () => {
+    const state = createResultStateWithNapoleonPointCards(15, 15, {
+      calledCardId: "joker",
+      playerId: "player-1",
+      revealed: false
+    });
+
+    expect(calculateGameResult(state)).toMatchObject({
+      winner: "napoleon-team",
+      napoleonTeamPointCards: 15,
+      alliancePointCards: 5,
+      adjutantPlayerId: "player-1"
+    });
+  });
+
   it("compares Napoleon team point cards against the contract target", () => {
     expect(createResultStateWithNapoleonPointCards(15, 15).result).toBeNull();
     expect(calculateGameResult(createResultStateWithNapoleonPointCards(15, 15)).winner).toBe(
@@ -2356,7 +2500,7 @@ describe("game-core", () => {
 
     expect(napoleonView.phase).toBe("choosing-adjutant");
     expect(napoleonView.exchangeRequirement).toBeNull();
-    expect(napoleonView.adjutantChoiceRequirement).toEqual({ standardCardsOnly: true });
+    expect(napoleonView.adjutantChoiceRequirement).toEqual({ jokerAllowed: true });
     expect(napoleonView.players[0].hand).toHaveLength(10);
     expect(opponentView.phase).toBe("choosing-adjutant");
     expect(opponentView.players[0].handCount).toBe(10);

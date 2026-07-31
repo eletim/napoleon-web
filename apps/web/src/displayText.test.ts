@@ -4,6 +4,7 @@ import {
   createGameStatusDisplay,
   createMessage,
   formatAdjutant,
+  formatCardId,
   formatContract,
   formatPlayerLabel
 } from "./displayText";
@@ -203,12 +204,13 @@ describe("display text", () => {
   it("keeps unrevealed adjutant owner hidden", () => {
     const state = createPublicState({
       adjutant: {
-        calledCardId: "hearts-A",
+        calledCardId: "joker",
         revealedPlayerId: null
       }
     });
 
-    expect(formatAdjutant(state.adjutant, createTablePlayers(state))).toBe("A♥ / 未判明");
+    expect(formatAdjutant(state.adjutant, createTablePlayers(state))).toBe("ジョーカー / 未判明");
+    expect(formatCardId("joker")).toBe("ジョーカー");
   });
 
   it("uses seat labels in phase messages", () => {
@@ -245,7 +247,7 @@ describe("display text", () => {
           currentPlayerId: "player-4",
           adjutantChoice: {
             napoleonPlayerId: "player-4",
-            standardCardsOnly: true
+            jokerAllowed: true
           }
         }),
         "player-0",

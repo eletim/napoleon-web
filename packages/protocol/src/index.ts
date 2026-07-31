@@ -84,7 +84,7 @@ export interface PublicAdjutantState {
 
 export interface PublicAdjutantChoiceState {
   napoleonPlayerId: string;
-  standardCardsOnly: true;
+  jokerAllowed: true;
 }
 
 export type PublicWinningTeam = "napoleon-team" | "alliance";

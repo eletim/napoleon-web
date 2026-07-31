@@ -204,6 +204,10 @@ export function formatWinningTeam(
 }
 
 export function formatCardId(cardId: string): string {
+  if (cardId === "joker") {
+    return "ジョーカー";
+  }
+
   const [suit, rank] = cardId.split("-");
 
   if (isPublicSuit(suit) && isPublicRank(rank)) {

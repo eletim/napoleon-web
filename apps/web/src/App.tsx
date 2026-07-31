@@ -12,6 +12,17 @@ import { GameStatus } from "./GameStatus";
 import { PlayerSeat } from "./PlayerSeat";
 import { SelfHandPanel } from "./SelfHandPanel";
 import { TrickBoard } from "./TrickBoard";
+import {
+  createAdjutantCardId,
+  createAdjutantSelectionLabel,
+  createAdjutantShortcutOptions,
+  defaultAdjutantSelection,
+  selectAdjutantRank,
+  selectAdjutantShortcut,
+  selectAdjutantSuitOption,
+  type AdjutantSelection,
+  type AdjutantSuitOption
+} from "./adjutantSelection";
 import { createGame, nextTrick, sendAction } from "./api";
 import { suitSymbols } from "./cardSymbols";
 import {
@@ -34,8 +45,8 @@ export function App() {
   const [message, setMessage] = useState("ゲームを開始してください。");
   const [isBusy, setIsBusy] = useState(false);
   const [selectedDiscardCardIds, setSelectedDiscardCardIds] = useState<readonly string[]>([]);
-  const [selectedAdjutantSuit, setSelectedAdjutantSuit] = useState<PublicSuit>("spades");
-  const [selectedAdjutantRank, setSelectedAdjutantRank] = useState<PublicRank>("A");
+  const [adjutantSelection, setAdjutantSelection] =
+    useState<AdjutantSelection>(defaultAdjutantSelection);
 
   const legalCardIds = useMemo(() => {
     const actions = session?.state.legalActions ?? [];
@@ -69,14 +80,23 @@ export function App() {
     () => createGameStatusDisplay(session?.state, tablePlayers),
     [session?.state, tablePlayers]
   );
+  const adjutantShortcutOptions = useMemo(
+    () => createAdjutantShortcutOptions(session?.state.specialCards),
+    [session?.state.specialCards]
+  );
+  const selectedAdjutantCardId = createAdjutantCardId(adjutantSelection);
+  const selectedAdjutantLabel = createAdjutantSelectionLabel(
+    adjutantSelection,
+    adjutantShortcutOptions
+  );
+  const canSelectJoker = session?.state.adjutantChoice?.jokerAllowed === true;
 
   async function handleCreateGame(): Promise<void> {
     await runRequest(async () => {
       const response = await createGame();
       setSession(response);
       setSelectedDiscardCardIds([]);
-      setSelectedAdjutantSuit("spades");
-      setSelectedAdjutantRank("A");
+      setAdjutantSelection(defaultAdjutantSelection);
       setMessage(
         createMessage(response.state, response.playerId, createTablePlayers(response.state))
       );
@@ -259,33 +279,75 @@ export function App() {
             <section className="adjutant-panel" aria-label="副官指定">
               <div>
                 <h2>副官指定</h2>
-                <p>副官として呼ぶ通常カードを1枚指定してください。</p>
+                <p>副官として呼ぶカードを1枚指定してください。</p>
+              </div>
+              <div className="adjutant-shortcuts" aria-label="特殊札ショートカット">
+                <span>特殊札ショートカット</span>
+                <div className="adjutant-shortcut-buttons">
+                  {adjutantShortcutOptions.map((shortcut) => (
+                    <button
+                      aria-pressed={
+                        adjutantSelection.shortcutId === shortcut.id &&
+                        selectedAdjutantCardId === shortcut.cardId
+                      }
+                      className={
+                        adjutantSelection.shortcutId === shortcut.id &&
+                        selectedAdjutantCardId === shortcut.cardId
+                          ? "adjutant-shortcut-button adjutant-shortcut-selected"
+                          : "adjutant-shortcut-button"
+                      }
+                      disabled={!canChooseAdjutant || isBusy}
+                      key={shortcut.id}
+                      onClick={() =>
+                        setAdjutantSelection((current) =>
+                          selectAdjutantShortcut(current, shortcut)
+                        )
+                      }
+                      type="button"
+                    >
+                      <span>{shortcut.label}</span>
+                      <strong>{shortcut.display}</strong>
+                    </button>
+                  ))}
+                </div>
               </div>
               <div className="adjutant-controls">
                 <label>
-                  スート
+                  カード
                   <select
                     disabled={!canChooseAdjutant || isBusy}
                     onChange={(event) =>
-                      setSelectedAdjutantSuit(event.target.value as PublicSuit)
+                      setAdjutantSelection((current) =>
+                        selectAdjutantSuitOption(
+                          current,
+                          event.target.value as AdjutantSuitOption
+                        )
+                      )
                     }
-                    value={selectedAdjutantSuit}
+                    value={adjutantSelection.suitOption}
                   >
                     {suitOptions.map((suit) => (
                       <option key={suit} value={suit}>
                         {suitSymbols[suit]}
                       </option>
                     ))}
+                    {canSelectJoker ? <option value="joker">ジョーカー</option> : null}
                   </select>
                 </label>
                 <label>
                   ランク
                   <select
-                    disabled={!canChooseAdjutant || isBusy}
-                    onChange={(event) =>
-                      setSelectedAdjutantRank(event.target.value as PublicRank)
+                    disabled={
+                      !canChooseAdjutant ||
+                      isBusy ||
+                      adjutantSelection.suitOption === "joker"
                     }
-                    value={selectedAdjutantRank}
+                    onChange={(event) =>
+                      setAdjutantSelection((current) =>
+                        selectAdjutantRank(current, event.target.value as PublicRank)
+                      )
+                    }
+                    value={adjutantSelection.rank}
                   >
                     {rankOptions.map((rank) => (
                       <option key={rank} value={rank}>
@@ -300,13 +362,16 @@ export function App() {
                   onClick={() =>
                     void handleSendAction({
                       type: "choose-adjutant",
-                      cardId: `${selectedAdjutantSuit}-${selectedAdjutantRank}`
+                      cardId: selectedAdjutantCardId
                     })
                   }
                   type="button"
                 >
                   副官を指定
                 </button>
+                <span className="selected-adjutant">
+                  選択中: <strong>{selectedAdjutantLabel}</strong>
+                </span>
               </div>
             </section>
           ) : null}

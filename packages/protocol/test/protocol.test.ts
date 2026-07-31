@@ -62,12 +62,12 @@ describe("protocol DTOs", () => {
   it("uses choose-adjutant cardId without a playerId", () => {
     const action: PublicGameAction = {
       type: "choose-adjutant",
-      cardId: "spades-A"
+      cardId: "joker"
     };
 
     expect(action).toEqual({
       type: "choose-adjutant",
-      cardId: "spades-A"
+      cardId: "joker"
     });
     expect(Object.prototype.hasOwnProperty.call(action, "playerId")).toBe(false);
   });
@@ -113,7 +113,7 @@ describe("protocol DTOs", () => {
       },
       adjutantChoice: {
         napoleonPlayerId: "player-0",
-        standardCardsOnly: true
+        jokerAllowed: true
       },
       currentPlayerId: "player-0",
       currentTrick: [],
@@ -132,6 +132,10 @@ describe("protocol DTOs", () => {
     expect(state.self.capturedPointCards).toEqual([]);
     expect(state.opponents[0]?.capturedPointCards).toEqual([]);
     expect(Object.prototype.hasOwnProperty.call(state.adjutant, "playerId")).toBe(false);
+    expect(state.adjutantChoice).toEqual({
+      napoleonPlayerId: "player-0",
+      jokerAllowed: true
+    });
     expect(state.specialCards).toEqual({
       orumaCardId: "spades-A",
       yoromekiCardId: "hearts-Q",

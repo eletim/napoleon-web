@@ -2,6 +2,8 @@ export { createDeck, ranks, shuffleDeck, suits } from "./deck.js";
 export {
   getSeiJackCardId,
   getUraJackCardId,
+  isAdjutantCardId,
+  isCardId,
   isJokerCard,
   isOrumaCard,
   isPointCard,
@@ -10,6 +12,7 @@ export {
   isStandardCardId,
   isUraJackCard,
   isYoromekiCard,
+  jokerCardId,
   orumaCardId,
   yoromekiCardId
 } from "./cards.js";

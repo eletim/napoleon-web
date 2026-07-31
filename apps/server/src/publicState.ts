@@ -97,7 +97,7 @@ function toPublicAdjutantChoiceState(
 
   return {
     napoleonPlayerId: view.contract.napoleonPlayerId,
-    standardCardsOnly: true
+    jokerAllowed: view.adjutantChoiceRequirement?.jokerAllowed ?? true
   };
 }
 

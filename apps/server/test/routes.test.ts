@@ -1071,7 +1071,7 @@ describe("server API", () => {
     expect(body.state.exchange).toBeNull();
     expect(body.state.adjutantChoice).toEqual({
       napoleonPlayerId: "player-0",
-      standardCardsOnly: true
+      jokerAllowed: true
     });
     expect(body.state.adjutant).toBeNull();
     expect(body.state.self.hand).toHaveLength(10);
@@ -1261,6 +1261,96 @@ describe("server API", () => {
     });
   });
 
+  it("lets a human Napoleon choose the joker as an adjutant card", async () => {
+    const choosing = {
+      ...createStateWithHands([
+        [card("spades", "2")],
+        [joker()],
+        [card("clubs", "3")],
+        [card("diamonds", "4")],
+        [card("hearts", "5")]
+      ]),
+      phase: "choosing-adjutant" as const,
+      currentPlayerId: "player-0",
+      excludedCards: [card("clubs", "2"), card("clubs", "4"), card("diamonds", "3")]
+    };
+    games.set("human-joker-adjutant", {
+      state: choosing,
+      humanPlayerId: "player-0",
+      agents: createAgents(["player-1", "player-2", "player-3", "player-4"])
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games/human-joker-adjutant/actions",
+      payload: {
+        action: {
+          type: "choose-adjutant",
+          cardId: "joker"
+        }
+      }
+    });
+    const body = response.json<SendActionResponse>();
+
+    expect(response.statusCode).toBe(200);
+    expect(body.state.phase).toBe("playing");
+    expect(body.state.adjutant).toEqual({
+      calledCardId: "joker",
+      revealedPlayerId: null
+    });
+    expect(games.get("human-joker-adjutant")?.state.adjutant).toEqual({
+      calledCardId: "joker",
+      playerId: "player-1",
+      revealed: false
+    });
+  });
+
+  it("reveals a joker adjutant after the owner plays the joker through the API", async () => {
+    games.set("joker-adjutant-reveal", {
+      state: {
+        ...createStateWithHands([
+          [card("hearts", "2"), card("spades", "2")],
+          [joker(), card("spades", "3")],
+          [card("clubs", "3"), card("spades", "4")],
+          [card("diamonds", "4"), card("spades", "5")],
+          [card("clubs", "5"), card("spades", "6")]
+        ]),
+        adjutant: {
+          calledCardId: "joker",
+          playerId: "player-1",
+          revealed: false
+        }
+      },
+      humanPlayerId: "player-0",
+      agents: new Map([
+        ["player-1", new PreferredCardAgent("joker")],
+        ["player-2", new PreferredCardAgent("clubs-3")],
+        ["player-3", new PreferredCardAgent("diamonds-4")],
+        ["player-4", new PreferredCardAgent("clubs-5")]
+      ])
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games/joker-adjutant-reveal/actions",
+      payload: {
+        action: {
+          type: "play-card",
+          cardId: "hearts-2"
+        }
+      }
+    });
+    const body = response.json<SendActionResponse>();
+
+    expect(response.statusCode).toBe(200);
+    expect(body.state.currentTrick.map((played) => played.card.id)).toContain("joker");
+    expect(body.state.adjutant).toEqual({
+      calledCardId: "joker",
+      revealedPlayerId: "player-1"
+    });
+    expect(body.state.opponents.some((opponent) => hasOwn(opponent, "hand"))).toBe(false);
+  });
+
   it("rejects invalid discard requests and leaves exchange state unchanged", async () => {
     const state = createAllPassExchangeState();
     games.set("invalid-exchange", {
@@ -1361,7 +1451,6 @@ describe("server API", () => {
     }
 
     for (const testCase of [
-      { action: { type: "choose-adjutant", cardId: "joker" }, code: "INVALID_ADJUTANT_CARD" },
       { action: { type: "choose-adjutant", cardId: "spades-1" }, code: "INVALID_ADJUTANT_CARD" }
     ] as const) {
       const snapshot = createStateSnapshot(games.get("invalid-adjutant")?.state ?? choosing);

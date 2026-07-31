@@ -192,7 +192,7 @@ export interface ExchangeRequirement {
 }
 
 export interface AdjutantChoiceRequirement {
-  standardCardsOnly: true;
+  jokerAllowed: true;
 }
 
 export interface PublicPlayerState {

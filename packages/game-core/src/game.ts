@@ -5,8 +5,8 @@ import { getLegalBidActions, isBidHigher, isSuit, validateBidRange } from "./bid
 import {
   getSeiJackCardId,
   getUraJackCardId,
+  isAdjutantCardId,
   isPointCard,
-  isStandardCardId,
   orumaCardId,
   yoromekiCardId
 } from "./cards.js";
@@ -190,7 +190,7 @@ export function createPlayerView(state: GameState, playerId: PlayerId): PlayerVi
       state.phase === "choosing-adjutant" &&
       state.contract !== null &&
       state.contract.napoleonPlayerId === playerId
-        ? { standardCardsOnly: true }
+        ? { jokerAllowed: true }
         : null,
     currentPlayerId: state.currentPlayerId,
     currentTrick: state.currentTrick,
@@ -548,8 +548,8 @@ function chooseAdjutant(state: GameState, playerId: PlayerId, cardId: string): G
     throw new GameRuleError("ADJUTANT_ALREADY_CHOSEN", "The adjutant card has already been chosen.");
   }
 
-  if (!isStandardCardId(cardId)) {
-    throw new GameRuleError("INVALID_ADJUTANT_CARD", "The adjutant card must be a standard card.");
+  if (!isAdjutantCardId(cardId)) {
+    throw new GameRuleError("INVALID_ADJUTANT_CARD", "The adjutant card must be a valid card.");
   }
 
   if (
