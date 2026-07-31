@@ -103,11 +103,12 @@ select:focus-visible {
   grid-template-areas:
     ". top-left top-right ."
     "left center center right";
-  grid-template-columns: minmax(138px, 0.72fr) minmax(230px, 1.1fr) minmax(230px, 1.1fr) minmax(138px, 0.72fr);
-  grid-template-rows: auto minmax(390px, 1fr);
+  grid-template-columns: minmax(124px, 0.58fr) minmax(250px, 1.22fr) minmax(250px, 1.22fr) minmax(124px, 0.58fr);
+  grid-template-rows: auto minmax(370px, 1fr);
 }
 
 .player-seat {
+  align-self: start;
   background: rgb(248 250 252 / 94%);
   border: 2px solid transparent;
   border-radius: 8px;
@@ -115,11 +116,13 @@ select:focus-visible {
   color: #172033;
   display: grid;
   gap: 6px;
+  height: fit-content;
   min-height: 86px;
   padding: 8px;
 }
 
 .seat-left {
+  align-self: center;
   grid-area: left;
 }
 
@@ -132,6 +135,7 @@ select:focus-visible {
 }
 
 .seat-right {
+  align-self: center;
   grid-area: right;
 }
 
@@ -222,6 +226,7 @@ select:focus-visible {
   display: grid;
   gap: 5px;
   grid-template-columns: max-content minmax(0, 1fr);
+  min-width: 0;
 }
 
 .inline-cards {
@@ -232,6 +237,27 @@ select:focus-visible {
   min-height: 24px;
   min-width: 0;
   overflow-x: auto;
+}
+
+.compact-points {
+  overflow-y: hidden;
+  padding-bottom: 2px;
+  scrollbar-color: rgb(100 116 139 / 48%) transparent;
+  scrollbar-width: thin;
+  touch-action: pan-x;
+}
+
+.compact-points::-webkit-scrollbar {
+  height: 5px;
+}
+
+.compact-points::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.compact-points::-webkit-scrollbar-thumb {
+  background: rgb(100 116 139 / 42%);
+  border-radius: 999px;
 }
 
 .mini-card {
@@ -281,7 +307,7 @@ select:focus-visible {
     ". self self .";
   grid-template-columns: minmax(98px, 1fr) minmax(124px, 1fr) minmax(124px, 1fr) minmax(98px, 1fr);
   grid-template-rows: auto minmax(118px, auto) auto;
-  width: min(100%, 760px);
+  width: min(100%, 820px);
 }
 
 .trick-slot {
