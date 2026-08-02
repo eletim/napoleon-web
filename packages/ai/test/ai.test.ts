@@ -53,16 +53,15 @@ describe("RandomAgent", () => {
   });
 
   it("returns a discard action from its own hand during exchange even without legal action enumeration", async () => {
-    const state = Array.from({ length: 5 }).reduce<GameState>(
-      (current) => applyAction(current, { type: "pass", playerId: current.currentPlayerId }),
-      createInitialGame({ rng: () => 0 })
-    );
+    const state = createAllPassExchangeState();
     const playerId = state.currentPlayerId;
     const view = createPlayerView(state, playerId);
     const agent = new RandomAgent(() => 0);
 
     const action = await agent.selectAction({ playerId, view, legalActions: [] });
 
+    expect(view.phase).toBe("exchanging");
+    expect(view.players[0].hand).toHaveLength(13);
     expect(action).toEqual({
       type: "discard-cards",
       playerId,
@@ -71,21 +70,15 @@ describe("RandomAgent", () => {
   });
 
   it("returns a standard adjutant choice during adjutant choice without legal action enumeration", async () => {
-    const exchange = Array.from({ length: 5 }).reduce<GameState>(
-      (current) => applyAction(current, { type: "pass", playerId: current.currentPlayerId }),
-      createInitialGame({ rng: () => 0 })
-    );
-    const choosing = applyAction(exchange, {
-      type: "discard-cards",
-      playerId: exchange.currentPlayerId,
-      cardIds: exchange.players[0].hand.slice(0, 3).map((card) => card.id)
-    });
+    const choosing = createAllPassAdjutantChoiceState();
     const playerId = choosing.currentPlayerId;
     const view = createPlayerView(choosing, playerId);
     const agent = new RandomAgent(() => 0);
 
     const action = await agent.selectAction({ playerId, view, legalActions: [] });
 
+    expect(view.phase).toBe("choosing-adjutant");
+    expect(view.players[0].hand).toHaveLength(10);
     expect(action).toEqual({
       type: "choose-adjutant",
       playerId,
@@ -95,15 +88,7 @@ describe("RandomAgent", () => {
   });
 
   it("prefers adjutant cards by rank before suit", async () => {
-    const exchange = Array.from({ length: 5 }).reduce<GameState>(
-      (current) => applyAction(current, { type: "pass", playerId: current.currentPlayerId }),
-      createInitialGame({ rng: () => 0 })
-    );
-    const choosing = applyAction(exchange, {
-      type: "discard-cards",
-      playerId: exchange.currentPlayerId,
-      cardIds: exchange.players[0].hand.slice(0, 3).map((card) => card.id)
-    });
+    const choosing = createAllPassAdjutantChoiceState();
     const playerId = choosing.currentPlayerId;
     const view = createPlayerView(choosing, playerId);
     const spadeAce: Card = {
@@ -134,15 +119,7 @@ describe("RandomAgent", () => {
   });
 
   it("can choose the joker as adjutant when every standard candidate is in its own hand", async () => {
-    const exchange = Array.from({ length: 5 }).reduce<GameState>(
-      (current) => applyAction(current, { type: "pass", playerId: current.currentPlayerId }),
-      createInitialGame({ rng: () => 0 })
-    );
-    const choosing = applyAction(exchange, {
-      type: "discard-cards",
-      playerId: exchange.currentPlayerId,
-      cardIds: exchange.players[0].hand.slice(0, 3).map((card) => card.id)
-    });
+    const choosing = createAllPassAdjutantChoiceState();
     const playerId = choosing.currentPlayerId;
     const view = createPlayerView(choosing, playerId);
     const allStandardCards = createDeck().filter(isStandardCard);
@@ -169,3 +146,20 @@ describe("RandomAgent", () => {
     });
   });
 });
+
+function createAllPassAdjutantChoiceState(): GameState {
+  return Array.from({ length: 5 }).reduce<GameState>(
+    (current) => applyAction(current, { type: "pass", playerId: current.currentPlayerId }),
+    createInitialGame({ rng: () => 0 })
+  );
+}
+
+function createAllPassExchangeState(): GameState {
+  const choosing = createAllPassAdjutantChoiceState();
+
+  return applyAction(choosing, {
+    type: "choose-adjutant",
+    playerId: choosing.currentPlayerId,
+    cardId: "spades-A"
+  });
+}

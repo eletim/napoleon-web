@@ -136,6 +136,10 @@ export function App() {
       if (action.type === "discard-cards") {
         setSelectedDiscardCardIds([]);
       }
+      if (action.type === "choose-adjutant") {
+        setSelectedDiscardCardIds([]);
+        setAdjutantSelection(defaultAdjutantSelection);
+      }
       setMessage(
         createMessage(response.state, response.playerId, createTablePlayers(response.state))
       );
@@ -279,7 +283,7 @@ export function App() {
             <section className="adjutant-panel" aria-label="副官指定">
               <div>
                 <h2>副官指定</h2>
-                <p>副官として呼ぶカードを1枚指定してください。</p>
+                <p>副官として呼ぶカードを、埋札を見る前に1枚指定してください。</p>
               </div>
               <div className="adjutant-shortcuts" aria-label="特殊札ショートカット">
                 <span>特殊札ショートカット</span>

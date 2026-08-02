@@ -814,7 +814,7 @@ describe("game-core", () => {
       { type: "pass" as const, playerId: "player-1" }
     ].reduce<GameState>((current, action) => applyAction(current, action), createInitialGame());
 
-    expect(state.phase).toBe("exchanging");
+    expect(state.phase).toBe("choosing-adjutant");
     expect(state.bidding).toBeNull();
     expect(state.contract).toEqual({
       napoleonPlayerId: "player-2",
@@ -823,16 +823,20 @@ describe("game-core", () => {
     });
     expect(state.trumpSuit).toBe("spades");
     expect(state.currentPlayerId).toBe("player-2");
-    expect(state.players.find((player) => player.id === "player-2")?.hand).toHaveLength(13);
+    expect(state.players.find((player) => player.id === "player-2")?.hand).toHaveLength(10);
     expect(
       state.players
         .filter((player) => player.id !== "player-2")
         .every((player) => player.hand.length === 10)
     ).toBe(true);
-    expect(state.unusedCards).toHaveLength(0);
+    expect(state.unusedCards).toHaveLength(3);
     expect(state.awardedPointCards).toHaveLength(0);
     expect(state.excludedCards).toHaveLength(0);
     expect(countKnownCards(state)).toBe(53);
+    expect(createPlayerView(state, "player-2").adjutantChoiceRequirement).toEqual({
+      jokerAllowed: true
+    });
+    expect(createPlayerView(state, "player-2").exchangeRequirement).toBeNull();
     expect(getLegalActions(state, "player-2")).toEqual([]);
   });
 
@@ -842,7 +846,7 @@ describe("game-core", () => {
       createInitialGame({ rng: noShuffle })
     );
 
-    expect(state.phase).toBe("exchanging");
+    expect(state.phase).toBe("choosing-adjutant");
     expect(state.contract).toEqual({
       napoleonPlayerId: "player-0",
       trumpSuit: "spades",
@@ -850,11 +854,11 @@ describe("game-core", () => {
     });
     expect(state.trumpSuit).toBe("spades");
     expect(state.currentPlayerId).toBe("player-0");
-    expect(state.players[0].hand).toHaveLength(13);
-    expect(state.unusedCards).toHaveLength(0);
+    expect(state.players[0].hand).toHaveLength(10);
+    expect(state.unusedCards).toHaveLength(3);
   });
 
-  it("resolves discarded buried cards and starts adjutant choice", () => {
+  it("resolves discarded buried cards and starts play", () => {
     const exchanging = createAllPassExchangeState();
     const discardIds = exchanging.players[0].hand.slice(0, 3).map((card) => card.id);
     const next = applyAction(exchanging, {
@@ -863,7 +867,7 @@ describe("game-core", () => {
       cardIds: discardIds
     });
 
-    expect(next.phase).toBe("choosing-adjutant");
+    expect(next.phase).toBe("playing");
     expect(next.currentPlayerId).toBe("player-0");
     expect(next.players[0].hand).toHaveLength(10);
     expect(next.players[0].hand.some((card) => discardIds.includes(card.id))).toBe(false);
@@ -879,9 +883,11 @@ describe("game-core", () => {
     expect(next.trickNumber).toBe(1);
     expect(next.isTrickComplete).toBe(false);
     expect(next.isGameOver).toBe(false);
-    expect(next.adjutant).toBeNull();
+    expect(next.adjutant).toEqual(exchanging.adjutant);
     expect(countKnownCards(next)).toBe(53);
-    expect(getLegalActions(next, "player-0")).toEqual([]);
+    expect(getLegalActions(next, "player-0").some((action) => action.type === "play-card")).toBe(
+      true
+    );
   });
 
   it("allows discarding the joker", () => {
@@ -904,7 +910,7 @@ describe("game-core", () => {
       cardIds: discardIds
     });
 
-    expect(next.phase).toBe("choosing-adjutant");
+    expect(next.phase).toBe("playing");
     expect(next.players[0].hand.some(isJokerCard)).toBe(false);
     expect(next.excludedCards.some(isJokerCard)).toBe(true);
   });
@@ -943,12 +949,7 @@ describe("game-core", () => {
   });
 
   it("lets Napoleon choose a standard adjutant card before play starts", () => {
-    const exchanging = createAllPassExchangeState();
-    const choosing = applyAction(exchanging, {
-      type: "discard-cards",
-      playerId: "player-0",
-      cardIds: exchanging.players[0].hand.slice(0, 3).map((discardedCard) => discardedCard.id)
-    });
+    const choosing = createAllPassAdjutantChoiceState();
     const opponentCard = choosing.players[1].hand.find(isStandardCard);
 
     expect(opponentCard).toBeDefined();
@@ -956,20 +957,20 @@ describe("game-core", () => {
       throw new Error("Expected player-1 to have a standard card.");
     }
 
-    const playing = chooseAdjutant(choosing, opponentCard.id);
-    const napoleonView = createPlayerView(playing, "player-0");
-    const opponentView = createPlayerView(playing, "player-1");
+    const exchanging = chooseAdjutant(choosing, opponentCard.id);
+    const napoleonView = createPlayerView(exchanging, "player-0");
+    const opponentView = createPlayerView(exchanging, "player-1");
 
-    expect(playing.phase).toBe("playing");
-    expect(playing.currentPlayerId).toBe("player-0");
-    expect(playing.adjutant).toEqual({
+    expect(exchanging.phase).toBe("exchanging");
+    expect(exchanging.currentPlayerId).toBe("player-0");
+    expect(exchanging.players[0].hand).toHaveLength(13);
+    expect(exchanging.unusedCards).toHaveLength(0);
+    expect(exchanging.adjutant).toEqual({
       calledCardId: opponentCard.id,
       playerId: "player-1",
       revealed: false
     });
-    expect(getLegalActions(playing, "player-0").some((action) => action.type === "play-card")).toBe(
-      true
-    );
+    expect(getLegalActions(exchanging, "player-0")).toEqual([]);
     expect(napoleonView.adjutant).toEqual({
       calledCardId: opponentCard.id,
       revealedPlayerId: null
@@ -979,18 +980,9 @@ describe("game-core", () => {
   });
 
   it("treats self-held and buried adjutant cards as absent adjutants", () => {
-    const exchanging = createAllPassExchangeState();
-    const discardIds = exchanging.players[0].hand.slice(0, 3).map((discardedCard) => discardedCard.id);
-    const choosing = applyAction(exchanging, {
-      type: "discard-cards",
-      playerId: "player-0",
-      cardIds: discardIds
-    });
+    const choosing = createAllPassAdjutantChoiceState();
     const selfCard = choosing.players[0].hand.find(isStandardCard);
-    const resolvedBuriedCard = [
-      ...choosing.awardedPointCards.flatMap((award) => award.cards),
-      ...choosing.excludedCards
-    ].find(isStandardCard);
+    const resolvedBuriedCard = choosing.unusedCards.find(isStandardCard);
 
     expect(selfCard).toBeDefined();
     expect(resolvedBuriedCard).toBeDefined();
@@ -1015,24 +1007,35 @@ describe("game-core", () => {
       phase: "choosing-adjutant",
       currentPlayerId: "player-0",
       hands: [
-        [card("spades", "2")],
+        [
+          card("spades", "2"),
+          card("spades", "3"),
+          card("spades", "4"),
+          card("spades", "5"),
+          card("spades", "6"),
+          card("spades", "7"),
+          card("spades", "8"),
+          card("spades", "9"),
+          card("spades", "10"),
+          card("spades", "J")
+        ],
         [joker()],
         [card("clubs", "3")],
         [card("diamonds", "4")],
         [card("hearts", "5")]
       ],
-      excludedCards: [card("clubs", "2"), card("clubs", "4"), card("diamonds", "3")]
+      unusedCards: [card("clubs", "2"), card("clubs", "4"), card("diamonds", "3")]
     });
 
-    const playing = chooseAdjutant(choosing, "joker");
+    const exchanging = chooseAdjutant(choosing, "joker");
 
-    expect(playing.phase).toBe("playing");
-    expect(playing.adjutant).toEqual({
+    expect(exchanging.phase).toBe("exchanging");
+    expect(exchanging.adjutant).toEqual({
       calledCardId: "joker",
       playerId: "player-1",
       revealed: false
     });
-    expect(createPlayerView(playing, "player-0").adjutant).toEqual({
+    expect(createPlayerView(exchanging, "player-0").adjutant).toEqual({
       calledCardId: "joker",
       revealedPlayerId: null
     });
@@ -1043,25 +1046,47 @@ describe("game-core", () => {
       phase: "choosing-adjutant",
       currentPlayerId: "player-0",
       hands: [
-        [joker()],
-        [card("spades", "2")],
+        [
+          joker(),
+          card("spades", "2"),
+          card("spades", "3"),
+          card("spades", "4"),
+          card("spades", "5"),
+          card("spades", "6"),
+          card("spades", "7"),
+          card("spades", "8"),
+          card("spades", "9"),
+          card("spades", "10")
+        ],
+        [card("clubs", "A")],
         [card("clubs", "3")],
         [card("diamonds", "4")],
         [card("hearts", "5")]
       ],
-      excludedCards: [card("clubs", "2"), card("clubs", "4"), card("diamonds", "3")]
+      unusedCards: [card("clubs", "2"), card("clubs", "4"), card("diamonds", "3")]
     });
     const buried = createStateWithHands({
       phase: "choosing-adjutant",
       currentPlayerId: "player-0",
       hands: [
-        [card("spades", "2")],
+        [
+          card("spades", "2"),
+          card("spades", "3"),
+          card("spades", "4"),
+          card("spades", "5"),
+          card("spades", "6"),
+          card("spades", "7"),
+          card("spades", "8"),
+          card("spades", "9"),
+          card("spades", "10"),
+          card("spades", "J")
+        ],
         [card("clubs", "3")],
         [card("diamonds", "4")],
         [card("hearts", "5")],
-        [card("spades", "3")]
+        [card("clubs", "A")]
       ],
-      excludedCards: [joker(), card("clubs", "2"), card("clubs", "4")]
+      unusedCards: [joker(), card("clubs", "2"), card("clubs", "4")]
     });
 
     expect(chooseAdjutant(selfHeld, "joker").adjutant).toEqual({
@@ -1077,12 +1102,7 @@ describe("game-core", () => {
   });
 
   it("allows oruma, yoromeki, sei jack, and ura jack to be chosen as adjutant cards", () => {
-    const exchanging = createAllPassExchangeState();
-    const choosing = applyAction(exchanging, {
-      type: "discard-cards",
-      playerId: "player-0",
-      cardIds: exchanging.players[0].hand.slice(0, 3).map((discardedCard) => discardedCard.id)
-    });
+    const choosing = createAllPassAdjutantChoiceState();
 
     expect(chooseAdjutant(choosing, orumaCardId).adjutant?.calledCardId).toBe(orumaCardId);
     expect(chooseAdjutant(choosing, yoromekiCardId).adjutant?.calledCardId).toBe(yoromekiCardId);
@@ -1091,13 +1111,8 @@ describe("game-core", () => {
   });
 
   it("rejects invalid adjutant choices and phase violations", () => {
-    const exchanging = createAllPassExchangeState();
-    const choosing = applyAction(exchanging, {
-      type: "discard-cards",
-      playerId: "player-0",
-      cardIds: exchanging.players[0].hand.slice(0, 3).map((discardedCard) => discardedCard.id)
-    });
-    const playing = chooseAdjutant(choosing, "spades-A");
+    const choosing = createAllPassAdjutantChoiceState();
+    const exchanging = chooseAdjutant(choosing, "spades-A");
 
     expectRuleError(
       () =>
@@ -1119,7 +1134,7 @@ describe("game-core", () => {
     );
     expectRuleError(
       () =>
-        applyAction(playing, {
+        applyAction(exchanging, {
           type: "choose-adjutant",
           playerId: "player-0",
           cardId: "spades-K"
@@ -1287,14 +1302,14 @@ describe("game-core", () => {
   });
 
   it("rejects discard-cards from invalid actors or phases", () => {
+    const choosing = createAllPassAdjutantChoiceState();
     const exchanging = createAllPassExchangeState();
     const ids = exchanging.players[0].hand.slice(0, 3).map((card) => card.id);
-    const choosing = applyAction(exchanging, {
+    const playing = applyAction(exchanging, {
       type: "discard-cards",
       playerId: "player-0",
       cardIds: ids
     });
-    const playing = chooseAdjutant(choosing, "spades-A");
     const finished = { ...playing, phase: "finished" as const, isGameOver: true };
 
     expectRuleError(
@@ -2453,10 +2468,10 @@ describe("game-core", () => {
   });
 
   it("exposes the finalized contract through createPlayerView", () => {
-    const state = createAllPassExchangeState();
+    const state = createAllPassAdjutantChoiceState();
     const view = createPlayerView(state, "player-0");
 
-    expect(view.phase).toBe("exchanging");
+    expect(view.phase).toBe("choosing-adjutant");
     expect(view.contract).toEqual({
       napoleonPlayerId: "player-0",
       trumpSuit: "spades",
@@ -2464,22 +2479,23 @@ describe("game-core", () => {
     });
     expect(view.bidding).toBeNull();
     expect(view.trumpSuit).toBe("spades");
-    expect(view.exchangeRequirement).toEqual({ discardCount: 3 });
+    expect(view.exchangeRequirement).toBeNull();
     expect(view.adjutant).toBeNull();
-    expect(view.adjutantChoiceRequirement).toBeNull();
+    expect(view.adjutantChoiceRequirement).toEqual({ jokerAllowed: true });
+    expect(view.players[0].hand).toHaveLength(10);
   });
 
   it("keeps exchange information private for non-Napoleon views", () => {
-    const state = createAllPassExchangeState();
+    const state = createAllPassAdjutantChoiceState();
     const napoleonView = createPlayerView(state, "player-0");
     const opponentView = createPlayerView(state, "player-1");
 
-    expect(napoleonView.phase).toBe("exchanging");
-    expect(napoleonView.players[0].hand).toHaveLength(13);
-    expect(napoleonView.exchangeRequirement).toEqual({ discardCount: 3 });
-    expect(napoleonView.adjutantChoiceRequirement).toBeNull();
-    expect(opponentView.phase).toBe("exchanging");
-    expect(opponentView.players[0].handCount).toBe(13);
+    expect(napoleonView.phase).toBe("choosing-adjutant");
+    expect(napoleonView.players[0].hand).toHaveLength(10);
+    expect(napoleonView.exchangeRequirement).toBeNull();
+    expect(napoleonView.adjutantChoiceRequirement).toEqual({ jokerAllowed: true });
+    expect(opponentView.phase).toBe("choosing-adjutant");
+    expect(opponentView.players[0].handCount).toBe(10);
     expect(opponentView.players[0].hand).toBeUndefined();
     expect(opponentView.players[1].hand).toHaveLength(10);
     expect(opponentView.exchangeRequirement).toBeNull();
@@ -2489,12 +2505,7 @@ describe("game-core", () => {
   });
 
   it("exposes adjutant choice requirement only to Napoleon during adjutant choice", () => {
-    const exchanging = createAllPassExchangeState();
-    const choosing = applyAction(exchanging, {
-      type: "discard-cards",
-      playerId: "player-0",
-      cardIds: exchanging.players[0].hand.slice(0, 3).map((discardedCard) => discardedCard.id)
-    });
+    const choosing = createAllPassAdjutantChoiceState();
     const napoleonView = createPlayerView(choosing, "player-0");
     const opponentView = createPlayerView(choosing, "player-1");
 
@@ -2507,25 +2518,24 @@ describe("game-core", () => {
     expect(opponentView.players[0].hand).toBeUndefined();
     expect(opponentView.adjutantChoiceRequirement).toBeNull();
     expect(opponentView.adjutant).toBeNull();
-    expect(opponentView.latestEvent).not.toBeNull();
+    expect(opponentView.latestEvent).toBeNull();
     expect(JSON.stringify(opponentView.latestEvent)).not.toContain("joker");
   });
 
   it("clears exchange and adjutant requirements after adjutant choice completes", () => {
-    const exchanging = createAllPassExchangeState();
-    const choosing = applyAction(exchanging, {
-      type: "discard-cards",
-      playerId: "player-0",
-      cardIds: exchanging.players[0].hand.slice(0, 3).map((card) => card.id)
-    });
+    const choosing = createAllPassAdjutantChoiceState();
     const next = chooseAdjutant(choosing, "spades-A");
     const view = createPlayerView(next, "player-1");
 
-    expect(view.phase).toBe("playing");
+    expect(view.phase).toBe("exchanging");
     expect(view.exchangeRequirement).toBeNull();
     expect(view.adjutantChoiceRequirement).toBeNull();
-    expect(view.players[0].handCount).toBe(10);
-    expect(view.latestEvent).not.toBeNull();
+    expect(view.players[0].handCount).toBe(13);
+    expect(view.adjutant).toEqual({
+      calledCardId: "spades-A",
+      revealedPlayerId: null
+    });
+    expect(view.latestEvent).toBeNull();
   });
 
   it("exposes null trump suit through createPlayerView", () => {
@@ -2623,6 +2633,7 @@ function createStateWithHands(options: {
   bidding?: GameState["bidding"];
   awardedPointCards?: GameState["awardedPointCards"];
   excludedCards?: GameState["excludedCards"];
+  unusedCards?: GameState["unusedCards"];
   latestEvent?: GameState["latestEvent"];
   result?: GameState["result"];
 }): GameState {
@@ -2655,7 +2666,7 @@ function createStateWithHands(options: {
     trickNumber: options.trickNumber ?? 1,
     isTrickComplete: options.isTrickComplete ?? false,
     isGameOver: options.isGameOver ?? false,
-    unusedCards: []
+    unusedCards: options.unusedCards ?? []
   };
 }
 
@@ -2663,11 +2674,15 @@ function hasOwn(value: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
 }
 
-function createAllPassExchangeState(): GameState {
+function createAllPassAdjutantChoiceState(): GameState {
   return Array.from({ length: 5 }).reduce<GameState>(
     (current) => applyAction(current, { type: "pass", playerId: current.currentPlayerId }),
     createInitialGame({ rng: noShuffle })
   );
+}
+
+function createAllPassExchangeState(cardId = "spades-A"): GameState {
+  return chooseAdjutant(createAllPassAdjutantChoiceState(), cardId);
 }
 
 function chooseAdjutant(state: GameState, cardId = "spades-A"): GameState {

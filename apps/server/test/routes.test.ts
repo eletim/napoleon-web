@@ -898,7 +898,7 @@ describe("server API", () => {
     const body = response.json<SendActionResponse>();
 
     expect(response.statusCode).toBe(200);
-    expect(body.state.phase).toBe("exchanging");
+    expect(body.state.phase).toBe("choosing-adjutant");
     expect(body.state.contract).toEqual({
       napoleonPlayerId: "player-0",
       trumpSuit: "hearts",
@@ -912,13 +912,13 @@ describe("server API", () => {
       seiJackCardId: "hearts-J",
       uraJackCardId: "diamonds-J"
     });
-    expect(body.state.exchange).toEqual({
-      napoleonPlayerId: "player-0",
-      requiredDiscardCount: 3
-    });
+    expect(body.state.exchange).toBeNull();
     expect(body.state.adjutant).toBeNull();
-    expect(body.state.adjutantChoice).toBeNull();
-    expect(body.state.self.hand).toHaveLength(13);
+    expect(body.state.adjutantChoice).toEqual({
+      napoleonPlayerId: "player-0",
+      jokerAllowed: true
+    });
+    expect(body.state.self.hand).toHaveLength(10);
     expect(body.state.opponents.some((opponent) => hasOwn(opponent, "hand"))).toBe(false);
     expect(body.state.latestEvent).toBeNull();
     expect(body.state.result).toBeNull();
@@ -954,7 +954,7 @@ describe("server API", () => {
     const body = response.json<SendActionResponse>();
 
     expect(response.statusCode).toBe(200);
-    expect(body.state.phase).toBe("exchanging");
+    expect(body.state.phase).toBe("choosing-adjutant");
     expect(body.state.contract).toEqual({
       napoleonPlayerId: "player-0",
       trumpSuit: "spades",
@@ -962,13 +962,13 @@ describe("server API", () => {
     });
     expect(body.state.currentPlayerId).toBe("player-0");
     expect(body.state.trumpSuit).toBe("spades");
-    expect(body.state.exchange).toEqual({
-      napoleonPlayerId: "player-0",
-      requiredDiscardCount: 3
-    });
+    expect(body.state.exchange).toBeNull();
     expect(body.state.adjutant).toBeNull();
-    expect(body.state.adjutantChoice).toBeNull();
-    expect(body.state.self.hand).toHaveLength(13);
+    expect(body.state.adjutantChoice).toEqual({
+      napoleonPlayerId: "player-0",
+      jokerAllowed: true
+    });
+    expect(body.state.self.hand).toHaveLength(10);
   });
 
   it("finalizes a normal AI winning bid and advances play until the human turn", async () => {
@@ -1045,7 +1045,7 @@ describe("server API", () => {
     expect(playingBody.state.legalActions.length).toBeGreaterThan(0);
   });
 
-  it("lets a human Napoleon discard three buried cards and waits for adjutant choice", async () => {
+  it("lets a human Napoleon discard three buried cards and starts play", async () => {
     const state = createAllPassExchangeState();
     const discardIds = state.players[0].hand.slice(0, 3).map((card) => card.id);
     games.set("human-exchange", {
@@ -1067,15 +1067,15 @@ describe("server API", () => {
     const body = response.json<SendActionResponse>();
 
     expect(response.statusCode).toBe(200);
-    expect(body.state.phase).toBe("choosing-adjutant");
+    expect(body.state.phase).toBe("playing");
     expect(body.state.exchange).toBeNull();
-    expect(body.state.adjutantChoice).toEqual({
-      napoleonPlayerId: "player-0",
-      jokerAllowed: true
+    expect(body.state.adjutantChoice).toBeNull();
+    expect(body.state.adjutant).toEqual({
+      calledCardId: state.adjutant?.calledCardId,
+      revealedPlayerId: null
     });
-    expect(body.state.adjutant).toBeNull();
     expect(body.state.self.hand).toHaveLength(10);
-    expect(body.state.legalActions).toEqual([]);
+    expect(body.state.legalActions.some((action) => action.type === "play-card")).toBe(true);
     expect(body.state.latestEvent).toMatchObject({
       type: "buried-cards-resolved",
       napoleonPlayerId: "player-0"
@@ -1212,13 +1212,8 @@ describe("server API", () => {
     expect(serializedEvent).not.toContain("diamonds-8");
   });
 
-  it("lets a human Napoleon choose an adjutant card and starts play", async () => {
-    const exchange = createAllPassExchangeState();
-    const choosing = applyAction(exchange, {
-      type: "discard-cards",
-      playerId: "player-0",
-      cardIds: exchange.players[0].hand.slice(0, 3).map((card) => card.id)
-    });
+  it("lets a human Napoleon choose an adjutant card and starts exchange", async () => {
+    const choosing = createAllPassAdjutantChoiceState();
     const calledCard = choosing.players[1].hand.find(isStandardCard);
 
     expect(calledCard).toBeDefined();
@@ -1245,14 +1240,18 @@ describe("server API", () => {
     const body = response.json<SendActionResponse>();
 
     expect(response.statusCode).toBe(200);
-    expect(body.state.phase).toBe("playing");
+    expect(body.state.phase).toBe("exchanging");
     expect(body.state.adjutant).toEqual({
       calledCardId: calledCard.id,
       revealedPlayerId: null
     });
     expect(body.state.adjutantChoice).toBeNull();
-    expect(body.state.self.hand).toHaveLength(10);
-    expect(body.state.legalActions.some((action) => action.type === "play-card")).toBe(true);
+    expect(body.state.exchange).toEqual({
+      napoleonPlayerId: "player-0",
+      requiredDiscardCount: 3
+    });
+    expect(body.state.self.hand).toHaveLength(13);
+    expect(body.state.legalActions).toEqual([]);
     expect(body.state.latestEvent).toBeNull();
     expect(games.get("human-adjutant")?.state.adjutant).toEqual({
       calledCardId: calledCard.id,
@@ -1264,7 +1263,18 @@ describe("server API", () => {
   it("lets a human Napoleon choose the joker as an adjutant card", async () => {
     const choosing = {
       ...createStateWithHands([
-        [card("spades", "2")],
+        [
+          card("spades", "2"),
+          card("spades", "3"),
+          card("spades", "4"),
+          card("spades", "5"),
+          card("spades", "6"),
+          card("spades", "7"),
+          card("spades", "8"),
+          card("spades", "9"),
+          card("spades", "10"),
+          card("spades", "J")
+        ],
         [joker()],
         [card("clubs", "3")],
         [card("diamonds", "4")],
@@ -1272,7 +1282,7 @@ describe("server API", () => {
       ]),
       phase: "choosing-adjutant" as const,
       currentPlayerId: "player-0",
-      excludedCards: [card("clubs", "2"), card("clubs", "4"), card("diamonds", "3")]
+      unusedCards: [card("clubs", "2"), card("clubs", "4"), card("diamonds", "3")]
     };
     games.set("human-joker-adjutant", {
       state: choosing,
@@ -1293,10 +1303,15 @@ describe("server API", () => {
     const body = response.json<SendActionResponse>();
 
     expect(response.statusCode).toBe(200);
-    expect(body.state.phase).toBe("playing");
+    expect(body.state.phase).toBe("exchanging");
     expect(body.state.adjutant).toEqual({
       calledCardId: "joker",
       revealedPlayerId: null
+    });
+    expect(body.state.self.hand).toHaveLength(13);
+    expect(body.state.exchange).toEqual({
+      napoleonPlayerId: "player-0",
+      requiredDiscardCount: 3
     });
     expect(games.get("human-joker-adjutant")?.state.adjutant).toEqual({
       calledCardId: "joker",
@@ -1418,12 +1433,7 @@ describe("server API", () => {
   });
 
   it("rejects invalid adjutant requests and leaves choosing state unchanged", async () => {
-    const exchange = createAllPassExchangeState();
-    const choosing = applyAction(exchange, {
-      type: "discard-cards",
-      playerId: "player-0",
-      cardIds: exchange.players[0].hand.slice(0, 3).map((card) => card.id)
-    });
+    const choosing = createAllPassAdjutantChoiceState();
     games.set("invalid-adjutant", {
       state: choosing,
       humanPlayerId: "player-0",
@@ -2445,6 +2455,16 @@ function createCompletedTrickWithPointCount(
 }
 
 function createAllPassExchangeState(): GameState {
+  const choosing = createAllPassAdjutantChoiceState();
+
+  return applyAction(choosing, {
+    type: "choose-adjutant",
+    playerId: choosing.currentPlayerId,
+    cardId: "spades-A"
+  });
+}
+
+function createAllPassAdjutantChoiceState(): GameState {
   return Array.from({ length: 5 }).reduce<GameState>(
     (state) => applyAction(state, { type: "pass", playerId: state.currentPlayerId }),
     createInitialGame({ rng: () => 0 })

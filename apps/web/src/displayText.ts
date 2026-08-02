@@ -44,7 +44,10 @@ export function createGameStatusDisplay(
           { label: "埋札交換" },
           ...createContractSetupChips(state, players)
         ],
-        secondary: createSpecialCardChips(state)
+        secondary: [
+          ...createAdjutantChip(state, players),
+          ...createSpecialCardChips(state)
+        ]
       };
     case "choosing-adjutant":
       return {

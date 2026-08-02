@@ -401,24 +401,13 @@ function ensureBiddingActionAllowed(state: GameState, playerId: PlayerId): void 
 }
 
 function completeBidding(state: GameState, contract: Contract): GameState {
-  const players = state.players.map((player) =>
-    player.id === contract.napoleonPlayerId
-      ? {
-          ...player,
-          hand: [...player.hand, ...state.unusedCards]
-        }
-      : player
-  );
-
   return {
     ...state,
-    players,
-    phase: "exchanging",
+    phase: "choosing-adjutant",
     currentPlayerId: contract.napoleonPlayerId,
     trumpSuit: contract.trumpSuit,
     contract,
     bidding: null,
-    unusedCards: [],
     awardedPointCards: [],
     excludedCards: [],
     latestEvent: null,
@@ -445,6 +434,13 @@ function discardCards(
 
   if (state.contract === null) {
     throw new GameRuleError("INVALID_EXCHANGE_STATE", "A contract is required for exchange.");
+  }
+
+  if (state.adjutant === null) {
+    throw new GameRuleError(
+      "INVALID_EXCHANGE_STATE",
+      "An adjutant card must be chosen before exchange."
+    );
   }
 
   if (playerId !== state.contract.napoleonPlayerId) {
@@ -510,8 +506,7 @@ function discardCards(
       hiddenNonPointCardCount: excludedCards.length
     },
     result: null,
-    phase: "choosing-adjutant",
-    adjutant: null,
+    phase: "playing",
     currentPlayerId: playerId,
     currentTrick: [],
     trickNumber: 1,
@@ -556,9 +551,19 @@ function chooseAdjutant(state: GameState, playerId: PlayerId, cardId: string): G
     state.currentTrick.length !== 0 ||
     state.completedTricks.length !== 0 ||
     state.trickNumber !== 1 ||
-    getResolvedBuriedCardCount(state) !== 3
+    getResolvedBuriedCardCount(state) !== 0 ||
+    state.unusedCards.length !== 3
   ) {
     throw new GameRuleError("INVALID_ADJUTANT_STATE", "Adjutant must be chosen before play starts.");
+  }
+
+  const player = getPlayer(state, playerId);
+
+  if (player.hand.length !== 10) {
+    throw new GameRuleError(
+      "INVALID_ADJUTANT_STATE",
+      "Napoleon must have 10 cards before choosing an adjutant."
+    );
   }
 
   const adjutant: AdjutantState = {
@@ -566,10 +571,20 @@ function chooseAdjutant(state: GameState, playerId: PlayerId, cardId: string): G
     playerId: resolveAdjutantPlayerId(state, cardId),
     revealed: false
   };
+  const players = state.players.map((candidate) =>
+    candidate.id === playerId
+      ? {
+          ...candidate,
+          hand: [...candidate.hand, ...state.unusedCards]
+        }
+      : candidate
+  );
 
   return {
     ...state,
-    phase: "playing",
+    players,
+    unusedCards: [],
+    phase: "exchanging",
     currentPlayerId: playerId,
     adjutant
   };
@@ -587,6 +602,7 @@ function resolveAdjutantPlayerId(state: GameState, cardId: string): PlayerId | n
   }
 
   if (
+    state.unusedCards.some((card) => card.id === cardId) ||
     state.excludedCards.some((card) => card.id === cardId) ||
     state.awardedPointCards.some((award) => award.cards.some((card) => card.id === cardId))
   ) {

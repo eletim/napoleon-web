@@ -71,6 +71,35 @@ describe("display text", () => {
     expect(display.secondary.some((chip) => chip.label === "副官札")).toBe(false);
   });
 
+  it("shows the chosen adjutant card during exchange without revealing its owner", () => {
+    const state = createPublicState({
+      phase: "exchanging",
+      currentPlayerId: "player-4",
+      contract: {
+        napoleonPlayerId: "player-4",
+        trumpSuit: "diamonds",
+        targetPointCards: 14
+      },
+      trumpSuit: "diamonds",
+      adjutant: {
+        calledCardId: "joker",
+        revealedPlayerId: null
+      }
+    });
+    const display = createGameStatusDisplay(state, createTablePlayers(state));
+
+    expect(display.primary).toEqual([
+      { label: "埋札交換" },
+      { label: "ナポレオン", value: "右側AI" },
+      { label: "切り札", value: "♦" },
+      { label: "契約", value: "14枚" }
+    ]);
+    expect(display.secondary).toContainEqual({
+      label: "副官札",
+      value: "ジョーカー・未判明"
+    });
+  });
+
   it("shows adjutant choice setup without undecided adjutant clutter", () => {
     const state = createPublicState({
       phase: "choosing-adjutant",

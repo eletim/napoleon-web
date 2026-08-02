@@ -25,19 +25,6 @@ export class RandomAgent implements Agent {
   }
 
   async selectAction(observation: PlayerObservation): Promise<GameAction> {
-    if (observation.view.phase === "exchanging") {
-      const discardCount = observation.view.exchangeRequirement?.discardCount;
-      const self = observation.view.players.find((player) => player.id === observation.playerId);
-
-      if (discardCount !== undefined && self?.hand !== undefined) {
-        return {
-          type: "discard-cards",
-          playerId: observation.playerId,
-          cardIds: self.hand.slice(0, discardCount).map((card) => card.id)
-        };
-      }
-    }
-
     if (observation.view.phase === "choosing-adjutant") {
       const self = observation.view.players.find((player) => player.id === observation.playerId);
 
@@ -54,6 +41,19 @@ export class RandomAgent implements Agent {
           type: "choose-adjutant",
           playerId: observation.playerId,
           cardId: preferredCardId
+        };
+      }
+    }
+
+    if (observation.view.phase === "exchanging") {
+      const discardCount = observation.view.exchangeRequirement?.discardCount;
+      const self = observation.view.players.find((player) => player.id === observation.playerId);
+
+      if (discardCount !== undefined && self?.hand !== undefined) {
+        return {
+          type: "discard-cards",
+          playerId: observation.playerId,
+          cardIds: self.hand.slice(0, discardCount).map((card) => card.id)
         };
       }
     }
