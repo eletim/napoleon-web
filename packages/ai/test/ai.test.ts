@@ -7,9 +7,26 @@ import {
   getLegalActions,
   isStandardCard,
   type Card,
-  type GameState
+  type GameAction,
+  type GameState,
+  type PlayerView,
+  type Rank,
+  type Suit
 } from "@napoleon/game-core";
-import { NoLegalActionsError, RandomAgent } from "../src/index.js";
+import {
+  adjustTeamWinProbability,
+  aiRankValues,
+  calculateUsedCardValue,
+  createSpecialCardsForTrump,
+  estimateLeadWinProbability,
+  evaluateCardForTrump,
+  getBidLimitForScore,
+  NoLegalActionsError,
+  RandomAgent,
+  RuleBasedAgent,
+  selectAdjutantCardId,
+  selectDiscardCardIds
+} from "../src/index.js";
 
 describe("RandomAgent", () => {
   it("returns one of the legal actions when legal actions exist", async () => {
@@ -147,6 +164,315 @@ describe("RandomAgent", () => {
   });
 });
 
+describe("card evaluation", () => {
+  it("uses shared AI rank values", () => {
+    expect(aiRankValues.A).toBe(20);
+    expect(aiRankValues.K).toBe(13);
+    expect(aiRankValues.Q).toBe(12);
+    expect(aiRankValues.J).toBe(11);
+    expect(aiRankValues["10"]).toBe(10);
+    expect(aiRankValues["2"]).toBe(12);
+  });
+
+  it("evaluates trump and special cards without double-counting trump bonuses", () => {
+    const spadeSpecials = createSpecialCardsForTrump("spades");
+
+    expect(evaluateCardForTrump(card("spades", "K"), "spades", spadeSpecials)).toBe(43);
+    expect(evaluateCardForTrump(card("hearts", "K"), "spades", spadeSpecials)).toBe(13);
+    expect(evaluateCardForTrump(card("spades", "A"), "spades", spadeSpecials)).toBe(60);
+    expect(evaluateCardForTrump(card("spades", "J"), "spades", spadeSpecials)).toBe(55);
+    expect(evaluateCardForTrump(card("clubs", "J"), "spades", spadeSpecials)).toBe(50);
+    expect(evaluateCardForTrump(card("hearts", "Q"), "spades", spadeSpecials)).toBe(30);
+    expect(
+      evaluateCardForTrump(card("hearts", "Q"), "hearts", createSpecialCardsForTrump("hearts"))
+    ).toBe(45);
+    expect(evaluateCardForTrump(joker(), "spades", spadeSpecials)).toBe(20);
+  });
+
+  it("derives sei jack and ura jack ids for each trump suit", () => {
+    expect(createSpecialCardsForTrump("spades")).toMatchObject({
+      seiJackCardId: "spades-J",
+      uraJackCardId: "clubs-J"
+    });
+    expect(createSpecialCardsForTrump("clubs")).toMatchObject({
+      seiJackCardId: "clubs-J",
+      uraJackCardId: "spades-J"
+    });
+    expect(createSpecialCardsForTrump("hearts")).toMatchObject({
+      seiJackCardId: "hearts-J",
+      uraJackCardId: "diamonds-J"
+    });
+    expect(createSpecialCardsForTrump("diamonds")).toMatchObject({
+      seiJackCardId: "diamonds-J",
+      uraJackCardId: "hearts-J"
+    });
+  });
+});
+
+describe("RuleBasedAgent bidding", () => {
+  it("converts hand scores to bid limits", () => {
+    expect(getBidLimitForScore(199)).toBeNull();
+    expect(getBidLimitForScore(200)).toBe(13);
+    expect(getBidLimitForScore(230)).toBe(14);
+    expect(getBidLimitForScore(260)).toBe(15);
+    expect(getBidLimitForScore(290)).toBe(16);
+    expect(getBidLimitForScore(410)).toBe(20);
+  });
+
+  it("bids the minimum legal target for the highest-scoring suit", async () => {
+    const state = createInitialGame({ rng: () => 0 });
+    const playerId = state.currentPlayerId;
+    const view = withSelfHand(createPlayerView(state, playerId), playerId, strongSpadeHand());
+    const legalActions: readonly GameAction[] = [
+      { type: "pass", playerId },
+      { type: "bid", playerId, suit: "spades", targetPointCards: 13 },
+      { type: "bid", playerId, suit: "hearts", targetPointCards: 13 }
+    ];
+    const agent = new RuleBasedAgent(() => 0);
+
+    await expect(agent.selectAction({ playerId, view, legalActions })).resolves.toEqual({
+      type: "bid",
+      playerId,
+      suit: "spades",
+      targetPointCards: 13
+    });
+  });
+
+  it("raises by one target when below its limit and passes at the limit", async () => {
+    const state = createInitialGame({ rng: () => 0 });
+    const playerId = state.currentPlayerId;
+    const baseView = withSelfHand(createPlayerView(state, playerId), playerId, strongSpadeHand());
+    const agent = new RuleBasedAgent(() => 0);
+
+    await expect(
+      agent.selectAction({
+        playerId,
+        view: {
+          ...baseView,
+          bidding: {
+            starterPlayerId: playerId,
+            highestBid: { playerId: "player-1", suit: "hearts", targetPointCards: 13 },
+            consecutivePassCount: 0,
+            history: []
+          }
+        },
+        legalActions: [
+          { type: "pass", playerId },
+          { type: "bid", playerId, suit: "spades", targetPointCards: 14 }
+        ]
+      })
+    ).resolves.toEqual({ type: "bid", playerId, suit: "spades", targetPointCards: 14 });
+
+    await expect(
+      agent.selectAction({
+        playerId,
+        view: {
+          ...baseView,
+          bidding: {
+            starterPlayerId: playerId,
+            highestBid: { playerId: "player-1", suit: "hearts", targetPointCards: 20 },
+            consecutivePassCount: 0,
+            history: []
+          }
+        },
+        legalActions: [{ type: "pass", playerId }]
+      })
+    ).resolves.toEqual({ type: "pass", playerId });
+  });
+
+  it("passes below threshold or when the desired bid is not legal", async () => {
+    const state = createInitialGame({ rng: () => 0 });
+    const playerId = state.currentPlayerId;
+    const agent = new RuleBasedAgent(() => 0);
+
+    await expect(
+      agent.selectAction({
+        playerId,
+        view: withSelfHand(createPlayerView(state, playerId), playerId, [
+          card("clubs", "3"),
+          card("diamonds", "4"),
+          card("hearts", "5")
+        ]),
+        legalActions: [
+          { type: "pass", playerId },
+          { type: "bid", playerId, suit: "clubs", targetPointCards: 13 }
+        ]
+      })
+    ).resolves.toEqual({ type: "pass", playerId });
+
+    await expect(
+      agent.selectAction({
+        playerId,
+        view: withSelfHand(createPlayerView(state, playerId), playerId, strongSpadeHand()),
+        legalActions: [
+          { type: "pass", playerId },
+          { type: "bid", playerId, suit: "hearts", targetPointCards: 13 }
+        ]
+      })
+    ).resolves.toEqual({ type: "pass", playerId });
+  });
+});
+
+describe("RuleBasedAgent adjutant and exchange", () => {
+  it("chooses the highest-valued adjutant candidate not in its own hand", async () => {
+    const choosing = createAllPassAdjutantChoiceState();
+    const playerId = choosing.currentPlayerId;
+    const view = createPlayerView(choosing, playerId);
+    const agent = new RuleBasedAgent(() => 0);
+
+    await expect(agent.selectAction({ playerId, view, legalActions: [] })).resolves.toEqual({
+      type: "choose-adjutant",
+      playerId,
+      cardId: "clubs-J"
+    });
+  });
+
+  it("can prefer ura jack over sei jack when the trump count bonus is high", () => {
+    const selfHand = [
+      card("spades", "A"),
+      card("spades", "2"),
+      card("spades", "3"),
+      card("spades", "4"),
+      card("spades", "5")
+    ];
+
+    expect(
+      selectAdjutantCardId(
+        selfHand,
+        "spades",
+        { specialCards: createSpecialCardsForTrump("spades") },
+        () => 0
+      )
+    ).toBe("clubs-J");
+  });
+
+  it("uses random fallback when normal adjutant candidates are unavailable", () => {
+    expect(
+      selectAdjutantCardId(
+        createDeck(),
+        "spades",
+        { specialCards: createSpecialCardsForTrump("spades") },
+        () => 0.999
+      )
+    ).toBe("joker");
+  });
+
+  it("selects the discard combination that maximizes the remaining hand score", () => {
+    const hand = [
+      card("spades", "A"),
+      card("spades", "K"),
+      card("spades", "Q"),
+      card("spades", "10"),
+      card("spades", "9"),
+      card("spades", "8"),
+      card("spades", "7"),
+      card("hearts", "3"),
+      card("diamonds", "4"),
+      card("clubs", "5"),
+      card("hearts", "4"),
+      card("diamonds", "5"),
+      card("clubs", "6")
+    ];
+
+    expect(
+      selectDiscardCardIds(
+        hand,
+        3,
+        "spades",
+        { specialCards: createSpecialCardsForTrump("spades") },
+        () => 0
+      )
+    ).toEqual(["hearts-3", "diamonds-4", "hearts-4"]);
+  });
+
+  it("returns three distinct discard ids from its own 13-card observation", async () => {
+    const exchange = createAllPassExchangeState();
+    const playerId = exchange.currentPlayerId;
+    const view = createPlayerView(exchange, playerId);
+    const agent = new RuleBasedAgent(() => 0);
+    const action = await agent.selectAction({ playerId, view, legalActions: [] });
+
+    expect(action.type).toBe("discard-cards");
+    if (action.type === "discard-cards") {
+      expect(action.cardIds).toHaveLength(3);
+      expect(new Set(action.cardIds).size).toBe(3);
+      expect(view.players[0].hand?.map((card) => card.id)).toEqual(
+        expect.arrayContaining([...action.cardIds])
+      );
+    }
+  });
+});
+
+describe("RuleBasedAgent trick play", () => {
+  it("uses the configured win probability and card cost formulas", () => {
+    expect(estimateLeadWinProbability(0)).toBe(0.05);
+    expect(estimateLeadWinProbability(10)).toBe(0.1);
+    expect(estimateLeadWinProbability(20)).toBe(0.2);
+    expect(estimateLeadWinProbability(30)).toBe(0.35);
+    expect(estimateLeadWinProbability(40)).toBe(0.55);
+    expect(estimateLeadWinProbability(50)).toBe(0.7);
+    expect(estimateLeadWinProbability(55)).toBe(0.8);
+    expect(estimateLeadWinProbability(60)).toBe(0.9);
+    expect(adjustTeamWinProbability(0.2, 4, true)).toBeCloseTo(0.2);
+    expect(adjustTeamWinProbability(0.2, 0, true)).toBe(1);
+    expect(adjustTeamWinProbability(0.2, 0, false)).toBe(0);
+    expect(calculateUsedCardValue(5)).toBeCloseTo(-0.5);
+    expect(calculateUsedCardValue(20)).toBeCloseTo(0);
+    expect(calculateUsedCardValue(50)).toBeCloseTo(1);
+    expect(calculateUsedCardValue(60)).toBeCloseTo(1.333333);
+  });
+
+  it("uses game-core provisional winner logic, including same two on the fifth card", async () => {
+    const state = toPlayingState(createInitialGame({ rng: () => 0 }));
+    const playerId = "player-0";
+    const view = withSelfHand(
+      {
+        ...createPlayerView(state, playerId),
+        phase: "playing",
+        trickNumber: 2,
+        currentTrick: [
+          { playerId: "player-1", card: card("hearts", "A") },
+          { playerId: "player-2", card: card("hearts", "K") },
+          { playerId: "player-3", card: card("hearts", "Q") },
+          { playerId: "player-4", card: card("hearts", "7") }
+        ],
+        contract: {
+          napoleonPlayerId: "player-1",
+          trumpSuit: "spades",
+          targetPointCards: 13
+        },
+        trumpSuit: "spades",
+        specialCards: createSpecialCardsForTrump("spades")
+      },
+      playerId,
+      [card("hearts", "2"), card("hearts", "3")]
+    );
+    const agent = new RuleBasedAgent(() => 0);
+
+    await expect(
+      agent.selectAction({
+        playerId,
+        view,
+        legalActions: [
+          { type: "play-card", playerId, cardId: "hearts-2" },
+          { type: "play-card", playerId, cardId: "hearts-3" }
+        ]
+      })
+    ).resolves.toEqual({ type: "play-card", playerId, cardId: "hearts-2" });
+  });
+
+  it("throws when there are no legal play-card actions in playing phase", async () => {
+    const state = toPlayingState(createInitialGame({ rng: () => 0 }));
+    const playerId = "player-0";
+    const view = createPlayerView(state, playerId);
+    const agent = new RuleBasedAgent(() => 0);
+
+    await expect(agent.selectAction({ playerId, view, legalActions: [] })).rejects.toBeInstanceOf(
+      NoLegalActionsError
+    );
+  });
+});
+
 function createAllPassAdjutantChoiceState(): GameState {
   return Array.from({ length: 5 }).reduce<GameState>(
     (current) => applyAction(current, { type: "pass", playerId: current.currentPlayerId }),
@@ -162,4 +488,59 @@ function createAllPassExchangeState(): GameState {
     playerId: choosing.currentPlayerId,
     cardId: "spades-A"
   });
+}
+
+function card(suit: Suit, rank: Rank): Card {
+  return {
+    type: "standard",
+    id: `${suit}-${rank}`,
+    suit,
+    rank
+  };
+}
+
+function joker(): Card {
+  return {
+    type: "joker",
+    id: "joker"
+  };
+}
+
+function strongSpadeHand(): readonly Card[] {
+  return [
+    card("spades", "A"),
+    card("spades", "K"),
+    card("spades", "Q"),
+    card("spades", "J"),
+    card("spades", "10"),
+    joker(),
+    card("hearts", "A"),
+    card("clubs", "A"),
+    card("diamonds", "A"),
+    card("hearts", "K")
+  ];
+}
+
+function withSelfHand(view: PlayerView, playerId: string, hand: readonly Card[]): PlayerView {
+  return {
+    ...view,
+    players: view.players.map((player) =>
+      player.id === playerId ? { ...player, hand, handCount: hand.length } : player
+    )
+  };
+}
+
+function toPlayingState(state: GameState): GameState {
+  return {
+    ...state,
+    phase: "playing",
+    trumpSuit: "spades",
+    contract: {
+      napoleonPlayerId: "player-0",
+      trumpSuit: "spades",
+      targetPointCards: 13
+    },
+    bidding: null,
+    adjutant: null
+  };
 }

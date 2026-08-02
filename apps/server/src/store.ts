@@ -1,4 +1,4 @@
-import { RandomAgent, type Agent } from "@napoleon/ai";
+import { RuleBasedAgent, type Agent } from "@napoleon/ai";
 import type { GameState, PlayerId } from "@napoleon/game-core";
 import { randomUUID } from "node:crypto";
 
@@ -15,5 +15,5 @@ export function createGameId(): string {
 }
 
 export function createAgents(playerIds: readonly PlayerId[]): ReadonlyMap<PlayerId, Agent> {
-  return new Map(playerIds.map((playerId) => [playerId, new RandomAgent()]));
+  return new Map(playerIds.map((playerId) => [playerId, new RuleBasedAgent()]));
 }

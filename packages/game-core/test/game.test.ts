@@ -7,6 +7,7 @@ import {
   createDeck,
   createInitialGame,
   createPlayerView,
+  determineCurrentWinningPlayer,
   determineTrickWinner,
   GameRuleError,
   getSeiJackCardId,
@@ -228,6 +229,19 @@ describe("game-core", () => {
           played("player-2", card("clubs", "2"))
         ],
         { trumpSuit: "hearts" }
+      )
+    ).toBe("player-1");
+  });
+
+  it("determines the current winning player for a partial trick using the same rules", () => {
+    expect(
+      determineCurrentWinningPlayer(
+        [
+          played("player-0", card("hearts", "A")),
+          played("player-1", card("spades", "2"))
+        ],
+        { trumpSuit: "spades" },
+        { trickNumber: 2 }
       )
     ).toBe("player-1");
   });

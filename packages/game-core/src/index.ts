@@ -31,6 +31,7 @@ export {
 } from "./bidding.js";
 export { getRankValue } from "./ranks.js";
 export {
+  determineCurrentWinningPlayer,
   determineTrickWinner,
   getLeadSuit,
   getPlayableCards,

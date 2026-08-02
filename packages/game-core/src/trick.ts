@@ -128,6 +128,14 @@ export function determineTrickWinner(
   return winningCard.playerId;
 }
 
+export function determineCurrentWinningPlayer(
+  trick: readonly PlayedCard[],
+  context: TrickContext,
+  options: DetermineTrickWinnerOptions = {}
+): PlayerId {
+  return determineTrickWinner(trick, context, options);
+}
+
 function findSameTwoWinner(
   trick: readonly PlayedCard[],
   context: TrickContext,

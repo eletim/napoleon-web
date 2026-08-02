@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import type { Agent } from "@napoleon/ai";
+import { RuleBasedAgent, type Agent } from "@napoleon/ai";
 import {
   advanceToNextTrick,
   applyAction,
@@ -226,6 +226,12 @@ afterEach(async () => {
 });
 
 describe("server API", () => {
+  it("uses RuleBasedAgent as the standard AI agent", () => {
+    const agents = createAgents(["player-1"]);
+
+    expect(agents.get("player-1")).toBeInstanceOf(RuleBasedAgent);
+  });
+
   it("returns health status", async () => {
     const response = await app.inject({
       method: "GET",
