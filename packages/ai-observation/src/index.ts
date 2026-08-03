@@ -1,4 +1,13 @@
 export { CARD_IDS, getCardId, getCardIndex } from "./cardIndex.js";
+export {
+  encodePlayAction
+} from "./encodePlayAction.js";
+export type { EncodedPlayAction } from "./encodePlayAction.js";
+export {
+  encodePlayingObservation,
+  validateEncodedPlayingObservation
+} from "./encodePlayingObservation.js";
+export type { EncodedPlayingObservation } from "./encodePlayingObservation.js";
 export { createRelativePlayerOrder, getRelativePlayerIndex } from "./playerIndex.js";
 export {
   CARD_COUNT,
