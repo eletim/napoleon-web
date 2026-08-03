@@ -22,6 +22,7 @@ import type {
   CreateGameResponse,
   GetGameResponse,
   NextTrickResponse,
+  RunAutomatedSimulationResponse,
   SendActionResponse
 } from "@napoleon/protocol";
 import { buildApp } from "../src/app.js";
@@ -292,6 +293,106 @@ describe("server API", () => {
       expect(record.state.unusedCards).toHaveLength(3);
       expect(allCards.filter(isStandardCard)).toHaveLength(52);
       expect(allCards.filter(isJokerCard)).toHaveLength(1);
+    }
+  });
+
+  it("runs a seeded automated simulation to completion", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/simulations",
+      payload: {
+        seed: 12345
+      }
+    });
+    const body = response.json<RunAutomatedSimulationResponse>();
+
+    expect(response.statusCode).toBe(200);
+    expect(body.schemaVersion).toBe(1);
+    expect(body.seed).toBe(12345);
+    expect(body.playerIds).toEqual(["player-0", "player-1", "player-2", "player-3", "player-4"]);
+    expect(body.decisions.length).toBeGreaterThan(0);
+    expect(body.summary.totalDecisionCount).toBe(body.decisions.length);
+    expect(body.result.winner).toMatch(/^(napoleon-team|alliance)$/);
+    expect(body.decisions[0]).toMatchObject({
+      step: 1,
+      playerId: "player-0",
+      phase: "bidding",
+      trickNumber: 1
+    });
+    expect(body.decisions[0].legalActionCount).toBeGreaterThan(0);
+    expect(body.decisions[0].action).not.toHaveProperty("playerId");
+    expect(
+      body.decisions[0].observation.players.find((player) => player.id === "player-0")?.hand
+    ).toBeDefined();
+    expect(
+      body.decisions[0].observation.players.find((player) => player.id === "player-1")
+    ).not.toHaveProperty("hand");
+  });
+
+  it("returns the same automated simulation response for the same seed", async () => {
+    const first = await app.inject({
+      method: "POST",
+      url: "/api/simulations",
+      payload: {
+        seed: 2468
+      }
+    });
+    const second = await app.inject({
+      method: "POST",
+      url: "/api/simulations",
+      payload: {
+        seed: 2468
+      }
+    });
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect(second.json<RunAutomatedSimulationResponse>()).toEqual(
+      first.json<RunAutomatedSimulationResponse>()
+    );
+  });
+
+  it("returns different automated simulation initial hands for different seeds", async () => {
+    const first = await app.inject({
+      method: "POST",
+      url: "/api/simulations",
+      payload: {
+        seed: 1
+      }
+    });
+    const second = await app.inject({
+      method: "POST",
+      url: "/api/simulations",
+      payload: {
+        seed: 2
+      }
+    });
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect(second.json<RunAutomatedSimulationResponse>().initialHands).not.toEqual(
+      first.json<RunAutomatedSimulationResponse>().initialHands
+    );
+  });
+
+  it("rejects invalid automated simulation seeds", async () => {
+    const invalidBodies = [
+      {},
+      { seed: "123" },
+      { seed: 1.5 },
+      { seed: Number.POSITIVE_INFINITY }
+    ];
+
+    for (const payload of invalidBodies) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/simulations",
+        payload
+      });
+      const body = response.json<ApiError>();
+
+      expect(response.statusCode).toBe(400);
+      expect(body.error.code).toBe("INVALID_SIMULATION_REQUEST");
     }
   });
 

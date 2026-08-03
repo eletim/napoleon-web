@@ -4,7 +4,8 @@ import type {
   DiscardCardsRequest,
   PassRequest,
   PlayCardRequest,
-  PublicGameAction
+  PublicGameAction,
+  RunAutomatedSimulationRequest
 } from "@napoleon/protocol";
 
 export function isPlayCardRequest(value: unknown): value is PlayCardRequest {
@@ -101,6 +102,32 @@ export function readActionBody(value: unknown): PublicGameAction | undefined {
   }
 
   return undefined;
+}
+
+export function readRunAutomatedSimulationBody(
+  value: unknown
+): RunAutomatedSimulationRequest | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const keys = Object.keys(value);
+
+  if (keys.length !== 1 || !keys.includes("seed")) {
+    return undefined;
+  }
+
+  if (
+    typeof value.seed !== "number" ||
+    !Number.isFinite(value.seed) ||
+    !Number.isInteger(value.seed)
+  ) {
+    return undefined;
+  }
+
+  return {
+    seed: value.seed
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

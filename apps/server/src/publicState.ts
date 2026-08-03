@@ -122,7 +122,7 @@ function toPublicExchangeState(
   };
 }
 
-function toPublicCard(card: Card): PublicCard {
+export function toPublicCard(card: Card): PublicCard {
   if (isJokerCard(card)) {
     return {
       type: "joker",
@@ -142,7 +142,7 @@ function toPublicStandardCard(card: StandardCard): Extract<PublicCard, { type: "
   };
 }
 
-function toPublicGameResult(result: GameResult): PublicGameResult {
+export function toPublicGameResult(result: GameResult): PublicGameResult {
   return {
     winner: result.winner,
     napoleonTeamPointCards: result.napoleonTeamPointCards,
@@ -165,7 +165,7 @@ function toPublicGameEvent(event: GameEvent): PublicGameEvent {
   }
 }
 
-function toPublicPlayedCard(playedCard: PlayedCard): PublicPlayedCard {
+export function toPublicPlayedCard(playedCard: PlayedCard): PublicPlayedCard {
   return {
     playerId: playedCard.playerId,
     card: toPublicCard(playedCard.card)
