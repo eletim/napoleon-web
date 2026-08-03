@@ -1,18 +1,23 @@
 import { describe, expect, it } from "vitest";
 import { RuleBasedAgent, runAutomatedGame } from "@napoleon/ai";
 import {
+  BIDDING_ACTION_TYPE_BID,
+  BIDDING_ACTION_TYPE_PASS,
   CARD_COUNT,
   CARDS_PER_TRICK,
+  EMPTY_BIDDING_SUIT_INDEX,
   EMPTY_CARD_INDEX,
   EMPTY_PLAYER_INDEX,
   PLAYER_COUNT,
   PLAYING_ENCODER_SCHEMA_VERSION,
   TRICK_COUNT,
+  createPlayingTrainingSample,
   encodePlayAction,
   encodePlayingObservation,
   getCardIndex,
   validateEncodedPlayingObservation
 } from "../src/index.js";
+import type { EncodedPlayingObservation } from "../src/index.js";
 
 describe("encodePlayingObservation", () => {
   it("encodes a playing observation into fixed shapes", async () => {
@@ -179,6 +184,108 @@ describe("encodePlayingObservation", () => {
       )
     ).toThrow("Selected card is not legal");
   });
+
+  it("rejects invalid scalar, index, one-hot, mask, slot, and event values", async () => {
+    const encoded = await getEncodedPlayingObservation(12345);
+
+    expectInvalid(encoded, (draft) => {
+      draft.currentTrickSlotMask = replaceAt(draft.currentTrickSlotMask, 0, 1);
+      draft.currentTrickCardIndices = replaceAt(draft.currentTrickCardIndices, 0, 53);
+      draft.currentTrickPlayerIndices = replaceAt(draft.currentTrickPlayerIndices, 0, 0);
+    }, "currentTrickCardIndices");
+    expectInvalid(encoded, (draft) => {
+      draft.currentTrickSlotMask = replaceAt(draft.currentTrickSlotMask, 0, 1);
+      draft.currentTrickCardIndices = replaceAt(draft.currentTrickCardIndices, 0, -2);
+      draft.currentTrickPlayerIndices = replaceAt(draft.currentTrickPlayerIndices, 0, 0);
+    }, "currentTrickCardIndices");
+    expectInvalid(encoded, (draft) => {
+      draft.currentTrickSlotMask = replaceAt(draft.currentTrickSlotMask, 0, 1);
+      draft.currentTrickCardIndices = replaceAt(draft.currentTrickCardIndices, 0, 0);
+      draft.currentTrickPlayerIndices = replaceAt(draft.currentTrickPlayerIndices, 0, 5);
+    }, "currentTrickPlayerIndices");
+    expectInvalid(encoded, (draft) => {
+      draft.currentTrickSlotMask = replaceAt(draft.currentTrickSlotMask, 0, 1);
+      draft.currentTrickCardIndices = replaceAt(draft.currentTrickCardIndices, 0, 0);
+      draft.currentTrickPlayerIndices = replaceAt(draft.currentTrickPlayerIndices, 0, -2);
+    }, "currentTrickPlayerIndices");
+    expectInvalid(encoded, (draft) => {
+      draft.specialCardIndices = { ...draft.specialCardIndices, oruma: 1.5 };
+    }, "finite integer");
+    expectInvalid(encoded, (draft) => {
+      draft.specialCardIndices = { ...draft.specialCardIndices, yoromeki: Number.NaN };
+    }, "finite integer");
+    expectInvalid(encoded, (draft) => {
+      draft.specialCardIndices = { ...draft.specialCardIndices, oruma: Number.POSITIVE_INFINITY };
+    }, "finite integer");
+    expectInvalid(encoded, (draft) => {
+      draft.trumpSuitOneHot = [0, 0, 0, 0];
+    }, "trumpSuitOneHot must sum to 1");
+    expectInvalid(encoded, (draft) => {
+      draft.trumpSuitOneHot = [1, 1, 0, 0];
+    }, "trumpSuitOneHot must sum to 1");
+    expectInvalid(encoded, (draft) => {
+      const index = draft.selfHandMask.findIndex((value) => value === 0);
+      draft.legalPlayMask = replaceAt(draft.legalPlayMask, index, 1);
+    }, "legalPlayMask");
+    expectInvalid(encoded, (draft) => {
+      const emptyIndex = draft.currentTrickSlotMask.findIndex((value) => value === 0);
+      draft.currentTrickCardIndices = replaceAt(draft.currentTrickCardIndices, emptyIndex, 0);
+    }, "empty card and player indices");
+    expectInvalid(encoded, (draft) => {
+      draft.currentTrickSlotMask = replaceAt(draft.currentTrickSlotMask, 0, 1);
+      draft.currentTrickCardIndices = replaceAt(draft.currentTrickCardIndices, 0, EMPTY_CARD_INDEX);
+      draft.currentTrickPlayerIndices = replaceAt(draft.currentTrickPlayerIndices, 0, 0);
+    }, "cardIndex");
+    expectInvalid(encoded, (draft) => {
+      draft.completedTrickCount = draft.completedTrickCount + 1;
+    }, "completedTrickCount must equal completedTrickMask sum");
+    expectInvalid(encoded, (draft) => {
+      draft.currentTrickSlotMask = [1, 0, 1, 0, 0];
+    }, "contiguous");
+    expectInvalid(encoded, (draft) => {
+      draft.latestBuriedEventPresent = 0;
+      draft.latestBuriedEventPointCardMask = replaceAt(draft.latestBuriedEventPointCardMask, 0, 1);
+    }, "latestBuriedEvent fields must be empty");
+  });
+
+  it("rejects invalid bidding history values", async () => {
+    const encoded = await getEncodedPlayingObservation(12345);
+    const firstBiddingSlot = encoded.biddingHistory.actionMask.findIndex((value) => value === 1);
+
+    expect(firstBiddingSlot).toBeGreaterThanOrEqual(0);
+    expectInvalid(encoded, (draft) => {
+      draft.biddingHistory = {
+        ...draft.biddingHistory,
+        suitIndices: replaceAt(
+          draft.biddingHistory.suitIndices,
+          firstBiddingSlot,
+          0
+        ),
+        actionTypeIndices: replaceAt(
+          draft.biddingHistory.actionTypeIndices,
+          firstBiddingSlot,
+          BIDDING_ACTION_TYPE_PASS
+        ),
+        targetPointCards: replaceAt(draft.biddingHistory.targetPointCards, firstBiddingSlot, 0)
+      };
+    }, "pass must use suit -1 and target 0");
+    expectInvalid(encoded, (draft) => {
+      draft.biddingHistory = {
+        ...draft.biddingHistory,
+        actionTypeIndices: replaceAt(
+          draft.biddingHistory.actionTypeIndices,
+          firstBiddingSlot,
+          BIDDING_ACTION_TYPE_BID
+        ),
+        suitIndices: replaceAt(
+          draft.biddingHistory.suitIndices,
+          firstBiddingSlot,
+          EMPTY_BIDDING_SUIT_INDEX + 1
+        ),
+        targetPointCards: replaceAt(draft.biddingHistory.targetPointCards, firstBiddingSlot, 0)
+      };
+    }, "targetPointCards");
+  });
 });
 
 async function getFirstPlayingDecision(seed: number) {
@@ -193,6 +300,37 @@ async function getFirstPlayingDecision(seed: number) {
   }
 
   return { record, decision };
+}
+
+async function getEncodedPlayingObservation(seed: number): Promise<EncodedPlayingObservation> {
+  const { record, decision } = await getFirstPlayingDecision(seed);
+  const sample = createPlayingTrainingSample(record, decision);
+
+  if (sample === null) {
+    throw new Error("Expected a playing sample.");
+  }
+
+  return sample.observation;
+}
+
+function expectInvalid(
+  encoded: EncodedPlayingObservation,
+  mutate: (draft: EncodedPlayingObservation) => void,
+  message: string
+): void {
+  const draft = structuredClone(encoded);
+  mutate(draft);
+  expect(() => validateEncodedPlayingObservation(draft)).toThrow(message);
+}
+
+function replaceAt(values: readonly number[], index: number, value: number): readonly number[] {
+  if (index < 0) {
+    throw new Error("Expected a valid replacement index.");
+  }
+
+  const copy = [...values];
+  copy[index] = value;
+  return copy;
 }
 
 function sum(values: readonly number[]): number {

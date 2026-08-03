@@ -12,6 +12,7 @@ import {
   CARDS_PER_TRICK,
   EMPTY_CARD_INDEX,
   EMPTY_PLAYER_INDEX,
+  MAX_BIDDING_TARGET_POINT_CARDS,
   PLAYER_COUNT,
   PLAYING_ENCODER_SCHEMA_VERSION,
   TRICK_COUNT
@@ -202,10 +203,27 @@ export function validateEncodedPlayingObservation(
     CARD_COUNT
   );
 
-  validateMask("trumpSuitOneHot", observation.trumpSuitOneHot);
-  validateMask("napoleonPlayerOneHot", observation.napoleonPlayerOneHot);
-  validateMask("revealedAdjutantPlayerOneHot", observation.revealedAdjutantPlayerOneHot);
+  validateRelativePlayerIds(observation.relativePlayerIds);
+  expectIntegerInRange("trickNumber", observation.trickNumber, 1, TRICK_COUNT);
+  expectIntegerInRange("completedTrickCount", observation.completedTrickCount, 0, TRICK_COUNT);
+  expectIntegerInRange(
+    "contractTargetPointCards",
+    observation.contractTargetPointCards,
+    12,
+    MAX_BIDDING_TARGET_POINT_CARDS
+  );
+  expectIntegerInRange(
+    "latestBuriedEventHiddenNonPointCount",
+    observation.latestBuriedEventHiddenNonPointCount,
+    0,
+    3
+  );
+
+  validateOneHot("trumpSuitOneHot", observation.trumpSuitOneHot);
+  validateOneHot("napoleonPlayerOneHot", observation.napoleonPlayerOneHot);
+  validateOneHot("revealedAdjutantPlayerOneHot", observation.revealedAdjutantPlayerOneHot);
   validateMask("calledAdjutantCardMask", observation.calledAdjutantCardMask);
+  expectSum("calledAdjutantCardMask", observation.calledAdjutantCardMask, 1);
   validateMask("selfHandMask", observation.selfHandMask);
   validateMask("legalPlayMask", observation.legalPlayMask);
   observation.capturedPointCardMaskByPlayer.forEach((mask, index) =>
@@ -217,12 +235,35 @@ export function validateEncodedPlayingObservation(
   validateMask("latestBuriedEventPointCardMask", observation.latestBuriedEventPointCardMask);
   validateMask("latestBuriedEventPresent", [observation.latestBuriedEventPresent]);
 
-  validateNumbers("handCountByPlayer", observation.handCountByPlayer);
-  validateNumbers("currentTrickCardIndices", observation.currentTrickCardIndices);
-  validateNumbers("currentTrickPlayerIndices", observation.currentTrickPlayerIndices);
-  validateNumbers("completedTrickCardIndices", observation.completedTrickCardIndices);
-  validateNumbers("completedTrickPlayerIndices", observation.completedTrickPlayerIndices);
-  validateNumbers("completedTrickWinnerIndices", observation.completedTrickWinnerIndices);
+  observation.handCountByPlayer.forEach((value, index) =>
+    expectIntegerInRange(`handCountByPlayer[${index}]`, value, 0, 13)
+  );
+  validateCardIndexArray("currentTrickCardIndices", observation.currentTrickCardIndices);
+  validateCardIndexArray("completedTrickCardIndices", observation.completedTrickCardIndices);
+  validatePlayerIndexArray("currentTrickPlayerIndices", observation.currentTrickPlayerIndices);
+  validatePlayerIndexArray("completedTrickPlayerIndices", observation.completedTrickPlayerIndices);
+  validatePlayerIndexArray("completedTrickWinnerIndices", observation.completedTrickWinnerIndices);
+  validateSpecialCardIndices(observation.specialCardIndices);
+  validateMaskIsSubset("legalPlayMask", observation.legalPlayMask, "selfHandMask", observation.selfHandMask);
+  validateContiguousMask("currentTrickSlotMask", observation.currentTrickSlotMask);
+  validateContiguousMask("completedTrickMask", observation.completedTrickMask);
+  validateCurrentTrickSlots(observation);
+  validateCompletedTrickSlots(observation);
+  validateLatestBuriedEvent(observation);
+
+  const completedTrickCount = sum(observation.completedTrickMask);
+
+  if (observation.completedTrickCount !== completedTrickCount) {
+    throw new Error(
+      `completedTrickCount must equal completedTrickMask sum: ${observation.completedTrickCount} !== ${completedTrickCount}.`
+    );
+  }
+
+  if (observation.trickNumber !== observation.completedTrickCount + 1) {
+    throw new Error(
+      `trickNumber must equal completedTrickCount + 1: ${observation.trickNumber} !== ${observation.completedTrickCount + 1}.`
+    );
+  }
 }
 
 function createPlayersById(
@@ -402,19 +443,199 @@ function expectLength(name: string, value: readonly unknown[], expectedLength: n
 }
 
 function validateMask(name: string, mask: readonly number[]): void {
-  validateNumbers(name, mask);
-
   for (const value of mask) {
+    expectInteger(name, value);
+
     if (value !== 0 && value !== 1) {
       throw new Error(`${name} must contain only 0/1 values.`);
     }
   }
 }
 
-function validateNumbers(name: string, values: readonly number[]): void {
-  for (const value of values) {
-    if (!Number.isFinite(value)) {
-      throw new Error(`${name} must contain only finite numbers.`);
+function validateOneHot(name: string, values: readonly number[]): void {
+  validateMask(name, values);
+  expectSum(name, values, 1);
+}
+
+function expectSum(name: string, values: readonly number[], expectedSum: number): void {
+  const actualSum = sum(values);
+
+  if (actualSum !== expectedSum) {
+    throw new Error(`${name} must sum to ${expectedSum}, got ${actualSum}.`);
+  }
+}
+
+function validateRelativePlayerIds(playerIds: readonly string[]): void {
+  const uniquePlayerIds = new Set(playerIds);
+
+  if (uniquePlayerIds.size !== playerIds.length) {
+    throw new Error("relativePlayerIds must be unique.");
+  }
+
+  for (const [index, playerId] of playerIds.entries()) {
+    if (typeof playerId !== "string" || playerId.length === 0) {
+      throw new Error(`relativePlayerIds[${index}] must be a non-empty string.`);
     }
   }
+}
+
+function validateSpecialCardIndices(
+  specialCardIndices: EncodedPlayingObservation["specialCardIndices"]
+): void {
+  expectIntegerInRange("specialCardIndices.oruma", specialCardIndices.oruma, 0, CARD_COUNT - 1);
+  expectIntegerInRange(
+    "specialCardIndices.yoromeki",
+    specialCardIndices.yoromeki,
+    0,
+    CARD_COUNT - 1
+  );
+  validateOptionalCardIndex("specialCardIndices.seiJack", specialCardIndices.seiJack);
+  validateOptionalCardIndex("specialCardIndices.uraJack", specialCardIndices.uraJack);
+}
+
+function validateCardIndexArray(name: string, values: readonly number[]): void {
+  values.forEach((value, index) => validateOptionalCardIndex(`${name}[${index}]`, value));
+}
+
+function validateOptionalCardIndex(name: string, value: number): void {
+  if (value === EMPTY_CARD_INDEX) {
+    return;
+  }
+
+  expectIntegerInRange(name, value, 0, CARD_COUNT - 1);
+}
+
+function validatePlayerIndexArray(name: string, values: readonly number[]): void {
+  values.forEach((value, index) => validateOptionalPlayerIndex(`${name}[${index}]`, value));
+}
+
+function validateOptionalPlayerIndex(name: string, value: number): void {
+  if (value === EMPTY_PLAYER_INDEX) {
+    return;
+  }
+
+  expectIntegerInRange(name, value, 0, PLAYER_COUNT - 1);
+}
+
+function validateMaskIsSubset(
+  childName: string,
+  child: readonly number[],
+  parentName: string,
+  parent: readonly number[]
+): void {
+  child.forEach((value, index) => {
+    if (value === 1 && parent[index] !== 1) {
+      throw new Error(`${childName}[${index}] must be within ${parentName}.`);
+    }
+  });
+}
+
+function validateContiguousMask(name: string, mask: readonly number[]): void {
+  let seenEmpty = false;
+
+  for (const value of mask) {
+    if (value === 0) {
+      seenEmpty = true;
+      continue;
+    }
+
+    if (seenEmpty) {
+      throw new Error(`${name} must contain contiguous 1 values followed by 0 values.`);
+    }
+  }
+}
+
+function validateCurrentTrickSlots(observation: EncodedPlayingObservation): void {
+  for (let index = 0; index < CARDS_PER_TRICK; index += 1) {
+    validateCardPlayerSlot(
+      `currentTrick[${index}]`,
+      observation.currentTrickSlotMask[index],
+      observation.currentTrickCardIndices[index],
+      observation.currentTrickPlayerIndices[index]
+    );
+  }
+}
+
+function validateCompletedTrickSlots(observation: EncodedPlayingObservation): void {
+  for (let trickIndex = 0; trickIndex < TRICK_COUNT; trickIndex += 1) {
+    const trickMask = observation.completedTrickMask[trickIndex];
+    const winnerIndex = observation.completedTrickWinnerIndices[trickIndex];
+
+    if (trickMask === 1) {
+      expectIntegerInRange(`completedTrickWinnerIndices[${trickIndex}]`, winnerIndex, 0, PLAYER_COUNT - 1);
+    } else if (winnerIndex !== EMPTY_PLAYER_INDEX) {
+      throw new Error(
+        `completedTrickWinnerIndices[${trickIndex}] must be ${EMPTY_PLAYER_INDEX} when completedTrickMask is 0.`
+      );
+    }
+
+    for (let cardOffset = 0; cardOffset < CARDS_PER_TRICK; cardOffset += 1) {
+      const slotIndex = trickIndex * CARDS_PER_TRICK + cardOffset;
+      const slotMask = observation.completedTrickSlotMask[slotIndex];
+
+      if (slotMask !== trickMask) {
+        throw new Error(
+          `completedTrickSlotMask[${slotIndex}] must match completedTrickMask[${trickIndex}].`
+        );
+      }
+
+      validateCardPlayerSlot(
+        `completedTrick[${slotIndex}]`,
+        slotMask,
+        observation.completedTrickCardIndices[slotIndex],
+        observation.completedTrickPlayerIndices[slotIndex]
+      );
+    }
+  }
+}
+
+function validateCardPlayerSlot(
+  name: string,
+  mask: number,
+  cardIndex: number,
+  playerIndex: number
+): void {
+  if (mask === 1) {
+    expectIntegerInRange(`${name}.cardIndex`, cardIndex, 0, CARD_COUNT - 1);
+    expectIntegerInRange(`${name}.playerIndex`, playerIndex, 0, PLAYER_COUNT - 1);
+    return;
+  }
+
+  if (cardIndex !== EMPTY_CARD_INDEX || playerIndex !== EMPTY_PLAYER_INDEX) {
+    throw new Error(`${name} must use empty card and player indices when slot mask is 0.`);
+  }
+}
+
+function validateLatestBuriedEvent(observation: EncodedPlayingObservation): void {
+  const publicPointCardCount = sum(observation.latestBuriedEventPointCardMask);
+
+  if (observation.latestBuriedEventPresent === 0) {
+    if (publicPointCardCount !== 0 || observation.latestBuriedEventHiddenNonPointCount !== 0) {
+      throw new Error("latestBuriedEvent fields must be empty when latestBuriedEventPresent is 0.");
+    }
+
+    return;
+  }
+
+  if (publicPointCardCount + observation.latestBuriedEventHiddenNonPointCount !== 3) {
+    throw new Error("latestBuriedEvent public point cards plus hidden non-point count must equal 3.");
+  }
+}
+
+function expectInteger(name: string, value: number): void {
+  if (!Number.isFinite(value) || !Number.isInteger(value)) {
+    throw new Error(`${name} must be a finite integer.`);
+  }
+}
+
+function expectIntegerInRange(name: string, value: number, min: number, max: number): void {
+  expectInteger(name, value);
+
+  if (value < min || value > max) {
+    throw new Error(`${name} must be between ${min} and ${max}, got ${value}.`);
+  }
+}
+
+function sum(values: readonly number[]): number {
+  return values.reduce((total, value) => total + value, 0);
 }

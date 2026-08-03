@@ -8,7 +8,10 @@ import {
   EMPTY_BIDDING_ACTION_TYPE,
   EMPTY_BIDDING_SUIT_INDEX,
   EMPTY_PLAYER_INDEX,
-  MAX_BIDDING_ACTION_COUNT
+  MAX_BIDDING_ACTION_COUNT,
+  MAX_BIDDING_TARGET_POINT_CARDS,
+  MIN_BIDDING_TARGET_POINT_CARDS,
+  PLAYER_COUNT
 } from "./schema.js";
 
 export interface EncodedBiddingHistory {
@@ -119,10 +122,62 @@ export function validateEncodedBiddingHistory(history: EncodedBiddingHistory): v
   );
   expectLength("biddingHistory.actionMask", history.actionMask, MAX_BIDDING_ACTION_COUNT);
   validateMask("biddingHistory.actionMask", history.actionMask);
-  validateNumbers("biddingHistory.actionTypeIndices", history.actionTypeIndices);
-  validateNumbers("biddingHistory.playerIndices", history.playerIndices);
-  validateNumbers("biddingHistory.suitIndices", history.suitIndices);
-  validateNumbers("biddingHistory.targetPointCards", history.targetPointCards);
+  validateContiguousMask("biddingHistory.actionMask", history.actionMask);
+
+  for (let index = 0; index < MAX_BIDDING_ACTION_COUNT; index += 1) {
+    const slotName = `biddingHistory[${index}]`;
+    const mask = history.actionMask[index];
+    const actionType = history.actionTypeIndices[index];
+    const playerIndex = history.playerIndices[index];
+    const suitIndex = history.suitIndices[index];
+    const target = history.targetPointCards[index];
+
+    if (mask === 0) {
+      expectInteger(`${slotName}.actionType`, actionType);
+      expectInteger(`${slotName}.playerIndex`, playerIndex);
+      expectInteger(`${slotName}.suitIndex`, suitIndex);
+      expectInteger(`${slotName}.targetPointCards`, target);
+
+      if (
+        actionType !== EMPTY_BIDDING_ACTION_TYPE ||
+        playerIndex !== EMPTY_PLAYER_INDEX ||
+        suitIndex !== EMPTY_BIDDING_SUIT_INDEX ||
+        target !== 0
+      ) {
+        throw new Error(`${slotName} must contain only empty values when actionMask is 0.`);
+      }
+
+      continue;
+    }
+
+    expectIntegerInRange(`${slotName}.playerIndex`, playerIndex, 0, PLAYER_COUNT - 1);
+
+    if (actionType === BIDDING_ACTION_TYPE_PASS) {
+      if (suitIndex !== EMPTY_BIDDING_SUIT_INDEX || target !== 0) {
+        throw new Error(`${slotName} pass must use suit -1 and target 0.`);
+      }
+
+      continue;
+    }
+
+    if (actionType === BIDDING_ACTION_TYPE_BID) {
+      expectIntegerInRange(
+        `${slotName}.suitIndex`,
+        suitIndex,
+        0,
+        BIDDING_HISTORY_SUIT_ORDER.length - 1
+      );
+      expectIntegerInRange(
+        `${slotName}.targetPointCards`,
+        target,
+        MIN_BIDDING_TARGET_POINT_CARDS,
+        MAX_BIDDING_TARGET_POINT_CARDS
+      );
+      continue;
+    }
+
+    throw new Error(`${slotName}.actionType must be pass, bid, or empty.`);
+  }
 }
 
 function encodeBiddingActionType(action: GameAction): number {
@@ -143,19 +198,40 @@ function expectLength(name: string, value: readonly unknown[], expectedLength: n
 }
 
 function validateMask(name: string, mask: readonly number[]): void {
-  validateNumbers(name, mask);
-
   for (const value of mask) {
+    expectInteger(name, value);
+
     if (value !== 0 && value !== 1) {
       throw new Error(`${name} must contain only 0/1 values.`);
     }
   }
 }
 
-function validateNumbers(name: string, values: readonly number[]): void {
-  for (const value of values) {
-    if (!Number.isFinite(value)) {
-      throw new Error(`${name} must contain only finite numbers.`);
+function validateContiguousMask(name: string, mask: readonly number[]): void {
+  let seenEmpty = false;
+
+  for (const value of mask) {
+    if (value === 0) {
+      seenEmpty = true;
+      continue;
     }
+
+    if (seenEmpty) {
+      throw new Error(`${name} must contain contiguous 1 values followed by 0 values.`);
+    }
+  }
+}
+
+function expectInteger(name: string, value: number): void {
+  if (!Number.isFinite(value) || !Number.isInteger(value)) {
+    throw new Error(`${name} must be a finite integer.`);
+  }
+}
+
+function expectIntegerInRange(name: string, value: number, min: number, max: number): void {
+  expectInteger(name, value);
+
+  if (value < min || value > max) {
+    throw new Error(`${name} must be between ${min} and ${max}, got ${value}.`);
   }
 }

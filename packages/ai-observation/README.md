@@ -83,6 +83,10 @@ Missing card and player slots use `-1` with a companion slot mask of `0`.
 
 ## Validation
 
-The validators check fixed lengths, mask values, finite numeric values, and the
-known schema version. Bidding history validation checks the fixed-length arrays
-and mask values before samples are handed to JSONL or downstream training code.
+The validators check the schema version, fixed lengths, scalar ranges, finite
+integer card/player indices, one-hot sums, mask values, contiguous trick slots,
+completed-trick counts, latest buried-card event consistency, and that
+`legalPlayMask` is a subset of the acting player's `selfHandMask`. Bidding
+history validation checks fixed lengths, contiguous action masks, pass/bid/empty
+slot consistency, relative player index ranges, suit index ranges, and bid target
+ranges before samples are handed to JSONL or downstream training code.

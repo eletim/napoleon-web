@@ -243,6 +243,71 @@ describe("createPlayingTrainingSample", () => {
     );
   });
 
+  it("rejects mismatched action, observation, and view player identities", async () => {
+    const record = await createRecord(12345);
+    const decision = getPlayingDecisions(record)[0];
+    const otherPlayerId = record.playerIds.find((playerId) => playerId !== decision.playerId);
+
+    if (otherPlayerId === undefined || decision.action.type !== "play-card") {
+      throw new Error("Expected a playing decision and another player.");
+    }
+
+    expect(() => createPlayingTrainingSample(record, {
+      ...decision,
+      action: {
+        ...decision.action,
+        playerId: otherPlayerId
+      }
+    })).toThrow("Decision action playerId must match decision playerId");
+
+    expect(() => createPlayingTrainingSample(record, {
+      ...decision,
+      observation: {
+        ...decision.observation,
+        playerId: otherPlayerId
+      }
+    })).toThrow("Decision playerId must match observation playerId");
+
+    expect(() => createPlayingTrainingSample(record, {
+      ...decision,
+      observation: {
+        ...decision.observation,
+        view: {
+          ...decision.observation.view,
+          selfId: otherPlayerId
+        }
+      }
+    })).toThrow("Decision playerId must match observation view.selfId");
+  });
+
+  it("rejects decisions that do not match the source record", async () => {
+    const record = await createRecord(12345);
+    const decision = getPlayingDecisions(record)[0];
+    const missingStepDecision = {
+      ...decision,
+      step: Math.max(...record.decisions.map((candidate) => candidate.step)) + 1
+    };
+
+    expect(() => createPlayingTrainingSample(record, missingStepDecision)).toThrow(
+      "Decision step must exist in record.decisions"
+    );
+
+    const otherRecord = await createRecord(0);
+    const differentRecordDecision = getPlayingDecisions(otherRecord).find((candidate) => {
+      const sourceDecision = record.decisions.find((source) => source.step === candidate.step);
+
+      return sourceDecision !== undefined && !actionsEqualForTest(sourceDecision, candidate);
+    });
+
+    if (differentRecordDecision === undefined) {
+      throw new Error("Expected a different-record decision with a conflicting source step.");
+    }
+
+    expect(() => createPlayingTrainingSample(record, differentRecordDecision)).toThrow(
+      "Decision must match record decision at step"
+    );
+  });
+
   it("converts all playing decisions in order", async () => {
     const record = await createRecord(12345);
     const playingDecisions = getPlayingDecisions(record);
@@ -375,4 +440,21 @@ function swapTwoOpponentHands(
 
 function sum(values: readonly number[]): number {
   return values.reduce((total, value) => total + value, 0);
+}
+
+function actionsEqualForTest(left: DecisionRecord, right: DecisionRecord): boolean {
+  if (
+    left.playerId !== right.playerId ||
+    left.phase !== right.phase ||
+    left.action.type !== right.action.type ||
+    left.action.playerId !== right.action.playerId
+  ) {
+    return false;
+  }
+
+  if (left.action.type !== "play-card" || right.action.type !== "play-card") {
+    return false;
+  }
+
+  return left.action.cardId === right.action.cardId;
 }

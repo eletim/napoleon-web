@@ -31,11 +31,7 @@ export function createPlayingTrainingSample(
     throw new Error(`Playing decision action must be play-card, got ${decision.action.type}.`);
   }
 
-  if (decision.playerId !== decision.observation.playerId) {
-    throw new Error(
-      `Decision playerId must match observation playerId: ${decision.playerId} !== ${decision.observation.playerId}`
-    );
-  }
+  validatePlayingDecisionConsistency(record, decision);
 
   const encodedBaseObservation = encodePlayingObservation(decision.observation, record.playerIds);
   const biddingHistory = encodeBiddingHistory(
@@ -48,7 +44,18 @@ export function createPlayingTrainingSample(
     record.playerIds,
     biddingHistory
   );
-  const actorTarget = encodePlayAction(decision.action, observation.legalPlayMask);
+
+  if (observation.relativePlayerIds[0] !== decision.playerId) {
+    throw new Error(
+      `Observation relative player index 0 must be the acting player: ${observation.relativePlayerIds[0]} !== ${decision.playerId}`
+    );
+  }
+
+  const actorTarget = encodePlayAction(
+    decision.action,
+    observation.legalPlayMask,
+    decision.playerId
+  );
   const beliefTarget = encodeBeliefTarget(
     decision.observation,
     decision.actualState,
@@ -75,4 +82,83 @@ export function createPlayingTrainingSamples(
 
     return sample === null ? [] : [sample];
   });
+}
+
+function validatePlayingDecisionConsistency(
+  record: AutomatedGameRecord,
+  decision: DecisionRecord
+): void {
+  if (!record.playerIds.includes(decision.playerId)) {
+    throw new Error(`Decision playerId must exist in record.playerIds: ${decision.playerId}`);
+  }
+
+  if (decision.playerId !== decision.observation.playerId) {
+    throw new Error(
+      `Decision playerId must match observation playerId: ${decision.playerId} !== ${decision.observation.playerId}`
+    );
+  }
+
+  if (decision.observation.view.selfId !== decision.playerId) {
+    throw new Error(
+      `Decision playerId must match observation view.selfId: ${decision.playerId} !== ${decision.observation.view.selfId}`
+    );
+  }
+
+  if (decision.action.playerId !== decision.playerId) {
+    throw new Error(
+      `Decision action playerId must match decision playerId: ${decision.action.playerId} !== ${decision.playerId}`
+    );
+  }
+
+  const sourceDecision = record.decisions.find(
+    (candidate) => candidate.step === decision.step
+  );
+
+  if (sourceDecision === undefined) {
+    throw new Error(`Decision step must exist in record.decisions: ${decision.step}`);
+  }
+
+  if (
+    sourceDecision.playerId !== decision.playerId ||
+    sourceDecision.phase !== decision.phase ||
+    !actionsEqual(sourceDecision.action, decision.action)
+  ) {
+    throw new Error(`Decision must match record decision at step ${decision.step}.`);
+  }
+}
+
+function actionsEqual(left: DecisionRecord["action"], right: DecisionRecord["action"]): boolean {
+  if (left.type !== right.type || left.playerId !== right.playerId) {
+    return false;
+  }
+
+  switch (left.type) {
+    case "bid":
+      return right.type === "bid" &&
+        left.suit === right.suit &&
+        left.targetPointCards === right.targetPointCards;
+    case "pass":
+      return right.type === "pass";
+    case "choose-adjutant":
+      return right.type === "choose-adjutant" && left.cardId === right.cardId;
+    case "discard-cards":
+      return right.type === "discard-cards" && sameCardIds(left.cardIds, right.cardIds);
+    case "play-card":
+      return right.type === "play-card" && left.cardId === right.cardId;
+  }
+}
+
+function sameCardIds(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  const leftIds = new Set(left);
+  const rightIds = new Set(right);
+
+  if (leftIds.size !== left.length || rightIds.size !== right.length) {
+    return false;
+  }
+
+  return left.every((cardId) => rightIds.has(cardId));
 }
