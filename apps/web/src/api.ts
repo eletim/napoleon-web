@@ -6,8 +6,6 @@ import type {
   SendActionResponse
 } from "@napoleon/protocol";
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3000";
-
 export async function createGame(): Promise<CreateGameResponse> {
   return request<CreateGameResponse>("/api/games", {
     method: "POST",
@@ -44,7 +42,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
           ...init.headers
         };
 
-  const response = await fetch(`${apiBaseUrl}${path}`, {
+  const response = await fetch(path, {
     ...init,
     headers
   });

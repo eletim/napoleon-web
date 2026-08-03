@@ -213,6 +213,8 @@ http://my-machine.example.ts.net:5173/
 
 Viteは`127.0.0.1:5173`で待ち受け、Tailscale Serveがtailnet側の5173を転送します。HTTPSやFunnelは使いません。Tailscale未導入・未接続・Serve失敗時は起動を中止します。`start-dev.sh`は自動で`tailscale serve reset`を実行しません。
 
+ブラウザは`/api`へ同一オリジンでアクセスし、Vite開発サーバーが`127.0.0.1:3000`のFastifyへ転送します。Tailscale Serveで公開するのは5173だけで、Fastifyの3000番へ直接アクセスしません。ブラウザコードにlocalhost API URLを設定しないでください。
+
 状態確認と手動解除:
 
 ```bash
