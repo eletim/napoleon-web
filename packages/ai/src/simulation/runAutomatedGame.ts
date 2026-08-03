@@ -15,6 +15,7 @@ import type {
 import type { Agent, PlayerObservation } from "../types.js";
 import { createSeededRandom, deriveSeed, normalizeSeed } from "./seededRandom.js";
 import type {
+  ActualCardState,
   ActualHands,
   AutomatedGameRecord,
   RunAutomatedGameOptions
@@ -40,6 +41,7 @@ export async function runAutomatedGame(
   });
   const agents = createAgents(options, seed, playerIds);
   const initialHands = captureHands(state);
+  const initialActualState = captureActualCardState(state);
   const decisions: GameActionDecision[] = [];
   const maxDecisionSteps = options.maxDecisionSteps ?? defaultMaxDecisionSteps;
 
@@ -90,6 +92,7 @@ export async function runAutomatedGame(
       legalActions,
       action,
       actualHands: captureHands(state),
+      actualState: captureActualCardState(state),
       handCounts: captureHandCounts(state)
     });
     state = applyAction(state, action);
@@ -104,6 +107,7 @@ export async function runAutomatedGame(
     seed,
     playerIds: [...playerIds],
     initialHands,
+    initialActualState,
     decisions,
     result: state.result
   };
@@ -118,6 +122,7 @@ interface GameActionDecision {
   legalActions: readonly GameAction[];
   action: GameAction;
   actualHands: ActualHands;
+  actualState: ActualCardState;
   handCounts: Readonly<Record<PlayerId, number>>;
 }
 
@@ -193,6 +198,26 @@ function captureHandCounts(state: GameState): Readonly<Record<PlayerId, number>>
   return Object.fromEntries(
     state.players.map((player) => [player.id, player.hand.length])
   );
+}
+
+function captureActualCardState(state: GameState): ActualCardState {
+  return {
+    hands: captureHands(state),
+    unusedCardIds: state.unusedCards.map((card) => card.id),
+    excludedCardIds: state.excludedCards.map((card) => card.id),
+    awardedPointCardIds: Object.fromEntries(
+      state.players.map((player) => [
+        player.id,
+        state.awardedPointCards
+          .filter((award) => award.playerId === player.id)
+          .flatMap((award) => award.cards.map((card) => card.id))
+      ])
+    ),
+    currentTrickCardIds: state.currentTrick.map((playedCard) => playedCard.card.id),
+    completedTrickCardIds: state.completedTricks.flatMap((trick) =>
+      trick.cards.map((playedCard) => playedCard.card.id)
+    )
+  };
 }
 
 function actionsEqual(left: GameAction, right: GameAction): boolean {

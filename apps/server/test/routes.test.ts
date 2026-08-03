@@ -22,6 +22,7 @@ import type {
   CreateGameResponse,
   GetGameResponse,
   NextTrickResponse,
+  PublicSimulationActualState,
   RunAutomatedSimulationResponse,
   SendActionResponse
 } from "@napoleon/protocol";
@@ -320,13 +321,53 @@ describe("server API", () => {
       trickNumber: 1
     });
     expect(body.decisions[0].legalActionCount).toBeGreaterThan(0);
+    expect(body.decisions[0].legalActions).toHaveLength(body.decisions[0].legalActionCount);
     expect(body.decisions[0].action).not.toHaveProperty("playerId");
+    expect(body.initialActualState.unusedCardIds).toHaveLength(3);
+    expectCompletePublicCardState(body.initialActualState);
+    expect(body.decisions[0].actualState.unusedCardIds).toHaveLength(3);
+    expect(body.decisions[0].actualState.excludedCardIds).toEqual([]);
+    expect(body.decisions[0].actualState.awardedPointCardIds).toMatchObject({
+      "player-0": []
+    });
+    expectCompletePublicCardState(body.decisions[0].actualState);
+    expect(body.decisions[0].observation.bidding).toMatchObject({
+      starterPlayerId: "player-0",
+      highestBid: null,
+      history: []
+    });
+    expect(body.decisions[0].observation.specialCards).toEqual({
+      orumaCardId: "spades-A",
+      yoromekiCardId: "hearts-Q",
+      seiJackCardId: null,
+      uraJackCardId: null
+    });
+    expect(body.decisions[0].observation.latestEvent).toBeNull();
+    expect(body.decisions[0].observation.completedTricks).toEqual([]);
     expect(
       body.decisions[0].observation.players.find((player) => player.id === "player-0")?.hand
     ).toBeDefined();
     expect(
+      body.decisions[0].observation.players.find((player) => player.id === "player-0")
+        ?.capturedPointCards
+    ).toEqual([]);
+    expect(
       body.decisions[0].observation.players.find((player) => player.id === "player-1")
     ).not.toHaveProperty("hand");
+
+    const playingAfterCompletedTrick = body.decisions.find(
+      (decision) => decision.phase === "playing" && decision.observation.completedTrickCount > 0
+    );
+    expect(playingAfterCompletedTrick).toBeDefined();
+    expect(playingAfterCompletedTrick?.observation.completedTricks.length).toBe(
+      playingAfterCompletedTrick?.observation.completedTrickCount
+    );
+    expect(playingAfterCompletedTrick?.observation.completedTricks[0]?.cards).toHaveLength(5);
+
+    for (const decision of body.decisions) {
+      expect(decision.legalActionCount).toBe(decision.legalActions.length);
+      expectCompletePublicCardState(decision.actualState);
+    }
   });
 
   it("returns the same automated simulation response for the same seed", async () => {
@@ -2576,4 +2617,22 @@ function createAllPassAdjutantChoiceState(): GameState {
     (state) => applyAction(state, { type: "pass", playerId: state.currentPlayerId }),
     createInitialGame({ rng: () => 0 })
   );
+}
+
+function expectCompletePublicCardState(actualState: PublicSimulationActualState): void {
+  const allCardIds = [
+    ...Object.values(actualState.hands).flat(),
+    ...actualState.unusedCardIds,
+    ...actualState.excludedCardIds,
+    ...Object.values(actualState.awardedPointCardIds).flat(),
+    ...actualState.currentTrickCardIds,
+    ...actualState.completedTrickCardIds
+  ];
+  const deck = createDeck();
+
+  expect(allCardIds).toHaveLength(53);
+  expect(new Set(allCardIds).size).toBe(53);
+  expect(allCardIds.filter((cardId) => cardId === "joker")).toHaveLength(1);
+  expect(allCardIds.filter((cardId) => cardId !== "joker")).toHaveLength(52);
+  expect(new Set(allCardIds)).toEqual(new Set(deck.map((card) => card.id)));
 }

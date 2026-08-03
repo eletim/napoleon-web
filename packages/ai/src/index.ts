@@ -25,6 +25,7 @@ export {
 export { runAutomatedGame } from "./simulation/runAutomatedGame.js";
 export { createSeededRandom, deriveSeed, normalizeSeed } from "./simulation/seededRandom.js";
 export type {
+  ActualCardState,
   ActualHands,
   AutomatedAgentContext,
   AutomatedGameRecord,

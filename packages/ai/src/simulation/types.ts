@@ -21,6 +21,15 @@ export interface RunAutomatedGameOptions {
 
 export type ActualHands = Readonly<Record<PlayerId, readonly string[]>>;
 
+export interface ActualCardState {
+  hands: ActualHands;
+  unusedCardIds: readonly string[];
+  excludedCardIds: readonly string[];
+  awardedPointCardIds: Readonly<Record<PlayerId, readonly string[]>>;
+  currentTrickCardIds: readonly string[];
+  completedTrickCardIds: readonly string[];
+}
+
 export interface DecisionRecord {
   step: number;
   playerId: PlayerId;
@@ -30,6 +39,7 @@ export interface DecisionRecord {
   legalActions: readonly GameAction[];
   action: GameAction;
   actualHands: ActualHands;
+  actualState: ActualCardState;
   handCounts: Readonly<Record<PlayerId, number>>;
 }
 
@@ -38,6 +48,7 @@ export interface AutomatedGameRecord {
   seed: number;
   playerIds: readonly PlayerId[];
   initialHands: ActualHands;
+  initialActualState: ActualCardState;
   decisions: readonly DecisionRecord[];
   result: GameResult;
 }

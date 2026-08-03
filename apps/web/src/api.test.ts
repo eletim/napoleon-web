@@ -41,6 +41,14 @@ describe("api client", () => {
       seed: 42,
       playerIds: [],
       initialHands: {},
+      initialActualState: {
+        hands: {},
+        unusedCardIds: [],
+        excludedCardIds: [],
+        awardedPointCardIds: {},
+        currentTrickCardIds: [],
+        completedTrickCardIds: []
+      },
       decisions: [],
       summary: {
         totalDecisionCount: 0,

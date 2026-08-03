@@ -246,6 +246,13 @@ export interface PublicSimulationObservedPlayer {
   id: string;
   handCount: number;
   hand?: readonly PublicCard[];
+  capturedPointCards: readonly PublicStandardCard[];
+}
+
+export interface PublicSimulationCompletedTrick {
+  trickNumber: number;
+  winnerId: string;
+  cards: readonly PublicPlayedCard[];
 }
 
 export interface PublicSimulationObservation {
@@ -254,13 +261,32 @@ export interface PublicSimulationObservation {
   phase: PublicGamePhase;
   trumpSuit: PublicSuit | null;
   contract: PublicContract | null;
+  specialCards: PublicSpecialCardsState;
   adjutant: PublicAdjutantState | null;
+  latestEvent: PublicGameEvent | null;
+  bidding: PublicBiddingState | null;
+  exchangeRequirement: {
+    discardCount: number;
+  } | null;
+  adjutantChoiceRequirement: {
+    jokerAllowed: true;
+  } | null;
   currentPlayerId: string;
   currentTrick: readonly PublicPlayedCard[];
+  completedTricks: readonly PublicSimulationCompletedTrick[];
   completedTrickCount: number;
   trickNumber: number;
   isTrickComplete: boolean;
   isGameOver: boolean;
+}
+
+export interface PublicSimulationActualState {
+  hands: Readonly<Record<string, readonly string[]>>;
+  unusedCardIds: readonly string[];
+  excludedCardIds: readonly string[];
+  awardedPointCardIds: Readonly<Record<string, readonly string[]>>;
+  currentTrickCardIds: readonly string[];
+  completedTrickCardIds: readonly string[];
 }
 
 export interface PublicSimulationDecision {
@@ -269,10 +295,12 @@ export interface PublicSimulationDecision {
   phase: PublicGamePhase;
   trickNumber: number;
   observation: PublicSimulationObservation;
+  legalActions: readonly PublicGameAction[];
   action: PublicGameAction;
   legalActionCount: number;
   handCounts: Readonly<Record<string, number>>;
   actualHands: Readonly<Record<string, readonly string[]>>;
+  actualState: PublicSimulationActualState;
 }
 
 export interface PublicSimulationSummary {
@@ -287,6 +315,7 @@ export interface RunAutomatedSimulationResponse {
   seed: number;
   playerIds: readonly string[];
   initialHands: Readonly<Record<string, readonly string[]>>;
+  initialActualState: PublicSimulationActualState;
   decisions: readonly PublicSimulationDecision[];
   summary: PublicSimulationSummary;
   result: PublicGameResult;

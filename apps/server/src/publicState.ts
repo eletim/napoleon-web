@@ -153,7 +153,7 @@ export function toPublicGameResult(result: GameResult): PublicGameResult {
   };
 }
 
-function toPublicGameEvent(event: GameEvent): PublicGameEvent {
+export function toPublicGameEvent(event: GameEvent): PublicGameEvent {
   switch (event.type) {
     case "buried-cards-resolved":
       return {
@@ -212,7 +212,7 @@ function toPublicContract(contract: Contract): PublicContract {
   };
 }
 
-function toPublicBiddingState(bidding: BiddingState): PublicBiddingState {
+export function toPublicBiddingState(bidding: BiddingState): PublicBiddingState {
   return {
     starterPlayerId: bidding.starterPlayerId,
     highestBid: bidding.highestBid === null ? null : toPublicBid(bidding.highestBid),

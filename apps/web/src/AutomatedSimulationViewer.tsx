@@ -4,8 +4,12 @@ import { runAutomatedSimulation } from "./api";
 import { formatCardId, formatPlayerLabel } from "./displayText";
 import {
   createSimulationFilename,
+  formatActualStateSummary,
+  formatCompletedTrickStatus,
   formatHandCounts,
+  formatSimulationBiddingStatus,
   formatSimulationAction,
+  formatSimulationLegalAction,
   formatSimulationContractTarget,
   formatSimulationPhase,
   formatSimulationTrump,
@@ -163,7 +167,7 @@ export function AutomatedSimulationViewer() {
       ) : (
         <>
           <SimulationOverview simulation={simulation} />
-          <InitialHands simulation={simulation} />
+          <InitialCardLayout simulation={simulation} />
           <SimulationSummary simulation={simulation} />
           <DecisionTimeline
             expandedSteps={expandedSteps}
@@ -206,10 +210,10 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function InitialHands({ simulation }: { simulation: RunAutomatedSimulationResponse }) {
+function InitialCardLayout({ simulation }: { simulation: RunAutomatedSimulationResponse }) {
   return (
-    <section className="simulation-section" aria-label="初期配札">
-      <h2>初期配札（教師ラベル・完全情報）</h2>
+    <section className="simulation-section" aria-label="初期カード配置">
+      <h2>初期カード配置（教師ラベル・完全情報）</h2>
       <div className="simulation-hand-grid">
         {simulation.playerIds.map((playerId) => (
           <div className="simulation-hand-panel" key={playerId}>
@@ -217,6 +221,12 @@ function InitialHands({ simulation }: { simulation: RunAutomatedSimulationRespon
             <CardIdList cardIds={simulation.initialHands[playerId] ?? []} />
           </div>
         ))}
+      </div>
+      <div className="simulation-substate-grid">
+        <div className="simulation-hand-panel">
+          <h3>初期の未使用札</h3>
+          <CardIdList cardIds={simulation.initialActualState.unusedCardIds} />
+        </div>
       </div>
     </section>
   );
@@ -313,19 +323,102 @@ function DecisionTimeline({
                 <span>{formatSimulationPhase(decision.phase)}</span>
                 <span>第{decision.trickNumber}トリック</span>
                 <span>{formatSimulationAction(decision.playerId, decision.action)}</span>
-                <span>合法手 {decision.legalActionCount}</span>
+                <span>合法手 {decision.legalActionCount}件</span>
                 <span>{formatHandCounts(decision)}</span>
               </button>
               {expanded ? (
                 <div className="simulation-decision-detail">
-                  <h3>この時点の実手札（教師ラベル・完全情報）</h3>
+                  <h3>Agentが見ていた観測</h3>
+                  <div className="simulation-observation-grid">
+                    <Metric label="競り" value={formatSimulationBiddingStatus(decision.observation)} />
+                    <Metric
+                      label="完了トリック"
+                      value={formatCompletedTrickStatus(decision.observation)}
+                    />
+                    <Metric
+                      label="特殊札"
+                      value={[
+                        `オルマ ${formatCardId(decision.observation.specialCards.orumaCardId)}`,
+                        `よろめき ${formatCardId(decision.observation.specialCards.yoromekiCardId)}`,
+                        `正J ${
+                          decision.observation.specialCards.seiJackCardId === null
+                            ? "未確定"
+                            : formatCardId(decision.observation.specialCards.seiJackCardId)
+                        }`,
+                        `裏J ${
+                          decision.observation.specialCards.uraJackCardId === null
+                            ? "未確定"
+                            : formatCardId(decision.observation.specialCards.uraJackCardId)
+                        }`
+                      ].join(" / ")}
+                    />
+                    <Metric
+                      label="副官"
+                      value={
+                        decision.observation.adjutant === null
+                          ? "未指定"
+                          : `${formatCardId(decision.observation.adjutant.calledCardId)} / ${
+                              decision.observation.adjutant.revealedPlayerId ?? "未公開"
+                            }`
+                      }
+                    />
+                  </div>
+                  <div className="simulation-substate-grid">
+                    <div className="simulation-hand-panel">
+                      <h4>現在トリック</h4>
+                      <CardIdList
+                        cardIds={decision.observation.currentTrick.map((played) => played.card.id)}
+                      />
+                    </div>
+                    <div className="simulation-hand-panel">
+                      <h4>合法手一覧</h4>
+                      <ul className="simulation-action-list">
+                        {decision.legalActions.map((action, index) => (
+                          <li key={`${decision.step}-legal-${index}`}>
+                            {formatSimulationLegalAction(action)}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                  <h3>この時点の完全情報（教師ラベル）</h3>
+                  <p className="simulation-state-summary">
+                    {formatActualStateSummary(decision.actualState)}
+                  </p>
                   <div className="simulation-hand-grid">
                     {simulation.playerIds.map((playerId) => (
                       <div className="simulation-hand-panel" key={`${decision.step}-${playerId}`}>
                         <h4>{playerId}</h4>
-                        <CardIdList cardIds={decision.actualHands[playerId] ?? []} />
+                        <CardIdList cardIds={decision.actualState.hands[playerId] ?? []} />
                       </div>
                     ))}
+                  </div>
+                  <div className="simulation-substate-grid">
+                    <div className="simulation-hand-panel">
+                      <h4>未使用札</h4>
+                      <CardIdList cardIds={decision.actualState.unusedCardIds} />
+                    </div>
+                    <div className="simulation-hand-panel">
+                      <h4>除外札</h4>
+                      <CardIdList cardIds={decision.actualState.excludedCardIds} />
+                    </div>
+                    <div className="simulation-hand-panel">
+                      <h4>埋札処理で獲得扱いになった得点札</h4>
+                      {simulation.playerIds.map((playerId) => (
+                        <div className="simulation-player-card-row" key={`${decision.step}-award-${playerId}`}>
+                          <strong>{playerId}</strong>
+                          <CardIdList cardIds={decision.actualState.awardedPointCardIds[playerId] ?? []} />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="simulation-hand-panel">
+                      <h4>現在トリック</h4>
+                      <CardIdList cardIds={decision.actualState.currentTrickCardIds} />
+                    </div>
+                    <div className="simulation-hand-panel">
+                      <h4>完了済みトリック</h4>
+                      <p>{decision.actualState.completedTrickCardIds.length}枚</p>
+                    </div>
                   </div>
                 </div>
               ) : null}

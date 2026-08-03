@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { createDeck, isJokerCard, isStandardCard } from "@napoleon/game-core";
 import { RuleBasedAgent } from "../ruleBasedAgent.js";
 import { RandomAgent } from "../randomAgent.js";
 import { runAutomatedGame } from "./runAutomatedGame.js";
+import type { ActualCardState } from "./types.js";
 import type { RunAutomatedGameOptions } from "./types.js";
 
 describe("runAutomatedGame", () => {
@@ -56,6 +58,20 @@ describe("runAutomatedGame", () => {
     }
   });
 
+  it("records all 53 card locations as complete-information labels", async () => {
+    const record = await runAutomatedGame({
+      seed: 777,
+      createAgent: ({ rng }) => new RuleBasedAgent(rng)
+    });
+
+    expect(record.initialActualState.unusedCardIds).toHaveLength(3);
+    expectCompleteCardState(record.initialActualState);
+
+    for (const decision of record.decisions) {
+      expectCompleteCardState(decision.actualState);
+    }
+  });
+
   it("keeps complete-information hand labels separate from observations", async () => {
     const record = await runAutomatedGame({
       seed: 54321,
@@ -75,4 +91,44 @@ describe("runAutomatedGame", () => {
       }
     }
   });
+
+  it("keeps opponent hidden hands out of observations", async () => {
+    const record = await runAutomatedGame({
+      seed: 54321,
+      createAgent: ({ rng }) => new RuleBasedAgent(rng)
+    });
+
+    for (const decision of record.decisions) {
+      for (const player of decision.observation.view.players) {
+        if (player.id === decision.playerId) {
+          expect(player.hand?.map((card) => card.id)).toEqual(
+            decision.actualState.hands[player.id]
+          );
+        } else {
+          expect(player).not.toHaveProperty("hand");
+        }
+      }
+    }
+  });
+
 });
+
+function expectCompleteCardState(actualState: ActualCardState): void {
+  const allCardIds = [
+    ...Object.values(actualState.hands).flat(),
+    ...actualState.unusedCardIds,
+    ...actualState.excludedCardIds,
+    ...Object.values(actualState.awardedPointCardIds).flat(),
+    ...actualState.currentTrickCardIds,
+    ...actualState.completedTrickCardIds
+  ];
+  const deck = createDeck();
+
+  expect(allCardIds).toHaveLength(53);
+  expect(new Set(allCardIds).size).toBe(53);
+  expect(allCardIds.filter((cardId) => cardId === "joker")).toHaveLength(1);
+  expect(allCardIds.filter((cardId) => cardId !== "joker")).toHaveLength(52);
+  expect(new Set(allCardIds)).toEqual(new Set(deck.map((card) => card.id)));
+  expect(deck.filter(isStandardCard)).toHaveLength(52);
+  expect(deck.filter(isJokerCard)).toHaveLength(1);
+}

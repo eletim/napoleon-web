@@ -1036,7 +1036,9 @@ input:focus-visible {
 
 .simulation-overview-grid,
 .simulation-summary-grid,
-.simulation-hand-grid {
+.simulation-hand-grid,
+.simulation-observation-grid,
+.simulation-substate-grid {
   display: grid;
   gap: 10px;
 }
@@ -1051,6 +1053,11 @@ input:focus-visible {
 
 .simulation-hand-grid {
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+
+.simulation-observation-grid,
+.simulation-substate-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
 .simulation-metric,
@@ -1084,6 +1091,30 @@ input:focus-visible {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
+}
+
+.simulation-action-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.simulation-player-card-row {
+  display: grid;
+  gap: 4px;
+}
+
+.simulation-player-card-row strong {
+  color: #475569;
+  font-size: 0.78rem;
+}
+
+.simulation-state-summary {
+  color: #475569;
+  font-size: 0.9rem;
+  font-weight: 800;
+  margin: 0;
 }
 
 .simulation-table-wrap {
