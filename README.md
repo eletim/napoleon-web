@@ -182,6 +182,36 @@ pnpm dev
 - Server: http://127.0.0.1:3000
 - サーバーは`tsx watch`で起動し、サーバーコードとworkspaceパッケージの変更を開発時に反映します。
 
+### Tailscale Serve経由のWeb開発アクセス
+
+Vite自体は引き続き`127.0.0.1`で待ち受けます。tailnet内からTailscale Serve経由でアクセスする場合は、端末固有のホスト名をGit管理外の`.env.local`にだけ設定してください。`allowedHosts: true`は使いません。
+
+```bash
+cp apps/web/.env.example apps/web/.env.local
+```
+
+```env
+VITE_ALLOWED_HOSTS=my-machine.example.ts.net
+```
+
+```bash
+pnpm dev
+tailscale serve --bg --http=8080 http://127.0.0.1:5173
+```
+
+ブラウザでは次のようにアクセスします。
+
+```text
+http://my-machine.example.ts.net:8080
+```
+
+状態確認と解除:
+
+```bash
+tailscale serve status
+tailscale serve reset
+```
+
 ## テストと検証
 
 ```bash
