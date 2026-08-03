@@ -1,5 +1,15 @@
 export { CARD_IDS, getCardId, getCardIndex } from "./cardIndex.js";
 export {
+  createPlayingTrainingSample,
+  createPlayingTrainingSamples
+} from "./createPlayingTrainingSample.js";
+export type { PlayingTrainingSample } from "./createPlayingTrainingSample.js";
+export {
+  encodeBeliefTarget,
+  validateEncodedBeliefTarget
+} from "./encodeBeliefTarget.js";
+export type { EncodedBeliefTarget } from "./encodeBeliefTarget.js";
+export {
   encodePlayAction
 } from "./encodePlayAction.js";
 export type { EncodedPlayAction } from "./encodePlayAction.js";
