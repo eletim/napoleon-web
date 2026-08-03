@@ -134,8 +134,11 @@ describe("scripts/dev.sh", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("does not use Vite env-file loading", () => {
-    expect(readFileSync(viteConfigPath, "utf8")).not.toContain(["load", "Env"].join(""));
+  it("disables Vite env-file loading", () => {
+    const config = readFileSync(viteConfigPath, "utf8");
+
+    expect(config).not.toContain(["load", "Env"].join(""));
+    expect(config).toContain("envDir: false");
   });
 });
 
