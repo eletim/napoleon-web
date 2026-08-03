@@ -83,6 +83,38 @@ select:focus-visible {
   outline-offset: 2px;
 }
 
+input {
+  font: inherit;
+}
+
+input:focus-visible {
+  outline: 3px solid #facc15;
+  outline-offset: 2px;
+}
+
+.mode-switch {
+  display: flex;
+  gap: 8px;
+  margin: 0 auto 16px;
+  max-width: 1240px;
+}
+
+.mode-button {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  color: #334155;
+  cursor: pointer;
+  min-height: 40px;
+  padding: 0 14px;
+}
+
+.mode-button-active {
+  background: #172033;
+  border-color: #172033;
+  color: #ffffff;
+}
+
 .table {
   background:
     radial-gradient(circle at center, rgb(255 255 255 / 12%), transparent 42%),
@@ -928,14 +960,205 @@ select:focus-visible {
   font-size: 1.7rem;
 }
 
+.simulation-viewer {
+  display: grid;
+  gap: 14px;
+  margin: 0 auto;
+  max-width: 1240px;
+}
+
+.simulation-header,
+.simulation-section,
+.simulation-empty,
+.simulation-error {
+  background: #ffffff;
+  border: 1px solid #dbe4ee;
+  border-radius: 8px;
+  box-shadow: 0 10px 26px rgb(24 33 47 / 8%);
+  color: #172033;
+  padding: 16px;
+}
+
+.simulation-header {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.simulation-header h1,
+.simulation-section h2 {
+  letter-spacing: 0;
+  margin: 0 0 6px;
+}
+
+.simulation-header h1 {
+  font-size: 1.55rem;
+}
+
+.simulation-header p,
+.simulation-empty {
+  color: #64748b;
+  margin: 0;
+}
+
+.simulation-controls {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.simulation-controls label {
+  color: #475569;
+  display: grid;
+  font-size: 0.82rem;
+  font-weight: 900;
+  gap: 4px;
+}
+
+.simulation-controls input {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  min-height: 42px;
+  padding: 0 10px;
+  width: 140px;
+}
+
+.simulation-error {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+  font-weight: 800;
+  margin: 0;
+}
+
+.simulation-overview-grid,
+.simulation-summary-grid,
+.simulation-hand-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.simulation-overview-grid {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.simulation-summary-grid {
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+}
+
+.simulation-hand-grid {
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+
+.simulation-metric,
+.simulation-hand-panel {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px;
+}
+
+.simulation-metric span {
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.simulation-metric strong {
+  font-size: 1rem;
+}
+
+.simulation-hand-panel h3,
+.simulation-hand-panel h4 {
+  font-size: 0.92rem;
+  margin: 0;
+}
+
+.simulation-card-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.simulation-table-wrap {
+  overflow-x: auto;
+}
+
+.simulation-table {
+  border-collapse: collapse;
+  min-width: 100%;
+}
+
+.simulation-table th,
+.simulation-table td {
+  border-bottom: 1px solid #e2e8f0;
+  padding: 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.simulation-table th {
+  color: #475569;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.simulation-timeline {
+  display: grid;
+  gap: 8px;
+}
+
+.simulation-decision {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.simulation-decision-row {
+  align-items: center;
+  background: #f8fafc;
+  border: 0;
+  color: #172033;
+  cursor: pointer;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 64px 92px 120px minmax(220px, 1fr) 90px minmax(240px, 1fr);
+  min-height: 48px;
+  padding: 10px;
+  text-align: left;
+  width: 100%;
+}
+
+.simulation-decision-detail {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.simulation-decision-detail h3 {
+  font-size: 1rem;
+  margin: 0;
+}
+
 @media (max-width: 920px) {
   .app-shell {
     padding: 12px;
   }
 
-  .top-bar {
+  .top-bar,
+  .simulation-header {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .simulation-controls {
+    justify-content: flex-start;
   }
 
   .table {
@@ -978,6 +1201,10 @@ select:focus-visible {
 
   .bidding-panel {
     max-width: 100%;
+  }
+
+  .simulation-decision-row {
+    grid-template-columns: 54px 82px minmax(120px, 1fr);
   }
 }
 
