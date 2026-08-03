@@ -243,12 +243,14 @@ function validateJsonSafeValue(name: string, value: unknown, seen = new WeakSet<
 
   if (Array.isArray(value)) {
     value.forEach((entry, index) => validateJsonSafeValue(`${name}[${index}]`, entry, seen));
+    seen.delete(value);
     return;
   }
 
   Object.entries(value).forEach(([key, entry]) =>
     validateJsonSafeValue(`${name}.${key}`, entry, seen)
   );
+  seen.delete(value);
 }
 
 function sameStringArray(left: readonly string[], right: readonly string[]): boolean {
