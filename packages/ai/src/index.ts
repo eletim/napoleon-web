@@ -22,3 +22,12 @@ export {
   estimateLeadWinProbability,
   selectPlayAction
 } from "./playStrategy.js";
+export { runAutomatedGame } from "./simulation/runAutomatedGame.js";
+export { createSeededRandom, deriveSeed, normalizeSeed } from "./simulation/seededRandom.js";
+export type {
+  ActualHands,
+  AutomatedAgentContext,
+  AutomatedGameRecord,
+  DecisionRecord,
+  RunAutomatedGameOptions
+} from "./simulation/types.js";
