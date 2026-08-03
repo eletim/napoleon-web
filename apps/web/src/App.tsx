@@ -7,6 +7,7 @@ import type {
   PublicRank,
   PublicSuit
 } from "@napoleon/protocol";
+import { AutomatedSimulationViewer } from "./AutomatedSimulationViewer";
 import { BiddingPanel } from "./BiddingPanel";
 import { GameStatus } from "./GameStatus";
 import { PlayerSeat } from "./PlayerSeat";
@@ -40,7 +41,10 @@ interface Session {
   state: PublicGameState;
 }
 
+type AppMode = "game" | "simulation";
+
 export function App() {
+  const [mode, setMode] = useState<AppMode>("game");
   const [session, setSession] = useState<Session | undefined>();
   const [message, setMessage] = useState("ゲームを開始してください。");
   const [isBusy, setIsBusy] = useState(false);
@@ -193,63 +197,89 @@ export function App() {
 
   return (
     <main className="app-shell">
-      <section className="top-bar">
-        <div>
-          <h1>Napoleon Web</h1>
-          <p aria-live="polite">{message}</p>
-        </div>
-        <button className="primary-button" disabled={isBusy} onClick={handleCreateGame} type="button">
-          ゲーム開始
+      <nav className="mode-switch" aria-label="画面切り替え">
+        <button
+          aria-pressed={mode === "game"}
+          className={mode === "game" ? "mode-button mode-button-active" : "mode-button"}
+          onClick={() => setMode("game")}
+          type="button"
+        >
+          通常プレイ
         </button>
-      </section>
+        <button
+          aria-pressed={mode === "simulation"}
+          className={mode === "simulation" ? "mode-button mode-button-active" : "mode-button"}
+          onClick={() => setMode("simulation")}
+          type="button"
+        >
+          AI対戦ログ
+        </button>
+      </nav>
 
-      <section className="table" aria-label="ゲームテーブル">
-        <div className="table-grid">
-          {aiPlayers.map((player) => (
-            <PlayerSeat key={player.seat} player={player} state={session?.state} />
-          ))}
+      {mode === "game" ? (
+        <>
+          <section className="top-bar">
+            <div>
+              <h1>Napoleon Web</h1>
+              <p aria-live="polite">{message}</p>
+            </div>
+            <button
+              className="primary-button"
+              disabled={isBusy}
+              onClick={handleCreateGame}
+              type="button"
+            >
+              ゲーム開始
+            </button>
+          </section>
 
-          <div className="table-center">
-            <GameStatus display={gameStatusDisplay} />
+          <section className="table" aria-label="ゲームテーブル">
+            <div className="table-grid">
+              {aiPlayers.map((player) => (
+                <PlayerSeat key={player.seat} player={player} state={session?.state} />
+              ))}
 
-            {session?.state.phase === "bidding" ? (
-              <BiddingPanel
-                bidding={session.state.bidding}
-                canPass={canPass}
-                currentPlayerId={session.state.currentPlayerId}
-                formatPlayerLabel={(playerId) => formatPlayerLabel(playerId, tablePlayers)}
-                isBusy={isBusy}
-                legalBidActions={legalBidActions}
-                onBid={(action) => void handleSendAction(action)}
-                onPass={() => void handleSendAction({ type: "pass" })}
-                selfPlayerId={session.playerId}
-              />
-            ) : (
-              <>
-                <TrickBoard
-                  currentTrick={session?.state.currentTrick ?? []}
-                  players={tablePlayers}
-                />
+              <div className="table-center">
+                <GameStatus display={gameStatusDisplay} />
 
-                <button
-                  className="secondary-button next-trick-button"
-                  disabled={
-                    !session?.state.isTrickComplete ||
-                    session.state.isGameOver ||
-                    session.state.phase !== "playing" ||
-                    isBusy
-                  }
-                  onClick={handleNextTrick}
-                  type="button"
-                >
-                  次のトリック
-                </button>
-              </>
-            )}
-          </div>
-        </div>
+                {session?.state.phase === "bidding" ? (
+                  <BiddingPanel
+                    bidding={session.state.bidding}
+                    canPass={canPass}
+                    currentPlayerId={session.state.currentPlayerId}
+                    formatPlayerLabel={(playerId) => formatPlayerLabel(playerId, tablePlayers)}
+                    isBusy={isBusy}
+                    legalBidActions={legalBidActions}
+                    onBid={(action) => void handleSendAction(action)}
+                    onPass={() => void handleSendAction({ type: "pass" })}
+                    selfPlayerId={session.playerId}
+                  />
+                ) : (
+                  <>
+                    <TrickBoard
+                      currentTrick={session?.state.currentTrick ?? []}
+                      players={tablePlayers}
+                    />
 
-        <div className="action-area">
+                    <button
+                      className="secondary-button next-trick-button"
+                      disabled={
+                        !session?.state.isTrickComplete ||
+                        session.state.isGameOver ||
+                        session.state.phase !== "playing" ||
+                        isBusy
+                      }
+                      onClick={handleNextTrick}
+                      type="button"
+                    >
+                      次のトリック
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="action-area">
           {session?.state.phase === "exchanging" ? (
             <section className="exchange-panel" aria-label="埋札交換">
               <div>
@@ -399,19 +429,23 @@ export function App() {
               </div>
             </section>
           ) : null}
-        </div>
+            </div>
 
-        <SelfHandPanel
-          canExchange={canExchange}
-          isBusy={isBusy}
-          legalCardIds={legalCardIds}
-          onPlay={handlePlay}
-          selectedDiscardCardIds={selectedDiscardCardIds}
-          self={self}
-          selfPlayer={selfPlayer}
-          state={session?.state}
-        />
-      </section>
+            <SelfHandPanel
+              canExchange={canExchange}
+              isBusy={isBusy}
+              legalCardIds={legalCardIds}
+              onPlay={handlePlay}
+              selectedDiscardCardIds={selectedDiscardCardIds}
+              self={self}
+              selfPlayer={selfPlayer}
+              state={session?.state}
+            />
+          </section>
+        </>
+      ) : (
+        <AutomatedSimulationViewer />
+      )}
     </main>
   );
 }

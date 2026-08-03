@@ -3,6 +3,7 @@ import type {
   GetGameResponse,
   NextTrickResponse,
   PublicGameAction,
+  RunAutomatedSimulationResponse,
   SendActionResponse
 } from "@napoleon/protocol";
 
@@ -30,6 +31,15 @@ export async function sendAction(
 export async function nextTrick(gameId: string): Promise<NextTrickResponse> {
   return request<NextTrickResponse>(`/api/games/${gameId}/next-trick`, {
     method: "POST"
+  });
+}
+
+export async function runAutomatedSimulation(
+  seed: number
+): Promise<RunAutomatedSimulationResponse> {
+  return request<RunAutomatedSimulationResponse>("/api/simulations", {
+    method: "POST",
+    body: JSON.stringify({ seed })
   });
 }
 

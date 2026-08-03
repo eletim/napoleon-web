@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { NoLegalActionsError } from "@napoleon/ai";
+import { NoLegalActionsError, RuleBasedAgent, runAutomatedGame } from "@napoleon/ai";
 import {
   advanceToNextTrick,
   applyAction,
@@ -16,11 +16,13 @@ import type {
   GetGameResponse,
   NextTrickResponse,
   PublicGameAction,
+  RunAutomatedSimulationResponse,
   SendActionResponse
 } from "@napoleon/protocol";
 import { createAgents, createGameId, games, type InternalGameState } from "./store.js";
 import { toPublicGameState } from "./publicState.js";
-import { readActionBody } from "./validation.js";
+import { toPublicSimulationResponse } from "./simulationResponse.js";
+import { readActionBody, readRunAutomatedSimulationBody } from "./validation.js";
 
 interface GameParams {
   gameId: string;
@@ -48,6 +50,29 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     reply.code(201);
     return createGameResponse(gameId, games.get(gameId));
   });
+
+  app.post(
+    "/api/simulations",
+    async (request, reply): Promise<RunAutomatedSimulationResponse | FastifyReply> => {
+      const body = readRunAutomatedSimulationBody(request.body);
+
+      if (body === undefined) {
+        return sendError(
+          reply,
+          400,
+          "INVALID_SIMULATION_REQUEST",
+          "seed must be an integer between 0 and 4294967295."
+        );
+      }
+
+      const record = await runAutomatedGame({
+        seed: body.seed,
+        createAgent: ({ rng }) => new RuleBasedAgent(rng)
+      });
+
+      return toPublicSimulationResponse(record);
+    }
+  );
 
   app.get<{ Params: GameParams }>(
     "/api/games/:gameId",
