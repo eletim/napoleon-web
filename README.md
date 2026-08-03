@@ -184,7 +184,11 @@ pnpm dev
 
 ### Tailscale Serve経由のWeb開発アクセス
 
-Vite自体は引き続き`127.0.0.1`で待ち受けます。tailnet内からTailscale Serve経由でアクセスする場合は、端末固有のホスト名をGit管理外の`.env.local`にだけ設定してください。`allowedHosts: true`は使いません。
+通常起動は`pnpm dev`です。初回起動時に`apps/web/.env.local`がなければ、対話可能なターミナルでは外部アクセス用設定を生成するか質問されます。Noを選べばlocalhost限定で起動し、Yesを選ぶ場合はTailscaleのホスト名を入力します。
+
+Vite自体は引き続き`127.0.0.1`で待ち受けます。`allowedHosts`を真偽値の`true`にはしません。端末固有設定はGit管理外の`apps/web/.env.local`だけに置き、この起動処理では他の`.env`系ファイルを読みません。実ホスト名はリポジトリへ書かないでください。
+
+手動作成する場合:
 
 ```bash
 cp apps/web/.env.example apps/web/.env.local
@@ -193,6 +197,14 @@ cp apps/web/.env.example apps/web/.env.local
 ```env
 VITE_ALLOWED_HOSTS=my-machine.example.ts.net
 ```
+
+対話と`.env.local`管理を迂回する場合は、raw起動を使います。環境変数が未設定ならlocalhost限定です。
+
+```bash
+pnpm dev:raw
+```
+
+Tailscale Serveの例:
 
 ```bash
 pnpm dev
