@@ -8,5 +8,11 @@
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
-  "include": ["src", "vite.config.ts"]
+  "include": [
+    "src",
+    "vite.config.ts",
+    "viteAllowedHosts.ts",
+    "viteAllowedHosts.test.ts",
+    "devScript.test.ts"
+  ]
 }
