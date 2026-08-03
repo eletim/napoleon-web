@@ -123,12 +123,40 @@ function evaluatePlayAction(
   return (2 * teamWinProbability - 1) * expectedPointCardsInTrick - usedCardValue;
 }
 
-function calculateExpectedPointCardsInTrick(view: PlayerView, candidateCard: Card): number {
+export function calculateExpectedPointCardsInTrick(
+  view: PlayerView,
+  candidateCard: Card
+): number {
+  const knownCardIds = collectKnownCardIdsForPlayEvaluation(view, candidateCard);
+  const unknownCards = createDeck().filter((card) => !knownCardIds.has(card.id));
+  const unknownPointCardCount = unknownCards.filter(isPointCard).length;
+  const remainingPlayers = Math.max(0, view.players.length - (view.currentTrick.length + 1));
+  const currentPointCardCount =
+    view.currentTrick.filter((playedCard) => isPointCard(playedCard.card)).length +
+    (isPointCard(candidateCard) ? 1 : 0);
+
+  if (unknownCards.length === 0) {
+    return currentPointCardCount;
+  }
+
+  return currentPointCardCount + (remainingPlayers * unknownPointCardCount) / unknownCards.length;
+}
+
+export function collectKnownCardIdsForPlayEvaluation(
+  view: PlayerView,
+  candidateCard: Card
+): ReadonlySet<string> {
   const knownCardIds = new Set<string>();
   const self = view.players.find((player) => player.id === view.selfId);
 
   for (const card of self?.hand ?? []) {
     knownCardIds.add(card.id);
+  }
+
+  for (const trick of view.completedTricks) {
+    for (const playedCard of trick.cards) {
+      knownCardIds.add(playedCard.card.id);
+    }
   }
 
   for (const playedCard of view.currentTrick) {
@@ -143,18 +171,7 @@ function calculateExpectedPointCardsInTrick(view: PlayerView, candidateCard: Car
 
   knownCardIds.add(candidateCard.id);
 
-  const unknownCards = createDeck().filter((card) => !knownCardIds.has(card.id));
-  const unknownPointCardCount = unknownCards.filter(isPointCard).length;
-  const remainingPlayers = Math.max(0, view.players.length - (view.currentTrick.length + 1));
-  const currentPointCardCount =
-    view.currentTrick.filter((playedCard) => isPointCard(playedCard.card)).length +
-    (isPointCard(candidateCard) ? 1 : 0);
-
-  if (unknownCards.length === 0) {
-    return currentPointCardCount;
-  }
-
-  return currentPointCardCount + (remainingPlayers * unknownPointCardCount) / unknownCards.length;
+  return knownCardIds;
 }
 
 function getSelfHand(view: PlayerView, playerId: PlayerId): readonly Card[] {

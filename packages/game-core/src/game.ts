@@ -97,7 +97,15 @@ export function getLegalActions(state: GameState, playerId: PlayerId): readonly 
     return getLegalBidActions(playerId, state.bidding.highestBid);
   }
 
-  if (state.phase === "exchanging" || state.phase === "choosing-adjutant") {
+  if (state.phase === "choosing-adjutant") {
+    return createDeck().map((card) => ({
+      type: "choose-adjutant",
+      playerId,
+      cardId: card.id
+    }));
+  }
+
+  if (state.phase === "exchanging") {
     return [];
   }
 
@@ -194,6 +202,7 @@ export function createPlayerView(state: GameState, playerId: PlayerId): PlayerVi
         : null,
     currentPlayerId: state.currentPlayerId,
     currentTrick: state.currentTrick,
+    completedTricks: state.completedTricks,
     completedTrickCount: state.completedTricks.length,
     trickNumber: state.trickNumber,
     isTrickComplete: state.isTrickComplete,

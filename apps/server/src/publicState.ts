@@ -84,8 +84,16 @@ export function toPublicGameState(state: GameState, playerId: PlayerId): PublicG
     trickNumber: view.trickNumber,
     isTrickComplete: view.isTrickComplete,
     isGameOver: view.isGameOver,
-    legalActions: view.legalActions.map(toPublicLegalAction)
+    legalActions: view.legalActions
+      .filter(isPubliclyEnumerableLegalAction)
+      .map(toPublicLegalAction)
   };
+}
+
+function isPubliclyEnumerableLegalAction(
+  action: GameAction
+): action is Extract<GameAction, { type: "play-card" | "bid" | "pass" }> {
+  return action.type === "play-card" || action.type === "bid" || action.type === "pass";
 }
 
 function toPublicAdjutantChoiceState(

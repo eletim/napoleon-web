@@ -14,7 +14,6 @@ import type { Agent, PlayerObservation } from "./types.js";
 const suitEvaluationOrder: readonly Suit[] = ["spades", "hearts", "diamonds", "clubs"];
 const maxAiBidTargetPointCards = 20;
 const minAiBidTargetPointCards = 13;
-const adjutantFallbackCardIds = createDeck().map((card) => card.id);
 const epsilon = 1e-9;
 
 export class RuleBasedAgent implements Agent {
@@ -106,33 +105,57 @@ function selectAdjutantAction(observation: PlayerObservation, rng: () => number)
   }
 
   const selfHand = getSelfHand(observation.view, observation.playerId);
-  const cardId = selectAdjutantCardId(selfHand, trumpSuit, observation.view, rng);
+  const legalAdjutantActions = observation.legalActions.filter(isChooseAdjutantAction);
 
-  return {
-    type: "choose-adjutant",
-    playerId: observation.playerId,
-    cardId
-  };
+  if (legalAdjutantActions.length === 0) {
+    throw new NoLegalActionsError(observation.playerId);
+  }
+
+  const legalAdjutantCardIds = new Set(legalAdjutantActions.map((action) => action.cardId));
+  const cardId = selectAdjutantCardId(
+    selfHand,
+    trumpSuit,
+    observation.view,
+    rng,
+    legalAdjutantCardIds
+  );
+
+  if (cardId === null) {
+    return selectRandom(legalAdjutantActions, rng);
+  }
+
+  const selectedAction = legalAdjutantActions.find((action) => action.cardId === cardId);
+
+  if (selectedAction === undefined) {
+    throw new NoLegalActionsError(observation.playerId);
+  }
+
+  return selectedAction;
 }
 
 export function selectAdjutantCardId(
   selfHand: readonly Card[],
   trumpSuit: Suit,
   view: Pick<PlayerView, "specialCards">,
-  rng: () => number
-): string {
+  _rng: () => number,
+  legalAdjutantCardIds?: ReadonlySet<string>
+): string | null {
   const selfCardIds = new Set(selfHand.map((card) => card.id));
   const trumpCount = countStandardCardsOfSuit(selfHand, trumpSuit);
   const candidates = createDeck()
     .filter(isStandardCard)
-    .filter((card) => isStandardAdjutantCandidate(card, trumpSuit, view, selfCardIds))
+    .filter(
+      (card) =>
+        (legalAdjutantCardIds === undefined || legalAdjutantCardIds.has(card.id)) &&
+        isStandardAdjutantCandidate(card, trumpSuit, view, selfCardIds)
+    )
     .map((card) => ({
       card,
       value: evaluateAdjutantCandidate(card, view, trumpCount)
     }));
 
   if (candidates.length === 0) {
-    return selectRandom(adjutantFallbackCardIds, rng);
+    return null;
   }
 
   const maxValue = Math.max(...candidates.map((candidate) => candidate.value));
@@ -141,6 +164,12 @@ export function selectAdjutantCardId(
     .sort((left, right) => compareAdjutantTie(left.card, right.card, view));
 
   return best[0].card.id;
+}
+
+function isChooseAdjutantAction(
+  action: GameAction
+): action is Extract<GameAction, { type: "choose-adjutant" }> {
+  return action.type === "choose-adjutant";
 }
 
 function isStandardAdjutantCandidate(

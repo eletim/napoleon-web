@@ -217,6 +217,7 @@ export interface PlayerView {
   adjutantChoiceRequirement: AdjutantChoiceRequirement | null;
   currentPlayerId: PlayerId;
   currentTrick: readonly PlayedCard[];
+  completedTricks: readonly CompletedTrick[];
   completedTrickCount: number;
   trickNumber: number;
   isTrickComplete: boolean;

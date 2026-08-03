@@ -851,7 +851,12 @@ describe("game-core", () => {
       jokerAllowed: true
     });
     expect(createPlayerView(state, "player-2").exchangeRequirement).toBeNull();
-    expect(getLegalActions(state, "player-2")).toEqual([]);
+    expect(getLegalActions(state, "player-2")).toHaveLength(53);
+    expect(getLegalActions(state, "player-2")).toContainEqual({
+      type: "choose-adjutant",
+      playerId: "player-2",
+      cardId: "joker"
+    });
   });
 
   it("creates a special spades-12 contract when everyone passes", () => {

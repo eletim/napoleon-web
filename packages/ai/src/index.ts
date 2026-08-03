@@ -16,7 +16,9 @@ export {
 } from "./cardEvaluation.js";
 export {
   adjustTeamWinProbability,
+  calculateExpectedPointCardsInTrick,
   calculateUsedCardValue,
+  collectKnownCardIdsForPlayEvaluation,
   estimateLeadWinProbability,
   selectPlayAction
 } from "./playStrategy.js";
