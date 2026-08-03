@@ -61,7 +61,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           reply,
           400,
           "INVALID_SIMULATION_REQUEST",
-          "A finite integer seed is required."
+          "seed must be an integer between 0 and 4294967295."
         );
       }
 

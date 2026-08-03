@@ -246,6 +246,12 @@ function sameCardIds(left: readonly string[], right: readonly string[]): boolean
     return false;
   }
 
-  const rightIds = new Set(right);
-  return left.every((cardId) => rightIds.has(cardId));
+  if (new Set(left).size !== left.length || new Set(right).size !== right.length) {
+    return false;
+  }
+
+  const sortedLeft = [...left].sort();
+  const sortedRight = [...right].sort();
+
+  return sortedLeft.every((cardId, index) => cardId === sortedRight[index]);
 }

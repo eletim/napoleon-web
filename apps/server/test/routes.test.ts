@@ -416,12 +416,37 @@ describe("server API", () => {
     );
   });
 
+  it("accepts automated simulation seed boundary values", async () => {
+    const lower = await app.inject({
+      method: "POST",
+      url: "/api/simulations",
+      payload: {
+        seed: 0
+      }
+    });
+    const upper = await app.inject({
+      method: "POST",
+      url: "/api/simulations",
+      payload: {
+        seed: 0xffffffff
+      }
+    });
+
+    expect(lower.statusCode).toBe(200);
+    expect(lower.json<RunAutomatedSimulationResponse>().seed).toBe(0);
+    expect(upper.statusCode).toBe(200);
+    expect(upper.json<RunAutomatedSimulationResponse>().seed).toBe(0xffffffff);
+  });
+
   it("rejects invalid automated simulation seeds", async () => {
     const invalidBodies = [
       {},
+      { seed: -1 },
+      { seed: 0x100000000 },
       { seed: "123" },
       { seed: 1.5 },
-      { seed: Number.POSITIVE_INFINITY }
+      { seed: Number.POSITIVE_INFINITY },
+      { seed: {} }
     ];
 
     for (const payload of invalidBodies) {
@@ -434,6 +459,7 @@ describe("server API", () => {
 
       expect(response.statusCode).toBe(400);
       expect(body.error.code).toBe("INVALID_SIMULATION_REQUEST");
+      expect(body.error.message).toBe("seed must be an integer between 0 and 4294967295.");
     }
   });
 

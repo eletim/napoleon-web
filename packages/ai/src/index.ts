@@ -23,7 +23,12 @@ export {
   selectPlayAction
 } from "./playStrategy.js";
 export { runAutomatedGame } from "./simulation/runAutomatedGame.js";
-export { createSeededRandom, deriveSeed, normalizeSeed } from "./simulation/seededRandom.js";
+export {
+  assertValidSeed,
+  createSeededRandom,
+  deriveSeed,
+  normalizeSeed
+} from "./simulation/seededRandom.js";
 export type {
   ActualCardState,
   ActualHands,

@@ -23,5 +23,18 @@ export function deriveSeed(baseSeed: number, streamId: string): number {
 }
 
 export function normalizeSeed(seed: number): number {
-  return seed >>> 0;
+  return assertValidSeed(seed);
+}
+
+export function assertValidSeed(seed: number): number {
+  if (
+    typeof seed !== "number" ||
+    !Number.isSafeInteger(seed) ||
+    seed < 0 ||
+    seed > 0xffffffff
+  ) {
+    throw new Error("seed must be an integer between 0 and 4294967295.");
+  }
+
+  return seed;
 }

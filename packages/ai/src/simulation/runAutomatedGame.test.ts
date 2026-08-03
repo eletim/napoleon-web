@@ -1,10 +1,51 @@
 import { describe, expect, it } from "vitest";
 import { createDeck, isJokerCard, isStandardCard } from "@napoleon/game-core";
+import type { GameAction } from "@napoleon/game-core";
+import type { Agent, PlayerObservation } from "../types.js";
 import { RuleBasedAgent } from "../ruleBasedAgent.js";
 import { RandomAgent } from "../randomAgent.js";
 import { runAutomatedGame } from "./runAutomatedGame.js";
 import type { ActualCardState } from "./types.js";
 import type { RunAutomatedGameOptions } from "./types.js";
+
+class DuplicateDiscardAgent implements Agent {
+  async selectAction(observation: PlayerObservation): Promise<GameAction> {
+    if (observation.view.phase === "exchanging") {
+      const self = observation.view.players.find((player) => player.id === observation.playerId);
+
+      if (self?.hand === undefined || self.hand.length < 2) {
+        throw new Error("Expected exchange hand for duplicate discard test.");
+      }
+
+      return {
+        type: "discard-cards",
+        playerId: observation.playerId,
+        cardIds: [self.hand[0].id, self.hand[0].id, self.hand[1].id]
+      };
+    }
+
+    if (observation.view.phase === "choosing-adjutant") {
+      return {
+        type: "choose-adjutant",
+        playerId: observation.playerId,
+        cardId: "spades-A"
+      };
+    }
+
+    const passAction = observation.legalActions.find((action) => action.type === "pass");
+    const fallback = observation.legalActions[0];
+
+    if (passAction !== undefined) {
+      return passAction;
+    }
+
+    if (fallback === undefined) {
+      throw new Error("Expected legal action.");
+    }
+
+    return fallback;
+  }
+}
 
 describe("runAutomatedGame", () => {
   it("runs a five-agent game to completion", async () => {
@@ -45,6 +86,35 @@ describe("runAutomatedGame", () => {
     const serializedHands = records.map((record) => JSON.stringify(record.initialHands));
 
     expect(new Set(serializedHands).size).toBe(serializedHands.length);
+  });
+
+  it("accepts uint32 seed boundary values", async () => {
+    const lower = await runAutomatedGame({
+      seed: 0,
+      createAgent: ({ rng }) => new RuleBasedAgent(rng)
+    });
+    const upper = await runAutomatedGame({
+      seed: 0xffffffff,
+      createAgent: ({ rng }) => new RuleBasedAgent(rng)
+    });
+
+    expect(lower.seed).toBe(0);
+    expect(upper.seed).toBe(0xffffffff);
+    expect(lower.decisions.length).toBeGreaterThan(0);
+    expect(upper.decisions.length).toBeGreaterThan(0);
+  });
+
+  it("rejects seeds outside the uint32 range", async () => {
+    const invalidSeeds = [-1, 0x100000000, 1.5, Number.POSITIVE_INFINITY, "123", {}];
+
+    for (const seed of invalidSeeds) {
+      await expect(
+        runAutomatedGame({
+          seed: seed as number,
+          createAgent: ({ rng }) => new RuleBasedAgent(rng)
+        })
+      ).rejects.toThrow("seed must be an integer between 0 and 4294967295.");
+    }
   });
 
   it("records only actions that were legal at the decision point", async () => {
@@ -111,6 +181,14 @@ describe("runAutomatedGame", () => {
     }
   });
 
+  it("rejects duplicate discard card ids before applying the action", async () => {
+    await expect(
+      runAutomatedGame({
+        seed: 0,
+        createAgent: () => new DuplicateDiscardAgent()
+      })
+    ).rejects.toThrow("Automated agent selected an illegal action");
+  });
 });
 
 function expectCompleteCardState(actualState: ActualCardState): void {

@@ -89,6 +89,20 @@ export function formatHandCounts(decision: PublicSimulationDecision): string {
     .join(" / ");
 }
 
+export function validateSimulationSeedInput(seedInput: string): number | undefined {
+  if (!/^\d+$/.test(seedInput.trim())) {
+    return undefined;
+  }
+
+  const seed = Number(seedInput);
+
+  if (!Number.isSafeInteger(seed) || seed < 0 || seed > 0xffffffff) {
+    return undefined;
+  }
+
+  return seed;
+}
+
 export function formatSimulationLegalAction(action: PublicGameAction): string {
   switch (action.type) {
     case "bid":

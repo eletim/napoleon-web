@@ -8,7 +8,8 @@ import {
   formatSimulationBiddingStatus,
   formatSimulationAction,
   formatSimulationLegalAction,
-  getSimulationPlayerRole
+  getSimulationPlayerRole,
+  validateSimulationSeedInput
 } from "./simulationDisplay";
 
 describe("simulation display helpers", () => {
@@ -51,6 +52,16 @@ describe("simulation display helpers", () => {
         cardIds: ["clubs-2", "diamonds-3", "joker"]
       })
     ).toBe("2♣、3♦、ジョーカーを捨てる");
+  });
+
+  it("validates simulation seed input as uint32", () => {
+    expect(validateSimulationSeedInput("0")).toBe(0);
+    expect(validateSimulationSeedInput("4294967295")).toBe(4294967295);
+    expect(validateSimulationSeedInput("-1")).toBeUndefined();
+    expect(validateSimulationSeedInput("4294967296")).toBeUndefined();
+    expect(validateSimulationSeedInput("1.5")).toBeUndefined();
+    expect(validateSimulationSeedInput("Infinity")).toBeUndefined();
+    expect(validateSimulationSeedInput("123abc")).toBeUndefined();
   });
 
   it("formats player roles from the final result", () => {

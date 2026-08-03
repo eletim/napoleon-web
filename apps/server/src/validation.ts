@@ -119,8 +119,9 @@ export function readRunAutomatedSimulationBody(
 
   if (
     typeof value.seed !== "number" ||
-    !Number.isFinite(value.seed) ||
-    !Number.isInteger(value.seed)
+    !Number.isSafeInteger(value.seed) ||
+    value.seed < 0 ||
+    value.seed > 0xffffffff
   ) {
     return undefined;
   }

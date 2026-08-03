@@ -14,7 +14,8 @@ import {
   formatSimulationPhase,
   formatSimulationTrump,
   formatSimulationWinner,
-  getSimulationPlayerRole
+  getSimulationPlayerRole,
+  validateSimulationSeedInput
 } from "./simulationDisplay";
 import type { TablePlayer } from "./tableTypes";
 
@@ -69,10 +70,10 @@ export function AutomatedSimulationViewer() {
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
 
   async function handleRunSimulation(): Promise<void> {
-    const seed = Number(seedInput);
+    const seed = validateSimulationSeedInput(seedInput);
 
-    if (!Number.isFinite(seed) || !Number.isInteger(seed)) {
-      setErrorMessage("seedは整数で入力してください。");
+    if (seed === undefined) {
+      setErrorMessage("seedは0以上4294967295以下の整数で入力してください。");
       return;
     }
 
@@ -133,7 +134,11 @@ export function AutomatedSimulationViewer() {
             <input
               disabled={isRunning}
               inputMode="numeric"
+              max={4294967295}
+              min={0}
               onChange={(event) => setSeedInput(event.target.value)}
+              step={1}
+              type="number"
               value={seedInput}
             />
           </label>
