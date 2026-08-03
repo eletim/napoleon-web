@@ -3,9 +3,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEFAULT_ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+DEFAULT_ROOT_DIR="$SCRIPT_DIR"
 ROOT_DIR="${NAPOLEON_DEV_ROOT:-$DEFAULT_ROOT_DIR}"
 ENV_FILE="$ROOT_DIR/apps/web/.env.local"
+TAILSCALE_SERVE_COMMAND=(tailscale serve --bg --http=5173 http://127.0.0.1:5173)
 
 trim() {
   local value="$1"
@@ -102,9 +103,38 @@ if [[ "${NAPOLEON_DEV_DRY_RUN:-}" == "1" ]]; then
     printf 'env_file_exists=false\n'
   fi
   printf 'VITE_ALLOWED_HOSTS=%s\n' "${VITE_ALLOWED_HOSTS:-}"
+  if [[ -n "${VITE_ALLOWED_HOSTS:-}" ]]; then
+    printf 'tailscale_serve_enabled=true\n'
+    printf 'tailscale_serve_command=%s\n' "${TAILSCALE_SERVE_COMMAND[*]}"
+  else
+    printf 'tailscale_serve_enabled=false\n'
+  fi
   printf 'dev_server_started=false\n'
   exit 0
 fi
 
 cd "$ROOT_DIR"
+
+if [[ -n "${VITE_ALLOWED_HOSTS:-}" ]]; then
+  if ! command -v tailscale >/dev/null 2>&1; then
+    printf 'エラー: tailscaleコマンドが見つかりません。\n' >&2
+    exit 1
+  fi
+
+  if ! tailscale status >/dev/null 2>&1; then
+    printf 'エラー: Tailscaleが接続されていません。\n' >&2
+    exit 1
+  fi
+
+  if ! "${TAILSCALE_SERVE_COMMAND[@]}"; then
+    printf 'エラー: Tailscale Serveの設定に失敗しました。\n' >&2
+    exit 1
+  fi
+fi
+
+if [[ "${NAPOLEON_DEV_TEST_MODE:-}" == "1" ]]; then
+  printf 'dev_server_started=true\n'
+  exit 0
+fi
+
 exec pnpm dev:raw
