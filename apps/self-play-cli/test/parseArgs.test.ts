@@ -23,6 +23,25 @@ describe("parseArgs", () => {
     });
   });
 
+  it("ignores leading pnpm argument separators", () => {
+    expect(parseArgs([
+      "--",
+      "--start-seed",
+      "0",
+      "--games",
+      "1",
+      "--output",
+      "./out"
+    ])).toMatchObject({
+      type: "options",
+      options: {
+        startSeed: 0,
+        games: 1,
+        output: "./out"
+      }
+    });
+  });
+
   it("defaults games-per-shard to 100", () => {
     expect(parseArgs([
       "--start-seed",

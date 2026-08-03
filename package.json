@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "./start-dev.sh",
     "dev:raw": "pnpm --parallel --filter @napoleon/server --filter @napoleon/web dev",
-    "self-play:generate": "pnpm --filter @napoleon/self-play-cli generate --",
+    "self-play:generate": "pnpm --filter @napoleon/self-play-cli generate",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck"

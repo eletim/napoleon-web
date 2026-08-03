@@ -26,18 +26,20 @@ const optionNames = new Set([
 const defaultGamesPerShard = 100;
 
 export function parseArgs(argv: readonly string[]): ParseArgsResult {
-  if (argv.length === 1 && argv[0] === "--help") {
+  const normalizedArgv = stripLeadingSeparators(argv);
+
+  if (normalizedArgv.length === 1 && normalizedArgv[0] === "--help") {
     return { type: "help", helpText: createHelpText() };
   }
 
-  if (argv.includes("--help")) {
+  if (normalizedArgv.includes("--help")) {
     throw new Error("--help cannot be combined with generation arguments.");
   }
 
   const values = new Map<string, string>();
 
-  for (let index = 0; index < argv.length; index += 1) {
-    const name = argv[index];
+  for (let index = 0; index < normalizedArgv.length; index += 1) {
+    const name = normalizedArgv[index];
 
     if (name === undefined) {
       throw new Error("Unexpected argument parser state.");
@@ -55,7 +57,7 @@ export function parseArgs(argv: readonly string[]): ParseArgsResult {
       throw new Error(`Duplicate argument: ${name}`);
     }
 
-    const value = argv[index + 1];
+    const value = normalizedArgv[index + 1];
 
     if (value === undefined || value.startsWith("--")) {
       throw new Error(`${name} requires a value.`);
@@ -97,6 +99,16 @@ export function parseArgs(argv: readonly string[]): ParseArgsResult {
       gamesPerShard
     }
   };
+}
+
+function stripLeadingSeparators(argv: readonly string[]): readonly string[] {
+  let firstArgumentIndex = 0;
+
+  while (argv[firstArgumentIndex] === "--") {
+    firstArgumentIndex += 1;
+  }
+
+  return argv.slice(firstArgumentIndex);
 }
 
 export function createHelpText(): string {
