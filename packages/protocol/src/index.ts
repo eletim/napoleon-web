@@ -238,6 +238,60 @@ export interface NextTrickResponse {
   state: PublicGameState;
 }
 
+export interface RunAutomatedSimulationRequest {
+  seed: number;
+}
+
+export interface PublicSimulationObservedPlayer {
+  id: string;
+  handCount: number;
+  hand?: readonly PublicCard[];
+}
+
+export interface PublicSimulationObservation {
+  selfId: string;
+  players: readonly PublicSimulationObservedPlayer[];
+  phase: PublicGamePhase;
+  trumpSuit: PublicSuit | null;
+  contract: PublicContract | null;
+  adjutant: PublicAdjutantState | null;
+  currentPlayerId: string;
+  currentTrick: readonly PublicPlayedCard[];
+  completedTrickCount: number;
+  trickNumber: number;
+  isTrickComplete: boolean;
+  isGameOver: boolean;
+}
+
+export interface PublicSimulationDecision {
+  step: number;
+  playerId: string;
+  phase: PublicGamePhase;
+  trickNumber: number;
+  observation: PublicSimulationObservation;
+  action: PublicGameAction;
+  legalActionCount: number;
+  handCounts: Readonly<Record<string, number>>;
+  actualHands: Readonly<Record<string, readonly string[]>>;
+}
+
+export interface PublicSimulationSummary {
+  totalDecisionCount: number;
+  decisionCountByPlayer: Readonly<Record<string, number>>;
+  decisionCountByPhase: Readonly<Record<PublicGamePhase, number>>;
+  actionCountByType: Readonly<Record<string, number>>;
+}
+
+export interface RunAutomatedSimulationResponse {
+  schemaVersion: 1;
+  seed: number;
+  playerIds: readonly string[];
+  initialHands: Readonly<Record<string, readonly string[]>>;
+  decisions: readonly PublicSimulationDecision[];
+  summary: PublicSimulationSummary;
+  result: PublicGameResult;
+}
+
 export interface ApiError {
   error: {
     code: string;
