@@ -1,6 +1,7 @@
 import {
   advanceToNextTrick,
   applyAction,
+  clearLatestEvent,
   createInitialGame,
   createPlayerView,
   getLegalActions
@@ -35,6 +36,11 @@ export async function runAutomatedGame(
 ): Promise<AutomatedGameRecord> {
   const seed = normalizeSeed(options.seed);
   const playerIds = options.playerIds ?? defaultPlayerIds;
+
+  if (new Set(playerIds).size !== playerIds.length) {
+    throw new Error("playerIds must be unique.");
+  }
+
   let state = createInitialGame({
     playerIds,
     rng: createSeededRandom(deriveSeed(seed, "game"))
@@ -47,7 +53,7 @@ export async function runAutomatedGame(
 
   while (!state.isGameOver) {
     if (state.isTrickComplete) {
-      state = advanceToNextTrick(state);
+      state = advanceToNextTrick(clearLatestEvent(state));
       continue;
     }
 
@@ -95,7 +101,7 @@ export async function runAutomatedGame(
       actualState: captureActualCardState(state),
       handCounts: captureHandCounts(state)
     });
-    state = applyAction(state, action);
+    state = applyAction(clearLatestEvent(state), action);
   }
 
   if (state.result === null) {

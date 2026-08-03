@@ -370,6 +370,42 @@ describe("server API", () => {
     }
   });
 
+  it("exposes buried-card events once and clears them from later simulation observations", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/simulations",
+      payload: {
+        seed: 12345
+      }
+    });
+    const body = response.json<RunAutomatedSimulationResponse>();
+    const eventDecisionIndex = body.decisions.findIndex(
+      (decision) =>
+        decision.phase === "playing" &&
+        decision.observation.latestEvent?.type === "buried-cards-resolved"
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(eventDecisionIndex).toBeGreaterThanOrEqual(0);
+    expect(body.decisions[eventDecisionIndex].observation.latestEvent).toMatchObject({
+      type: "buried-cards-resolved"
+    });
+
+    for (const decision of body.decisions.slice(eventDecisionIndex + 1)) {
+      expect(decision.observation.latestEvent).toBeNull();
+    }
+
+    const laterPlayingDecisions = body.decisions.filter(
+      (decision) => decision.phase === "playing" && decision.trickNumber >= 2
+    );
+
+    expect(laterPlayingDecisions.length).toBeGreaterThan(0);
+
+    for (const decision of laterPlayingDecisions) {
+      expect(decision.observation.latestEvent).toBeNull();
+    }
+  });
+
   it("returns the same automated simulation response for the same seed", async () => {
     const first = await app.inject({
       method: "POST",

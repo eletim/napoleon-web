@@ -128,6 +128,37 @@ describe("runAutomatedGame", () => {
     }
   });
 
+  it("shows buried-card events once and clears them before later decisions", async () => {
+    const record = await runAutomatedGame({
+      seed: 12345,
+      createAgent: ({ rng }) => new RuleBasedAgent(rng)
+    });
+    const eventDecisionIndex = record.decisions.findIndex(
+      (decision) =>
+        decision.phase === "playing" &&
+        decision.observation.view.latestEvent?.type === "buried-cards-resolved"
+    );
+
+    expect(eventDecisionIndex).toBeGreaterThanOrEqual(0);
+    expect(record.decisions[eventDecisionIndex].observation.view.latestEvent).toMatchObject({
+      type: "buried-cards-resolved"
+    });
+
+    for (const decision of record.decisions.slice(eventDecisionIndex + 1)) {
+      expect(decision.observation.view.latestEvent).toBeNull();
+    }
+
+    const laterPlayingDecisions = record.decisions.filter(
+      (decision) => decision.phase === "playing" && decision.trickNumber >= 2
+    );
+
+    expect(laterPlayingDecisions.length).toBeGreaterThan(0);
+
+    for (const decision of laterPlayingDecisions) {
+      expect(decision.observation.view.latestEvent).toBeNull();
+    }
+  });
+
   it("records all 53 card locations as complete-information labels", async () => {
     const record = await runAutomatedGame({
       seed: 777,
@@ -188,6 +219,22 @@ describe("runAutomatedGame", () => {
         createAgent: () => new DuplicateDiscardAgent()
       })
     ).rejects.toThrow("Automated agent selected an illegal action");
+  });
+
+  it("rejects duplicate player ids before creating agents", async () => {
+    let createAgentCount = 0;
+
+    await expect(
+      runAutomatedGame({
+        seed: 1,
+        playerIds: ["player-0", "player-1", "player-2", "player-3", "player-3"],
+        createAgent: ({ rng }) => {
+          createAgentCount += 1;
+          return new RuleBasedAgent(rng);
+        }
+      })
+    ).rejects.toThrow("playerIds must be unique.");
+    expect(createAgentCount).toBe(0);
   });
 });
 
