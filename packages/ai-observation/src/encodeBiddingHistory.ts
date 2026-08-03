@@ -1,0 +1,161 @@
+import type { AutomatedGameRecord, DecisionRecord } from "@napoleon/ai";
+import type { GameAction, PlayerId, Suit } from "@napoleon/game-core";
+import { getRelativePlayerIndex } from "./playerIndex.js";
+import {
+  BIDDING_ACTION_TYPE_BID,
+  BIDDING_ACTION_TYPE_PASS,
+  BIDDING_HISTORY_SUIT_ORDER,
+  EMPTY_BIDDING_ACTION_TYPE,
+  EMPTY_BIDDING_SUIT_INDEX,
+  EMPTY_PLAYER_INDEX,
+  MAX_BIDDING_ACTION_COUNT
+} from "./schema.js";
+
+export interface EncodedBiddingHistory {
+  actionTypeIndices: readonly number[];
+  playerIndices: readonly number[];
+  suitIndices: readonly number[];
+  targetPointCards: readonly number[];
+  actionMask: readonly number[];
+}
+
+export function createEmptyEncodedBiddingHistory(): EncodedBiddingHistory {
+  return {
+    actionTypeIndices: Array(MAX_BIDDING_ACTION_COUNT).fill(EMPTY_BIDDING_ACTION_TYPE),
+    playerIndices: Array(MAX_BIDDING_ACTION_COUNT).fill(EMPTY_PLAYER_INDEX),
+    suitIndices: Array(MAX_BIDDING_ACTION_COUNT).fill(EMPTY_BIDDING_SUIT_INDEX),
+    targetPointCards: Array(MAX_BIDDING_ACTION_COUNT).fill(0),
+    actionMask: Array(MAX_BIDDING_ACTION_COUNT).fill(0)
+  };
+}
+
+export function encodeBiddingHistory(
+  record: AutomatedGameRecord,
+  playingDecision: DecisionRecord,
+  relativePlayerIds: readonly PlayerId[]
+): EncodedBiddingHistory {
+  if (playingDecision.phase !== "playing") {
+    throw new Error(
+      `encodeBiddingHistory requires a playing decision, got ${playingDecision.phase}.`
+    );
+  }
+
+  const biddingDecisions = record.decisions.filter(
+    (decision) => decision.phase === "bidding" && decision.step < playingDecision.step
+  );
+
+  if (biddingDecisions.length > MAX_BIDDING_ACTION_COUNT) {
+    throw new Error(
+      `Bidding history cannot exceed ${MAX_BIDDING_ACTION_COUNT} actions, got ${biddingDecisions.length}.`
+    );
+  }
+
+  const encoded = createEmptyEncodedBiddingHistory();
+  const actionTypeIndices = [...encoded.actionTypeIndices];
+  const playerIndices = [...encoded.playerIndices];
+  const suitIndices = [...encoded.suitIndices];
+  const targetPointCards = [...encoded.targetPointCards];
+  const actionMask = [...encoded.actionMask];
+
+  biddingDecisions.forEach((decision, index) => {
+    const action = decision.action;
+
+    if (action.playerId !== decision.playerId) {
+      throw new Error(
+        `Bidding action playerId must match decision playerId: ${action.playerId} !== ${decision.playerId}`
+      );
+    }
+
+    actionTypeIndices[index] = encodeBiddingActionType(action);
+    playerIndices[index] = getRelativePlayerIndex(relativePlayerIds, decision.playerId);
+    actionMask[index] = 1;
+
+    if (action.type === "bid") {
+      suitIndices[index] = getBiddingSuitIndex(action.suit);
+      targetPointCards[index] = action.targetPointCards;
+      return;
+    }
+
+    if (action.type === "pass") {
+      suitIndices[index] = EMPTY_BIDDING_SUIT_INDEX;
+      targetPointCards[index] = 0;
+      return;
+    }
+
+    throw new Error(`Bidding history supports only pass and bid actions, got ${action.type}.`);
+  });
+
+  return {
+    actionTypeIndices,
+    playerIndices,
+    suitIndices,
+    targetPointCards,
+    actionMask
+  };
+}
+
+export function getBiddingSuitIndex(suit: Suit): number {
+  const index = BIDDING_HISTORY_SUIT_ORDER.indexOf(suit);
+
+  if (index === -1) {
+    throw new Error(`Unsupported bidding suit: ${suit}`);
+  }
+
+  return index;
+}
+
+export function validateEncodedBiddingHistory(history: EncodedBiddingHistory): void {
+  expectLength(
+    "biddingHistory.actionTypeIndices",
+    history.actionTypeIndices,
+    MAX_BIDDING_ACTION_COUNT
+  );
+  expectLength("biddingHistory.playerIndices", history.playerIndices, MAX_BIDDING_ACTION_COUNT);
+  expectLength("biddingHistory.suitIndices", history.suitIndices, MAX_BIDDING_ACTION_COUNT);
+  expectLength(
+    "biddingHistory.targetPointCards",
+    history.targetPointCards,
+    MAX_BIDDING_ACTION_COUNT
+  );
+  expectLength("biddingHistory.actionMask", history.actionMask, MAX_BIDDING_ACTION_COUNT);
+  validateMask("biddingHistory.actionMask", history.actionMask);
+  validateNumbers("biddingHistory.actionTypeIndices", history.actionTypeIndices);
+  validateNumbers("biddingHistory.playerIndices", history.playerIndices);
+  validateNumbers("biddingHistory.suitIndices", history.suitIndices);
+  validateNumbers("biddingHistory.targetPointCards", history.targetPointCards);
+}
+
+function encodeBiddingActionType(action: GameAction): number {
+  switch (action.type) {
+    case "pass":
+      return BIDDING_ACTION_TYPE_PASS;
+    case "bid":
+      return BIDDING_ACTION_TYPE_BID;
+    default:
+      throw new Error(`Bidding history supports only pass and bid actions, got ${action.type}.`);
+  }
+}
+
+function expectLength(name: string, value: readonly unknown[], expectedLength: number): void {
+  if (value.length !== expectedLength) {
+    throw new Error(`${name} must have length ${expectedLength}, got ${value.length}.`);
+  }
+}
+
+function validateMask(name: string, mask: readonly number[]): void {
+  validateNumbers(name, mask);
+
+  for (const value of mask) {
+    if (value !== 0 && value !== 1) {
+      throw new Error(`${name} must contain only 0/1 values.`);
+    }
+  }
+}
+
+function validateNumbers(name: string, values: readonly number[]): void {
+  for (const value of values) {
+    if (!Number.isFinite(value)) {
+      throw new Error(`${name} must contain only finite numbers.`);
+    }
+  }
+}

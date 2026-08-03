@@ -1,6 +1,11 @@
 import type { PlayerObservation } from "@napoleon/ai";
 import type { PlayerId, PublicPlayerState, Suit } from "@napoleon/game-core";
 import { getCardIndex } from "./cardIndex.js";
+import {
+  createEmptyEncodedBiddingHistory,
+  validateEncodedBiddingHistory
+} from "./encodeBiddingHistory.js";
+import type { EncodedBiddingHistory } from "./encodeBiddingHistory.js";
 import { createRelativePlayerOrder, getRelativePlayerIndex } from "./playerIndex.js";
 import {
   CARD_COUNT,
@@ -44,6 +49,7 @@ export interface EncodedPlayingObservation {
   completedTrickSlotMask: readonly number[];
   completedTrickWinnerIndices: readonly number[];
   completedTrickMask: readonly number[];
+  biddingHistory: EncodedBiddingHistory;
   latestBuriedEventPointCardMask: readonly number[];
   latestBuriedEventHiddenNonPointCount: number;
   latestBuriedEventPresent: number;
@@ -51,7 +57,8 @@ export interface EncodedPlayingObservation {
 
 export function encodePlayingObservation(
   observation: PlayerObservation,
-  absolutePlayerIds: readonly PlayerId[]
+  absolutePlayerIds: readonly PlayerId[],
+  biddingHistory: EncodedBiddingHistory = createEmptyEncodedBiddingHistory()
 ): EncodedPlayingObservation {
   const view = observation.view;
 
@@ -131,6 +138,7 @@ export function encodePlayingObservation(
     },
     ...encodeCurrentTrick(relativePlayerIds, view.currentTrick),
     ...encodeCompletedTricks(relativePlayerIds, view.completedTricks),
+    biddingHistory,
     ...encodeLatestBuriedEvent(view.latestEvent)
   };
 
@@ -187,6 +195,7 @@ export function validateEncodedPlayingObservation(
   );
   expectLength("completedTrickWinnerIndices", observation.completedTrickWinnerIndices, TRICK_COUNT);
   expectLength("completedTrickMask", observation.completedTrickMask, TRICK_COUNT);
+  validateEncodedBiddingHistory(observation.biddingHistory);
   expectLength(
     "latestBuriedEventPointCardMask",
     observation.latestBuriedEventPointCardMask,

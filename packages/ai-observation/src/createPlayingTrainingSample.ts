@@ -1,6 +1,7 @@
 import type { AutomatedGameRecord, DecisionRecord } from "@napoleon/ai";
 import { encodeBeliefTarget } from "./encodeBeliefTarget.js";
 import type { EncodedBeliefTarget } from "./encodeBeliefTarget.js";
+import { encodeBiddingHistory } from "./encodeBiddingHistory.js";
 import { encodePlayAction } from "./encodePlayAction.js";
 import type { EncodedPlayAction } from "./encodePlayAction.js";
 import { encodePlayingObservation } from "./encodePlayingObservation.js";
@@ -36,7 +37,17 @@ export function createPlayingTrainingSample(
     );
   }
 
-  const observation = encodePlayingObservation(decision.observation, record.playerIds);
+  const encodedBaseObservation = encodePlayingObservation(decision.observation, record.playerIds);
+  const biddingHistory = encodeBiddingHistory(
+    record,
+    decision,
+    encodedBaseObservation.relativePlayerIds
+  );
+  const observation = encodePlayingObservation(
+    decision.observation,
+    record.playerIds,
+    biddingHistory
+  );
   const actorTarget = encodePlayAction(decision.action, observation.legalPlayMask);
   const beliefTarget = encodeBeliefTarget(
     decision.observation,

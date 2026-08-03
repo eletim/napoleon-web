@@ -2,14 +2,23 @@ import { describe, expect, it } from "vitest";
 import { RuleBasedAgent, runAutomatedGame } from "@napoleon/ai";
 import type { ActualCardState, AutomatedGameRecord, DecisionRecord } from "@napoleon/ai";
 import {
+  BIDDING_ACTION_TYPE_BID,
+  BIDDING_ACTION_TYPE_PASS,
   CARD_COUNT,
+  EMPTY_BIDDING_ACTION_TYPE,
+  EMPTY_BIDDING_SUIT_INDEX,
+  EMPTY_PLAYER_INDEX,
+  MAX_BIDDING_ACTION_COUNT,
   NOT_IN_HAND_CLASS_INDEX,
   createPlayingTrainingSample,
   createPlayingTrainingSamples,
+  encodeBiddingHistory,
   encodeBeliefTarget,
   encodePlayingObservation,
   getCardIndex,
+  getBiddingSuitIndex,
   validateEncodedBeliefTarget,
+  validateEncodedBiddingHistory,
   validateEncodedPlayingObservation
 } from "../src/index.js";
 
@@ -40,6 +49,11 @@ describe("createPlayingTrainingSample", () => {
     expect(sample.step).toBe(decision.step);
     expect(sample.actingPlayerId).toBe(decision.playerId);
     expect(sample.relativePlayerIds).toEqual(sample.observation.relativePlayerIds);
+    expect(sum(sample.observation.biddingHistory.actionMask)).toBe(
+      record.decisions.filter(
+        (candidate) => candidate.phase === "bidding" && candidate.step < decision.step
+      ).length
+    );
     expect(sample.actorTarget.selectedCardIndex).toBe(
       getCardIndex(decision.action.type === "play-card" ? decision.action.cardId : "")
     );
@@ -68,8 +82,165 @@ describe("createPlayingTrainingSample", () => {
     }
 
     expect(sampleA.observation).toEqual(sampleB.observation);
+    expect(sampleA.observation.biddingHistory).toEqual(sampleB.observation.biddingHistory);
     expect(sampleA.actorTarget).toEqual(sampleB.actorTarget);
     expect(sampleA.beliefTarget).not.toEqual(sampleB.beliefTarget);
+  });
+
+  it("encodes public bidding decisions before the first playing decision in order", async () => {
+    const record = await createRecord(12345);
+    const decision = getPlayingDecisions(record)[0];
+    const sample = createPlayingTrainingSample(record, decision);
+
+    if (sample === null) {
+      throw new Error("Expected a playing sample.");
+    }
+
+    const biddingDecisions = record.decisions.filter(
+      (candidate) => candidate.phase === "bidding" && candidate.step < decision.step
+    );
+    const history = sample.observation.biddingHistory;
+
+    expect(sum(history.actionMask)).toBe(biddingDecisions.length);
+
+    biddingDecisions.forEach((biddingDecision, index) => {
+      expect(history.actionMask[index]).toBe(1);
+      expect(history.playerIndices[index]).toBe(
+        sample.relativePlayerIds.indexOf(biddingDecision.playerId)
+      );
+
+      if (biddingDecision.action.type === "pass") {
+        expect(history.actionTypeIndices[index]).toBe(BIDDING_ACTION_TYPE_PASS);
+        expect(history.suitIndices[index]).toBe(EMPTY_BIDDING_SUIT_INDEX);
+        expect(history.targetPointCards[index]).toBe(0);
+      } else if (biddingDecision.action.type === "bid") {
+        expect(history.actionTypeIndices[index]).toBe(BIDDING_ACTION_TYPE_BID);
+        expect(history.suitIndices[index]).toBe(getBiddingSuitIndex(biddingDecision.action.suit));
+        expect(history.targetPointCards[index]).toBe(biddingDecision.action.targetPointCards);
+      } else {
+        throw new Error(`Unexpected bidding action: ${biddingDecision.action.type}`);
+      }
+    });
+
+    expect(history.actionMask[biddingDecisions.length]).toBe(0);
+    expect(history.actionTypeIndices[biddingDecisions.length]).toBe(EMPTY_BIDDING_ACTION_TYPE);
+    expect(history.playerIndices[biddingDecisions.length]).toBe(EMPTY_PLAYER_INDEX);
+    expect(history.suitIndices[biddingDecisions.length]).toBe(EMPTY_BIDDING_SUIT_INDEX);
+    expect(history.targetPointCards[biddingDecisions.length]).toBe(0);
+  });
+
+  it("represents all-pass contracts as real passes without a synthetic bid", async () => {
+    const sourceRecord = await createRecord(12345);
+    const sourceDecision = getPlayingDecisions(sourceRecord)[0];
+    const passPlayerIds = sourceRecord.playerIds;
+    const allPassDecisions = passPlayerIds.map((playerId, index): DecisionRecord => ({
+      ...sourceRecord.decisions[index],
+      step: index + 1,
+      playerId,
+      phase: "bidding",
+      action: { type: "pass", playerId },
+      observation: {
+        ...sourceRecord.decisions[index].observation,
+        playerId
+      }
+    }));
+    const decision: DecisionRecord = {
+      ...sourceDecision,
+      step: allPassDecisions.length + 1,
+      observation: {
+        ...sourceDecision.observation,
+        view: {
+          ...sourceDecision.observation.view,
+          trumpSuit: "spades",
+          contract: {
+            napoleonPlayerId: passPlayerIds[0],
+            trumpSuit: "spades",
+            targetPointCards: 12
+          }
+        }
+      }
+    };
+    const record: AutomatedGameRecord = {
+      ...sourceRecord,
+      decisions: [...allPassDecisions, decision]
+    };
+    const sample = createPlayingTrainingSample(record, decision);
+
+    if (sample === null) {
+      throw new Error("Expected a playing sample.");
+    }
+
+    expect(sample.observation.contractTargetPointCards).toBe(12);
+    expect(sample.observation.trumpSuitOneHot).toEqual([1, 0, 0, 0]);
+    expect(sum(sample.observation.biddingHistory.actionMask)).toBe(5);
+    expect(sample.observation.biddingHistory.actionTypeIndices.slice(0, 5)).toEqual(
+      Array(5).fill(BIDDING_ACTION_TYPE_PASS)
+    );
+    expect(sample.observation.biddingHistory.targetPointCards.slice(0, 5)).toEqual(
+      Array(5).fill(0)
+    );
+    expect(sample.observation.biddingHistory.actionTypeIndices).not.toContain(
+      BIDDING_ACTION_TYPE_BID
+    );
+  });
+
+  it("rejects bidding histories longer than the fixed maximum", async () => {
+    const record = await createRecord(12345);
+    const decision = getPlayingDecisions(record)[0];
+    const tooManyBids = Array.from({ length: MAX_BIDDING_ACTION_COUNT + 1 }, (_, index) => ({
+      ...record.decisions[0],
+      step: index + 1,
+      playerId: record.playerIds[index % record.playerIds.length],
+      phase: "bidding" as const,
+      action: {
+        type: "pass" as const,
+        playerId: record.playerIds[index % record.playerIds.length]
+      }
+    }));
+    const shiftedDecision = {
+      ...decision,
+      step: tooManyBids.length + 1
+    };
+    const overflowingRecord = {
+      ...record,
+      decisions: [...tooManyBids, shiftedDecision]
+    };
+
+    expect(() => encodeBiddingHistory(
+      overflowingRecord,
+      shiftedDecision,
+      record.playerIds
+    )).toThrow(`Bidding history cannot exceed ${MAX_BIDDING_ACTION_COUNT} actions`);
+  });
+
+  it("does not include bidding decisions at or after the playing decision step", async () => {
+    const record = await createRecord(12345);
+    const decision = getPlayingDecisions(record)[0];
+    const relativePlayerIds = [
+      decision.playerId,
+      ...record.playerIds.filter((id) => id !== decision.playerId)
+    ];
+    const futureBiddingDecision = {
+      ...record.decisions[0],
+      step: decision.step + 1,
+      phase: "bidding" as const,
+      playerId: record.playerIds[0],
+      action: { type: "pass" as const, playerId: record.playerIds[0] }
+    };
+    const history = encodeBiddingHistory(
+      {
+        ...record,
+        decisions: [...record.decisions, futureBiddingDecision]
+      },
+      decision,
+      relativePlayerIds
+    );
+
+    expect(sum(history.actionMask)).toBe(
+      record.decisions.filter(
+        (candidate) => candidate.phase === "bidding" && candidate.step < decision.step
+      ).length
+    );
   });
 
   it("converts all playing decisions in order", async () => {
@@ -112,8 +283,13 @@ describe("createPlayingTrainingSample", () => {
         }
 
         expect(sample.observation).toEqual(
-          encodePlayingObservation(sourceDecision.observation, firstRecord.playerIds)
+          encodePlayingObservation(
+            sourceDecision.observation,
+            firstRecord.playerIds,
+            sample.observation.biddingHistory
+          )
         );
+        validateEncodedBiddingHistory(sample.observation.biddingHistory);
         expect(sample.beliefTarget).toEqual(
           encodeBeliefTarget(
             sourceDecision.observation,
