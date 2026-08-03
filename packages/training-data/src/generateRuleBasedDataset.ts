@@ -1,0 +1,189 @@
+import { mkdtemp, mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
+import { CARD_IDS, CARD_COUNT, PLAYER_COUNT, PLAYING_ENCODER_SCHEMA_VERSION } from "@napoleon/ai-observation";
+import { RuleBasedAgent, runAutomatedGame } from "@napoleon/ai";
+import type { AutomatedGameRecord } from "@napoleon/ai";
+import {
+  createPlayingTrainingSamples
+} from "@napoleon/ai-observation";
+import {
+  DATASET_FORMAT,
+  DATASET_GENERATOR_VERSION,
+  DATASET_SAMPLE_TYPE,
+  DATASET_SCHEMA_VERSION,
+  RULE_BASED_AGENT_VERSION
+} from "./schema.js";
+import type {
+  DatasetManifest,
+  DatasetShardManifest,
+  GenerateDatasetResult,
+  GenerateRuleBasedDatasetInternalOptions,
+  GenerateRuleBasedDatasetOptions
+} from "./types.js";
+import { createJsonlShardWriter } from "./shardWriter.js";
+import { calculateCardIdsSha256, serializeManifest } from "./serialization.js";
+import {
+  validateDatasetManifest,
+  validateGenerationOptions,
+  validatePlayingTrainingSample
+} from "./validation.js";
+
+export async function generateRuleBasedDataset(
+  options: GenerateRuleBasedDatasetOptions
+): Promise<GenerateDatasetResult> {
+  return generateRuleBasedDatasetWithDependencies(options);
+}
+
+export async function generateRuleBasedDatasetWithDependencies(
+  options: GenerateRuleBasedDatasetInternalOptions
+): Promise<GenerateDatasetResult> {
+  validateGenerationOptions(options);
+
+  const outputDirectory = resolve(options.outputDirectory);
+  await ensureOutputDoesNotExist(outputDirectory);
+  await mkdir(dirname(outputDirectory), { recursive: true });
+
+  const tempDirectory = await mkdtemp(
+    join(dirname(outputDirectory), `.${basenameForTemp(outputDirectory)}.tmp-`)
+  );
+  const runGame = options.runGame ?? runRuleBasedGame;
+  const createSamples = options.createSamples ?? createPlayingTrainingSamples;
+  let activeShard: ReturnType<typeof createJsonlShardWriter> | null = null;
+
+  try {
+    const shards: DatasetShardManifest[] = [];
+    let totalSampleCount = 0;
+    let shardGameCount = 0;
+
+    for (let gameOffset = 0; gameOffset < options.gameCount; gameOffset += 1) {
+      const seed = options.startSeed + gameOffset;
+
+      if (activeShard === null) {
+        activeShard = createJsonlShardWriter(tempDirectory, shards.length, seed);
+        shardGameCount = 0;
+      }
+
+      const record = await runGame(seed);
+      const samples = createSamples(record);
+
+      for (const sample of samples) {
+        validatePlayingTrainingSample(sample, seed);
+        await activeShard.writeSample(sample);
+      }
+
+      totalSampleCount += samples.length;
+      shardGameCount += 1;
+
+      const shardIsComplete =
+        shardGameCount === options.gamesPerShard || gameOffset === options.gameCount - 1;
+
+      if (shardIsComplete) {
+        const completedShard = await activeShard.close(seed, shardGameCount);
+        shards.push(completedShard);
+        activeShard = null;
+      }
+
+      options.onProgress?.({
+        completedGames: gameOffset + 1,
+        totalGames: options.gameCount,
+        sampleCount: totalSampleCount,
+        completedShards: shards.length,
+        currentSeed: seed
+      });
+    }
+
+    const manifest = createManifest({
+      options,
+      sampleCount: totalSampleCount,
+      shards
+    });
+
+    validateDatasetManifest(manifest);
+    await writeFile(join(tempDirectory, "manifest.json"), serializeManifest(manifest), "utf8");
+    await rename(tempDirectory, outputDirectory);
+
+    return {
+      outputDirectory: options.outputDirectory,
+      manifest
+    };
+  } catch (error) {
+    if (activeShard !== null) {
+      await activeShard.abort().catch(() => undefined);
+    }
+
+    await rm(tempDirectory, { recursive: true, force: true }).catch((cleanupError: unknown) => {
+      const message = cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
+
+      if (error instanceof Error) {
+        error.message = `${error.message} Cleanup failed: ${message}`;
+      }
+    });
+
+    throw error;
+  }
+}
+
+async function runRuleBasedGame(seed: number): Promise<AutomatedGameRecord> {
+  return runAutomatedGame({
+    seed,
+    createAgent: ({ rng }) => new RuleBasedAgent(rng)
+  });
+}
+
+function createManifest(input: {
+  options: GenerateRuleBasedDatasetOptions;
+  sampleCount: number;
+  shards: readonly DatasetShardManifest[];
+}): DatasetManifest {
+  const endSeed = input.options.startSeed + input.options.gameCount - 1;
+
+  return {
+    datasetSchemaVersion: DATASET_SCHEMA_VERSION,
+    generatorVersion: DATASET_GENERATOR_VERSION,
+    playingEncoderSchemaVersion: PLAYING_ENCODER_SCHEMA_VERSION,
+    format: DATASET_FORMAT,
+    sampleType: DATASET_SAMPLE_TYPE,
+    agent: {
+      type: "rule-based",
+      version: RULE_BASED_AGENT_VERSION
+    },
+    startSeed: input.options.startSeed,
+    endSeed,
+    gameCount: input.options.gameCount,
+    sampleCount: input.sampleCount,
+    gamesPerShard: input.options.gamesPerShard,
+    shardCount: input.shards.length,
+    playerCount: PLAYER_COUNT,
+    cardCount: CARD_COUNT,
+    cardIds: CARD_IDS,
+    cardIdsSha256: calculateCardIdsSha256(),
+    shards: input.shards
+  };
+}
+
+async function ensureOutputDoesNotExist(outputDirectory: string): Promise<void> {
+  try {
+    await stat(outputDirectory);
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return;
+    }
+
+    throw error;
+  }
+
+  throw new Error(`Output directory already exists: ${outputDirectory}`);
+}
+
+function isNotFoundError(error: unknown): boolean {
+  return typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "ENOENT";
+}
+
+function basenameForTemp(outputDirectory: string): string {
+  const parts = outputDirectory.split(/[\\/]/);
+
+  return parts.at(-1) ?? "dataset";
+}
