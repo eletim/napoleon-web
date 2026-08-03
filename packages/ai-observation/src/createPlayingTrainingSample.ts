@@ -6,6 +6,7 @@ import { encodePlayAction } from "./encodePlayAction.js";
 import type { EncodedPlayAction } from "./encodePlayAction.js";
 import { encodePlayingObservation } from "./encodePlayingObservation.js";
 import type { EncodedPlayingObservation } from "./encodePlayingObservation.js";
+import { createRelativePlayerOrder } from "./playerIndex.js";
 import { PLAYING_ENCODER_SCHEMA_VERSION } from "./schema.js";
 
 export interface PlayingTrainingSample {
@@ -33,11 +34,11 @@ export function createPlayingTrainingSample(
 
   validatePlayingDecisionConsistency(record, decision);
 
-  const encodedBaseObservation = encodePlayingObservation(decision.observation, record.playerIds);
+  const relativePlayerIds = createRelativePlayerOrder(record.playerIds, decision.playerId);
   const biddingHistory = encodeBiddingHistory(
     record,
     decision,
-    encodedBaseObservation.relativePlayerIds
+    relativePlayerIds
   );
   const observation = encodePlayingObservation(
     decision.observation,
@@ -49,6 +50,10 @@ export function createPlayingTrainingSample(
     throw new Error(
       `Observation relative player index 0 must be the acting player: ${observation.relativePlayerIds[0]} !== ${decision.playerId}`
     );
+  }
+
+  if (!samePlayerOrder(observation.relativePlayerIds, relativePlayerIds)) {
+    throw new Error("Observation relative player order must match the sample player order.");
   }
 
   const actorTarget = encodePlayAction(
@@ -161,4 +166,12 @@ function sameCardIds(left: readonly string[], right: readonly string[]): boolean
   }
 
   return left.every((cardId) => rightIds.has(cardId));
+}
+
+function samePlayerOrder(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((playerId, index) => playerId === right[index]);
 }

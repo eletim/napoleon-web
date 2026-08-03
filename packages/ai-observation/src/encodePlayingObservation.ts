@@ -1,10 +1,7 @@
 import type { PlayerObservation } from "@napoleon/ai";
 import type { PlayerId, PublicPlayerState, Suit } from "@napoleon/game-core";
 import { getCardIndex } from "./cardIndex.js";
-import {
-  createEmptyEncodedBiddingHistory,
-  validateEncodedBiddingHistory
-} from "./encodeBiddingHistory.js";
+import { validateEncodedBiddingHistory } from "./encodeBiddingHistory.js";
 import type { EncodedBiddingHistory } from "./encodeBiddingHistory.js";
 import { createRelativePlayerOrder, getRelativePlayerIndex } from "./playerIndex.js";
 import {
@@ -59,7 +56,7 @@ export interface EncodedPlayingObservation {
 export function encodePlayingObservation(
   observation: PlayerObservation,
   absolutePlayerIds: readonly PlayerId[],
-  biddingHistory: EncodedBiddingHistory = createEmptyEncodedBiddingHistory()
+  biddingHistory: EncodedBiddingHistory
 ): EncodedPlayingObservation {
   const view = observation.view;
 

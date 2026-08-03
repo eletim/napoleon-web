@@ -243,6 +243,73 @@ describe("createPlayingTrainingSample", () => {
     );
   });
 
+  it("validates bidding history before encodeBiddingHistory returns", async () => {
+    const { record, bidDecision, playingDecision } = await createRecordWithBid();
+    const relativePlayerIds = [
+      playingDecision.playerId,
+      ...record.playerIds.filter((id) => id !== playingDecision.playerId)
+    ];
+    const first = encodeBiddingHistory(record, playingDecision, relativePlayerIds);
+    const second = encodeBiddingHistory(record, playingDecision, relativePlayerIds);
+    const invalidBidRecord: AutomatedGameRecord = {
+      ...record,
+      decisions: record.decisions.map((candidate) =>
+        candidate.step === bidDecision.step && candidate.action.type === "bid"
+          ? {
+              ...candidate,
+              action: {
+                ...candidate.action,
+                targetPointCards: 999
+              }
+            }
+          : candidate
+      )
+    };
+
+    expect(first).toEqual(second);
+    expect(() => encodeBiddingHistory(
+      invalidBidRecord,
+      playingDecision,
+      relativePlayerIds
+    )).toThrow("targetPointCards");
+  });
+
+  it("rejects non pass-or-bid actions in bidding history", async () => {
+    const record = await createRecord(12345);
+    const decision = getPlayingDecisions(record)[0];
+    const biddingDecision = record.decisions.find((candidate) => candidate.phase === "bidding");
+
+    if (biddingDecision === undefined) {
+      throw new Error("Expected a bidding decision.");
+    }
+
+    const invalidRecord: AutomatedGameRecord = {
+      ...record,
+      decisions: record.decisions.map((candidate) =>
+        candidate.step === biddingDecision.step
+          ? {
+              ...candidate,
+              action: {
+                type: "play-card" as const,
+                playerId: candidate.playerId,
+                cardId: "joker"
+              }
+            }
+          : candidate
+      )
+    };
+    const relativePlayerIds = [
+      decision.playerId,
+      ...record.playerIds.filter((id) => id !== decision.playerId)
+    ];
+
+    expect(() => encodeBiddingHistory(
+      invalidRecord,
+      decision,
+      relativePlayerIds
+    )).toThrow("supports only pass and bid actions");
+  });
+
   it("rejects mismatched action, observation, and view player identities", async () => {
     const record = await createRecord(12345);
     const decision = getPlayingDecisions(record)[0];
@@ -404,6 +471,26 @@ async function createRecord(seed: number): Promise<AutomatedGameRecord> {
     seed,
     createAgent: ({ rng }) => new RuleBasedAgent(rng)
   });
+}
+
+async function createRecordWithBid(): Promise<{
+  record: AutomatedGameRecord;
+  bidDecision: DecisionRecord;
+  playingDecision: DecisionRecord;
+}> {
+  for (const seed of integrationSeeds) {
+    const record = await createRecord(seed);
+    const bidDecision = record.decisions.find(
+      (decision) => decision.phase === "bidding" && decision.action.type === "bid"
+    );
+    const playingDecision = getPlayingDecisions(record)[0];
+
+    if (bidDecision !== undefined) {
+      return { record, bidDecision, playingDecision };
+    }
+  }
+
+  throw new Error("Expected at least one integration seed with a bid decision.");
 }
 
 function getPlayingDecisions(record: AutomatedGameRecord): readonly DecisionRecord[] {

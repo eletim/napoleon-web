@@ -37,6 +37,13 @@ and whose `step` is before the playing decision. The encoder does not reconstruc
 history from `view.bidding`, because that field is `null` after bidding has
 resolved.
 
+`encodePlayingObservation()` requires a `biddingHistory` argument and never
+silently falls back to an empty history. Tests or tooling that need an explicit
+empty fixed-length history can call `createEmptyEncodedBiddingHistory()` and pass
+that value. Normal training sample generation uses `encodeBiddingHistory()` to
+derive the real public bidding history from the automated game record, and
+`encodeBiddingHistory()` validates its generated schema before returning it.
+
 - `actionTypeIndices`: `0` pass, `1` bid, `-1` empty
 - `playerIndices`: `0..4` actor-relative player index, `-1` empty
 - `suitIndices`: `0` spades, `1` hearts, `2` diamonds, `3` clubs, `-1` pass or

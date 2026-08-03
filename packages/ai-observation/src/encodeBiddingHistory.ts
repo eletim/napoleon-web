@@ -88,13 +88,17 @@ export function encodeBiddingHistory(
     throw new Error(`Bidding history supports only pass and bid actions, got ${action.type}.`);
   });
 
-  return {
+  const result: EncodedBiddingHistory = {
     actionTypeIndices,
     playerIndices,
     suitIndices,
     targetPointCards,
     actionMask
   };
+
+  validateEncodedBiddingHistory(result);
+
+  return result;
 }
 
 export function getBiddingSuitIndex(suit: Suit): number {

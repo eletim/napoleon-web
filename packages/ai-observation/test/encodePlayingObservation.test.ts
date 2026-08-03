@@ -11,6 +11,7 @@ import {
   PLAYER_COUNT,
   PLAYING_ENCODER_SCHEMA_VERSION,
   TRICK_COUNT,
+  createEmptyEncodedBiddingHistory,
   createPlayingTrainingSample,
   encodePlayAction,
   encodePlayingObservation,
@@ -22,9 +23,14 @@ import type { EncodedPlayingObservation } from "../src/index.js";
 describe("encodePlayingObservation", () => {
   it("encodes a playing observation into fixed shapes", async () => {
     const { record, decision } = await getFirstPlayingDecision(12345);
-    const encoded = encodePlayingObservation(decision.observation, record.playerIds);
+    const encoded = encodePlayingObservation(
+      decision.observation,
+      record.playerIds,
+      createEmptyEncodedBiddingHistory()
+    );
 
     expect(encoded.schemaVersion).toBe(PLAYING_ENCODER_SCHEMA_VERSION);
+    expect(sum(encoded.biddingHistory.actionMask)).toBe(0);
     expect(encoded.relativePlayerIds[0]).toBe(decision.playerId);
     expect(encoded.trumpSuitOneHot).toHaveLength(4);
     expect(encoded.napoleonPlayerOneHot).toHaveLength(PLAYER_COUNT);
@@ -59,7 +65,11 @@ describe("encodePlayingObservation", () => {
       throw new Error("Expected a playing decision with a non-empty current trick.");
     }
 
-    const encoded = encodePlayingObservation(decision.observation, record.playerIds);
+    const encoded = encodePlayingObservation(
+      decision.observation,
+      record.playerIds,
+      createEmptyEncodedBiddingHistory()
+    );
     const trick = decision.observation.view.currentTrick;
 
     expect(encoded.currentTrickSlotMask.slice(0, trick.length)).toEqual(
@@ -92,7 +102,11 @@ describe("encodePlayingObservation", () => {
       throw new Error("Expected a playing decision with completed tricks.");
     }
 
-    const encoded = encodePlayingObservation(decision.observation, record.playerIds);
+    const encoded = encodePlayingObservation(
+      decision.observation,
+      record.playerIds,
+      createEmptyEncodedBiddingHistory()
+    );
     const completedSlotCount =
       decision.observation.view.completedTricks.length * CARDS_PER_TRICK;
 
@@ -122,7 +136,11 @@ describe("encodePlayingObservation", () => {
       throw new Error("Expected a playing decision with a buried-card event.");
     }
 
-    const encoded = encodePlayingObservation(decision.observation, record.playerIds);
+    const encoded = encodePlayingObservation(
+      decision.observation,
+      record.playerIds,
+      createEmptyEncodedBiddingHistory()
+    );
     const event = decision.observation.view.latestEvent;
 
     if (event?.type !== "buried-cards-resolved") {
@@ -145,9 +163,13 @@ describe("encodePlayingObservation", () => {
       throw new Error("Expected a bidding decision.");
     }
 
-    expect(() => encodePlayingObservation(biddingDecision.observation, record.playerIds)).toThrow(
-      "requires a playing observation"
-    );
+    expect(() =>
+      encodePlayingObservation(
+        biddingDecision.observation,
+        record.playerIds,
+        createEmptyEncodedBiddingHistory()
+      )
+    ).toThrow("requires a playing observation");
 
     const { decision } = await getFirstPlayingDecision(12345);
     const invalidObservation = {
@@ -158,14 +180,22 @@ describe("encodePlayingObservation", () => {
       ]
     };
 
-    expect(() => encodePlayingObservation(invalidObservation, record.playerIds)).toThrow(
-      "only play-card actions"
-    );
+    expect(() =>
+      encodePlayingObservation(
+        invalidObservation,
+        record.playerIds,
+        createEmptyEncodedBiddingHistory()
+      )
+    ).toThrow("only play-card actions");
   });
 
   it("encodes selected play-card actions and validates the legal mask", async () => {
     const { record, decision } = await getFirstPlayingDecision(12345);
-    const observation = encodePlayingObservation(decision.observation, record.playerIds);
+    const observation = encodePlayingObservation(
+      decision.observation,
+      record.playerIds,
+      createEmptyEncodedBiddingHistory()
+    );
 
     expect(encodePlayAction(decision.action, observation.legalPlayMask)).toEqual({
       selectedCardIndex: getCardIndex(decision.action.type === "play-card" ? decision.action.cardId : "")
