@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { once } from "node:events";
 import { join } from "node:path";
+import { finished } from "node:stream/promises";
+import type { Writable } from "node:stream";
 import type { PlayingTrainingSample } from "@napoleon/ai-observation";
 import type { DatasetShardManifest } from "./types.js";
 import { serializePlayingTrainingSample } from "./serialization.js";
@@ -15,43 +16,74 @@ export interface JsonlShardWriter {
   abort: () => Promise<void>;
 }
 
+export type ShardWriterState = "open" | "closing" | "closed" | "aborted" | "failed";
+export type WritableFactory = (path: string) => Writable;
+
 export function createJsonlShardWriter(
   directory: string,
   shardIndex: number,
-  startSeed: number
-): JsonlShardWriter {
-  const fileName = shardFileName(shardIndex);
-  const stream = createWriteStream(join(directory, fileName), {
+  startSeed: number,
+  writableFactory: WritableFactory = (path) => createWriteStream(path, {
     encoding: "utf8",
     flags: "wx"
-  });
+  })
+): JsonlShardWriter {
+  const fileName = shardFileName(shardIndex);
+  const stream = writableFactory(join(directory, fileName));
   const hash = createHash("sha256");
   let byteLength = 0;
   let sampleCount = 0;
-  let closed = false;
+  let state: ShardWriterState = "open";
+  let streamFailure: unknown;
+  const completion = finished(stream).catch((error: unknown) => {
+    streamFailure ??= error;
+    if (state !== "aborted") {
+      state = "failed";
+    }
+  });
 
   async function writeChunk(chunk: string): Promise<void> {
-    if (closed) {
-      throw new Error(`Cannot write to closed shard: ${fileName}`);
+    assertOpenForWrite();
+
+    let accepted: boolean;
+
+    try {
+      accepted = stream.write(chunk);
+    } catch (error) {
+      streamFailure ??= error;
+      state = "failed";
+      throw error;
     }
 
     hash.update(chunk, "utf8");
     byteLength += Buffer.byteLength(chunk, "utf8");
     sampleCount += 1;
 
-    if (!stream.write(chunk)) {
-      await once(stream, "drain");
+    if (!accepted) {
+      await waitForDrain();
+      throwIfStreamFailed();
     }
   }
 
   async function close(endSeed: number, gameCount: number): Promise<DatasetShardManifest> {
-    if (closed) {
-      throw new Error(`Shard already closed: ${fileName}`);
+    if (state !== "open") {
+      throw new Error(`Cannot close shard ${fileName} while ${state}.`);
     }
 
-    closed = true;
-    stream.end();
-    await once(stream, "finish");
+    throwIfStreamFailed();
+    state = "closing";
+
+    try {
+      stream.end();
+    } catch (error) {
+      streamFailure ??= error;
+      state = "failed";
+      throw error;
+    }
+
+    await completion;
+    throwIfStreamFailed();
+    state = "closed";
 
     return {
       file: fileName,
@@ -65,18 +97,14 @@ export function createJsonlShardWriter(
   }
 
   async function abort(): Promise<void> {
-    if (closed) {
+    if (state === "closed" || state === "aborted") {
       return;
     }
 
-    closed = true;
+    state = "aborted";
     stream.destroy();
-    await once(stream, "close");
+    await completion;
   }
-
-  stream.on("error", () => {
-    // The pending stream operation will reject through Node's event emitter.
-  });
 
   return {
     fileName,
@@ -87,4 +115,40 @@ export function createJsonlShardWriter(
     close,
     abort
   };
+
+  function assertOpenForWrite(): void {
+    throwIfStreamFailed();
+
+    if (state !== "open") {
+      throw new Error(`Cannot write to shard ${fileName} while ${state}.`);
+    }
+  }
+
+  function throwIfStreamFailed(): void {
+    if (streamFailure !== undefined) {
+      throw streamFailure;
+    }
+  }
+
+  async function waitForDrain(): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const cleanup = () => {
+        stream.off("drain", onDrain);
+        stream.off("error", onError);
+      };
+      const onDrain = () => {
+        cleanup();
+        resolve();
+      };
+      const onError = (error: Error) => {
+        cleanup();
+        streamFailure ??= error;
+        state = "failed";
+        reject(error);
+      };
+
+      stream.once("drain", onDrain);
+      stream.once("error", onError);
+    });
+  }
 }

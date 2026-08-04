@@ -20,7 +20,7 @@ import type {
   GenerateRuleBasedDatasetInternalOptions,
   GenerateRuleBasedDatasetOptions
 } from "./types.js";
-import { createJsonlShardWriter } from "./shardWriter.js";
+import { createJsonlShardWriter, type JsonlShardWriter } from "./shardWriter.js";
 import { calculateCardIdsSha256, serializeManifest } from "./serialization.js";
 import {
   validateDatasetManifest,
@@ -48,7 +48,8 @@ export async function generateRuleBasedDatasetWithDependencies(
   );
   const runGame = options.runGame ?? runRuleBasedGame;
   const createSamples = options.createSamples ?? createPlayingTrainingSamples;
-  let activeShard: ReturnType<typeof createJsonlShardWriter> | null = null;
+  const createShardWriter = options.createShardWriter ?? createJsonlShardWriter;
+  let activeShard: JsonlShardWriter | null = null;
 
   try {
     const shards: DatasetShardManifest[] = [];
@@ -59,7 +60,7 @@ export async function generateRuleBasedDatasetWithDependencies(
       const seed = options.startSeed + gameOffset;
 
       if (activeShard === null) {
-        activeShard = createJsonlShardWriter(tempDirectory, shards.length, seed);
+        activeShard = createShardWriter(tempDirectory, shards.length, seed);
         shardGameCount = 0;
       }
 

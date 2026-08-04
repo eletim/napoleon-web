@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { Writable } from "node:stream";
 import { describe, expect, it } from "vitest";
 import { CARD_IDS } from "@napoleon/ai-observation";
 import {
@@ -16,6 +17,7 @@ import {
 } from "../src/index.js";
 import type { DatasetManifest } from "../src/index.js";
 import { generateRuleBasedDatasetWithDependencies } from "../src/generateRuleBasedDataset.js";
+import { createJsonlShardWriter } from "../src/shardWriter.js";
 
 describe("generateRuleBasedDataset", () => {
   it("generates a small dataset with valid shards and manifest", async () => {
@@ -146,6 +148,44 @@ describe("generateRuleBasedDataset", () => {
       expect(await readdir(directory)).toEqual([]);
     });
   });
+
+  it("propagates asynchronous shard write failures and removes temporary output", async () => {
+    await withTempDir(async (directory) => {
+      const output = join(directory, "dataset");
+      const generation = generateRuleBasedDatasetWithDependencies({
+        startSeed: 0,
+        gameCount: 1,
+        gamesPerShard: 1,
+        outputDirectory: output,
+        createShardWriter: (shardDirectory, shardIndex, startSeed) =>
+          createJsonlShardWriterWithWritable(shardDirectory, shardIndex, startSeed, () => new FailingWriteWritable())
+      });
+
+      await expectRejectsWithoutHanging(generation, "intentional stream failure");
+      await expect(stat(output)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(stat(join(output, "manifest.json"))).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await readdir(directory)).toEqual([]);
+    });
+  });
+
+  it("propagates shard close failures and removes temporary output", async () => {
+    await withTempDir(async (directory) => {
+      const output = join(directory, "dataset");
+      const generation = generateRuleBasedDatasetWithDependencies({
+        startSeed: 0,
+        gameCount: 1,
+        gamesPerShard: 1,
+        outputDirectory: output,
+        createShardWriter: (shardDirectory, shardIndex, startSeed) =>
+          createJsonlShardWriterWithWritable(shardDirectory, shardIndex, startSeed, () => new FailingFinalWritable())
+      });
+
+      await expectRejectsWithoutHanging(generation, "intentional close failure");
+      await expect(stat(output)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(stat(join(output, "manifest.json"))).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await readdir(directory)).toEqual([]);
+    });
+  });
 });
 
 async function withTempDir(run: (directory: string) => Promise<void>): Promise<void> {
@@ -195,4 +235,55 @@ function assertSampleOrderAndValidity(samples: readonly PlayingTrainingSample[])
 
 function sha256(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+async function expectRejectsWithoutHanging(
+  promise: Promise<unknown>,
+  message: string
+): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => reject(new Error("dataset generation hung")), 1000);
+  });
+
+  try {
+    await expect(Promise.race([promise, timeoutPromise])).rejects.toThrow(message);
+  } finally {
+    if (timeout !== null) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+function createJsonlShardWriterWithWritable(
+  directory: string,
+  shardIndex: number,
+  startSeed: number,
+  createWritable: () => Writable
+) {
+  return createJsonlShardWriter(directory, shardIndex, startSeed, createWritable);
+}
+
+class FailingWriteWritable extends Writable {
+  override _write(
+    _chunk: Buffer | string,
+    _encoding: BufferEncoding,
+    callback: (error?: Error | null) => void
+  ): void {
+    queueMicrotask(() => callback(new Error("intentional stream failure")));
+  }
+}
+
+class FailingFinalWritable extends Writable {
+  override _write(
+    _chunk: Buffer | string,
+    _encoding: BufferEncoding,
+    callback: (error?: Error | null) => void
+  ): void {
+    queueMicrotask(() => callback(null));
+  }
+
+  override _final(callback: (error?: Error | null) => void): void {
+    queueMicrotask(() => callback(new Error("intentional close failure")));
+  }
 }

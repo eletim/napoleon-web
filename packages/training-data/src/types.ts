@@ -66,9 +66,11 @@ export type GameRunner = (seed: number) => Promise<AutomatedGameRecord>;
 export type SampleCreator = (
   record: AutomatedGameRecord
 ) => readonly PlayingTrainingSample[];
+export type CreateShardWriter = typeof import("./shardWriter.js").createJsonlShardWriter;
 
 export interface GenerateRuleBasedDatasetInternalOptions
   extends GenerateRuleBasedDatasetOptions {
   runGame?: GameRunner;
   createSamples?: SampleCreator;
+  createShardWriter?: CreateShardWriter;
 }
