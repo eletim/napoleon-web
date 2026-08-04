@@ -186,6 +186,30 @@ describe("generateRuleBasedDataset", () => {
       expect(await readdir(directory)).toEqual([]);
     });
   });
+
+  it("rejects without hanging when a shard stream closes without error during backpressure", async () => {
+    await withTempDir(async (directory) => {
+      const output = join(directory, "dataset");
+      const generation = generateRuleBasedDatasetWithDependencies({
+        startSeed: 0,
+        gameCount: 1,
+        gamesPerShard: 1,
+        outputDirectory: output,
+        createShardWriter: (shardDirectory, shardIndex, startSeed) =>
+          createJsonlShardWriterWithWritable(
+            shardDirectory,
+            shardIndex,
+            startSeed,
+            () => new PrematureCloseWritable()
+          )
+      });
+
+      await expectRejectsWithoutHanging(generation, "closed before drain");
+      await expect(stat(output)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(stat(join(output, "manifest.json"))).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await readdir(directory)).toEqual([]);
+    });
+  });
 });
 
 async function withTempDir(run: (directory: string) => Promise<void>): Promise<void> {
@@ -285,5 +309,26 @@ class FailingFinalWritable extends Writable {
 
   override _final(callback: (error?: Error | null) => void): void {
     queueMicrotask(() => callback(new Error("intentional close failure")));
+  }
+}
+
+// Simulates a Writable that is force-destroyed (no error passed) while a
+// write is still buffered, e.g. an upstream process killing the file
+// descriptor. It never calls its _write callback, so the write stays
+// pending and "drain" never fires; a tiny highWaterMark guarantees
+// stream.write() reports backpressure on the very first chunk.
+class PrematureCloseWritable extends Writable {
+  constructor() {
+    super({ highWaterMark: 1 });
+  }
+
+  override _write(
+    _chunk: Buffer | string,
+    _encoding: BufferEncoding,
+    _callback: (error?: Error | null) => void
+  ): void {
+    queueMicrotask(() => {
+      this.destroy();
+    });
   }
 }

@@ -131,12 +131,12 @@ export function createJsonlShardWriter(
   }
 
   async function waitForDrain(): Promise<void> {
-    await new Promise<void>((resolve, reject) => {
-      const cleanup = () => {
-        stream.off("drain", onDrain);
-        stream.off("error", onError);
-      };
+    let drained = false;
+    let cleanup = () => undefined;
+
+    const drainOrError = new Promise<void>((resolve, reject) => {
       const onDrain = () => {
+        drained = true;
         cleanup();
         resolve();
       };
@@ -147,8 +147,40 @@ export function createJsonlShardWriter(
         reject(error);
       };
 
+      cleanup = () => {
+        stream.off("drain", onDrain);
+        stream.off("error", onError);
+      };
+
       stream.once("drain", onDrain);
       stream.once("error", onError);
     });
+
+    try {
+      // A stream can be destroyed without emitting "error" (e.g. a bare
+      // `stream.destroy()` during backpressure), which never fires "drain"
+      // either. Racing against overall stream completion ensures we stop
+      // waiting once the stream is no longer writable, instead of hanging
+      // forever on events that will never come.
+      await Promise.race([drainOrError, completion]);
+    } finally {
+      cleanup();
+    }
+
+    if (drained) {
+      throwIfStreamFailed();
+      return;
+    }
+
+    // The stream completed (successfully or not) before "drain" ever fired.
+    // Wrap whatever caused that in a stable, stream-writer-owned error so
+    // callers never depend on Node's internal "Premature close" wording.
+    const error = new Error(`Shard stream closed before drain: ${fileName}`, {
+      cause: streamFailure
+    });
+
+    streamFailure = error;
+    state = "failed";
+    throw error;
   }
 }
