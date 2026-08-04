@@ -83,6 +83,22 @@ def require_str_tuple(value: object, *, path: str, error: ErrorFactory) -> tuple
     )
 
 
+def require_int_tuple(value: object, *, path: str, error: ErrorFactory) -> tuple[int, ...]:
+    items = require_list(value, path=path, error=error)
+    return tuple(
+        require_int(item, path=f"{path}[{index}]", error=error) for index, item in enumerate(items)
+    )
+
+
+def require_fixed_length_int_tuple(
+    value: object, *, path: str, length: int, error: ErrorFactory
+) -> tuple[int, ...]:
+    items = require_int_tuple(value, path=path, error=error)
+    if len(items) != length:
+        raise error(f"{path} must have length {length}, got {len(items)}.")
+    return items
+
+
 def require_int_in_range(
     value: object, *, path: str, minimum: int, maximum: int, error: ErrorFactory
 ) -> int:
