@@ -13,6 +13,7 @@ import {
   DATASET_SAMPLE_TYPE,
   DATASET_SCHEMA_VERSION,
   RULE_BASED_AGENT_VERSION,
+  MAX_SHARD_COUNT,
   SHARD_FILE_DIGITS,
   UINT32_MAX
 } from "./schema.js";
@@ -38,6 +39,17 @@ export function validateGenerationOptions(options: GenerateRuleBasedDatasetOptio
 
   if (!Number.isSafeInteger(endSeed) || endSeed > UINT32_MAX) {
     throw new Error(`Seed range exceeds uint32: ${options.startSeed}..${endSeed}`);
+  }
+
+  const expectedShardCount = calculateExpectedShardCount(
+    options.gameCount,
+    options.gamesPerShard
+  );
+
+  if (expectedShardCount > MAX_SHARD_COUNT) {
+    throw new Error(
+      `Dataset would require ${expectedShardCount} shards, exceeding the maximum ${MAX_SHARD_COUNT}.`
+    );
   }
 }
 
@@ -108,8 +120,19 @@ export function validateDatasetManifest(manifest: DatasetManifest): void {
     throw new Error("Manifest agent metadata mismatch.");
   }
 
+  validateManifestNumbers(manifest);
+
   if (manifest.gameCount !== manifest.endSeed - manifest.startSeed + 1) {
     throw new Error("Manifest gameCount must match seed range.");
+  }
+
+  const expectedShardCount = calculateExpectedShardCount(
+    manifest.gameCount,
+    manifest.gamesPerShard
+  );
+
+  if (manifest.shardCount !== expectedShardCount) {
+    throw new Error("Manifest shardCount must match gameCount and gamesPerShard.");
   }
 
   if (manifest.shardCount !== manifest.shards.length) {
@@ -136,6 +159,14 @@ export function validateDatasetManifest(manifest: DatasetManifest): void {
 }
 
 export function shardFileName(shardIndex: number): string {
+  if (
+    !Number.isSafeInteger(shardIndex) ||
+    shardIndex < 0 ||
+    shardIndex >= MAX_SHARD_COUNT
+  ) {
+    throw new Error(`shardIndex must be an integer between 0 and ${MAX_SHARD_COUNT - 1}.`);
+  }
+
   return `shard-${shardIndex.toString().padStart(SHARD_FILE_DIGITS, "0")}.jsonl`;
 }
 
@@ -166,6 +197,16 @@ function validateShards(manifest: DatasetManifest): void {
       throw new Error(`Shard ${shard.file} gameCount must match seed range.`);
     }
 
+    const isLastShard = index === manifest.shards.length - 1;
+
+    if (!isLastShard && shard.gameCount !== manifest.gamesPerShard) {
+      throw new Error(`Shard ${shard.file} gameCount must match gamesPerShard.`);
+    }
+
+    if (isLastShard && shard.gameCount > manifest.gamesPerShard) {
+      throw new Error(`Final shard ${shard.file} gameCount must not exceed gamesPerShard.`);
+    }
+
     expectedStartSeed = shard.endSeed + 1;
   });
 
@@ -182,22 +223,57 @@ function validateShards(manifest: DatasetManifest): void {
   }
 }
 
+function validateManifestNumbers(manifest: DatasetManifest): void {
+  validateUint32("Manifest startSeed", manifest.startSeed);
+  validateUint32("Manifest endSeed", manifest.endSeed);
+
+  if (manifest.endSeed < manifest.startSeed) {
+    throw new Error("Manifest endSeed must be greater than or equal to startSeed.");
+  }
+
+  validatePositiveInteger("Manifest gameCount", manifest.gameCount);
+  validatePositiveInteger("Manifest sampleCount", manifest.sampleCount);
+  validatePositiveInteger("Manifest gamesPerShard", manifest.gamesPerShard);
+  validatePositiveInteger("Manifest shardCount", manifest.shardCount);
+
+  if (manifest.shardCount > MAX_SHARD_COUNT) {
+    throw new Error(`Manifest shardCount must not exceed ${MAX_SHARD_COUNT}.`);
+  }
+
+  if (manifest.playerCount !== PLAYER_COUNT) {
+    throw new Error(`Manifest playerCount must be ${PLAYER_COUNT}.`);
+  }
+
+  if (manifest.cardCount !== CARD_COUNT) {
+    throw new Error(`Manifest cardCount must be ${CARD_COUNT}.`);
+  }
+}
+
 function validateShard(shard: DatasetShardManifest): void {
-  if (shard.gameCount <= 0 || !Number.isSafeInteger(shard.gameCount)) {
-    throw new Error(`Shard ${shard.file} gameCount must be a positive integer.`);
+  validateUint32(`Shard ${shard.file} startSeed`, shard.startSeed);
+  validateUint32(`Shard ${shard.file} endSeed`, shard.endSeed);
+
+  if (shard.endSeed < shard.startSeed) {
+    throw new Error(`Shard ${shard.file} endSeed must be greater than or equal to startSeed.`);
   }
 
-  if (shard.sampleCount <= 0 || !Number.isSafeInteger(shard.sampleCount)) {
-    throw new Error(`Shard ${shard.file} sampleCount must be a positive integer.`);
-  }
-
-  if (shard.byteLength <= 0 || !Number.isSafeInteger(shard.byteLength)) {
-    throw new Error(`Shard ${shard.file} byteLength must be a positive integer.`);
-  }
+  validatePositiveInteger(`Shard ${shard.file} gameCount`, shard.gameCount);
+  validatePositiveInteger(`Shard ${shard.file} sampleCount`, shard.sampleCount);
+  validatePositiveInteger(`Shard ${shard.file} byteLength`, shard.byteLength);
 
   if (!sha256Pattern.test(shard.sha256)) {
     throw new Error(`Shard ${shard.file} sha256 must be lowercase hex.`);
   }
+}
+
+function calculateExpectedShardCount(gameCount: number, gamesPerShard: number): number {
+  const expectedShardCount = Math.ceil(gameCount / gamesPerShard);
+
+  if (!Number.isSafeInteger(expectedShardCount) || expectedShardCount < 1) {
+    throw new Error("Expected shard count must be a positive safe integer.");
+  }
+
+  return expectedShardCount;
 }
 
 function validateUint32(name: string, value: number): void {
