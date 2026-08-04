@@ -7,7 +7,7 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "generate": "pnpm run build && node dist/index.js",
+    "generate": "pnpm --filter @napoleon/self-play-cli... build && node dist/index.js",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
