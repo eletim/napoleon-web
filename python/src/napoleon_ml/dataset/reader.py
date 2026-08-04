@@ -17,6 +17,8 @@ from ._strict import require_int
 from .errors import ManifestValidationError, SampleValidationError, ShardIntegrityError
 from .manifest import DatasetManifest, DatasetShardManifest, parse_manifest
 from .sample import PlayingTrainingSample, parse_sample
+from .split import DatasetSplit, SplitConfig, split_for_seed
+from .tensors import TensorizedPlayingSample, tensorize_sample
 from .validation import validate_dataset_directory, validate_manifest, validate_sample
 
 
@@ -274,3 +276,26 @@ def iter_samples(
             f"{current_shard_file}:{shard_line_number}: dataset ended at seed {current_seed}, "
             f"expected to end at manifest.endSeed {manifest.end_seed}."
         )
+
+
+def iter_tensorized_samples(
+    dataset_directory: Path | str,
+    *,
+    split: DatasetSplit | None = None,
+    split_config: SplitConfig | None = None,
+    verify_integrity: bool = True,
+) -> Iterator[TensorizedPlayingSample]:
+    """Stream fully validated, tensorized samples, optionally filtered to one split.
+
+    Filtering happens inline as each sample is produced (its seed is checked
+    against ``split_config`` before it is tensorized and before the next
+    sample is read); the dataset is never buffered in memory to filter it.
+    """
+
+    effective_split_config = split_config if split_config is not None else SplitConfig()
+
+    for sample in iter_samples(dataset_directory, verify_integrity=verify_integrity):
+        if split is not None and split_for_seed(sample.seed, effective_split_config) != split:
+            continue
+
+        yield tensorize_sample(sample)
