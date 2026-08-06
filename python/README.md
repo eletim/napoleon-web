@@ -4,13 +4,14 @@ A strict Python consumer for the self-play datasets that
 `packages/training-data` (TypeScript) generates. It validates a generated
 dataset directory end to end — `manifest.json`, every shard's raw bytes,
 and every individual sample — and converts validated samples into
-fixed-shape, fixed-dtype NumPy tensors. It also includes a first CPU-only
-PyTorch MLP baseline for predicting hidden card ownership from `model_input`.
+fixed-shape, fixed-dtype NumPy tensors. It also includes first CPU-only
+PyTorch MLP baselines for predicting hidden card ownership and selecting a
+legal play from `model_input`.
 
 This package covers the boundary from a generated dataset directory to
 validated NumPy arrays, an optional PyTorch `IterableDataset` adapter for
-fixed-shape training batches, and the first supervised ownership-belief MLP
-baseline. It does not include TensorFlow, JAX, ONNX export, reinforcement
+fixed-shape training batches, and the first supervised ownership-belief and
+legal-play policy MLP baselines. It does not include TensorFlow, JAX, ONNX export, reinforcement
 learning, a parallel `DataLoader`, dataset caching, or compression. See
 [Not implemented](#not-implemented) below.
 
@@ -437,6 +438,46 @@ metadata or card-id hash does not match the current package and dataset.
 For reproducibility, `--seed` fixes model initialization and the DataLoader
 keeps the deterministic shard/seed sample order; no shuffle option is
 exposed.
+
+## Policy MLP baseline
+
+Install the `train` or `dev` extra, then train the CPU-only behavior-cloning
+baseline on the rule-based agent's selected plays:
+
+```bash
+napoleon-train-policy-mlp ./datasets/rule-based-v1 \
+  --output ./models/policy-mlp.pt \
+  --epochs 3 \
+  --batch-size 32 \
+  --seed 0
+```
+
+The model consumes only `model_input` and emits logits with shape
+`(batch, 53)`: one logit per card id. Training masks illegal card logits
+with `legal_play_mask` before cross entropy, and evaluation and inference
+use the same mask before top-1 selection, so an illegal card is never
+available as a prediction. `napoleon_ml.policy.select_policy_action()` is
+the inference helper for turning logits plus a legal mask into selected
+card indices.
+
+Evaluate a saved checkpoint without training:
+
+```bash
+napoleon-evaluate-policy-mlp ./datasets/rule-based-v1 \
+  --checkpoint ./models/policy-mlp.pt \
+  --split test
+```
+
+The report includes top-1 accuracy and counts for all positions, forced
+positions with exactly one legal card, and non-forced positions with
+multiple legal cards. It also reports the expected accuracy of a legal-card
+uniform random baseline over the same buckets. Checkpoints store the model
+state, model/training settings, dataset schema version, playing encoder
+schema version, model input schema version, and the `CARD_IDS` SHA-256 hash.
+Loading refuses a checkpoint whose saved schema metadata or card-id hash
+does not match the current package and dataset. For reproducibility,
+`--seed` fixes model initialization and the DataLoader keeps the
+deterministic shard/seed sample order; no shuffle option is exposed.
 
 ## Tests
 
