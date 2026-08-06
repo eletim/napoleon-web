@@ -4,6 +4,7 @@ import hashlib
 import json
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -150,6 +151,34 @@ def test_policy_loss_rejects_illegal_target() -> None:
 
     with pytest.raises(ValueError, match="target must be legal"):
         masked_policy_cross_entropy(logits, target, legal_mask)
+
+
+@pytest.mark.parametrize(
+    "operation",
+    (mask_illegal_policy_logits, select_policy_action),
+)
+def test_policy_masking_rejects_rows_without_legal_cards(operation: Any) -> None:
+    logits = torch.zeros((1, CARD_COUNT), dtype=torch.float32)
+    legal_mask = torch.zeros((1, CARD_COUNT), dtype=torch.bool)
+
+    with pytest.raises(ValueError, match="at least one legal card"):
+        operation(logits, legal_mask)
+
+
+@pytest.mark.parametrize(
+    "config_factory",
+    (
+        lambda: PolicyMlpConfig(input_dim=0),
+        lambda: PolicyMlpConfig(hidden_dim=0),
+        lambda: PolicyMlpConfig(hidden_layers=0),
+        lambda: PolicyMlpConfig(dropout=1.0),
+    ),
+)
+def test_policy_config_rejects_invalid_values(
+    config_factory: Callable[[], PolicyMlpConfig],
+) -> None:
+    with pytest.raises(ValueError):
+        config_factory()
 
 
 def test_policy_evaluation_reports_forced_non_forced_and_uniform_baseline(tmp_path: Path) -> None:
