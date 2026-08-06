@@ -48,15 +48,13 @@ def configure_reproducibility(seed: int) -> None:
     torch.use_deterministic_algorithms(True)
 
 
-def load_checked_manifest(
-    dataset_directory: Path, *, verify_integrity_label: str
-) -> DatasetManifest:
+def load_checked_manifest(dataset_directory: Path, *, command_label: str) -> DatasetManifest:
     if not dataset_directory.exists():
         raise DatasetError(f"dataset directory does not exist: {dataset_directory}")
 
     manifest = load_manifest(dataset_directory)
     print(
-        f"{verify_integrity_label}: dataset schema={manifest.dataset_schema_version}, "
+        f"{command_label}: dataset schema={manifest.dataset_schema_version}, "
         f"encoder schema={manifest.playing_encoder_schema_version}, "
         f"samples={manifest.sample_count}",
         file=sys.stderr,

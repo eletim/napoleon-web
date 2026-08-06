@@ -44,7 +44,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _run(args: argparse.Namespace) -> int:
     split_config = split_config_from_args(args)
-    manifest = load_checked_manifest(args.dataset_directory, verify_integrity_label="evaluate")
+    manifest = load_checked_manifest(args.dataset_directory, command_label="evaluate")
     model, _checkpoint = load_ownership_checkpoint(args.checkpoint, manifest=manifest)
     loader = create_playing_dataloader(
         args.dataset_directory,

@@ -12,6 +12,7 @@ from napoleon_ml.cli.evaluate_ownership_mlp import main as evaluate_main
 from napoleon_ml.cli.train_ownership_mlp import main as train_main
 from napoleon_ml.dataset.constants import CARD_COUNT, EXPECTED_CARD_IDS
 from napoleon_ml.dataset.reader import load_manifest
+from napoleon_ml.dataset.split import DatasetSplit, SplitConfig, split_for_seed
 from napoleon_ml.dataset.tensors import MODEL_INPUT_FEATURE_COUNT
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 from napoleon_ml.ownership.checkpoint import (
@@ -121,6 +122,11 @@ def test_train_cli_saves_checkpoint_and_evaluate_cli_loads_test_split(
 ) -> None:
     _write_dataset(tmp_path, seeds=(0, 1, 2))
     checkpoint_path = tmp_path.parent / f"{tmp_path.name}-ownership.pt"
+    split_config = SplitConfig(train=1, validation=1, test=98)
+
+    assert split_for_seed(0, split_config) == DatasetSplit.TRAIN
+    assert split_for_seed(1, split_config) == DatasetSplit.VALIDATION
+    assert split_for_seed(2, split_config) == DatasetSplit.TEST
 
     train_exit = train_main(
         [
@@ -177,7 +183,20 @@ def test_train_cli_saves_checkpoint_and_evaluate_cli_loads_test_split(
     assert evaluate_report["baselineAlwaysNotInHand"]["maskedAccuracy"] is not None
 
 
-def test_checkpoint_rejects_incompatible_model_input_schema(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("metadata_key", "bad_value"),
+    (
+        ("dataset_schema_version", 999),
+        ("playing_encoder_schema_version", 999),
+        ("model_input_schema_version", 999),
+        ("card_ids_sha256", "0" * 64),
+    ),
+)
+def test_checkpoint_rejects_incompatible_metadata(
+    tmp_path: Path,
+    metadata_key: str,
+    bad_value: int | str,
+) -> None:
     _write_dataset(tmp_path, seeds=(0, 1, 2))
     checkpoint_path = tmp_path.parent / f"{tmp_path.name}-ownership.pt"
     assert (
@@ -206,9 +225,32 @@ def test_checkpoint_rejects_incompatible_model_input_schema(tmp_path: Path) -> N
         == 0
     )
 
-    raw = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-    raw["model_input_schema_version"] = 999
+    raw = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    raw[metadata_key] = bad_value
     torch.save(raw, checkpoint_path)
 
-    with pytest.raises(CheckpointCompatibilityError, match="model_input_schema_version"):
+    with pytest.raises(CheckpointCompatibilityError, match=metadata_key):
         load_ownership_checkpoint(checkpoint_path, manifest=load_manifest(tmp_path))
+
+
+def test_evaluate_cli_reports_missing_checkpoint_without_traceback(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_dataset(tmp_path, seeds=(0, 1, 2))
+
+    exit_code = evaluate_main(
+        [
+            str(tmp_path),
+            "--checkpoint",
+            str(tmp_path.parent / "missing-ownership.pt"),
+            "--train-ratio",
+            "1",
+            "--validation-ratio",
+            "1",
+            "--test-ratio",
+            "98",
+        ]
+    )
+
+    assert exit_code == 1
+    assert "checkpoint cannot be read" in capsys.readouterr().err

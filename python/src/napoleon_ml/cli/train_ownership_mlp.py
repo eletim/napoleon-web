@@ -92,7 +92,7 @@ def _run(args: argparse.Namespace) -> int:
     )
 
     configure_reproducibility(settings.seed)
-    manifest = load_checked_manifest(args.dataset_directory, verify_integrity_label="train")
+    manifest = load_checked_manifest(args.dataset_directory, command_label="train")
     model_config = OwnershipMlpConfig(
         hidden_dim=settings.hidden_dim,
         hidden_layers=settings.hidden_layers,

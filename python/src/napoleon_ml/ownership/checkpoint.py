@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pickle
 from pathlib import Path
 from typing import Any
 
@@ -46,7 +47,16 @@ def load_ownership_checkpoint(
     *,
     manifest: DatasetManifest,
 ) -> tuple[OwnershipMlpModel, dict[str, object]]:
-    raw = torch.load(Path(path), map_location="cpu", weights_only=False)
+    checkpoint_path = Path(path)
+
+    try:
+        raw = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    except OSError as error:
+        raise CheckpointCompatibilityError(f"checkpoint cannot be read: {error}") from error
+    except RuntimeError as error:
+        raise CheckpointCompatibilityError(f"checkpoint cannot be loaded: {error}") from error
+    except pickle.UnpicklingError as error:
+        raise CheckpointCompatibilityError(f"checkpoint cannot be loaded: {error}") from error
 
     if not isinstance(raw, dict):
         raise CheckpointCompatibilityError("checkpoint must be a dictionary.")
@@ -64,7 +74,13 @@ def load_ownership_checkpoint(
     if not isinstance(model_state, dict):
         raise CheckpointCompatibilityError("checkpoint model_state must be a state dictionary.")
 
-    model.load_state_dict(model_state)
+    try:
+        model.load_state_dict(model_state)
+    except RuntimeError as error:
+        raise CheckpointCompatibilityError(
+            f"checkpoint model_state is incompatible with model_config: {error}"
+        ) from error
+
     return model, raw
 
 
