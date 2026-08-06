@@ -274,6 +274,36 @@ def test_train_cli_saves_checkpoint_and_evaluate_cli_loads_test_split(
     ] == pytest.approx(0.1)
 
 
+@pytest.mark.parametrize(
+    ("invalid_args", "expected_error"),
+    (
+        (["--epochs", "0"], "epochs must be positive"),
+        (["--learning-rate", "0"], "learning-rate must be positive"),
+    ),
+)
+def test_train_cli_reports_invalid_training_settings_without_traceback(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    invalid_args: list[str],
+    expected_error: str,
+) -> None:
+    _write_dataset(tmp_path, seeds=(0, 1, 2))
+    checkpoint_path = tmp_path.parent / f"{tmp_path.name}-invalid-policy.pt"
+
+    exit_code = train_main(
+        [
+            str(tmp_path),
+            "--output",
+            str(checkpoint_path),
+            *invalid_args,
+        ]
+    )
+
+    assert exit_code == 1
+    assert expected_error in capsys.readouterr().err
+    assert not checkpoint_path.exists()
+
+
 def test_evaluate_cli_loads_checkpoint_in_new_process(tmp_path: Path) -> None:
     _write_dataset(tmp_path, seeds=(0, 1, 2))
     checkpoint_path = tmp_path.parent / f"{tmp_path.name}-policy.pt"
