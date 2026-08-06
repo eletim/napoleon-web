@@ -10,6 +10,7 @@ import torch
 from torch import Tensor
 from torch.utils.data import DataLoader, IterableDataset, get_worker_info
 
+from .constants import CARD_COUNT
 from .errors import DatasetError
 from .reader import iter_tensorized_samples
 from .split import DatasetSplit, SplitConfig
@@ -160,15 +161,20 @@ def _coerce_mask_dtype(mask_dtype: torch.dtype) -> torch.dtype:
 def _torch_sample(
     sample: TensorizedPlayingSample, *, mask_dtype: torch.dtype
 ) -> PlayingTorchSample:
-    actor_target = torch.tensor(sample.actor_target, dtype=torch.int64)
+    actor_target_value = int(sample.actor_target)
     legal_play_mask = torch.from_numpy(sample.legal_play_mask.copy()).to(dtype=torch.bool)
 
-    if not bool(legal_play_mask[actor_target].item()):
+    if actor_target_value < 0 or actor_target_value >= CARD_COUNT:
+        raise DatasetError(
+            f"actor_target must be between 0 and {CARD_COUNT - 1}, got {actor_target_value}."
+        )
+
+    if not bool(legal_play_mask[actor_target_value].item()):
         raise DatasetError("actor_target must be legal according to legal_play_mask.")
 
     return {
         "model_input": torch.from_numpy(sample.model_input.copy()),
-        "actor_target": actor_target,
+        "actor_target": torch.tensor(actor_target_value, dtype=torch.int64),
         "legal_play_mask": legal_play_mask,
         "belief_target": torch.from_numpy(sample.belief_target.copy()),
         "belief_hidden_ownership_loss_mask": torch.from_numpy(
