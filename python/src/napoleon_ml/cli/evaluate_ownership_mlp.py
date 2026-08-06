@@ -15,8 +15,11 @@ from napoleon_ml.cli._ownership_common import (
     split_config_from_args,
 )
 from napoleon_ml.dataset.pytorch import create_playing_dataloader
-from napoleon_ml.dataset.split import DatasetSplit
-from napoleon_ml.ownership.checkpoint import load_ownership_checkpoint
+from napoleon_ml.dataset.split import DatasetSplit, SplitConfig
+from napoleon_ml.ownership.checkpoint import (
+    CheckpointCompatibilityError,
+    load_ownership_checkpoint,
+)
 from napoleon_ml.ownership.metrics import evaluate_ownership_model
 
 
@@ -45,7 +48,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 def _run(args: argparse.Namespace) -> int:
     split_config = split_config_from_args(args)
     manifest = load_checked_manifest(args.dataset_directory, command_label="evaluate")
-    model, _checkpoint = load_ownership_checkpoint(args.checkpoint, manifest=manifest)
+    model, checkpoint = load_ownership_checkpoint(args.checkpoint, manifest=manifest)
+    _validate_checkpoint_split_config(checkpoint, split_config=split_config)
     loader = create_playing_dataloader(
         args.dataset_directory,
         split=args.split,
@@ -56,6 +60,28 @@ def _run(args: argparse.Namespace) -> int:
     report = evaluate_ownership_model(model, loader, split=args.split.value)
     print_report(report, as_json=args.json)
     return 0
+
+
+def _validate_checkpoint_split_config(
+    checkpoint: dict[str, object], *, split_config: SplitConfig
+) -> None:
+    training_config = checkpoint.get("training_config")
+    if not isinstance(training_config, dict):
+        raise CheckpointCompatibilityError("checkpoint training_config must be a dictionary.")
+
+    expected = {
+        "train_ratio": split_config.train,
+        "validation_ratio": split_config.validation,
+        "test_ratio": split_config.test,
+    }
+
+    for key, value in expected.items():
+        actual = training_config.get(key)
+        if actual != value:
+            raise CheckpointCompatibilityError(
+                f"checkpoint split ratios do not match evaluation split ratios: "
+                f"{key} is {actual!r} in checkpoint, got {value!r} for evaluation."
+            )
 
 
 if __name__ == "__main__":

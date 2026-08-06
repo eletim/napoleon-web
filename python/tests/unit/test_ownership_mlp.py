@@ -186,6 +186,7 @@ def test_train_cli_saves_checkpoint_and_evaluate_cli_loads_test_split(
 @pytest.mark.parametrize(
     ("metadata_key", "bad_value"),
     (
+        ("checkpoint_schema_version", 999),
         ("dataset_schema_version", 999),
         ("playing_encoder_schema_version", 999),
         ("model_input_schema_version", 999),
@@ -254,3 +255,49 @@ def test_evaluate_cli_reports_missing_checkpoint_without_traceback(
 
     assert exit_code == 1
     assert "checkpoint cannot be read" in capsys.readouterr().err
+
+
+def test_evaluate_cli_rejects_split_ratios_that_differ_from_checkpoint(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_dataset(tmp_path, seeds=(0, 1, 2))
+    checkpoint_path = tmp_path.parent / f"{tmp_path.name}-ownership.pt"
+    assert (
+        train_main(
+            [
+                str(tmp_path),
+                "--output",
+                str(checkpoint_path),
+                "--epochs",
+                "1",
+                "--batch-size",
+                "1",
+                "--hidden-dim",
+                "8",
+                "--hidden-layers",
+                "1",
+                "--train-ratio",
+                "1",
+                "--validation-ratio",
+                "1",
+                "--test-ratio",
+                "98",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    exit_code = evaluate_main(
+        [
+            str(tmp_path),
+            "--checkpoint",
+            str(checkpoint_path),
+            "--split",
+            "test",
+        ]
+    )
+
+    assert exit_code == 1
+    assert "split ratios do not match" in capsys.readouterr().err
