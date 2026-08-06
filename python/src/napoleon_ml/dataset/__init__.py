@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from importlib import import_module
+from typing import TYPE_CHECKING
+
 from .errors import (
     DatasetError,
     ManifestValidationError,
@@ -50,6 +53,15 @@ from .validation import (
     validate_sample,
 )
 
+if TYPE_CHECKING:
+    from .pytorch import PlayingIterableDataset, PlayingTorchSample, create_playing_dataloader
+
+_PYTORCH_EXPORTS = {
+    "PlayingIterableDataset",
+    "PlayingTorchSample",
+    "create_playing_dataloader",
+}
+
 __all__ = [
     "FLAT_OBSERVATION_FEATURE_COUNT",
     "FLAT_OBSERVATION_LAYOUT",
@@ -68,8 +80,10 @@ __all__ = [
     "EncodedPlayingObservation",
     "FeatureSlice",
     "ManifestValidationError",
+    "PlayingIterableDataset",
     "PlayingObservationTensors",
     "PlayingTrainingSample",
+    "PlayingTorchSample",
     "SampleValidationError",
     "ShardIntegrityError",
     "SpecialCardIndices",
@@ -77,6 +91,7 @@ __all__ = [
     "TensorizedPlayingSample",
     "UnsupportedSchemaError",
     "calculate_card_ids_sha256",
+    "create_playing_dataloader",
     "iter_raw_samples",
     "iter_samples",
     "iter_tensorized_samples",
@@ -94,3 +109,11 @@ __all__ = [
     "validate_sample",
     "validate_tensorized_sample",
 ]
+
+
+def __getattr__(name: str) -> object:
+    if name in _PYTORCH_EXPORTS:
+        module = import_module("napoleon_ml.dataset.pytorch")
+        return getattr(module, name)
+
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

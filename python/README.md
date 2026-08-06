@@ -7,14 +7,16 @@ and every individual sample — and converts validated samples into
 fixed-shape, fixed-dtype NumPy tensors.
 
 This package only covers the boundary from a generated dataset directory to
-validated NumPy arrays. It does not include PyTorch, TensorFlow, JAX, any
+validated NumPy arrays, plus an optional PyTorch `IterableDataset` adapter
+for fixed-shape training batches. It does not include TensorFlow, JAX, any
 neural-network model, training loop, ONNX export, reinforcement learning, a
 parallel `DataLoader`, dataset caching, or compression. See
 [Not implemented](#not-implemented) below.
 
 ## Requirements
 
-Python 3.11 or newer. The only runtime dependency is `numpy`.
+Python 3.11 or newer. The only required runtime dependency is `numpy`.
+PyTorch is available through the `train` extra.
 
 ## Setup
 
@@ -29,6 +31,11 @@ python -m pip install -e "./python[dev]"
 already inside `python/`, use `-e ".[dev]"` instead.)
 
 Development extras (`pytest`, `mypy`, `ruff`) are pulled in by `[dev]`.
+For a runtime install that includes only the training adapter dependency:
+
+```bash
+python -m pip install -e "./python[train]"
+```
 
 ## Generating a dataset
 
@@ -304,6 +311,48 @@ rely on that detail either) or any other source of run-to-run
 non-determinism: the same `(seed, config)` always returns the same split,
 in any process, on any machine.
 
+## PyTorch DataLoader
+
+Install the training extra, then create a split-filtered loader:
+
+```python
+from napoleon_ml.dataset import DatasetSplit, SplitConfig
+from napoleon_ml.dataset.pytorch import create_playing_dataloader
+
+loader = create_playing_dataloader(
+    "./datasets/rule-based-v1",
+    split=DatasetSplit.TRAIN,
+    split_config=SplitConfig(train=80, validation=10, test=10),
+    batch_size=32,
+)
+
+for batch in loader:
+    model_input = batch["model_input"]
+    belief_target = batch["belief_target"]
+    mask = batch["belief_hidden_ownership_loss_mask"]
+    seed = batch["seed"]
+    step = batch["step"]
+```
+
+Each batch is a dictionary of PyTorch tensors with fixed shapes and dtypes:
+
+| Field | Batch shape | dtype |
+| --- | --- | --- |
+| `model_input` | `(batch, 6242)` | `torch.float32` |
+| `belief_target` | `(batch, 53)` | `torch.int64` |
+| `belief_hidden_ownership_loss_mask` | `(batch, 53)` | `torch.bool` by default (`torch.uint8` optional) |
+| `seed` | `(batch,)` | `torch.int64` |
+| `step` | `(batch,)` | `torch.int64` |
+
+`PlayingIterableDataset` streams through `iter_tensorized_samples()` and
+filters by `split_for_seed()`, so it does not load the whole dataset into
+memory. The same dataset, split, and split config produce the same sample
+order each time, and the dataset can be iterated again for a new epoch
+because each `__iter__()` call reopens the shard stream from the beginning.
+An empty split simply yields no batches. This first version only supports
+`num_workers=0`; `create_playing_dataloader(..., num_workers=1)` and direct
+worker-process iteration raise `DatasetError`.
+
 ## Inspecting a dataset
 
 ```bash
@@ -373,8 +422,9 @@ output is committed.
 
 ## Not implemented
 
-PyTorch, TensorFlow, JAX, any neural-network model or training loop,
-behavior cloning, actor-critic or other reinforcement learning, ONNX
-export, GPU code, checkpoints, TensorBoard, a parallel `DataLoader`,
+TensorFlow, JAX, any neural-network model or training loop, behavior
+cloning, actor-critic or other reinforcement learning, ONNX export, GPU
+code, checkpoints, TensorBoard, shuffle, a parallel `DataLoader`,
 dataset caching, gzip/compression, and a database or web UI. This package
-stops at validated NumPy arrays.
+stops at validated NumPy arrays and deterministic, single-process PyTorch
+batches.

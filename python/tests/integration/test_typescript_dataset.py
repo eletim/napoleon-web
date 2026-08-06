@@ -17,7 +17,9 @@ import pytest
 
 from napoleon_ml.dataset import iter_samples, iter_tensorized_samples, load_manifest
 from napoleon_ml.dataset.constants import EXPECTED_CARD_IDS
+from napoleon_ml.dataset.pytorch import create_playing_dataloader
 from napoleon_ml.dataset.split import DatasetSplit, split_for_seed
+from napoleon_ml.dataset.tensors import MODEL_INPUT_FEATURE_COUNT
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -126,6 +128,24 @@ def test_typescript_generated_dataset_loads_and_tensorizes_cleanly() -> None:
             1: DatasetSplit.TRAIN,
             2: DatasetSplit.TRAIN,
         }
+
+        # --- PyTorch DataLoader can read one real generated batch --------
+
+        loader = create_playing_dataloader(
+            output_directory,
+            split=DatasetSplit.TRAIN,
+            batch_size=8,
+        )
+        batch = next(iter(loader))
+
+        assert batch["model_input"].shape == (8, MODEL_INPUT_FEATURE_COUNT)
+        assert str(batch["model_input"].dtype) == "torch.float32"
+        assert batch["belief_target"].shape == (8, 53)
+        assert str(batch["belief_target"].dtype) == "torch.int64"
+        assert batch["belief_hidden_ownership_loss_mask"].shape == (8, 53)
+        assert str(batch["belief_hidden_ownership_loss_mask"].dtype) == "torch.bool"
+        assert batch["seed"].shape == (8,)
+        assert batch["step"].shape == (8,)
 
         # --- no stray files outside the declared output directory -------
 
