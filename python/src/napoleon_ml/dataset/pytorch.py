@@ -166,11 +166,15 @@ def _torch_sample(
 
     if actor_target_value < 0 or actor_target_value >= CARD_COUNT:
         raise DatasetError(
-            f"actor_target must be between 0 and {CARD_COUNT - 1}, got {actor_target_value}."
+            f"actor_target must be between 0 and {CARD_COUNT - 1}, got {actor_target_value} "
+            f"(seed={sample.seed}, step={sample.step})."
         )
 
     if not bool(legal_play_mask[actor_target_value].item()):
-        raise DatasetError("actor_target must be legal according to legal_play_mask.")
+        raise DatasetError(
+            "actor_target must be legal according to legal_play_mask "
+            f"(seed={sample.seed}, step={sample.step}, actor_target={actor_target_value})."
+        )
 
     return {
         "model_input": torch.from_numpy(sample.model_input.copy()),

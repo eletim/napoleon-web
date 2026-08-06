@@ -213,6 +213,28 @@ def test_dataloader_rejects_actor_target_outside_legal_mask(
         next(iter(dataset))
 
 
+def test_dataloader_rejects_in_range_actor_target_missing_from_legal_mask(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tensorized = tensorize_sample(parse_sample(_load_valid_sample()))
+    actor_target = int(tensorized.actor_target)
+    legal_play_mask = tensorized.legal_play_mask.copy()
+    legal_play_mask[actor_target] = 0
+    bad = dataclasses.replace(tensorized, legal_play_mask=legal_play_mask)
+
+    def _fake_iter_tensorized_samples(
+        *args: object, **kwargs: object
+    ) -> Iterator[TensorizedPlayingSample]:
+        yield bad
+
+    monkeypatch.setattr(pytorch_module, "iter_tensorized_samples", _fake_iter_tensorized_samples)
+
+    dataset = PlayingIterableDataset(tmp_path, split=DatasetSplit.TRAIN)
+
+    with pytest.raises(DatasetError, match="actor_target must be legal"):
+        next(iter(dataset))
+
+
 def test_invalid_pytorch_loader_configuration_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(DatasetError, match="split must be one of"):
         PlayingIterableDataset(tmp_path, split="dev")
