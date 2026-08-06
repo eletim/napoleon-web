@@ -327,6 +327,110 @@ def test_verify_integrity_false_skips_hash_check(tmp_path: Path) -> None:
     assert len(samples) == 1
 
 
+def test_verify_integrity_false_skips_byte_length_check(tmp_path: Path) -> None:
+    shard_bytes = _one_line({"seed": 0})
+    _write_single_shard_dataset(
+        tmp_path,
+        shard_bytes,
+        game_count=1,
+        sample_count=1,
+        games_per_shard=1,
+        start_seed=0,
+        end_seed=0,
+        shard_game_count=1,
+        shard_byte_length=len(shard_bytes) + 1,
+    )
+
+    samples = list(iter_raw_samples(tmp_path, verify_integrity=False))
+
+    assert len(samples) == 1
+
+
+def test_deleted_line_rejected_in_both_modes(tmp_path: Path) -> None:
+    # The shard on disk has had a line deleted since it was generated (only
+    # 1 line remains), but its SHA-256/byte length in the manifest are left
+    # matching the (now-truncated) bytes actually on disk -- as if an
+    # attacker recomputed the hash to match the tampered file. Only the
+    # manifest's stale sampleCount (2, from before the deletion) can catch
+    # this, so it must be rejected in both integrity modes: structural
+    # checks (line/sample count) are never skipped, unlike the hash checks.
+    shard_bytes = _one_line({"seed": 0})
+    _write_single_shard_dataset(
+        tmp_path,
+        shard_bytes,
+        game_count=1,
+        sample_count=2,
+        games_per_shard=1,
+        start_seed=0,
+        end_seed=0,
+        shard_game_count=1,
+        shard_sample_count=2,
+    )
+
+    with pytest.raises(ShardIntegrityError, match="line count mismatch"):
+        list(iter_raw_samples(tmp_path))
+
+    with pytest.raises(ShardIntegrityError, match="line count mismatch"):
+        list(iter_raw_samples(tmp_path, verify_integrity=False))
+
+
+def test_sha256_only_mismatch_succeeds_with_no_integrity_check(tmp_path: Path) -> None:
+    # Content, line count, sample count, and seeds are all correct -- only
+    # the recorded SHA-256 is wrong. Normal mode must fail; no-integrity mode
+    # must succeed, since structural checks all pass on their own.
+    shard_bytes = _one_line({"seed": 0})
+    _write_single_shard_dataset(
+        tmp_path,
+        shard_bytes,
+        game_count=1,
+        sample_count=1,
+        games_per_shard=1,
+        start_seed=0,
+        end_seed=0,
+        shard_game_count=1,
+        shard_sha256="0" * 64,
+    )
+
+    with pytest.raises(ShardIntegrityError, match="SHA-256 mismatch"):
+        list(iter_raw_samples(tmp_path))
+
+    samples = list(iter_raw_samples(tmp_path, verify_integrity=False))
+    assert len(samples) == 1
+
+
+def test_game_count_uses_seed_transitions_not_unique_seed_set(tmp_path: Path) -> None:
+    # Seeds 0, 1, 0, 1 form 4 consecutive runs (game 0 and game 1 interleave
+    # instead of each occupying one contiguous block) but only 2 *unique*
+    # seeds. A set-based unique-seed count would accept this shard as
+    # "2 games" -- the same count a well-formed 0, 0, 1, 1 shard would
+    # produce. Counting seed transitions instead gives 4, which must be
+    # rejected against the manifest's gameCount of 2 -- in both integrity
+    # modes, since game count is a structural check.
+    shard_bytes = (
+        _one_line({"seed": 0})
+        + _one_line({"seed": 1})
+        + _one_line({"seed": 0})
+        + _one_line({"seed": 1})
+    )
+    _write_single_shard_dataset(
+        tmp_path,
+        shard_bytes,
+        game_count=2,
+        sample_count=4,
+        games_per_shard=2,
+        start_seed=0,
+        end_seed=1,
+        shard_game_count=2,
+        shard_sample_count=4,
+    )
+
+    with pytest.raises(ShardIntegrityError, match="game count mismatch"):
+        list(iter_raw_samples(tmp_path))
+
+    with pytest.raises(ShardIntegrityError, match="game count mismatch"):
+        list(iter_raw_samples(tmp_path, verify_integrity=False))
+
+
 def test_iter_samples_full_pipeline(tmp_path: Path) -> None:
     sample = _load_valid_sample()
     shard_bytes = _one_line(sample)

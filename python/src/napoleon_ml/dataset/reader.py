@@ -2,8 +2,11 @@
 
 Nothing here ever materializes the whole dataset in memory: each shard is
 opened once, read line by line in binary mode, and its running SHA-256/byte
-length/line count/seed bookkeeping is checked against ``manifest.json``
-immediately after the shard's last line, before the next shard is opened.
+length/line count/sample count/seed/game-count bookkeeping is checked
+against ``manifest.json`` immediately after the shard's last line, before
+the next shard is opened. Structural checks (line count, sample count,
+first/last seed, game count) always run; the byte-identity checks
+(SHA-256, byte length) are the only ones ``verify_integrity=False`` skips.
 """
 
 from __future__ import annotations
@@ -65,11 +68,14 @@ def iter_raw_samples(
     Each shard is read in binary mode so its exact bytes can be hashed and
     counted. Every line must be non-empty UTF-8 JSON terminated by a single
     ``\\n`` (no CRLF, no stray ``\\r``, no missing final newline) with no
-    duplicate keys and no ``NaN``/``Infinity``/``-Infinity``. When
-    ``verify_integrity`` is true (the default), each shard's accumulated
-    SHA-256, byte length, line count, sample count, first/last seed, and
-    unique seed count are compared against ``manifest.json`` immediately
-    after that shard's last line.
+    duplicate keys and no ``NaN``/``Infinity``/``-Infinity``. A shard's line
+    count, sample count, first/last sample seed, and game count (counted by
+    seed transitions, not by collecting a ``set`` of seeds -- see
+    :func:`_iter_shard_raw_samples`) are always compared against
+    ``manifest.json`` immediately after that shard's last line, regardless
+    of ``verify_integrity``. Only the byte-identity checks -- SHA-256 and
+    byte length -- are skipped when ``verify_integrity`` is false; a
+    truncated, corrupted, or reordered shard is still rejected either way.
     """
 
     directory = Path(dataset_directory)
@@ -92,7 +98,8 @@ def _iter_shard_raw_samples(
     sample_count = 0
     first_seed: int | None = None
     last_seed: int | None = None
-    unique_seeds: set[int] = set()
+    previous_seed: int | None = None
+    game_count = 0
 
     with shard_path.open("rb") as file:
         for line_number, raw_line in enumerate(file, start=1):
@@ -139,34 +146,35 @@ def _iter_shard_raw_samples(
             if first_seed is None:
                 first_seed = seed
 
+            if seed != previous_seed:
+                game_count += 1
+                previous_seed = seed
+
             last_seed = seed
-            unique_seeds.add(seed)
 
             yield raw_value
 
+    # Structural checks always run, regardless of verify_integrity: they
+    # catch a truncated or reordered shard even when the caller opted out of
+    # the (comparatively expensive) byte-identity checks below.
+    _verify_shard_structural_integrity(
+        shard,
+        line_count=line_count,
+        sample_count=sample_count,
+        first_seed=first_seed,
+        last_seed=last_seed,
+        game_count=game_count,
+    )
+
     if verify_integrity:
-        _verify_shard_integrity(
-            shard,
-            sha256=hasher.hexdigest(),
-            byte_length=byte_length,
-            line_count=line_count,
-            sample_count=sample_count,
-            first_seed=first_seed,
-            last_seed=last_seed,
-            unique_seed_count=len(unique_seeds),
-        )
+        _verify_shard_hash_integrity(shard, sha256=hasher.hexdigest(), byte_length=byte_length)
 
 
-def _verify_shard_integrity(
+def _verify_shard_hash_integrity(
     shard: DatasetShardManifest,
     *,
     sha256: str,
     byte_length: int,
-    line_count: int,
-    sample_count: int,
-    first_seed: int | None,
-    last_seed: int | None,
-    unique_seed_count: int,
 ) -> None:
     if sha256 != shard.sha256:
         raise ShardIntegrityError(
@@ -178,6 +186,16 @@ def _verify_shard_integrity(
             f"{shard.file}: byte length mismatch: expected {shard.byte_length}, got {byte_length}."
         )
 
+
+def _verify_shard_structural_integrity(
+    shard: DatasetShardManifest,
+    *,
+    line_count: int,
+    sample_count: int,
+    first_seed: int | None,
+    last_seed: int | None,
+    game_count: int,
+) -> None:
     if line_count != shard.sample_count:
         raise ShardIntegrityError(
             f"{shard.file}: line count mismatch: expected {shard.sample_count}, got {line_count}."
@@ -200,10 +218,10 @@ def _verify_shard_integrity(
             f"{shard.file}: last sample seed mismatch: expected {shard.end_seed}, got {last_seed}."
         )
 
-    if unique_seed_count != shard.game_count:
+    if game_count != shard.game_count:
         raise ShardIntegrityError(
-            f"{shard.file}: unique seed count mismatch: expected {shard.game_count} "
-            f"(gameCount), got {unique_seed_count}."
+            f"{shard.file}: game count mismatch: expected {shard.game_count} (gameCount), "
+            f"got {game_count}."
         )
 
 

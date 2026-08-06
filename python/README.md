@@ -103,12 +103,32 @@ mode. This matters because SHA-256 and byte length are properties of the
 line endings and re-encodes text, which would silently change what gets
 hashed and counted. Each raw line's bytes are fed into a running
 `hashlib.sha256()` and a running byte counter before anything else happens
-to them; only after that does the line get decoded and parsed. A shard's
-accumulated SHA-256, byte length, line count, sample count, first sample
-seed, last sample seed, and unique seed count are all compared against
-`manifest.json`'s recorded values for that shard immediately after the
-shard's last line — not deferred to the end of the whole dataset, and never
-silently skipped for a line that failed to parse.
+to them; only after that does the line get decoded and parsed.
+
+Per-shard verification is split into two independent groups, checked
+immediately after the shard's last line — not deferred to the end of the
+whole dataset, and never silently skipped for a line that failed to parse:
+
+- **Byte-identity checks** — SHA-256 and byte length. These are the only
+  checks `verify_integrity=False` (the reader's `iter_raw_samples()` /
+  `iter_samples()` / `iter_tensorized_samples()`) or the CLI's
+  `--no-integrity-check` skip.
+- **Structural checks** — line count, sample count, first sample seed, last
+  sample seed, and game count. These always run, regardless of
+  `verify_integrity`, so a shard with a deleted or duplicated line, a
+  truncated file, or a seed range that doesn't match the manifest is
+  rejected even when byte-identity verification is skipped.
+
+Game count is computed by walking the shard's samples in order and
+incrementing a counter each time the seed differs from the *immediately
+preceding* sample's seed — not by collecting seeds into a `set` and taking
+its size. A `set` would silently accept a shard whose seed sequence is
+`0, 1, 0` (game 0's samples split around game 1's, i.e. seed 0 reappearing
+after the dataset moved past it) as "2 unique seeds", the same count a
+well-formed `0, 0, 1, 1` shard would produce. Counting consecutive-run
+transitions instead gives that malformed shard a game count of 3, which
+fails the comparison against `manifest.json`'s recorded `gameCount` for the
+shard and is rejected.
 
 A line is rejected (not silently dropped) if it: is empty; uses CRLF line
 endings or contains a stray `\r`; is missing its trailing `\n` on the final
@@ -231,9 +251,10 @@ napoleon-inspect-dataset ./datasets/rule-based-v1
 
 Flags:
 
-- `--no-integrity-check` — skip shard SHA-256/byte-length/line-count
-  re-verification. Structural and semantic sample validation still run.
-  Full verification runs unless this flag is passed explicitly.
+- `--no-integrity-check` — skip shard SHA-256/byte-length re-verification
+  only. Structural checks (line count, sample count, seed range, game
+  count) and semantic sample validation still run regardless. Full
+  verification runs unless this flag is passed explicitly.
 - `--json` — print a machine-readable JSON report to stdout instead of the
   human-readable text report. Progress and error messages always go to
   stderr, so `--json` output is safe to pipe.
@@ -244,12 +265,15 @@ counts, an actor legal-action tally with the top selected cards, a belief
 owner-class histogram, and the tensor shapes/dtypes described above. Only
 small fixed-size counters and histograms are accumulated in memory (a
 53-slot card histogram, a 6-slot belief histogram, three per-split
-counters) — the dataset itself is never buffered. Exit code is `0` on
-success; `1` if the manifest, a shard, or a sample fails validation, or if
-the dataset directory doesn't exist (the specific problem is always printed
-to stderr, without a Python stack trace). An unexpected internal error
-(a bug, not a dataset problem) is allowed to raise normally with its full
-traceback rather than being swallowed.
+counters) — the dataset itself is never buffered. Before reporting success,
+the CLI also cross-checks the actual number of samples it streamed against
+`manifest.json`'s `sampleCount` on its own, independently of the reader's
+per-shard checks. Exit code is `0` on success; `1` if the manifest, a
+shard, or a sample fails validation, if the streamed sample count doesn't
+match the manifest, or if the dataset directory doesn't exist (the specific
+problem is always printed to stderr, without a Python stack trace). An
+unexpected internal error (a bug, not a dataset problem) is allowed to
+raise normally with its full traceback rather than being swallowed.
 
 ## Tests
 

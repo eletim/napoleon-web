@@ -213,9 +213,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--no-integrity-check",
         action="store_true",
         help=(
-            "Skip shard SHA-256/byte-length/line-count re-verification. Structural and "
-            "semantic sample validation still run. Full verification runs unless this "
-            "flag is passed explicitly."
+            "Skip shard SHA-256/byte-length re-verification. Structural checks "
+            "(line count, sample count, seed range, game count) and semantic sample "
+            "validation still run. Full verification runs unless this flag is passed "
+            "explicitly."
         ),
     )
     parser.add_argument(
@@ -241,6 +242,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     except OSError as error:
         print(f"error: {error}", file=sys.stderr)
+        return 1
+
+    # Cross-check the actual streamed sample count against manifest.sampleCount
+    # before declaring success. The reader already enforces this per shard, but
+    # this is a final, independent check against silent sample loss (e.g. from
+    # a future bug that lets a shard's samples pass through uncounted) rather
+    # than trusting that every intermediate check ran correctly.
+    if aggregates.sample_count != manifest.sample_count:
+        print(
+            "error: sample count mismatch: expected "
+            f"{manifest.sample_count} (manifest.sampleCount), got {aggregates.sample_count}.",
+            file=sys.stderr,
+        )
         return 1
 
     games_per_split = _count_games_per_split(manifest.start_seed, manifest.end_seed, split_config)
