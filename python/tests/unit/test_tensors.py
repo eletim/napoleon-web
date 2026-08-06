@@ -21,6 +21,9 @@ from napoleon_ml.dataset.sample import parse_sample
 from napoleon_ml.dataset.tensors import (
     FLAT_OBSERVATION_FEATURE_COUNT,
     FLAT_OBSERVATION_LAYOUT,
+    MODEL_INPUT_FEATURE_COUNT,
+    MODEL_INPUT_LAYOUT,
+    MODEL_INPUT_ONEHOT_LAYOUT,
     FeatureSlice,
     tensorize_sample,
     validate_tensorized_sample,
@@ -40,6 +43,19 @@ def _find_slice(name: str) -> FeatureSlice:
             return feature
 
     raise KeyError(name)
+
+
+def _find_model_input_slice(name: str) -> FeatureSlice:
+    for feature in MODEL_INPUT_LAYOUT:
+        if feature.name == name:
+            return feature
+
+    raise KeyError(name)
+
+
+def _region(model_input: np.ndarray, name: str) -> np.ndarray:
+    feature = _find_model_input_slice(name)
+    return model_input[feature.start : feature.stop].reshape(feature.shape)
 
 
 def test_flat_layout_has_no_gaps_or_overlaps() -> None:
@@ -65,6 +81,8 @@ def test_tensorize_sample_shapes_and_dtypes() -> None:
 
     assert tensorized.flat_observation.shape == (FLAT_OBSERVATION_FEATURE_COUNT,)
     assert tensorized.flat_observation.dtype == np.float32
+    assert tensorized.model_input.shape == (MODEL_INPUT_FEATURE_COUNT,)
+    assert tensorized.model_input.dtype == np.float32
     assert tensorized.legal_play_mask.shape == (CARD_COUNT,)
     assert tensorized.legal_play_mask.dtype == np.uint8
     assert tensorized.belief_target.shape == (CARD_COUNT,)
@@ -155,3 +173,207 @@ def test_changing_one_field_only_changes_its_flat_slice() -> None:
     expected_changed_index = self_hand_mask_slice.start + flip_index
 
     assert changed_indices == {expected_changed_index}
+
+
+# --- model_input ----------------------------------------------------------
+
+
+def test_model_input_layout_has_no_gaps_or_overlaps() -> None:
+    expected_start = 0
+
+    for feature in MODEL_INPUT_LAYOUT:
+        assert feature.start == expected_start
+        assert feature.stop > feature.start
+        expected_start = feature.stop
+
+    assert expected_start == MODEL_INPUT_FEATURE_COUNT
+
+
+def test_model_input_layout_slice_names_are_unique() -> None:
+    names = [feature.name for feature in MODEL_INPUT_LAYOUT]
+    assert len(names) == len(set(names))
+
+
+def test_model_input_layout_starts_with_flat_observation_layout() -> None:
+    assert MODEL_INPUT_LAYOUT[: len(FLAT_OBSERVATION_LAYOUT)] == FLAT_OBSERVATION_LAYOUT
+    assert MODEL_INPUT_LAYOUT[len(FLAT_OBSERVATION_LAYOUT) :] == MODEL_INPUT_ONEHOT_LAYOUT
+
+
+def test_model_input_feature_count_matches_layout_and_expected_total() -> None:
+    onehot_length = sum(feature.stop - feature.start for feature in MODEL_INPUT_ONEHOT_LAYOUT)
+
+    assert FLAT_OBSERVATION_FEATURE_COUNT + onehot_length == MODEL_INPUT_FEATURE_COUNT
+    assert MODEL_INPUT_FEATURE_COUNT == 6242
+
+
+def test_model_input_is_c_contiguous_and_finite() -> None:
+    sample = parse_sample(_load_valid_sample())
+    tensorized = tensorize_sample(sample)
+
+    assert tensorized.model_input.flags["C_CONTIGUOUS"]
+    assert np.isfinite(tensorized.model_input).all()
+
+
+def test_model_input_prefix_equals_flat_observation() -> None:
+    sample = parse_sample(_load_valid_sample())
+    tensorized = tensorize_sample(sample)
+
+    prefix = tensorized.model_input[:FLAT_OBSERVATION_FEATURE_COUNT]
+
+    assert prefix.tobytes() == tensorized.flat_observation.tobytes()
+
+
+def test_model_input_one_hot_regions_have_at_most_one_set_bit_per_row() -> None:
+    sample = parse_sample(_load_valid_sample())
+    tensorized = tensorize_sample(sample)
+
+    for feature in MODEL_INPUT_ONEHOT_LAYOUT:
+        region = _region(tensorized.model_input, feature.name)
+        assert set(np.unique(region)) <= {0.0, 1.0}
+        assert bool(np.all((region.sum(axis=-1) == 0.0) | (region.sum(axis=-1) == 1.0)))
+
+
+def test_model_input_special_card_indices_one_hot_matches_fixture() -> None:
+    # Fixture: oruma=0, yoromeki=15, seiJack=29, uraJack=16 (see valid_sample.json).
+    sample = parse_sample(_load_valid_sample())
+    tensorized = tensorize_sample(sample)
+
+    region = _region(tensorized.model_input, "specialCardIndicesOneHot")
+
+    assert region[0, 0] == 1.0
+    assert region[1, 15] == 1.0
+    assert region[2, 29] == 1.0
+    assert region[3, 16] == 1.0
+    assert region.sum() == 4.0
+
+
+def test_model_input_current_and_completed_trick_indices_are_all_zero_when_empty() -> None:
+    # Fixture: no trick has started yet, so every trick card/player index is -1.
+    sample = parse_sample(_load_valid_sample())
+    tensorized = tensorize_sample(sample)
+
+    for name in (
+        "currentTrickCardIndicesOneHot",
+        "completedTrickCardIndicesOneHot",
+        "currentTrickPlayerIndicesOneHot",
+        "completedTrickPlayerIndicesOneHot",
+        "completedTrickWinnerIndicesOneHot",
+    ):
+        assert _region(tensorized.model_input, name).sum() == 0.0
+
+
+def test_model_input_bidding_history_one_hot_for_bid_pass_and_empty_slots() -> None:
+    # Fixture bidding history (see valid_sample.json):
+    #   slot 0: bid,  player 1, suit 1 (hearts),   target 13
+    #   slot 1: pass, player 2
+    #   slot 4: bid,  player 0, suit 2 (diamonds),  target 15
+    #   slot 9: empty (actionMask 0)
+    sample = parse_sample(_load_valid_sample())
+    tensorized = tensorize_sample(sample)
+
+    action_type = _region(tensorized.model_input, "biddingHistoryActionTypeIndicesOneHot")
+    player = _region(tensorized.model_input, "biddingHistoryPlayerIndicesOneHot")
+    suit = _region(tensorized.model_input, "biddingHistorySuitIndicesOneHot")
+    target = _region(tensorized.model_input, "biddingHistoryTargetPointCardsOneHot")
+
+    # Slot 0: bid (class 1), player 1, suit 1 (hearts), target 13 -> class 0.
+    assert action_type[0, 1] == 1.0
+    assert player[0, 1] == 1.0
+    assert suit[0, 1] == 1.0
+    assert target[0, 0] == 1.0
+
+    # Slot 1: pass (class 0), player 2; suit/target have no meaning for a pass.
+    assert action_type[1, 0] == 1.0
+    assert player[1, 2] == 1.0
+    assert suit[1].sum() == 0.0
+    assert target[1].sum() == 0.0
+
+    # Slot 4: bid (class 1), player 0, suit 2 (diamonds), target 15 -> class 2.
+    assert action_type[4, 1] == 1.0
+    assert player[4, 0] == 1.0
+    assert suit[4, 2] == 1.0
+    assert target[4, 2] == 1.0
+
+    # Slot 9: unused slot (actionMask 0) -- every field is the empty sentinel.
+    assert action_type[9].sum() == 0.0
+    assert player[9].sum() == 0.0
+    assert suit[9].sum() == 0.0
+    assert target[9].sum() == 0.0
+
+
+def test_same_sample_produces_byte_identical_model_input() -> None:
+    raw = _load_valid_sample()
+    first = tensorize_sample(parse_sample(json.loads(json.dumps(raw))))
+    second = tensorize_sample(parse_sample(json.loads(json.dumps(raw))))
+
+    assert first.model_input.tobytes() == second.model_input.tobytes()
+
+
+def test_changing_one_index_field_only_changes_its_model_input_one_hot_slice() -> None:
+    raw = _load_valid_sample()
+    baseline = tensorize_sample(parse_sample(json.loads(json.dumps(raw)))).model_input
+
+    mutated_raw = json.loads(json.dumps(raw))
+    # oruma=0 in the fixture; move it to a different, still-valid card index.
+    mutated_raw["observation"]["specialCardIndices"]["oruma"] = 7
+
+    mutated = tensorize_sample(parse_sample(mutated_raw)).model_input
+
+    changed_indices = {index for index in range(len(baseline)) if baseline[index] != mutated[index]}
+
+    special_card_slice = _find_model_input_slice("specialCardIndicesOneHot")
+    # Row 0 of the (4, CARD_COUNT) region is `oruma`; only its old (col 0) and
+    # new (col 7) one-hot positions should flip.
+    expected_changed_indices = {special_card_slice.start + 0, special_card_slice.start + 7}
+
+    assert changed_indices == expected_changed_indices
+
+
+def test_validate_tensorized_sample_rejects_wrong_model_input_shape() -> None:
+    sample = parse_sample(_load_valid_sample())
+    tensorized = tensorize_sample(sample)
+
+    truncated = tensorized.model_input[:-1]
+    bad = dataclasses.replace(tensorized, model_input=truncated)
+
+    with pytest.raises(SampleValidationError, match="model_input"):
+        validate_tensorized_sample(bad)
+
+
+def test_validate_tensorized_sample_rejects_model_input_not_starting_with_flat_observation() -> (
+    None
+):
+    sample = parse_sample(_load_valid_sample())
+    tensorized = tensorize_sample(sample)
+
+    tampered = tensorized.model_input.copy()
+    tampered.setflags(write=True)
+    tampered[0] = tampered[0] + 1.0
+    tampered.setflags(write=False)
+    bad = dataclasses.replace(tensorized, model_input=tampered)
+
+    with pytest.raises(SampleValidationError, match="flat_observation"):
+        validate_tensorized_sample(bad)
+
+
+def test_validate_tensorized_sample_rejects_one_hot_region_that_disagrees_with_observation() -> (
+    None
+):
+    # A region can be individually well-formed (0/1 values, at most one bit
+    # set) while still encoding the wrong class -- e.g. a shifted one-hot.
+    # validate_tensorized_sample() must catch that by cross-checking against
+    # observation.special_card_indices, not just checking the region shape.
+    sample = parse_sample(_load_valid_sample())
+    tensorized = tensorize_sample(sample)
+
+    special_card_slice = _find_model_input_slice("specialCardIndicesOneHot")
+    tampered = tensorized.model_input.copy()
+    tampered.setflags(write=True)
+    # Fixture: oruma=0, so row 0's one-hot is at column 0; shift it to column 1.
+    tampered[special_card_slice.start + 0] = 0.0
+    tampered[special_card_slice.start + 1] = 1.0
+    tampered.setflags(write=False)
+    bad = dataclasses.replace(tensorized, model_input=tampered)
+
+    with pytest.raises(SampleValidationError, match="specialCardIndicesOneHot"):
+        validate_tensorized_sample(bad)

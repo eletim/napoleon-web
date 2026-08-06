@@ -29,6 +29,10 @@ from .split import DatasetSplit, SplitConfig, split_for_seed
 from .tensors import (
     FLAT_OBSERVATION_FEATURE_COUNT,
     FLAT_OBSERVATION_LAYOUT,
+    MODEL_INPUT_FEATURE_COUNT,
+    MODEL_INPUT_LAYOUT,
+    MODEL_INPUT_ONEHOT_LAYOUT,
+    MODEL_INPUT_SCHEMA_VERSION,
     FeatureSlice,
     PlayingObservationTensors,
     TensorizedPlayingSample,
@@ -49,6 +53,10 @@ from .validation import (
 __all__ = [
     "FLAT_OBSERVATION_FEATURE_COUNT",
     "FLAT_OBSERVATION_LAYOUT",
+    "MODEL_INPUT_FEATURE_COUNT",
+    "MODEL_INPUT_LAYOUT",
+    "MODEL_INPUT_ONEHOT_LAYOUT",
+    "MODEL_INPUT_SCHEMA_VERSION",
     "DatasetAgentInfo",
     "DatasetError",
     "DatasetManifest",
