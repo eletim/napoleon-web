@@ -110,6 +110,64 @@ describe("runEvaluation", () => {
     expect(record.games[0].seats.every((seat) => seat.role === "unknown")).toBe(true);
   });
 
+  it("counts completed and failed games in the same evaluation run", async () => {
+    const record = await runEvaluation({
+      startSeed: 2,
+      gameCount: 1,
+      playerIds,
+      rotationOffsets: [0, 1],
+      agents: playerIds.map((_, index) => ({
+        name: `MixedAgent-${index}`,
+        createAgent: ({ rng, rotationOffset }) =>
+          rotationOffset === 0 ? new RuleBasedAgent(rng) : new ThrowingAgent()
+      }))
+    });
+
+    expect(record.games).toHaveLength(2);
+    expect(record.completedCount).toBe(1);
+    expect(record.failedCount).toBe(1);
+    expect(record.games.map((game) => game.status)).toEqual(["completed", "failed"]);
+  });
+
+  it("rejects invalid evaluation runner configuration before creating agents", async () => {
+    let createAgentCount = 0;
+    const agents = playerIds.map((_, index) => ({
+      name: `ValidationAgent-${index}`,
+      createAgent: ({ rng }: Parameters<EvaluationAgentDefinition["createAgent"]>[0]) => {
+        createAgentCount += 1;
+        return new RuleBasedAgent(rng);
+      }
+    }));
+    const baseOptions = {
+      startSeed: 1,
+      gameCount: 1,
+      playerIds,
+      rotationOffsets: [0],
+      agents
+    };
+
+    await expect(runEvaluation({ ...baseOptions, gameCount: 0 })).rejects.toThrow(
+      "gameCount must be a positive integer."
+    );
+    await expect(runEvaluation({ ...baseOptions, startSeed: 0xffffffff, gameCount: 2 }))
+      .rejects.toThrow("seed must be an integer between 0 and 4294967295.");
+    await expect(runEvaluation({
+      ...baseOptions,
+      playerIds: ["player-0", "player-1", "player-2", "player-3", "player-3"]
+    })).rejects.toThrow("playerIds must be unique.");
+    await expect(runEvaluation({
+      ...baseOptions,
+      playerIds: ["player-0", "player-1", "player-2", "player-3"]
+    })).rejects.toThrow("evaluation runner requires exactly 5 playerIds.");
+    await expect(runEvaluation({ ...baseOptions, agents: agents.slice(0, 4) }))
+      .rejects.toThrow("agents length must match playerIds length.");
+    await expect(runEvaluation({ ...baseOptions, rotationOffsets: [] }))
+      .rejects.toThrow("rotationOffsets must not be empty.");
+    await expect(runEvaluation({ ...baseOptions, rotationOffsets: [0, 1.5] }))
+      .rejects.toThrow("rotationOffsets must contain only integers.");
+    expect(createAgentCount).toBe(0);
+  });
+
   it("keeps the existing automated game runner usable", async () => {
     const record = await runAutomatedGame({
       seed: 200,
