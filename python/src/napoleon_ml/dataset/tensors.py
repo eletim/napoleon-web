@@ -34,6 +34,7 @@ ground truth a player could not actually observe) — see
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import NamedTuple
 
 import numpy as np
 
@@ -155,28 +156,102 @@ _FLAT_LAYOUT_SPEC: tuple[tuple[str, tuple[int, ...]], ...] = (
 )
 
 
+class _OneHotField(NamedTuple):
+    """One category-index field of :class:`PlayingObservationTensors` to one-hot encode.
+
+    The single source of truth for the one-hot block appended to
+    ``model_input``: ``name``/``slot_count``/``num_classes`` drive
+    :data:`MODEL_INPUT_ONEHOT_LAYOUT`, and every field (including
+    ``tensor_attr``, the matching ``int64`` attribute name on
+    :class:`PlayingObservationTensors`) drives both :func:`_model_input`'s
+    encoding and :func:`_validate_model_input`'s cross-check -- so the
+    layout, the encoder, and the validator can never silently drift apart
+    from one another.
+    """
+
+    name: str
+    tensor_attr: str
+    slot_count: int
+    num_classes: int
+    min_value: int
+
+
 # One-hot regions appended after FLAT_OBSERVATION_LAYOUT to build
 # MODEL_INPUT_LAYOUT (see the module docstring). Order mirrors issue #17:
 # special card indices, current/completed trick card indices,
 # current/completed trick player indices, completed trick winner indices,
 # bidding history action type/player/suit/target.
-_MODEL_INPUT_ONEHOT_SPEC: tuple[tuple[str, tuple[int, ...]], ...] = (
-    ("specialCardIndicesOneHot", (_SPECIAL_CARD_INDEX_COUNT, CARD_COUNT)),
-    ("currentTrickCardIndicesOneHot", (CARDS_PER_TRICK, CARD_COUNT)),
-    ("completedTrickCardIndicesOneHot", (_COMPLETED_TRICK_CARD_SLOT_COUNT, CARD_COUNT)),
-    ("currentTrickPlayerIndicesOneHot", (CARDS_PER_TRICK, PLAYER_COUNT)),
-    ("completedTrickPlayerIndicesOneHot", (_COMPLETED_TRICK_CARD_SLOT_COUNT, PLAYER_COUNT)),
-    ("completedTrickWinnerIndicesOneHot", (TRICK_COUNT, PLAYER_COUNT)),
-    (
+_MODEL_INPUT_ONEHOT_FIELDS: tuple[_OneHotField, ...] = (
+    _OneHotField(
+        "specialCardIndicesOneHot", "special_card_indices", _SPECIAL_CARD_INDEX_COUNT, CARD_COUNT, 0
+    ),
+    _OneHotField(
+        "currentTrickCardIndicesOneHot",
+        "current_trick_card_indices",
+        CARDS_PER_TRICK,
+        CARD_COUNT,
+        0,
+    ),
+    _OneHotField(
+        "completedTrickCardIndicesOneHot",
+        "completed_trick_card_indices",
+        _COMPLETED_TRICK_CARD_SLOT_COUNT,
+        CARD_COUNT,
+        0,
+    ),
+    _OneHotField(
+        "currentTrickPlayerIndicesOneHot",
+        "current_trick_player_indices",
+        CARDS_PER_TRICK,
+        PLAYER_COUNT,
+        0,
+    ),
+    _OneHotField(
+        "completedTrickPlayerIndicesOneHot",
+        "completed_trick_player_indices",
+        _COMPLETED_TRICK_CARD_SLOT_COUNT,
+        PLAYER_COUNT,
+        0,
+    ),
+    _OneHotField(
+        "completedTrickWinnerIndicesOneHot",
+        "completed_trick_winner_indices",
+        TRICK_COUNT,
+        PLAYER_COUNT,
+        0,
+    ),
+    _OneHotField(
         "biddingHistoryActionTypeIndicesOneHot",
-        (MAX_BIDDING_ACTION_COUNT, _BIDDING_ACTION_TYPE_CLASS_COUNT),
+        "bidding_history_action_type_indices",
+        MAX_BIDDING_ACTION_COUNT,
+        _BIDDING_ACTION_TYPE_CLASS_COUNT,
+        0,
     ),
-    ("biddingHistoryPlayerIndicesOneHot", (MAX_BIDDING_ACTION_COUNT, PLAYER_COUNT)),
-    ("biddingHistorySuitIndicesOneHot", (MAX_BIDDING_ACTION_COUNT, _BIDDING_SUIT_CLASS_COUNT)),
-    (
+    _OneHotField(
+        "biddingHistoryPlayerIndicesOneHot",
+        "bidding_history_player_indices",
+        MAX_BIDDING_ACTION_COUNT,
+        PLAYER_COUNT,
+        0,
+    ),
+    _OneHotField(
+        "biddingHistorySuitIndicesOneHot",
+        "bidding_history_suit_indices",
+        MAX_BIDDING_ACTION_COUNT,
+        _BIDDING_SUIT_CLASS_COUNT,
+        0,
+    ),
+    _OneHotField(
         "biddingHistoryTargetPointCardsOneHot",
-        (MAX_BIDDING_ACTION_COUNT, _BIDDING_TARGET_POINT_CARDS_CLASS_COUNT),
+        "bidding_history_target_point_cards",
+        MAX_BIDDING_ACTION_COUNT,
+        _BIDDING_TARGET_POINT_CARDS_CLASS_COUNT,
+        MIN_BIDDING_TARGET_POINT_CARDS,
     ),
+)
+
+_MODEL_INPUT_ONEHOT_SPEC: tuple[tuple[str, tuple[int, ...]], ...] = tuple(
+    (field.name, (field.slot_count, field.num_classes)) for field in _MODEL_INPUT_ONEHOT_FIELDS
 )
 
 
@@ -376,54 +451,23 @@ def _flat_observation(tensors: PlayingObservationTensors) -> np.ndarray:
     return flat
 
 
+def _one_hot_field(tensors: PlayingObservationTensors, field: _OneHotField) -> np.ndarray:
+    indices: np.ndarray = getattr(tensors, field.tensor_attr)
+    return _one_hot_encode_indices(
+        indices, num_classes=field.num_classes, min_value=field.min_value
+    )
+
+
 def _model_input(tensors: PlayingObservationTensors, flat: np.ndarray) -> np.ndarray:
     """Concatenate ``flat`` with the one-hot regions in :data:`MODEL_INPUT_ONEHOT_LAYOUT`.
 
-    Order matches :data:`_MODEL_INPUT_ONEHOT_SPEC` exactly: special card
-    indices, current/completed trick card indices, current/completed trick
-    player indices, completed trick winner indices, then bidding history
-    action type/player/suit/target.
+    Iterates :data:`_MODEL_INPUT_ONEHOT_FIELDS` in order -- the single
+    source of truth also used to build :data:`MODEL_INPUT_ONEHOT_LAYOUT`
+    and to cross-check ``model_input`` in :func:`_validate_model_input`.
     """
 
-    parts = (
-        flat,
-        _one_hot_encode_indices(
-            tensors.special_card_indices, num_classes=CARD_COUNT, min_value=0
-        ).reshape(-1),
-        _one_hot_encode_indices(
-            tensors.current_trick_card_indices, num_classes=CARD_COUNT, min_value=0
-        ).reshape(-1),
-        _one_hot_encode_indices(
-            tensors.completed_trick_card_indices, num_classes=CARD_COUNT, min_value=0
-        ).reshape(-1),
-        _one_hot_encode_indices(
-            tensors.current_trick_player_indices, num_classes=PLAYER_COUNT, min_value=0
-        ).reshape(-1),
-        _one_hot_encode_indices(
-            tensors.completed_trick_player_indices, num_classes=PLAYER_COUNT, min_value=0
-        ).reshape(-1),
-        _one_hot_encode_indices(
-            tensors.completed_trick_winner_indices, num_classes=PLAYER_COUNT, min_value=0
-        ).reshape(-1),
-        _one_hot_encode_indices(
-            tensors.bidding_history_action_type_indices,
-            num_classes=_BIDDING_ACTION_TYPE_CLASS_COUNT,
-            min_value=0,
-        ).reshape(-1),
-        _one_hot_encode_indices(
-            tensors.bidding_history_player_indices, num_classes=PLAYER_COUNT, min_value=0
-        ).reshape(-1),
-        _one_hot_encode_indices(
-            tensors.bidding_history_suit_indices,
-            num_classes=_BIDDING_SUIT_CLASS_COUNT,
-            min_value=0,
-        ).reshape(-1),
-        _one_hot_encode_indices(
-            tensors.bidding_history_target_point_cards,
-            num_classes=_BIDDING_TARGET_POINT_CARDS_CLASS_COUNT,
-            min_value=MIN_BIDDING_TARGET_POINT_CARDS,
-        ).reshape(-1),
-    )
+    parts = [flat]
+    parts.extend(_one_hot_field(tensors, field).reshape(-1) for field in _MODEL_INPUT_ONEHOT_FIELDS)
     model_input = np.ascontiguousarray(np.concatenate(parts), dtype=np.float32)
 
     if model_input.shape != (MODEL_INPUT_FEATURE_COUNT,):
@@ -528,10 +572,12 @@ def validate_tensorized_sample(tensorized: TensorizedPlayingSample) -> None:
             f"belief_target values must be between 0 and {NOT_IN_HAND_CLASS_INDEX}."
         )
 
-    _validate_model_input(tensorized.model_input, flat)
+    _validate_model_input(tensorized.model_input, flat, tensorized.observation)
 
 
-def _validate_model_input(model_input: np.ndarray, flat: np.ndarray) -> None:
+def _validate_model_input(
+    model_input: np.ndarray, flat: np.ndarray, observation: PlayingObservationTensors
+) -> None:
     if model_input.ndim != 1:
         raise SampleValidationError(
             f"model_input must be 1-dimensional, got shape {model_input.shape}."
@@ -554,17 +600,19 @@ def _validate_model_input(model_input: np.ndarray, flat: np.ndarray) -> None:
     if not np.array_equal(model_input[:FLAT_OBSERVATION_FEATURE_COUNT], flat):
         raise SampleValidationError("model_input must start with flat_observation unchanged.")
 
-    for feature in MODEL_INPUT_ONEHOT_LAYOUT:
+    # Recompute each one-hot region straight from observation's underlying
+    # int64 index array (the same source _model_input() itself encoded from)
+    # and require an exact match. This is stricter than checking each
+    # region is merely well-formed (0/1 values, <=1 set bit per row): it
+    # also catches a region that is well-formed but encodes the wrong
+    # class -- a shifted, swapped, or all-zeroed-out index that a
+    # structural-only check would silently accept.
+    for feature, field in zip(MODEL_INPUT_ONEHOT_LAYOUT, _MODEL_INPUT_ONEHOT_FIELDS, strict=True):
         region = model_input[feature.start : feature.stop].reshape(feature.shape)
+        expected = _one_hot_field(observation, field)
 
-        if not np.all((region == 0.0) | (region == 1.0)):
+        if not np.array_equal(region, expected):
             raise SampleValidationError(
-                f"model_input region {feature.name!r} must contain only 0.0/1.0 values."
-            )
-
-        row_sums = region.sum(axis=-1)
-
-        if not np.all((row_sums == 0.0) | (row_sums == 1.0)):
-            raise SampleValidationError(
-                f"model_input region {feature.name!r} must have at most one 1.0 per class group."
+                f"model_input region {feature.name!r} does not match "
+                f"observation.{field.tensor_attr}."
             )

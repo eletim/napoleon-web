@@ -354,3 +354,26 @@ def test_validate_tensorized_sample_rejects_model_input_not_starting_with_flat_o
 
     with pytest.raises(SampleValidationError, match="flat_observation"):
         validate_tensorized_sample(bad)
+
+
+def test_validate_tensorized_sample_rejects_one_hot_region_that_disagrees_with_observation() -> (
+    None
+):
+    # A region can be individually well-formed (0/1 values, at most one bit
+    # set) while still encoding the wrong class -- e.g. a shifted one-hot.
+    # validate_tensorized_sample() must catch that by cross-checking against
+    # observation.special_card_indices, not just checking the region shape.
+    sample = parse_sample(_load_valid_sample())
+    tensorized = tensorize_sample(sample)
+
+    special_card_slice = _find_model_input_slice("specialCardIndicesOneHot")
+    tampered = tensorized.model_input.copy()
+    tampered.setflags(write=True)
+    # Fixture: oruma=0, so row 0's one-hot is at column 0; shift it to column 1.
+    tampered[special_card_slice.start + 0] = 0.0
+    tampered[special_card_slice.start + 1] = 1.0
+    tampered.setflags(write=False)
+    bad = dataclasses.replace(tensorized, model_input=tampered)
+
+    with pytest.raises(SampleValidationError, match="specialCardIndicesOneHot"):
+        validate_tensorized_sample(bad)
