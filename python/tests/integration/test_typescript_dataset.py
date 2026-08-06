@@ -14,6 +14,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+import torch
 
 from napoleon_ml.dataset import iter_samples, iter_tensorized_samples, load_manifest
 from napoleon_ml.dataset.constants import EXPECTED_CARD_IDS
@@ -140,6 +141,11 @@ def test_typescript_generated_dataset_loads_and_tensorizes_cleanly() -> None:
 
         assert batch["model_input"].shape == (8, MODEL_INPUT_FEATURE_COUNT)
         assert str(batch["model_input"].dtype) == "torch.float32"
+        assert batch["actor_target"].shape == (8,)
+        assert str(batch["actor_target"].dtype) == "torch.int64"
+        assert batch["legal_play_mask"].shape == (8, 53)
+        assert str(batch["legal_play_mask"].dtype) == "torch.bool"
+        assert batch["legal_play_mask"][torch.arange(8), batch["actor_target"]].all()
         assert batch["belief_target"].shape == (8, 53)
         assert str(batch["belief_target"].dtype) == "torch.int64"
         assert batch["belief_hidden_ownership_loss_mask"].shape == (8, 53)

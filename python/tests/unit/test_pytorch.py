@@ -95,6 +95,8 @@ def test_dataloader_filters_split_and_batches_fixed_shapes(tmp_path: Path) -> No
 
     assert set(batch) == {
         "model_input",
+        "actor_target",
+        "legal_play_mask",
         "belief_target",
         "belief_hidden_ownership_loss_mask",
         "seed",
@@ -102,6 +104,11 @@ def test_dataloader_filters_split_and_batches_fixed_shapes(tmp_path: Path) -> No
     }
     assert batch["model_input"].shape == (2, MODEL_INPUT_FEATURE_COUNT)
     assert batch["model_input"].dtype == torch.float32
+    assert batch["actor_target"].shape == (2,)
+    assert batch["actor_target"].dtype == torch.int64
+    assert batch["legal_play_mask"].shape == (2, CARD_COUNT)
+    assert batch["legal_play_mask"].dtype == torch.bool
+    assert batch["legal_play_mask"][torch.arange(2), batch["actor_target"]].all()
     assert batch["belief_target"].shape == (2, CARD_COUNT)
     assert batch["belief_target"].dtype == torch.int64
     assert batch["belief_hidden_ownership_loss_mask"].shape == (2, CARD_COUNT)
@@ -176,6 +183,7 @@ def test_mask_dtype_can_be_uint8(tmp_path: Path) -> None:
     batch = next(iter(loader))
 
     assert batch["belief_hidden_ownership_loss_mask"].dtype == torch.uint8
+    assert batch["legal_play_mask"].dtype == torch.bool
 
 
 def test_invalid_pytorch_loader_configuration_is_rejected(tmp_path: Path) -> None:

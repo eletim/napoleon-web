@@ -18,6 +18,8 @@ from .tensors import TensorizedPlayingSample
 
 class PlayingTorchSample(TypedDict):
     model_input: Tensor
+    actor_target: Tensor
+    legal_play_mask: Tensor
     belief_target: Tensor
     belief_hidden_ownership_loss_mask: Tensor
     seed: Tensor
@@ -158,8 +160,16 @@ def _coerce_mask_dtype(mask_dtype: torch.dtype) -> torch.dtype:
 def _torch_sample(
     sample: TensorizedPlayingSample, *, mask_dtype: torch.dtype
 ) -> PlayingTorchSample:
+    actor_target = torch.tensor(sample.actor_target, dtype=torch.int64)
+    legal_play_mask = torch.from_numpy(sample.legal_play_mask.copy()).to(dtype=torch.bool)
+
+    if not bool(legal_play_mask[actor_target].item()):
+        raise DatasetError("actor_target must be legal according to legal_play_mask.")
+
     return {
         "model_input": torch.from_numpy(sample.model_input.copy()),
+        "actor_target": actor_target,
+        "legal_play_mask": legal_play_mask,
         "belief_target": torch.from_numpy(sample.belief_target.copy()),
         "belief_hidden_ownership_loss_mask": torch.from_numpy(
             sample.belief_hidden_ownership_loss_mask.copy()
