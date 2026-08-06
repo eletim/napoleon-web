@@ -4,13 +4,14 @@ A strict Python consumer for the self-play datasets that
 `packages/training-data` (TypeScript) generates. It validates a generated
 dataset directory end to end — `manifest.json`, every shard's raw bytes,
 and every individual sample — and converts validated samples into
-fixed-shape, fixed-dtype NumPy tensors.
+fixed-shape, fixed-dtype NumPy tensors. It also includes a first CPU-only
+PyTorch MLP baseline for predicting hidden card ownership from `model_input`.
 
-This package only covers the boundary from a generated dataset directory to
-validated NumPy arrays, plus an optional PyTorch `IterableDataset` adapter
-for fixed-shape training batches. It does not include TensorFlow, JAX, any
-neural-network model, training loop, ONNX export, reinforcement learning, a
-parallel `DataLoader`, dataset caching, or compression. See
+This package covers the boundary from a generated dataset directory to
+validated NumPy arrays, an optional PyTorch `IterableDataset` adapter for
+fixed-shape training batches, and the first supervised ownership-belief MLP
+baseline. It does not include TensorFlow, JAX, ONNX export, reinforcement
+learning, a parallel `DataLoader`, dataset caching, or compression. See
 [Not implemented](#not-implemented) below.
 
 ## Requirements
@@ -391,6 +392,43 @@ problem is always printed to stderr, without a Python stack trace). An
 unexpected internal error (a bug, not a dataset problem) is allowed to
 raise normally with its full traceback rather than being swallowed.
 
+## Ownership MLP baseline
+
+Install the `train` or `dev` extra, then train the CPU-only baseline:
+
+```bash
+napoleon-train-ownership-mlp ./datasets/rule-based-v1 \
+  --output ./models/ownership-mlp.pt \
+  --epochs 3 \
+  --batch-size 32 \
+  --seed 0
+```
+
+The model consumes only `model_input` and emits logits with shape
+`(batch, 53, 6)`: one owner class for each card (`relative_player_0` through
+`relative_player_4`, plus `not_in_hand`). Training computes cross entropy
+only where `belief_hidden_ownership_loss_mask` is true, so known cards are
+excluded from the loss and the primary masked accuracy. The output report
+also includes owner-class accuracy, game-progress accuracy by step bucket,
+and a comparison against an untrained baseline that always predicts
+`not_in_hand`.
+
+Evaluate a saved checkpoint without training:
+
+```bash
+napoleon-evaluate-ownership-mlp ./datasets/rule-based-v1 \
+  --checkpoint ./models/ownership-mlp.pt \
+  --split test
+```
+
+Checkpoints store the model state, model/training settings, dataset schema
+version, playing encoder schema version, model input schema version, and the
+`CARD_IDS` SHA-256 hash. Loading refuses a checkpoint whose saved schema
+metadata or card-id hash does not match the current package and dataset.
+For reproducibility, `--seed` fixes model initialization and the DataLoader
+keeps the deterministic shard/seed sample order; no shuffle option is
+exposed.
+
 ## Tests
 
 ```bash
@@ -422,9 +460,6 @@ output is committed.
 
 ## Not implemented
 
-TensorFlow, JAX, any neural-network model or training loop, behavior
-cloning, actor-critic or other reinforcement learning, ONNX export, GPU
-code, checkpoints, TensorBoard, shuffle, a parallel `DataLoader`,
-dataset caching, gzip/compression, and a database or web UI. This package
-stops at validated NumPy arrays and deterministic, single-process PyTorch
-batches.
+TensorFlow, JAX, behavior cloning, actor-critic or other reinforcement
+learning, ONNX export, GPU code, TensorBoard, shuffle, a parallel
+`DataLoader`, dataset caching, gzip/compression, and a database or web UI.

@@ -17,6 +17,8 @@ dev = ["pytest>=8", "mypy>=1.10", "ruff>=0.6", "torch>=2.2"]
 
 [project.scripts]
 napoleon-inspect-dataset = "napoleon_ml.cli.inspect_dataset:main"
+napoleon-train-ownership-mlp = "napoleon_ml.cli.train_ownership_mlp:main"
+napoleon-evaluate-ownership-mlp = "napoleon_ml.cli.evaluate_ownership_mlp:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
