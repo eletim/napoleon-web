@@ -170,6 +170,7 @@ rejected), and `step` strictly increases within a seed's block.
 | Field | Shape | dtype |
 | --- | --- | --- |
 | `flat_observation` | `(684,)` | `float32` |
+| `model_input` | `(6242,)` | `float32` |
 | `legal_play_mask` | `(53,)` | `uint8` |
 | `actor_target` | scalar | `int64` |
 | `belief_target` | `(53,)` | `int64` |
@@ -182,15 +183,16 @@ one-hot vectors and small scalars as `float32`, and card/player/trick
 arrays, `specialCardIndices`, and so on) as `int64` — deliberately **not**
 folded into `flat_observation`. A raw category index (e.g. "card 37") cast
 straight into a float vector would silently imply an ordinal relationship
-between cards that isn't real; a future consumer that wants those as model
-input should one-hot encode them explicitly instead.
+between cards that isn't real; `model_input` (below) is where those are
+one-hot encoded instead.
 
 `validate_tensorized_sample()` (run automatically by `tensorize_sample()`)
 checks that `flat_observation` is one-dimensional, `float32`,
 C-contiguous, and free of `NaN`/`Infinity`; that `actor_target` is `int64`
 and in `[0, 52]`; that `legal_play_mask` has shape `(53,)` and is `1` at
-the `actor_target` index; and that `belief_target` has shape `(53,)`,
-dtype `int64`, and values in `[0, 5]`.
+the `actor_target` index; that `belief_target` has shape `(53,)`, dtype
+`int64`, and values in `[0, 5]`; and that `model_input` (below) meets its
+own shape/dtype/value invariants.
 
 ### Flat feature layout
 
@@ -204,6 +206,71 @@ inspect it:
 from napoleon_ml.dataset.tensors import FLAT_OBSERVATION_LAYOUT
 
 for feature in FLAT_OBSERVATION_LAYOUT:
+    print(feature.name, feature.start, feature.stop, feature.shape)
+```
+
+### Model input (`model_input`, schema version `MODEL_INPUT_SCHEMA_VERSION` = 1)
+
+`flat_observation` deliberately leaves out every category-*index* field, so
+it alone is not a complete model input — a policy that also needs to know
+which cards are in the current trick, say, gets nothing from it. `model_input`
+is: `flat_observation`'s 684 positions, followed by every one of those index
+fields, one-hot encoded, in a second fixed-order block. It is what a
+first-version MLP policy should actually train and infer on; `flat_observation`
+is kept only for existing consumers that already depend on it.
+
+The appended block, in order, one-hot encodes:
+
+| Field | Shape | Classes |
+| --- | --- | --- |
+| `specialCardIndicesOneHot` (oruma, yoromeki, seiJack, uraJack) | `(4, 53)` | card id, 0–52 |
+| `currentTrickCardIndicesOneHot` | `(5, 53)` | card id, 0–52 |
+| `completedTrickCardIndicesOneHot` | `(50, 53)` | card id, 0–52 |
+| `currentTrickPlayerIndicesOneHot` | `(5, 5)` | player, 0–4 |
+| `completedTrickPlayerIndicesOneHot` | `(50, 5)` | player, 0–4 |
+| `completedTrickWinnerIndicesOneHot` | `(10, 5)` | player, 0–4 |
+| `biddingHistoryActionTypeIndicesOneHot` | `(117, 2)` | pass=0 / bid=1 |
+| `biddingHistoryPlayerIndicesOneHot` | `(117, 5)` | player, 0–4 |
+| `biddingHistorySuitIndicesOneHot` | `(117, 4)` | suit, 0–3 |
+| `biddingHistoryTargetPointCardsOneHot` | `(117, 7)` | target point cards, 13–19 |
+
+684 + (4 + 5 + 50) × 53 + (5 + 50 + 10) × 5 + 117 × (2 + 5 + 4 + 7) = 6242.
+
+An empty slot one-hot-encodes to an all-zero region, never to a one-hot at
+some placeholder class — so "no value" can never be mistaken for a real
+class 0. This covers both kinds of "empty" this schema uses: the `-1`
+sentinel (card/player index fields — see `EMPTY_CARD_INDEX`/
+`EMPTY_PLAYER_INDEX`/`EMPTY_BIDDING_ACTION_TYPE`/`EMPTY_BIDDING_SUIT_INDEX`
+in `napoleon_ml.dataset.constants`) and, for
+`biddingHistoryTargetPointCardsOneHot` specifically, a `pass` or empty
+slot's `targetPointCards` of `0` (which is outside the valid `13`–`19`
+bid-target range and so is never one-hot encoded, whether or not it's `-1`).
+Callers never need to branch on which "empty" applies — one-hot encoding
+already reduces it to "no bit set".
+
+`legalPlayMask` is included in `model_input` (inside `flat_observation`'s
+684 positions, unchanged) and is *also* kept as the independent
+`TensorizedPlayingSample.legal_play_mask` array, so inference code can mask
+illegal actions out of a policy's output without re-deriving the mask from
+`model_input`.
+
+Deliberately excluded from `model_input` (and from `flat_observation`):
+`schemaVersion`, `seed`, `step`, and the player-id strings (dataset
+bookkeeping, not part of the game state a policy conditions on), and the
+sample's `actorTarget` and `beliefTarget` (the training label and the
+hidden-ownership ground truth — including a real player's hand would leak
+information no player can actually observe).
+
+`napoleon_ml.dataset.tensors.MODEL_INPUT_LAYOUT` is
+`FLAT_OBSERVATION_LAYOUT` followed by the ten slices above (also available
+alone as `MODEL_INPUT_ONEHOT_LAYOUT`), covering all 6242 positions of
+`model_input` with no gap, overlap, or duplicate name (checked at import
+time, same as `FLAT_OBSERVATION_LAYOUT`):
+
+```python
+from napoleon_ml.dataset.tensors import MODEL_INPUT_LAYOUT
+
+for feature in MODEL_INPUT_LAYOUT:
     print(feature.name, feature.start, feature.stop, feature.shape)
 ```
 
