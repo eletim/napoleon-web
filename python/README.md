@@ -329,6 +329,8 @@ loader = create_playing_dataloader(
 
 for batch in loader:
     model_input = batch["model_input"]
+    actor_target = batch["actor_target"]
+    legal_play_mask = batch["legal_play_mask"]
     belief_target = batch["belief_target"]
     mask = batch["belief_hidden_ownership_loss_mask"]
     seed = batch["seed"]
@@ -340,10 +342,17 @@ Each batch is a dictionary of PyTorch tensors with fixed shapes and dtypes:
 | Field | Batch shape | dtype |
 | --- | --- | --- |
 | `model_input` | `(batch, 6242)` | `torch.float32` |
+| `actor_target` | `(batch,)` | `torch.int64` |
+| `legal_play_mask` | `(batch, 53)` | `torch.bool` |
 | `belief_target` | `(batch, 53)` | `torch.int64` |
 | `belief_hidden_ownership_loss_mask` | `(batch, 53)` | `torch.bool` by default (`torch.uint8` optional) |
 | `seed` | `(batch,)` | `torch.int64` |
 | `step` | `(batch,)` | `torch.int64` |
+
+`actor_target` is the supervised play label, and every row is checked while
+streaming so `legal_play_mask[row, actor_target[row]]` is true. These policy
+fields are exposed alongside the existing ownership-belief fields; they do
+not change the dataset, observation, or `model_input` schema.
 
 `PlayingIterableDataset` streams through `iter_tensorized_samples()` and
 filters by `split_for_seed()`, so it does not load the whole dataset into

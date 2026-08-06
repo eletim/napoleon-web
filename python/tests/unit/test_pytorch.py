@@ -1,19 +1,27 @@
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 import torch
 
+import napoleon_ml.dataset.pytorch as pytorch_module
 from napoleon_ml.dataset.constants import CARD_COUNT, EXPECTED_CARD_IDS
 from napoleon_ml.dataset.errors import DatasetError
 from napoleon_ml.dataset.pytorch import PlayingIterableDataset, create_playing_dataloader
+from napoleon_ml.dataset.sample import parse_sample
 from napoleon_ml.dataset.split import DatasetSplit, SplitConfig
-from napoleon_ml.dataset.tensors import MODEL_INPUT_FEATURE_COUNT
+from napoleon_ml.dataset.tensors import (
+    MODEL_INPUT_FEATURE_COUNT,
+    TensorizedPlayingSample,
+    tensorize_sample,
+)
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 
 _FIXTURE_PATH = Path(__file__).parent / "fixtures" / "valid_sample.json"
@@ -95,6 +103,8 @@ def test_dataloader_filters_split_and_batches_fixed_shapes(tmp_path: Path) -> No
 
     assert set(batch) == {
         "model_input",
+        "actor_target",
+        "legal_play_mask",
         "belief_target",
         "belief_hidden_ownership_loss_mask",
         "seed",
@@ -102,6 +112,11 @@ def test_dataloader_filters_split_and_batches_fixed_shapes(tmp_path: Path) -> No
     }
     assert batch["model_input"].shape == (2, MODEL_INPUT_FEATURE_COUNT)
     assert batch["model_input"].dtype == torch.float32
+    assert batch["actor_target"].shape == (2,)
+    assert batch["actor_target"].dtype == torch.int64
+    assert batch["legal_play_mask"].shape == (2, CARD_COUNT)
+    assert batch["legal_play_mask"].dtype == torch.bool
+    assert batch["legal_play_mask"][torch.arange(2), batch["actor_target"]].all()
     assert batch["belief_target"].shape == (2, CARD_COUNT)
     assert batch["belief_target"].dtype == torch.int64
     assert batch["belief_hidden_ownership_loss_mask"].shape == (2, CARD_COUNT)
@@ -176,6 +191,48 @@ def test_mask_dtype_can_be_uint8(tmp_path: Path) -> None:
     batch = next(iter(loader))
 
     assert batch["belief_hidden_ownership_loss_mask"].dtype == torch.uint8
+    assert batch["legal_play_mask"].dtype == torch.bool
+
+
+def test_dataloader_rejects_actor_target_outside_legal_mask(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tensorized = tensorize_sample(parse_sample(_load_valid_sample()))
+    bad = dataclasses.replace(tensorized, actor_target=np.int64(-1))
+
+    def _fake_iter_tensorized_samples(
+        *args: object, **kwargs: object
+    ) -> Iterator[TensorizedPlayingSample]:
+        yield bad
+
+    monkeypatch.setattr(pytorch_module, "iter_tensorized_samples", _fake_iter_tensorized_samples)
+
+    dataset = PlayingIterableDataset(tmp_path, split=DatasetSplit.TRAIN)
+
+    with pytest.raises(DatasetError, match="actor_target must be between"):
+        next(iter(dataset))
+
+
+def test_dataloader_rejects_in_range_actor_target_missing_from_legal_mask(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tensorized = tensorize_sample(parse_sample(_load_valid_sample()))
+    actor_target = int(tensorized.actor_target)
+    legal_play_mask = tensorized.legal_play_mask.copy()
+    legal_play_mask[actor_target] = 0
+    bad = dataclasses.replace(tensorized, legal_play_mask=legal_play_mask)
+
+    def _fake_iter_tensorized_samples(
+        *args: object, **kwargs: object
+    ) -> Iterator[TensorizedPlayingSample]:
+        yield bad
+
+    monkeypatch.setattr(pytorch_module, "iter_tensorized_samples", _fake_iter_tensorized_samples)
+
+    dataset = PlayingIterableDataset(tmp_path, split=DatasetSplit.TRAIN)
+
+    with pytest.raises(DatasetError, match="actor_target must be legal"):
+        next(iter(dataset))
 
 
 def test_invalid_pytorch_loader_configuration_is_rejected(tmp_path: Path) -> None:
