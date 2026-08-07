@@ -53,12 +53,14 @@ interface DatasetManifestBase {
   shards: readonly DatasetShardManifest[];
 }
 
-export interface LegacyPlayingDatasetManifest extends DatasetManifestBase {
+export interface DatasetManifest extends DatasetManifestBase {
   datasetSchemaVersion: typeof DATASET_SCHEMA_VERSION;
   generatorVersion: typeof DATASET_GENERATOR_VERSION;
   playingEncoderSchemaVersion: 1;
   sampleType: typeof DATASET_SAMPLE_TYPE;
 }
+
+export type LegacyPlayingDatasetManifest = DatasetManifest;
 
 export interface MultiphaseDatasetManifest extends DatasetManifestBase {
   datasetSchemaVersion: typeof MULTIPHASE_DATASET_SCHEMA_VERSION;
@@ -67,7 +69,7 @@ export interface MultiphaseDatasetManifest extends DatasetManifestBase {
   sampleType: NonPlayingDatasetSampleType;
 }
 
-export type DatasetManifest = LegacyPlayingDatasetManifest | MultiphaseDatasetManifest;
+export type RuleBasedDatasetManifest = DatasetManifest | MultiphaseDatasetManifest;
 
 export interface DatasetGenerationProgress {
   completedGames: number;
@@ -102,7 +104,7 @@ export type GenerateRuleBasedDatasetOptions =
 
 export type DatasetManifestForSampleType<TSampleType extends DatasetSampleType> =
   TSampleType extends typeof DATASET_SAMPLE_TYPE
-    ? LegacyPlayingDatasetManifest
+    ? DatasetManifest
     : MultiphaseDatasetManifest & { sampleType: TSampleType };
 
 export interface GenerateDatasetResult<

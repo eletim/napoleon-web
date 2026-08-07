@@ -22,6 +22,8 @@ The manifest records dataset schema versions, sample type, encoder schema versio
 
 The default `generateRuleBasedDataset` path still writes the legacy playing manifest schema (`datasetSchemaVersion: 1`) and legacy playing JSONL row shape. Non-playing sample types use the v2 manifest schema with `encoderSchemaVersion`.
 
+The exported TypeScript `DatasetManifest` type remains the legacy playing manifest shape. Use `RuleBasedDatasetManifest` when handling both legacy playing and v2 non-playing manifests.
+
 `cardIdsSha256` is the SHA-256 of the UTF-8 bytes of `JSON.stringify(CARD_IDS)`.
 Each shard SHA-256 is computed from the exact UTF-8 bytes written to that JSONL file. `byteLength` is accumulated from those same chunks.
 

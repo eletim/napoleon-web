@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import type { PlayingTrainingSample } from "@napoleon/ai-observation";
 import { CARD_IDS } from "@napoleon/ai-observation";
-import type { TrainingSample } from "./types.js";
+import { DATASET_SAMPLE_TYPE } from "./schema.js";
+import type { DatasetSampleType, TrainingSample } from "./types.js";
 
 export function sha256Utf8(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -24,12 +25,23 @@ export function serializePlayingTrainingSample(sample: PlayingTrainingSample): s
   })}\n`;
 }
 
-export function serializeTrainingSample(sample: TrainingSample): string {
-  if (!("sampleType" in sample)) {
-    return serializePlayingTrainingSample(sample);
+export function serializeTrainingSample(
+  sample: TrainingSample,
+  sampleType: DatasetSampleType = inferSampleType(sample)
+): string {
+  if (sampleType === DATASET_SAMPLE_TYPE) {
+    return serializePlayingTrainingSample(sample as PlayingTrainingSample);
+  }
+
+  if (!("sampleType" in sample) || sample.sampleType !== sampleType) {
+    throw new Error(`Sample sampleType must be ${sampleType}.`);
   }
 
   return `${JSON.stringify(sample)}\n`;
+}
+
+function inferSampleType(sample: TrainingSample): DatasetSampleType {
+  return "sampleType" in sample ? sample.sampleType : DATASET_SAMPLE_TYPE;
 }
 
 export function serializeManifest(manifest: unknown): string {

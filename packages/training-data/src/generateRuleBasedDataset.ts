@@ -7,6 +7,7 @@ import {
   CARD_COUNT,
   EXCHANGE_ENCODER_SCHEMA_VERSION,
   PLAYER_COUNT,
+  type PlayingTrainingSample,
   PLAYING_ENCODER_SCHEMA_VERSION
 } from "@napoleon/ai-observation";
 import { RuleBasedAgent, runAutomatedGame } from "@napoleon/ai";
@@ -31,7 +32,6 @@ import {
   RULE_BASED_AGENT_VERSION
 } from "./schema.js";
 import type {
-  DatasetManifest,
   DatasetShardManifest,
   DatasetSampleType,
   GenerateDatasetResult,
@@ -40,6 +40,7 @@ import type {
   GenerateRuleBasedDatasetInternalOptions,
   GenerateRuleBasedDatasetOptions,
   NonPlayingDatasetSampleType,
+  RuleBasedDatasetManifest,
   SampleCreator,
   SampleSerializer,
   SampleValidator
@@ -48,6 +49,7 @@ import { createJsonlShardWriter, type JsonlShardWriter } from "./shardWriter.js"
 import {
   calculateCardIdsSha256,
   serializeManifest,
+  serializePlayingTrainingSample,
   serializeTrainingSample
 } from "./serialization.js";
 import {
@@ -71,7 +73,7 @@ const sampleGenerationSpecs: Record<DatasetSampleType, SampleGenerationSpec> = {
     createSamples: createPlayingTrainingSamples,
     validateSample: (sample, expectedSeed) =>
       validateTrainingSample(sample, expectedSeed, PLAYING_DATASET_SAMPLE_TYPE),
-    serializeSample: serializeTrainingSample
+    serializeSample: (sample) => serializePlayingTrainingSample(sample as PlayingTrainingSample)
   },
   [BIDDING_DATASET_SAMPLE_TYPE]: {
     sampleType: BIDDING_DATASET_SAMPLE_TYPE,
@@ -217,7 +219,7 @@ function createManifest(input: {
   spec: SampleGenerationSpec;
   sampleCount: number;
   shards: readonly DatasetShardManifest[];
-}): DatasetManifest {
+}): RuleBasedDatasetManifest {
   const endSeed = input.options.startSeed + input.options.gameCount - 1;
 
   if (input.spec.sampleType === DATASET_SAMPLE_TYPE) {

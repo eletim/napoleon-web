@@ -39,7 +39,11 @@ import {
   PLAYING_DATASET_SAMPLE_TYPE,
   validateDatasetManifest
 } from "../src/index.js";
-import type { DatasetManifest, DatasetSampleType, TrainingSample } from "../src/index.js";
+import type {
+  DatasetSampleType,
+  RuleBasedDatasetManifest,
+  TrainingSample
+} from "../src/index.js";
 import { generateRuleBasedDatasetWithDependencies } from "../src/generateRuleBasedDataset.js";
 import { createJsonlShardWriter } from "../src/shardWriter.js";
 
@@ -348,13 +352,15 @@ async function expectDirectoriesToBeByteIdentical(
   }
 }
 
-async function readManifest(output: string): Promise<DatasetManifest> {
-  return JSON.parse(await readFile(join(output, "manifest.json"), "utf8")) as DatasetManifest;
+async function readManifest(output: string): Promise<RuleBasedDatasetManifest> {
+  return JSON.parse(
+    await readFile(join(output, "manifest.json"), "utf8")
+  ) as RuleBasedDatasetManifest;
 }
 
 async function readAllShardLines(
   output: string,
-  manifest: DatasetManifest
+  manifest: RuleBasedDatasetManifest
 ): Promise<readonly string[]> {
   const lines: string[] = [];
 
@@ -384,7 +390,7 @@ function assertSampleOrderAndValidity(samples: readonly PlayingTrainingSample[])
 }
 
 function assertManifestSampleType(
-  manifest: DatasetManifest,
+  manifest: RuleBasedDatasetManifest,
   sampleType: DatasetSampleType
 ): void {
   expect(manifest.sampleType).toBe(sampleType);
@@ -409,6 +415,8 @@ function assertSamplesForType(
   sampleType: DatasetSampleType,
   samples: readonly ParsedTrainingSample[]
 ): void {
+  assertTrainingSampleOrder(samples);
+
   switch (sampleType) {
     case PLAYING_DATASET_SAMPLE_TYPE:
       assertSampleOrderAndValidity(samples as readonly PlayingTrainingSample[]);
@@ -438,6 +446,22 @@ function assertSamplesForType(
           .toBe(1);
       });
       return;
+  }
+}
+
+function assertTrainingSampleOrder(
+  samples: readonly Pick<ParsedTrainingSample, "seed" | "step">[]
+): void {
+  let previousSeed = -1;
+  const lastStepBySeed = new Map<number, number>();
+
+  for (const sample of samples) {
+    expect(sample.seed).toBeGreaterThanOrEqual(previousSeed);
+    previousSeed = sample.seed;
+
+    const lastStep = lastStepBySeed.get(sample.seed) ?? 0;
+    expect(sample.step).toBeGreaterThan(lastStep);
+    lastStepBySeed.set(sample.seed, sample.step);
   }
 }
 

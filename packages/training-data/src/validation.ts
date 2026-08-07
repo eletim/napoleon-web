@@ -36,10 +36,10 @@ import {
   UINT32_MAX
 } from "./schema.js";
 import type {
-  DatasetManifest,
   DatasetShardManifest,
   DatasetSampleType,
   GenerateRuleBasedDatasetOptions,
+  RuleBasedDatasetManifest,
   TrainingSample
 } from "./types.js";
 import { calculateCardIdsSha256 } from "./serialization.js";
@@ -146,7 +146,7 @@ export function validateTrainingSample(
   }
 }
 
-export function validateDatasetManifest(manifest: DatasetManifest): void {
+export function validateDatasetManifest(manifest: RuleBasedDatasetManifest): void {
   if (
     manifest.datasetSchemaVersion !== DATASET_SCHEMA_VERSION &&
     manifest.datasetSchemaVersion !== MULTIPHASE_DATASET_SCHEMA_VERSION
@@ -235,7 +235,7 @@ export function shardFileName(shardIndex: number): string {
   return `shard-${shardIndex.toString().padStart(SHARD_FILE_DIGITS, "0")}.jsonl`;
 }
 
-function validateShards(manifest: DatasetManifest): void {
+function validateShards(manifest: RuleBasedDatasetManifest): void {
   let expectedStartSeed = manifest.startSeed;
   const seenFiles = new Set<string>();
 
@@ -288,7 +288,7 @@ function validateShards(manifest: DatasetManifest): void {
   }
 }
 
-function validateManifestNumbers(manifest: DatasetManifest): void {
+function validateManifestNumbers(manifest: RuleBasedDatasetManifest): void {
   validateUint32("Manifest startSeed", manifest.startSeed);
   validateUint32("Manifest endSeed", manifest.endSeed);
 
@@ -314,7 +314,7 @@ function validateManifestNumbers(manifest: DatasetManifest): void {
   }
 }
 
-function validateManifestSchemaIdentity(manifest: DatasetManifest): void {
+function validateManifestSchemaIdentity(manifest: RuleBasedDatasetManifest): void {
   if (manifest.datasetSchemaVersion === DATASET_SCHEMA_VERSION) {
     if (manifest.generatorVersion !== DATASET_GENERATOR_VERSION) {
       throw new Error("Manifest generatorVersion mismatch.");

@@ -46,5 +46,6 @@ export type {
   LegacyPlayingDatasetManifest,
   MultiphaseDatasetManifest,
   NonPlayingDatasetSampleType,
+  RuleBasedDatasetManifest,
   TrainingSample
 } from "./types.js";

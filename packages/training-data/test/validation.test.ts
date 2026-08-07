@@ -17,7 +17,11 @@ import {
   validateGenerationOptions,
   validatePlayingTrainingSample
 } from "../src/index.js";
-import type { DatasetManifest } from "../src/index.js";
+import type {
+  DatasetManifest,
+  GenerateRuleBasedDatasetOptions,
+  RuleBasedDatasetManifest
+} from "../src/index.js";
 
 describe("validation", () => {
   it("validates generation options and seed ranges", () => {
@@ -41,6 +45,14 @@ describe("validation", () => {
       gamesPerShard: 1,
       outputDirectory: "out"
     })).toThrow(`exceeding the maximum ${MAX_SHARD_COUNT}`);
+
+    expect(() => validateGenerationOptions({
+      startSeed: 0,
+      gameCount: 1,
+      gamesPerShard: 1,
+      outputDirectory: "out",
+      sampleType: "bogus-training-sample"
+    } as unknown as GenerateRuleBasedDatasetOptions)).toThrow("Unsupported dataset sampleType");
   });
 
   it("rejects invalid shard file indexes", () => {
@@ -122,7 +134,7 @@ describe("validation", () => {
   });
 
   it("validates a v2 non-playing manifest with an explicit encoder schema version", () => {
-    const manifest: DatasetManifest = {
+    const manifest: RuleBasedDatasetManifest = {
       ...validManifest(),
       datasetSchemaVersion: MULTIPHASE_DATASET_SCHEMA_VERSION,
       generatorVersion: MULTIPHASE_DATASET_GENERATOR_VERSION,
