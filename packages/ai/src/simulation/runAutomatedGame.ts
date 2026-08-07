@@ -73,7 +73,13 @@ export async function runAutomatedGame(
     const observation: PlayerObservation = {
       playerId,
       view,
-      legalActions
+      legalActions,
+      publicActionHistory: decisions.map((decision) => ({
+        step: decision.step,
+        playerId: decision.playerId,
+        phase: decision.phase,
+        action: decision.action
+      }))
     };
     const action = await agent.selectAction(observation);
 

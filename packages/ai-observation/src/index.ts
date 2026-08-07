@@ -7,6 +7,7 @@ export type { PlayingTrainingSample } from "./createPlayingTrainingSample.js";
 export {
   createEmptyEncodedBiddingHistory,
   encodeBiddingHistory,
+  encodeBiddingHistoryFromPublicActions,
   getBiddingSuitIndex,
   validateEncodedBiddingHistory
 } from "./encodeBiddingHistory.js";
@@ -25,6 +26,11 @@ export {
   validateEncodedPlayingObservation
 } from "./encodePlayingObservation.js";
 export type { EncodedPlayingObservation } from "./encodePlayingObservation.js";
+export {
+  createPlayingModelInput,
+  encodePlayingModelInput
+} from "./modelInput.js";
+export type { PlayingModelInput } from "./modelInput.js";
 export { createRelativePlayerOrder, getRelativePlayerIndex } from "./playerIndex.js";
 export {
   CARD_COUNT,
@@ -36,9 +42,12 @@ export {
   EMPTY_BIDDING_ACTION_TYPE,
   EMPTY_BIDDING_SUIT_INDEX,
   EMPTY_PLAYER_INDEX,
+  FLAT_OBSERVATION_FEATURE_COUNT,
   MAX_BIDDING_ACTION_COUNT,
   MAX_BIDDING_TARGET_POINT_CARDS,
   MIN_BIDDING_TARGET_POINT_CARDS,
+  MODEL_INPUT_FEATURE_COUNT,
+  MODEL_INPUT_SCHEMA_VERSION,
   NOT_IN_HAND_CLASS_INDEX,
   PLAYER_COUNT,
   PLAYING_ENCODER_SCHEMA_VERSION,

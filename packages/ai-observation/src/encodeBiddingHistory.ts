@@ -1,4 +1,5 @@
 import type { AutomatedGameRecord, DecisionRecord } from "@napoleon/ai";
+import type { PublicActionRecord } from "@napoleon/ai";
 import type { GameAction, PlayerId, Suit } from "@napoleon/game-core";
 import { getRelativePlayerIndex } from "./playerIndex.js";
 import {
@@ -43,8 +44,20 @@ export function encodeBiddingHistory(
     );
   }
 
-  const biddingDecisions = record.decisions.filter(
-    (decision) => decision.phase === "bidding" && decision.step < playingDecision.step
+  return encodeBiddingHistoryFromPublicActions(
+    record.decisions,
+    playingDecision.step,
+    relativePlayerIds
+  );
+}
+
+export function encodeBiddingHistoryFromPublicActions(
+  publicActionHistory: readonly PublicActionRecord[],
+  beforeStep: number,
+  relativePlayerIds: readonly PlayerId[]
+): EncodedBiddingHistory {
+  const biddingDecisions = publicActionHistory.filter(
+    (record) => record.phase === "bidding" && record.step < beforeStep
   );
 
   if (biddingDecisions.length > MAX_BIDDING_ACTION_COUNT) {
@@ -60,17 +73,17 @@ export function encodeBiddingHistory(
   const targetPointCards = [...encoded.targetPointCards];
   const actionMask = [...encoded.actionMask];
 
-  biddingDecisions.forEach((decision, index) => {
-    const action = decision.action;
+  biddingDecisions.forEach((record, index) => {
+    const action = record.action;
 
-    if (action.playerId !== decision.playerId) {
+    if (action.playerId !== record.playerId) {
       throw new Error(
-        `Bidding action playerId must match decision playerId: ${action.playerId} !== ${decision.playerId}`
+        `Bidding action playerId must match record playerId: ${action.playerId} !== ${record.playerId}`
       );
     }
 
     actionTypeIndices[index] = encodeBiddingActionType(action);
-    playerIndices[index] = getRelativePlayerIndex(relativePlayerIds, decision.playerId);
+    playerIndices[index] = getRelativePlayerIndex(relativePlayerIds, record.playerId);
     actionMask[index] = 1;
 
     if (action.type === "bid") {

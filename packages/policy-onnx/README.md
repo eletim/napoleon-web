@@ -5,10 +5,10 @@ TypeScript inference wrapper for the policy ONNX artifact exported by
 
 The package loads a `.onnx` file plus its `.json` metadata, validates the
 runtime contract before inference, then runs CPU ONNX Runtime from Node.js.
-It deliberately does not connect the model to the game Agent layer.
 
 ```ts
-import { loadPolicyOnnxModel } from "@napoleon/policy-onnx";
+import { PolicyOnnxAgent, loadPolicyOnnxModel } from "@napoleon/policy-onnx";
+import { runAutomatedGame } from "@napoleon/ai";
 
 const policy = await loadPolicyOnnxModel({
   onnxPath: "./artifacts/policy.onnx",
@@ -20,12 +20,25 @@ const action = await policy.selectLegalPlay({
   modelInput,
   legalPlayMask
 });
+
+const record = await runAutomatedGame({
+  seed: 12345,
+  createAgent: ({ rng }) => new PolicyOnnxAgent({ policy, rng })
+});
 ```
 
 `modelInput` must be a 6242-element `float32` feature vector using model input
 schema version 1. `legalPlayMask` must contain 53 entries and at least one
 legal card. `selectLegalPlay` always applies the mask before choosing the
 highest-logit card index.
+
+`PolicyOnnxAgent` uses the ONNX policy only during the `playing` phase. Bidding,
+card exchange, and adjutant selection are delegated to the existing
+`RuleBasedAgent`. The agent builds the existing encoded playing observation,
+`model_input`, and `legalPlayMask` from the current player observation plus
+`runAutomatedGame`'s public action history. Missing public history, schema/hash
+drift, shape mismatch, or inference failure is treated as an error and is not
+silently converted into a RuleBased play.
 
 The loader rejects artifacts whose metadata or ONNX graph disagrees with the
 expected contract:
@@ -41,3 +54,12 @@ expected contract:
 The tests create a temporary ONNX model at runtime and compare a fixed sample's
 logits and masked selection against expected ONNX-side values without committing
 an ONNX model file.
+
+To smoke-test an externally trained artifact without committing it, set both
+paths before running this package's tests:
+
+```sh
+NAPOLEON_POLICY_ONNX_PATH=/path/to/policy.onnx \
+NAPOLEON_POLICY_METADATA_PATH=/path/to/policy.json \
+pnpm --filter @napoleon/policy-onnx test
+```

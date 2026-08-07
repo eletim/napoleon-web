@@ -5,6 +5,11 @@
 `runEvaluation` runs reproducible AI-vs-AI games on top of the existing
 `runAutomatedGame` simulation.
 
+`runAutomatedGame` passes each agent a `PlayerObservation` containing the player
+view, legal actions, and prior public action history. Existing agents can ignore
+the history; policy agents that need public bidding history can use it without
+accessing hidden card state.
+
 ```ts
 import { RuleBasedAgent, runEvaluation } from "@napoleon/ai";
 

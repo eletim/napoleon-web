@@ -22,6 +22,8 @@ export {
   maskIllegalPolicyLogits,
   selectLegalPolicyAction
 } from "./policyOnnx.js";
+export { PolicyOnnxAgent } from "./policyOnnxAgent.js";
+export type { PolicyOnnxAgentOptions } from "./policyOnnxAgent.js";
 export type {
   PolicyOnnxIoMetadata,
   PolicyOnnxLoadOptions,

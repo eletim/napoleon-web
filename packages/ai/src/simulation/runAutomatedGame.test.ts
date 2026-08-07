@@ -128,6 +128,24 @@ describe("runAutomatedGame", () => {
     }
   });
 
+  it("includes prior public actions in each observation", async () => {
+    const record = await runAutomatedGame({
+      seed: 777,
+      createAgent: ({ rng }) => new RuleBasedAgent(rng)
+    });
+
+    record.decisions.forEach((decision, index) => {
+      expect(decision.observation.publicActionHistory).toEqual(
+        record.decisions.slice(0, index).map((previous) => ({
+          step: previous.step,
+          playerId: previous.playerId,
+          phase: previous.phase,
+          action: previous.action
+        }))
+      );
+    });
+  });
+
   it("shows buried-card events once and clears them before later decisions", async () => {
     const record = await runAutomatedGame({
       seed: 12345,
