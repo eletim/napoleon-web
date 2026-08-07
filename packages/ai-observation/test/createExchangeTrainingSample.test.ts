@@ -225,6 +225,85 @@ describe("createExchangeTrainingSample", () => {
       decision.playerId
     )).toThrow("discardTargetMask");
   });
+
+  it("rejects malformed exchange observations and discard actions", async () => {
+    const record = await createRecord(smokeSeed);
+    const decision = getExchangeDecisions(record)[0];
+    const sample = createExchangeTrainingSample(record, decision);
+    const otherPlayerId = record.playerIds.find((playerId) => playerId !== decision.playerId);
+
+    if (sample === null || otherPlayerId === undefined || decision.action.type !== "discard-cards") {
+      throw new Error("Expected an exchange sample and another player.");
+    }
+
+    expect(() => createExchangeTrainingSample(record, {
+      ...decision,
+      observation: {
+        ...decision.observation,
+        view: {
+          ...decision.observation.view,
+          trumpSuit: null
+        }
+      }
+    })).toThrow("resolved trump suit and contract");
+
+    expect(() => createExchangeTrainingSample(record, {
+      ...decision,
+      observation: {
+        ...decision.observation,
+        view: {
+          ...decision.observation.view,
+          contract: null
+        }
+      }
+    })).toThrow("resolved trump suit and contract");
+
+    expect(() => createExchangeTrainingSample(record, {
+      ...decision,
+      observation: {
+        ...decision.observation,
+        view: {
+          ...decision.observation.view,
+          adjutant: null
+        }
+      }
+    })).toThrow("called adjutant card");
+
+    expect(() => createExchangeTrainingSample(record, {
+      ...decision,
+      observation: {
+        ...decision.observation,
+        view: {
+          ...decision.observation.view,
+          currentPlayerId: otherPlayerId
+        }
+      }
+    })).toThrow("current player");
+
+    expect(() => encodeDiscardAction(
+      { type: "pass", playerId: decision.playerId },
+      sample.observation.legalDiscardCardMask,
+      decision.playerId
+    )).toThrow("requires a discard-cards action");
+
+    expect(() => encodeDiscardAction(
+      { ...decision.action, playerId: otherPlayerId },
+      sample.observation.legalDiscardCardMask,
+      decision.playerId
+    )).toThrow("playerId must match");
+
+    expect(() => encodeDiscardAction(
+      { ...decision.action, cardIds: decision.action.cardIds.slice(0, 2) },
+      sample.observation.legalDiscardCardMask,
+      decision.playerId
+    )).toThrow("exactly 3");
+
+    expect(() => encodeDiscardAction(
+      { ...decision.action, cardIds: [decision.action.cardIds[0], ...decision.action.cardIds.slice(0, 2)] },
+      sample.observation.legalDiscardCardMask,
+      decision.playerId
+    )).toThrow("distinct");
+  });
 });
 
 async function createRecord(seed: number): Promise<AutomatedGameRecord> {
