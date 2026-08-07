@@ -19,7 +19,8 @@ from .constants import (
     PLAYING_DATASET_SAMPLE_TYPE,
 )
 from .errors import DatasetError
-from .reader import iter_tensorized_samples, load_manifest
+from .manifest import DatasetManifest
+from .reader import _iter_tensorized_samples_with_manifest, load_manifest
 from .split import DatasetSplit, SplitConfig
 from .tensors import (
     TensorizedAdjutantSample,
@@ -102,12 +103,12 @@ class _TensorizedIterableDataset(IterableDataset[_TorchSample]):
         if get_worker_info() is not None:
             raise DatasetError(f"{type(self).__name__} only supports DataLoader num_workers=0.")
 
-        _require_manifest_sample_type(
-            self.dataset_directory, self.sample_type, dataset_name=type(self).__name__
-        )
+        manifest = load_manifest(self.dataset_directory)
+        _require_manifest_sample_type(manifest, self.sample_type, dataset_name=type(self).__name__)
 
-        for sample in iter_tensorized_samples(
+        for sample in _iter_tensorized_samples_with_manifest(
             self.dataset_directory,
+            manifest,
             split=self.split,
             split_config=self.split_config,
             verify_integrity=self.verify_integrity,
@@ -475,14 +476,17 @@ def _coerce_mask_dtype(mask_dtype: torch.dtype) -> torch.dtype:
 
 
 def _require_manifest_sample_type(
-    dataset_directory: Path, expected_sample_type: str, *, dataset_name: str
+    manifest: DatasetManifest, expected_sample_type: str, *, dataset_name: str
 ) -> None:
-    manifest = load_manifest(dataset_directory)
-
     if manifest.sample_type != expected_sample_type:
         raise DatasetError(
-            f"{dataset_name} requires a {expected_sample_type} dataset, got {manifest.sample_type}."
+            f"{dataset_name} requires {_sample_type_article(expected_sample_type)} "
+            f"{expected_sample_type} dataset, got {manifest.sample_type}."
         )
+
+
+def _sample_type_article(sample_type: str) -> str:
+    return "an" if sample_type[0] in {"a", "e", "i", "o", "u"} else "a"
 
 
 def _torch_playing_sample(

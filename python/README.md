@@ -416,6 +416,11 @@ not match.
 | `exchange-training-sample` | `model_input (batch, 2611) float32`, `legal_discard_card_mask (batch, 53) bool`, `discard_target_mask (batch, 53) bool` |
 | `adjutant-training-sample` | `model_input (batch, 2553) float32`, `legal_adjutant_mask (batch, 53) bool`, `actor_target (batch,) int64` |
 
+`mask_dtype` is only a playing-dataset compatibility option for
+`belief_hidden_ownership_loss_mask`. Non-playing DataLoader masks are always
+`torch.bool`, and `create_training_dataloader()` rejects non-playing
+`mask_dtype` overrides.
+
 All DataLoader variants stream through `iter_tensorized_samples()` and filter
 by `split_for_seed()`, so they do not load the whole dataset into memory. The
 same dataset, split, and split config produce the same sample order each

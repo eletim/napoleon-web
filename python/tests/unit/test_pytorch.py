@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -368,6 +368,82 @@ def test_training_dataloader_selects_multiphase_batch_from_manifest(
     loader = create_training_dataloader(tmp_path, split=DatasetSplit.TRAIN, batch_size=1)
     batch = next(iter(loader))
 
+    _assert_multiphase_batch(
+        batch,
+        expected_fields=expected_fields,
+        model_input_width=model_input_width,
+        mask_field=mask_field,
+        target_field=target_field,
+    )
+
+
+@pytest.mark.parametrize(
+    (
+        "loader_factory",
+        "sample_factory",
+        "expected_fields",
+        "model_input_width",
+        "mask_field",
+        "target_field",
+    ),
+    [
+        (
+            create_bidding_dataloader,
+            _bidding_sample,
+            {"model_input", "legal_bid_mask", "actor_target", "seed", "step"},
+            BIDDING_MODEL_INPUT_FEATURE_COUNT,
+            "legal_bid_mask",
+            "actor_target",
+        ),
+        (
+            create_exchange_dataloader,
+            _exchange_sample,
+            {"model_input", "legal_discard_card_mask", "discard_target_mask", "seed", "step"},
+            EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
+            "legal_discard_card_mask",
+            "discard_target_mask",
+        ),
+        (
+            create_adjutant_dataloader,
+            _adjutant_sample,
+            {"model_input", "legal_adjutant_mask", "actor_target", "seed", "step"},
+            ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
+            "legal_adjutant_mask",
+            "actor_target",
+        ),
+    ],
+)
+def test_specific_multiphase_dataloaders_read_matching_manifest_sample_type(
+    tmp_path: Path,
+    loader_factory: Any,
+    sample_factory: Any,
+    expected_fields: set[str],
+    model_input_width: int,
+    mask_field: str,
+    target_field: str,
+) -> None:
+    _write_multiphase_dataset(tmp_path, sample_factory())
+
+    loader = loader_factory(tmp_path, split=DatasetSplit.TRAIN, batch_size=1)
+    batch = next(iter(loader))
+
+    _assert_multiphase_batch(
+        batch,
+        expected_fields=expected_fields,
+        model_input_width=model_input_width,
+        mask_field=mask_field,
+        target_field=target_field,
+    )
+
+
+def _assert_multiphase_batch(
+    batch: Mapping[str, torch.Tensor],
+    *,
+    expected_fields: set[str],
+    model_input_width: int,
+    mask_field: str,
+    target_field: str,
+) -> None:
     assert set(batch) == expected_fields
     assert batch["model_input"].shape == (1, model_input_width)
     assert batch["model_input"].dtype == torch.float32
@@ -401,12 +477,12 @@ def test_training_dataloader_selects_multiphase_batch_from_manifest(
         (
             create_exchange_dataloader,
             _bidding_sample(),
-            "requires a exchange-training-sample dataset",
+            "requires an exchange-training-sample dataset",
         ),
         (
             create_adjutant_dataloader,
             _bidding_sample(),
-            "requires a adjutant-training-sample dataset",
+            "requires an adjutant-training-sample dataset",
         ),
     ],
 )
@@ -448,7 +524,11 @@ def test_bidding_dataloader_rejects_in_range_actor_target_missing_from_legal_mas
     ) -> Iterator[TensorizedBiddingSample]:
         yield bad
 
-    monkeypatch.setattr(pytorch_module, "iter_tensorized_samples", _fake_iter_tensorized_samples)
+    monkeypatch.setattr(
+        pytorch_module,
+        "_iter_tensorized_samples_with_manifest",
+        _fake_iter_tensorized_samples,
+    )
 
     dataset = BiddingIterableDataset(tmp_path, split=DatasetSplit.TRAIN)
 
@@ -489,7 +569,11 @@ def test_exchange_dataloader_rejects_bad_discard_masks(
     ) -> Iterator[TensorizedExchangeSample]:
         yield bad
 
-    monkeypatch.setattr(pytorch_module, "iter_tensorized_samples", _fake_iter_tensorized_samples)
+    monkeypatch.setattr(
+        pytorch_module,
+        "_iter_tensorized_samples_with_manifest",
+        _fake_iter_tensorized_samples,
+    )
 
     dataset = ExchangeIterableDataset(tmp_path, split=DatasetSplit.TRAIN)
 
@@ -510,7 +594,11 @@ def test_adjutant_dataloader_rejects_in_range_actor_target_missing_from_legal_ma
     def _fake_iter_tensorized_samples(*args: object, **kwargs: object) -> Iterator[Any]:
         yield bad
 
-    monkeypatch.setattr(pytorch_module, "iter_tensorized_samples", _fake_iter_tensorized_samples)
+    monkeypatch.setattr(
+        pytorch_module,
+        "_iter_tensorized_samples_with_manifest",
+        _fake_iter_tensorized_samples,
+    )
 
     dataset = AdjutantIterableDataset(tmp_path, split=DatasetSplit.TRAIN)
 
@@ -530,7 +618,11 @@ def test_dataloader_rejects_actor_target_outside_legal_mask(
     ) -> Iterator[TensorizedPlayingSample]:
         yield bad
 
-    monkeypatch.setattr(pytorch_module, "iter_tensorized_samples", _fake_iter_tensorized_samples)
+    monkeypatch.setattr(
+        pytorch_module,
+        "_iter_tensorized_samples_with_manifest",
+        _fake_iter_tensorized_samples,
+    )
 
     dataset = PlayingIterableDataset(tmp_path, split=DatasetSplit.TRAIN)
 
@@ -553,7 +645,11 @@ def test_dataloader_rejects_in_range_actor_target_missing_from_legal_mask(
     ) -> Iterator[TensorizedPlayingSample]:
         yield bad
 
-    monkeypatch.setattr(pytorch_module, "iter_tensorized_samples", _fake_iter_tensorized_samples)
+    monkeypatch.setattr(
+        pytorch_module,
+        "_iter_tensorized_samples_with_manifest",
+        _fake_iter_tensorized_samples,
+    )
 
     dataset = PlayingIterableDataset(tmp_path, split=DatasetSplit.TRAIN)
 
