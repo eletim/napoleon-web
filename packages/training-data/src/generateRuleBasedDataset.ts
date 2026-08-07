@@ -81,7 +81,7 @@ const sampleGenerationSpecs: Record<DatasetSampleType, SampleGenerationSpec> = {
     createSamples: createBiddingTrainingSamples,
     validateSample: (sample, expectedSeed) =>
       validateTrainingSample(sample, expectedSeed, BIDDING_DATASET_SAMPLE_TYPE),
-    serializeSample: serializeTrainingSample
+    serializeSample: (sample) => serializeTrainingSample(sample, BIDDING_DATASET_SAMPLE_TYPE)
   },
   [EXCHANGE_DATASET_SAMPLE_TYPE]: {
     sampleType: EXCHANGE_DATASET_SAMPLE_TYPE,
@@ -89,7 +89,7 @@ const sampleGenerationSpecs: Record<DatasetSampleType, SampleGenerationSpec> = {
     createSamples: createExchangeTrainingSamples,
     validateSample: (sample, expectedSeed) =>
       validateTrainingSample(sample, expectedSeed, EXCHANGE_DATASET_SAMPLE_TYPE),
-    serializeSample: serializeTrainingSample
+    serializeSample: (sample) => serializeTrainingSample(sample, EXCHANGE_DATASET_SAMPLE_TYPE)
   },
   [ADJUTANT_DATASET_SAMPLE_TYPE]: {
     sampleType: ADJUTANT_DATASET_SAMPLE_TYPE,
@@ -97,7 +97,7 @@ const sampleGenerationSpecs: Record<DatasetSampleType, SampleGenerationSpec> = {
     createSamples: createAdjutantTrainingSamples,
     validateSample: (sample, expectedSeed) =>
       validateTrainingSample(sample, expectedSeed, ADJUTANT_DATASET_SAMPLE_TYPE),
-    serializeSample: serializeTrainingSample
+    serializeSample: (sample) => serializeTrainingSample(sample, ADJUTANT_DATASET_SAMPLE_TYPE)
   }
 };
 

@@ -134,17 +134,28 @@ describe("validation", () => {
   });
 
   it("validates a v2 non-playing manifest with an explicit encoder schema version", () => {
-    const manifest: RuleBasedDatasetManifest = {
-      ...validManifest(),
-      datasetSchemaVersion: MULTIPHASE_DATASET_SCHEMA_VERSION,
-      generatorVersion: MULTIPHASE_DATASET_GENERATOR_VERSION,
-      encoderSchemaVersion: 1,
-      sampleType: BIDDING_DATASET_SAMPLE_TYPE
-    };
-
-    delete (manifest as { playingEncoderSchemaVersion?: number }).playingEncoderSchemaVersion;
+    const manifest = validV2Manifest();
 
     expect(() => validateDatasetManifest(manifest)).not.toThrow();
+  });
+
+  it.each([
+    ["v1 manifest with a non-playing sampleType", () => ({
+      ...validManifest(),
+      sampleType: BIDDING_DATASET_SAMPLE_TYPE
+    })],
+    ["v2 manifest with a playing sampleType", () => ({
+      ...validV2Manifest(),
+      sampleType: DATASET_SAMPLE_TYPE
+    })],
+    ["v2 manifest with a mismatched encoderSchemaVersion", () => ({
+      ...validV2Manifest(),
+      encoderSchemaVersion: 2
+    })]
+  ])("rejects mixed manifest schema identity: %s", (_label, createManifest) => {
+    expect(() =>
+      validateDatasetManifest(createManifest() as unknown as RuleBasedDatasetManifest)
+    ).toThrow();
   });
 
   it("rejects samples with non-json-safe values", async () => {
@@ -202,4 +213,18 @@ function validManifest(): DatasetManifest {
       }
     ]
   };
+}
+
+function validV2Manifest(): RuleBasedDatasetManifest {
+  const manifest: RuleBasedDatasetManifest = {
+    ...validManifest(),
+    datasetSchemaVersion: MULTIPHASE_DATASET_SCHEMA_VERSION,
+    generatorVersion: MULTIPHASE_DATASET_GENERATOR_VERSION,
+    encoderSchemaVersion: 1,
+    sampleType: BIDDING_DATASET_SAMPLE_TYPE
+  };
+
+  delete (manifest as { playingEncoderSchemaVersion?: number }).playingEncoderSchemaVersion;
+
+  return manifest;
 }
