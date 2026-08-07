@@ -13,7 +13,16 @@ dependencies = ["numpy>=1.26"]
 
 [project.optional-dependencies]
 train = ["torch>=2.2"]
-dev = ["pytest>=8", "mypy>=1.10", "ruff>=0.6", "torch>=2.2"]
+export = ["torch>=2.2", "onnx>=1.16", "onnxruntime>=1.18", "onnxscript>=0.1"]
+dev = [
+    "pytest>=8",
+    "mypy>=1.10",
+    "ruff>=0.6",
+    "torch>=2.2",
+    "onnx>=1.16",
+    "onnxruntime>=1.18",
+    "onnxscript>=0.1",
+]
 
 [project.scripts]
 napoleon-inspect-dataset = "napoleon_ml.cli.inspect_dataset:main"
@@ -21,6 +30,7 @@ napoleon-train-ownership-mlp = "napoleon_ml.cli.train_ownership_mlp:main"
 napoleon-evaluate-ownership-mlp = "napoleon_ml.cli.evaluate_ownership_mlp:main"
 napoleon-train-policy-mlp = "napoleon_ml.cli.train_policy_mlp:main"
 napoleon-evaluate-policy-mlp = "napoleon_ml.cli.evaluate_policy_mlp:main"
+napoleon-export-policy-onnx = "napoleon_ml.cli.export_policy_onnx:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
