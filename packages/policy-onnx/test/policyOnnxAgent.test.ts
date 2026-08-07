@@ -66,35 +66,44 @@ describe("PolicyOnnxAgent", () => {
     expect(nonPlayingActions(onnx)).toEqual(nonPlayingActions(ruleBased));
   });
 
-  it("builds the same live model input as the training sample pipeline", async () => {
+  it("builds the same live model input as the training sample pipeline for every seat", async () => {
     const source = await runAutomatedGame({
       seed: 12345,
       createAgent: ({ rng }) => new RuleBasedAgent(rng)
     });
-    const decision = source.decisions.find(
-      (candidate) => candidate.phase === "playing" && candidate.action.type === "play-card"
-    );
+    const decisions = source.playerIds.map((playerId) => {
+      const decision = source.decisions.find(
+        (candidate) =>
+          candidate.playerId === playerId &&
+          candidate.phase === "playing" &&
+          candidate.action.type === "play-card"
+      );
 
-    if (decision === undefined) {
-      throw new Error("Expected a playing decision.");
+      if (decision === undefined) {
+        throw new Error(`Expected a playing decision for ${playerId}.`);
+      }
+
+      return decision;
+    });
+
+    for (const decision of decisions) {
+      const defaultLiveInput = createPolicyOnnxPlayInput(decision.observation);
+      const liveInput = createPolicyOnnxPlayInput(decision.observation, source.playerIds);
+      const sample = createPlayingTrainingSample(source, decision);
+
+      if (sample === null) {
+        throw new Error("Expected a playing sample.");
+      }
+
+      expect(Buffer.from(defaultLiveInput.modelInput.buffer)).toEqual(
+        Buffer.from(liveInput.modelInput.buffer)
+      );
+      expect(defaultLiveInput.legalPlayMask).toEqual(liveInput.legalPlayMask);
+      expect(liveInput.legalPlayMask).toEqual(sample.observation.legalPlayMask);
+      expect(Buffer.from(liveInput.modelInput.buffer)).toEqual(
+        Buffer.from(encodePlayingModelInput(sample.observation).buffer)
+      );
     }
-
-    const defaultLiveInput = createPolicyOnnxPlayInput(decision.observation);
-    const liveInput = createPolicyOnnxPlayInput(decision.observation, source.playerIds);
-    const sample = createPlayingTrainingSample(source, decision);
-
-    if (sample === null) {
-      throw new Error("Expected a playing sample.");
-    }
-
-    expect(Buffer.from(defaultLiveInput.modelInput.buffer)).toEqual(
-      Buffer.from(liveInput.modelInput.buffer)
-    );
-    expect(defaultLiveInput.legalPlayMask).toEqual(liveInput.legalPlayMask);
-    expect(liveInput.legalPlayMask).toEqual(sample.observation.legalPlayMask);
-    expect(Buffer.from(liveInput.modelInput.buffer)).toEqual(
-      Buffer.from(encodePlayingModelInput(sample.observation).buffer)
-    );
   });
 
   it("does not silently fall back to RuleBasedAgent when inference fails", async () => {

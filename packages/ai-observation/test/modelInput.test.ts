@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { RuleBasedAgent, runAutomatedGame } from "@napoleon/ai";
 import {
@@ -11,6 +13,14 @@ import {
   encodePlayingModelInput,
   getCardIndex
 } from "../src/index.js";
+import type { PlayingTrainingSample } from "../src/index.js";
+
+const pythonValidSampleUrl = new URL(
+  "../../../python/tests/unit/fixtures/valid_sample.json",
+  import.meta.url
+);
+const pythonValidSampleModelInputSha256 =
+  "699a9fc67c6b93c5d866c73b8461f498d1183b3cefdfea693e31373b8d5380d8";
 
 describe("encodePlayingModelInput", () => {
   it("matches the Python MODEL_INPUT_LAYOUT slice contract", () => {
@@ -102,6 +112,16 @@ describe("encodePlayingModelInput", () => {
         expect(row.reduce((sum, value) => sum + value, 0)).toBe(1);
       }
     });
+  });
+
+  it("matches Python tensorize_sample model_input bytes for the shared valid sample fixture", () => {
+    const sample = JSON.parse(readFileSync(pythonValidSampleUrl, "utf8")) as PlayingTrainingSample;
+    const modelInput = encodePlayingModelInput(sample.observation);
+    const digest = createHash("sha256")
+      .update(Buffer.from(modelInput.buffer, modelInput.byteOffset, modelInput.byteLength))
+      .digest("hex");
+
+    expect(digest).toBe(pythonValidSampleModelInputSha256);
   });
 
   it("produces byte-identical model_input for the same observation", async () => {
