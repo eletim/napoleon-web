@@ -25,6 +25,7 @@ interface OneHotIndexField {
   slotCount: number;
   classCount: number;
   minValue: number;
+  emptyValues: readonly number[];
 }
 
 export interface ModelInputFeatureSlice {
@@ -175,70 +176,80 @@ function createOneHotFields(
       ],
       slotCount: SPECIAL_CARD_INDEX_COUNT,
       classCount: CARD_COUNT,
-      minValue: 0
+      minValue: 0,
+      emptyValues: [-1]
     },
     {
       name: "currentTrickCardIndicesOneHot",
       indices: observation.currentTrickCardIndices,
       slotCount: CARDS_PER_TRICK,
       classCount: CARD_COUNT,
-      minValue: 0
+      minValue: 0,
+      emptyValues: [-1]
     },
     {
       name: "completedTrickCardIndicesOneHot",
       indices: observation.completedTrickCardIndices,
       slotCount: COMPLETED_TRICK_CARD_SLOT_COUNT,
       classCount: CARD_COUNT,
-      minValue: 0
+      minValue: 0,
+      emptyValues: [-1]
     },
     {
       name: "currentTrickPlayerIndicesOneHot",
       indices: observation.currentTrickPlayerIndices,
       slotCount: CARDS_PER_TRICK,
       classCount: PLAYER_COUNT,
-      minValue: 0
+      minValue: 0,
+      emptyValues: [-1]
     },
     {
       name: "completedTrickPlayerIndicesOneHot",
       indices: observation.completedTrickPlayerIndices,
       slotCount: COMPLETED_TRICK_CARD_SLOT_COUNT,
       classCount: PLAYER_COUNT,
-      minValue: 0
+      minValue: 0,
+      emptyValues: [-1]
     },
     {
       name: "completedTrickWinnerIndicesOneHot",
       indices: observation.completedTrickWinnerIndices,
       slotCount: TRICK_COUNT,
       classCount: PLAYER_COUNT,
-      minValue: 0
+      minValue: 0,
+      emptyValues: [-1]
     },
     {
       name: "biddingHistoryActionTypeIndicesOneHot",
       indices: observation.biddingHistory.actionTypeIndices,
       slotCount: MAX_BIDDING_ACTION_COUNT,
       classCount: BIDDING_ACTION_TYPE_CLASS_COUNT,
-      minValue: 0
+      minValue: 0,
+      emptyValues: [-1]
     },
     {
       name: "biddingHistoryPlayerIndicesOneHot",
       indices: observation.biddingHistory.playerIndices,
       slotCount: MAX_BIDDING_ACTION_COUNT,
       classCount: PLAYER_COUNT,
-      minValue: 0
+      minValue: 0,
+      emptyValues: [-1]
     },
     {
       name: "biddingHistorySuitIndicesOneHot",
       indices: observation.biddingHistory.suitIndices,
       slotCount: MAX_BIDDING_ACTION_COUNT,
       classCount: BIDDING_HISTORY_SUIT_ORDER.length,
-      minValue: 0
+      minValue: 0,
+      emptyValues: [-1]
     },
     {
       name: "biddingHistoryTargetPointCardsOneHot",
       indices: observation.biddingHistory.targetPointCards,
       slotCount: MAX_BIDDING_ACTION_COUNT,
       classCount: BIDDING_TARGET_POINT_CARDS_CLASS_COUNT,
-      minValue: MIN_BIDDING_TARGET_POINT_CARDS
+      minValue: MIN_BIDDING_TARGET_POINT_CARDS,
+      emptyValues: [0]
     }
   ];
 }
@@ -250,6 +261,14 @@ function appendOneHotIndexField(target: number[], field: OneHotIndexField): void
 
   for (const indexValue of field.indices) {
     const classIndex = indexValue - field.minValue;
+    if (
+      (classIndex < 0 || classIndex >= field.classCount) &&
+      !field.emptyValues.includes(indexValue)
+    ) {
+      throw new Error(
+        `${field.name} index must be empty or between ${field.minValue} and ${field.minValue + field.classCount - 1}, got ${indexValue}.`
+      );
+    }
 
     for (let candidate = 0; candidate < field.classCount; candidate += 1) {
       target.push(classIndex === candidate ? 1 : 0);

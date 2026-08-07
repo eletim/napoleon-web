@@ -163,6 +163,25 @@ describe("PolicyOnnxAgent", () => {
     await expect(agent.selectAction(decision.observation)).rejects.toThrow("outside legal actions");
   });
 
+  it("rejects explicit playerIds that do not match the observation players", async () => {
+    const source = await runAutomatedGame({
+      seed: 12345,
+      createAgent: ({ rng }) => new RuleBasedAgent(rng)
+    });
+    const decision = source.decisions.find((candidate) => candidate.phase === "playing");
+
+    if (decision === undefined) {
+      throw new Error("Expected a playing decision.");
+    }
+
+    expect(() =>
+      createPolicyOnnxPlayInput(decision.observation, [
+        ...source.playerIds.slice(0, -1),
+        "missing-player"
+      ])
+    ).toThrow("must contain exactly the same players");
+  });
+
   it("rejects playing observations that do not carry public action history", async () => {
     const policy = await createIncreasingLogitPolicy();
     const source = await runAutomatedGame({

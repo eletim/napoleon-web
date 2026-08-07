@@ -76,6 +76,7 @@ export function createPolicyOnnxPlayInput(
   }
 
   const absolutePlayerIds = playerIds ?? observation.view.players.map((player) => player.id);
+  validatePlayerIdsForObservation(absolutePlayerIds, observation);
   const relativePlayerIds = createRelativePlayerOrder(absolutePlayerIds, observation.playerId);
   const biddingHistory = encodeBiddingHistoryFromPublicActions(
     publicActionHistory,
@@ -88,4 +89,30 @@ export function createPolicyOnnxPlayInput(
   );
 
   return createPlayingModelInput(encodedObservation);
+}
+
+function validatePlayerIdsForObservation(
+  playerIds: readonly PlayerId[],
+  observation: PlayerObservation
+): void {
+  const observedPlayerIds = observation.view.players.map((player) => player.id);
+
+  if (playerIds.length !== observedPlayerIds.length) {
+    throw new PolicyOnnxCompatibilityError(
+      `PolicyOnnxAgent playerIds length mismatch: expected ${observedPlayerIds.length}, got ${playerIds.length}.`
+    );
+  }
+
+  const observedSet = new Set(observedPlayerIds);
+  const configuredSet = new Set(playerIds);
+  if (
+    observedSet.size !== observedPlayerIds.length ||
+    configuredSet.size !== playerIds.length ||
+    observedPlayerIds.some((playerId) => !configuredSet.has(playerId)) ||
+    playerIds.some((playerId) => !observedSet.has(playerId))
+  ) {
+    throw new PolicyOnnxCompatibilityError(
+      "PolicyOnnxAgent playerIds must contain exactly the same players as the observation."
+    );
+  }
 }

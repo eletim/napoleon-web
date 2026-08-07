@@ -95,7 +95,9 @@ export function encodeBiddingHistoryFromPublicActions(
       return;
     }
 
-    throw new Error("Bidding history supports only pass and bid actions.");
+    throw new Error(
+      `Bidding history supports only pass and bid actions, got ${(action as GameAction).type}.`
+    );
   });
 
   const result: EncodedBiddingHistory = {
