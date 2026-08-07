@@ -15,9 +15,13 @@ import napoleon_ml.dataset.pytorch as pytorch_module
 from napoleon_ml.dataset.constants import CARD_COUNT, EXPECTED_CARD_IDS
 from napoleon_ml.dataset.errors import DatasetError
 from napoleon_ml.dataset.pytorch import (
+    AdjutantIterableDataset,
     BiddingIterableDataset,
+    ExchangeIterableDataset,
     PlayingIterableDataset,
+    create_adjutant_dataloader,
     create_bidding_dataloader,
+    create_exchange_dataloader,
     create_playing_dataloader,
     create_training_dataloader,
 )
@@ -28,7 +32,9 @@ from napoleon_ml.dataset.tensors import (
     BIDDING_MODEL_INPUT_FEATURE_COUNT,
     EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
     MODEL_INPUT_FEATURE_COUNT,
+    TensorizedAdjutantSample,
     TensorizedBiddingSample,
+    TensorizedExchangeSample,
     TensorizedPlayingSample,
     tensorize_sample,
 )
@@ -384,14 +390,34 @@ def test_training_dataloader_selects_multiphase_batch_from_manifest(
         assert batch[mask_field][torch.arange(1), batch[target_field]].all()
 
 
-def test_specific_multiphase_dataloader_rejects_different_manifest_sample_type(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    ("loader_factory", "sample", "message"),
+    [
+        (
+            create_bidding_dataloader,
+            _exchange_sample(),
+            "requires a bidding-training-sample dataset",
+        ),
+        (
+            create_exchange_dataloader,
+            _bidding_sample(),
+            "requires a exchange-training-sample dataset",
+        ),
+        (
+            create_adjutant_dataloader,
+            _bidding_sample(),
+            "requires a adjutant-training-sample dataset",
+        ),
+    ],
+)
+def test_specific_multiphase_dataloaders_reject_different_manifest_sample_type(
+    tmp_path: Path, loader_factory: Any, sample: dict[str, Any], message: str
 ) -> None:
-    _write_multiphase_dataset(tmp_path, _exchange_sample())
+    _write_multiphase_dataset(tmp_path, sample)
 
-    loader = create_bidding_dataloader(tmp_path, split=DatasetSplit.TRAIN, batch_size=1)
+    loader = loader_factory(tmp_path, split=DatasetSplit.TRAIN, batch_size=1)
 
-    with pytest.raises(DatasetError, match="requires a bidding-training-sample dataset"):
+    with pytest.raises(DatasetError, match=message):
         next(iter(loader))
 
 
@@ -425,6 +451,68 @@ def test_bidding_dataloader_rejects_in_range_actor_target_missing_from_legal_mas
     monkeypatch.setattr(pytorch_module, "iter_tensorized_samples", _fake_iter_tensorized_samples)
 
     dataset = BiddingIterableDataset(tmp_path, split=DatasetSplit.TRAIN)
+
+    with pytest.raises(DatasetError, match="actor_target must be legal"):
+        next(iter(dataset))
+
+
+@pytest.mark.parametrize(
+    ("replace_kwargs", "message"),
+    [
+        (
+            {"legal_discard_card_mask": np.array([1] * 12 + [0] * 41, dtype=np.uint8)},
+            "legal_discard_card_mask must be 13-hot",
+        ),
+        (
+            {"discard_target_mask": np.array([1, 1] + [0] * 51, dtype=np.uint8)},
+            "discard_target_mask must be exactly 3-hot",
+        ),
+        (
+            {"discard_target_mask": np.array([1, 1] + [0] * 28 + [1] + [0] * 22, dtype=np.uint8)},
+            "discard_target_mask must be a subset",
+        ),
+    ],
+)
+def test_exchange_dataloader_rejects_bad_discard_masks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    replace_kwargs: dict[str, np.ndarray],
+    message: str,
+) -> None:
+    _write_multiphase_dataset(tmp_path, _exchange_sample())
+    tensorized = tensorize_sample(parse_sample(_exchange_sample()))
+    assert isinstance(tensorized, TensorizedExchangeSample)
+    bad = dataclasses.replace(tensorized, **replace_kwargs)
+
+    def _fake_iter_tensorized_samples(
+        *args: object, **kwargs: object
+    ) -> Iterator[TensorizedExchangeSample]:
+        yield bad
+
+    monkeypatch.setattr(pytorch_module, "iter_tensorized_samples", _fake_iter_tensorized_samples)
+
+    dataset = ExchangeIterableDataset(tmp_path, split=DatasetSplit.TRAIN)
+
+    with pytest.raises(DatasetError, match=message):
+        next(iter(dataset))
+
+
+def test_adjutant_dataloader_rejects_in_range_actor_target_missing_from_legal_mask(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_multiphase_dataset(tmp_path, _adjutant_sample())
+    tensorized = tensorize_sample(parse_sample(_adjutant_sample()))
+    assert isinstance(tensorized, TensorizedAdjutantSample)
+    legal_adjutant_mask = tensorized.legal_adjutant_mask.copy()
+    legal_adjutant_mask[int(tensorized.actor_target)] = 0
+    bad = dataclasses.replace(tensorized, legal_adjutant_mask=legal_adjutant_mask)
+
+    def _fake_iter_tensorized_samples(*args: object, **kwargs: object) -> Iterator[Any]:
+        yield bad
+
+    monkeypatch.setattr(pytorch_module, "iter_tensorized_samples", _fake_iter_tensorized_samples)
+
+    dataset = AdjutantIterableDataset(tmp_path, split=DatasetSplit.TRAIN)
 
     with pytest.raises(DatasetError, match="actor_target must be legal"):
         next(iter(dataset))
