@@ -88,6 +88,19 @@ bid.
 
 Missing card and player slots use `-1` with a companion slot mask of `0`.
 
+## Model Input
+
+`encodePlayingModelInput()` converts an encoded playing observation into the
+existing policy `model_input` vector. The output is a `Float32Array` with 6242
+features: the 684-feature flat observation first, then the card/player/bidding
+index fields one-hot encoded in the same order as the Python
+`napoleon_ml.dataset.tensors.MODEL_INPUT_LAYOUT` schema. Empty index slots encode
+as all-zero rows.
+
+`createPlayingModelInput()` returns that `modelInput` together with the
+observation's independent `legalPlayMask`, so inference callers can pass both to
+the ONNX policy and mask illegal logits without re-deriving legal cards.
+
 ## Validation
 
 The validators check the schema version, fixed lengths, scalar ranges, finite

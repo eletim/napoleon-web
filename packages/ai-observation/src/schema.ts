@@ -6,6 +6,7 @@ import {
 import type { Suit } from "@napoleon/game-core";
 
 export const PLAYING_ENCODER_SCHEMA_VERSION = 1 as const;
+export const MODEL_INPUT_SCHEMA_VERSION = 1 as const;
 
 export const CARD_COUNT = 53;
 export const PLAYER_COUNT = 5;
@@ -35,3 +36,6 @@ const BIDDING_BID_ACTION_COUNT =
 
 export const MAX_BIDDING_ACTION_COUNT =
   PLAYER_COUNT + BIDDING_BID_ACTION_COUNT * (PLAYER_COUNT - 1);
+
+export const FLAT_OBSERVATION_FEATURE_COUNT = 684 as const;
+export const MODEL_INPUT_FEATURE_COUNT = 6242 as const;

@@ -128,6 +128,36 @@ describe("runAutomatedGame", () => {
     }
   });
 
+  it("includes only prior public bidding actions in each observation", async () => {
+    const record = await runAutomatedGame({
+      seed: 777,
+      createAgent: ({ rng }) => new RuleBasedAgent(rng)
+    });
+
+    record.decisions.forEach((decision) => {
+      expect(decision.observation.publicActionHistory).toEqual(
+        record.decisions
+          .filter(
+            (previous) =>
+              previous.step < decision.step &&
+              previous.phase === "bidding" &&
+              (previous.action.type === "bid" || previous.action.type === "pass")
+          )
+          .map((previous) => ({
+            step: previous.step,
+            playerId: previous.playerId,
+            phase: previous.phase,
+            action: previous.action
+          }))
+      );
+      expect(
+        decision.observation.publicActionHistory?.every(
+          (historyRecord) => historyRecord.action.type === "bid" || historyRecord.action.type === "pass"
+        )
+      ).toBe(true);
+    });
+  });
+
   it("shows buried-card events once and clears them before later decisions", async () => {
     const record = await runAutomatedGame({
       seed: 12345,

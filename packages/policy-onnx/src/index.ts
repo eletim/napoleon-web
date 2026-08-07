@@ -22,6 +22,11 @@ export {
   maskIllegalPolicyLogits,
   selectLegalPolicyAction
 } from "./policyOnnx.js";
+export {
+  PolicyOnnxAgent,
+  createPolicyOnnxPlayInput
+} from "./policyOnnxAgent.js";
+export type { PolicyOnnxAgentOptions, PolicyOnnxPlayInput } from "./policyOnnxAgent.js";
 export type {
   PolicyOnnxIoMetadata,
   PolicyOnnxLoadOptions,

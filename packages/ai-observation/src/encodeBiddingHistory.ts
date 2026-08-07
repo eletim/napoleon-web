@@ -1,4 +1,4 @@
-import type { AutomatedGameRecord, DecisionRecord } from "@napoleon/ai";
+import type { AutomatedGameRecord, DecisionRecord, PublicActionRecord } from "@napoleon/ai";
 import type { GameAction, PlayerId, Suit } from "@napoleon/game-core";
 import { getRelativePlayerIndex } from "./playerIndex.js";
 import {
@@ -43,9 +43,19 @@ export function encodeBiddingHistory(
     );
   }
 
-  const biddingDecisions = record.decisions.filter(
-    (decision) => decision.phase === "bidding" && decision.step < playingDecision.step
+  return encodeBiddingHistoryFromPublicActions(
+    record.decisions
+      .filter((decision) => decision.step < playingDecision.step)
+      .flatMap(toPublicBiddingRecord),
+    relativePlayerIds
   );
+}
+
+export function encodeBiddingHistoryFromPublicActions(
+  publicActionHistory: readonly PublicActionRecord[],
+  relativePlayerIds: readonly PlayerId[]
+): EncodedBiddingHistory {
+  const biddingDecisions = publicActionHistory;
 
   if (biddingDecisions.length > MAX_BIDDING_ACTION_COUNT) {
     throw new Error(
@@ -60,17 +70,17 @@ export function encodeBiddingHistory(
   const targetPointCards = [...encoded.targetPointCards];
   const actionMask = [...encoded.actionMask];
 
-  biddingDecisions.forEach((decision, index) => {
-    const action = decision.action;
+  biddingDecisions.forEach((record, index) => {
+    const action = record.action;
 
-    if (action.playerId !== decision.playerId) {
+    if (action.playerId !== record.playerId) {
       throw new Error(
-        `Bidding action playerId must match decision playerId: ${action.playerId} !== ${decision.playerId}`
+        `Bidding action playerId must match record/decision playerId: ${action.playerId} !== ${record.playerId}`
       );
     }
 
     actionTypeIndices[index] = encodeBiddingActionType(action);
-    playerIndices[index] = getRelativePlayerIndex(relativePlayerIds, decision.playerId);
+    playerIndices[index] = getRelativePlayerIndex(relativePlayerIds, record.playerId);
     actionMask[index] = 1;
 
     if (action.type === "bid") {
@@ -85,7 +95,9 @@ export function encodeBiddingHistory(
       return;
     }
 
-    throw new Error(`Bidding history supports only pass and bid actions, got ${action.type}.`);
+    throw new Error(
+      `Bidding history supports only pass and bid actions, got ${(action as GameAction).type}.`
+    );
   });
 
   const result: EncodedBiddingHistory = {
@@ -193,6 +205,25 @@ function encodeBiddingActionType(action: GameAction): number {
     default:
       throw new Error(`Bidding history supports only pass and bid actions, got ${action.type}.`);
   }
+}
+
+function toPublicBiddingRecord(decision: DecisionRecord): readonly PublicActionRecord[] {
+  if (decision.phase !== "bidding") {
+    return [];
+  }
+
+  if (decision.action.type !== "bid" && decision.action.type !== "pass") {
+    throw new Error(
+      `Bidding history supports only pass and bid actions, got ${decision.action.type}.`
+    );
+  }
+
+  return [{
+    step: decision.step,
+    playerId: decision.playerId,
+    phase: decision.phase,
+    action: decision.action
+  }];
 }
 
 function expectLength(name: string, value: readonly unknown[], expectedLength: number): void {

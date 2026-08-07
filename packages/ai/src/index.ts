@@ -1,4 +1,4 @@
-export type { Agent, PlayerObservation } from "./types.js";
+export type { Agent, PlayerObservation, PublicActionRecord } from "./types.js";
 export { NoLegalActionsError } from "./errors.js";
 export { RandomAgent } from "./randomAgent.js";
 export {
