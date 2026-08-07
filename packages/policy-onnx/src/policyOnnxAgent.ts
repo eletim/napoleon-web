@@ -79,7 +79,6 @@ export function createPolicyOnnxPlayInput(
   const relativePlayerIds = createRelativePlayerOrder(absolutePlayerIds, observation.playerId);
   const biddingHistory = encodeBiddingHistoryFromPublicActions(
     publicActionHistory,
-    null,
     relativePlayerIds
   );
   const encodedObservation = encodePlayingObservation(

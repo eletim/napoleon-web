@@ -47,19 +47,15 @@ export function encodeBiddingHistory(
     record.decisions
       .filter((decision) => decision.step < playingDecision.step)
       .flatMap(toPublicBiddingRecord),
-    null,
     relativePlayerIds
   );
 }
 
 export function encodeBiddingHistoryFromPublicActions(
   publicActionHistory: readonly PublicActionRecord[],
-  beforeStep: number | null,
   relativePlayerIds: readonly PlayerId[]
 ): EncodedBiddingHistory {
-  const biddingDecisions = publicActionHistory.filter(
-    (record) => record.phase === "bidding" && (beforeStep === null || record.step < beforeStep)
-  );
+  const biddingDecisions = publicActionHistory;
 
   if (biddingDecisions.length > MAX_BIDDING_ACTION_COUNT) {
     throw new Error(

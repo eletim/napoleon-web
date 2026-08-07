@@ -13,6 +13,7 @@ import {
   createPlayingTrainingSample,
   createPlayingTrainingSamples,
   encodeBiddingHistory,
+  encodeBiddingHistoryFromPublicActions,
   encodeBeliefTarget,
   encodePlayingObservation,
   getCardIndex,
@@ -241,6 +242,83 @@ describe("createPlayingTrainingSample", () => {
         (candidate) => candidate.phase === "bidding" && candidate.step < decision.step
       ).length
     );
+  });
+
+  it("encodes public bidding action records directly", async () => {
+    const record = await createRecord(12345);
+    const decision = getPlayingDecisions(record)[0];
+    const relativePlayerIds = [
+      decision.playerId,
+      ...record.playerIds.filter((id) => id !== decision.playerId)
+    ];
+    const publicBids = record.decisions
+      .filter(
+        (candidate) =>
+          candidate.phase === "bidding" &&
+          candidate.step < decision.step &&
+          (candidate.action.type === "bid" || candidate.action.type === "pass")
+      )
+      .map((candidate) => ({
+        step: candidate.step,
+        playerId: candidate.playerId,
+        phase: "bidding" as const,
+        action: candidate.action.type === "bid"
+          ? {
+              type: "bid" as const,
+              playerId: candidate.action.playerId,
+              suit: candidate.action.suit,
+              targetPointCards: candidate.action.targetPointCards
+            }
+          : {
+              type: "pass" as const,
+              playerId: candidate.action.playerId
+            }
+      }));
+
+    expect(encodeBiddingHistoryFromPublicActions(publicBids, relativePlayerIds)).toEqual(
+      encodeBiddingHistory(record, decision, relativePlayerIds)
+    );
+  });
+
+  it("rejects malformed direct public bidding action records", async () => {
+    const record = await createRecord(12345);
+    const decision = getPlayingDecisions(record)[0];
+    const relativePlayerIds = [
+      decision.playerId,
+      ...record.playerIds.filter((id) => id !== decision.playerId)
+    ];
+    const otherPlayerId = record.playerIds.find((playerId) => playerId !== record.playerIds[0]);
+
+    if (otherPlayerId === undefined) {
+      throw new Error("Expected another player.");
+    }
+
+    expect(() =>
+      encodeBiddingHistoryFromPublicActions(
+        [{
+          step: 1,
+          playerId: record.playerIds[0],
+          phase: "bidding",
+          action: { type: "pass", playerId: otherPlayerId }
+        }],
+        relativePlayerIds
+      )
+    ).toThrow("must match record playerId");
+
+    expect(() =>
+      encodeBiddingHistoryFromPublicActions(
+        Array.from({ length: MAX_BIDDING_ACTION_COUNT + 1 }, (_, index) => ({
+          step: index + 1,
+          playerId: record.playerIds[index % record.playerIds.length],
+          phase: "bidding" as const,
+          action: {
+            type: "pass" as const,
+            playerId: record.playerIds[index % record.playerIds.length]
+          }
+        })),
+        relativePlayerIds
+      )
+    ).toThrow(`Bidding history cannot exceed ${MAX_BIDDING_ACTION_COUNT} actions`);
   });
 
   it("validates bidding history before encodeBiddingHistory returns", async () => {
