@@ -587,7 +587,7 @@ def test_policy_onnx_export_rejects_checkpoint_with_wrong_input_shape_before_out
 def test_policy_onnx_export_cli_writes_model_metadata_and_checks_runtime_parity(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    pytest.importorskip("onnx")
+    onnx = pytest.importorskip("onnx")
     pytest.importorskip("onnxruntime")
     _write_dataset(tmp_path, seeds=(0, 1, 2))
     checkpoint_path = tmp_path.parent / f"{tmp_path.name}-policy.pt"
@@ -635,6 +635,8 @@ def test_policy_onnx_export_cli_writes_model_metadata_and_checks_runtime_parity(
 
     assert exit_code == 0
     assert onnx_path.is_file()
+    onnx_model = onnx.load_model(onnx_path, load_external_data=False)
+    assert all(len(initializer.external_data) == 0 for initializer in onnx_model.graph.initializer)
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     validate_policy_onnx_metadata(metadata)
     report = json.loads(capsys.readouterr().out)

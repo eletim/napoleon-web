@@ -244,6 +244,7 @@ def _export_onnx(*, model: PolicyMlpModel, dummy_input: torch.Tensor, output: Pa
             dynamic_shapes={ONNX_INPUT_NAME: {0: torch.export.Dim(_BATCH_DIMENSION)}},
             opset_version=ONNX_OPSET_VERSION,
             dynamo=True,
+            external_data=False,
         )
 
 
