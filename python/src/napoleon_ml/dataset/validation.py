@@ -849,7 +849,7 @@ def validate_encoded_exchange_observation(observation: EncodedExchangeObservatio
     if observation.hand_count_by_player[0] != 13:
         raise SampleValidationError("handCountByPlayer[0] must be 13 for Napoleon at exchange.")
 
-    _validate_special_card_indices(observation.special_card_indices)
+    _validate_required_special_card_indices(observation.special_card_indices)
 
 
 def validate_encoded_adjutant_observation(observation: EncodedAdjutantObservation) -> None:
@@ -874,7 +874,7 @@ def validate_encoded_adjutant_observation(observation: EncodedAdjutantObservatio
         MIN_CONTRACT_TARGET_POINT_CARDS,
         MAX_CONTRACT_TARGET_POINT_CARDS,
     )
-    _validate_special_card_indices(observation.special_card_indices)
+    _validate_required_special_card_indices(observation.special_card_indices)
 
 
 def _validate_exchange_actor_target(
@@ -1017,6 +1017,13 @@ def _validate_special_card_indices(indices: SpecialCardIndices) -> None:
     _expect_int_range("specialCardIndices.yoromeki", indices.yoromeki, 0, CARD_COUNT - 1)
     _validate_optional_card_index("specialCardIndices.seiJack", indices.sei_jack)
     _validate_optional_card_index("specialCardIndices.uraJack", indices.ura_jack)
+
+
+def _validate_required_special_card_indices(indices: SpecialCardIndices) -> None:
+    _expect_int_range("specialCardIndices.oruma", indices.oruma, 0, CARD_COUNT - 1)
+    _expect_int_range("specialCardIndices.yoromeki", indices.yoromeki, 0, CARD_COUNT - 1)
+    _expect_int_range("specialCardIndices.seiJack", indices.sei_jack, 0, CARD_COUNT - 1)
+    _expect_int_range("specialCardIndices.uraJack", indices.ura_jack, 0, CARD_COUNT - 1)
 
 
 def _validate_mask_is_subset(

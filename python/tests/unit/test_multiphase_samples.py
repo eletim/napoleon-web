@@ -159,6 +159,14 @@ def test_exchange_rejects_wrong_masks_and_target_subset() -> None:
         validate_sample(parse_sample(raw))
 
 
+def test_exchange_rejects_empty_special_card_sentinel() -> None:
+    raw = _exchange_sample()
+    raw["observation"]["specialCardIndices"]["seiJack"] = -1
+
+    with pytest.raises(SampleValidationError, match="specialCardIndices.seiJack"):
+        validate_sample(parse_sample(raw))
+
+
 def test_adjutant_rejects_wrong_mask_shape_and_illegal_target() -> None:
     raw = _adjutant_sample()
     raw["observation"]["legalAdjutantMask"] = raw["observation"]["legalAdjutantMask"][:-1]
@@ -170,6 +178,14 @@ def test_adjutant_rejects_wrong_mask_shape_and_illegal_target() -> None:
     raw["actorTarget"] = 22
 
     with pytest.raises(SampleValidationError, match="legalAdjutantMask"):
+        validate_sample(parse_sample(raw))
+
+
+def test_adjutant_rejects_empty_special_card_sentinel() -> None:
+    raw = _adjutant_sample()
+    raw["observation"]["specialCardIndices"]["seiJack"] = -1
+
+    with pytest.raises(SampleValidationError, match="specialCardIndices.seiJack"):
         validate_sample(parse_sample(raw))
 
 
