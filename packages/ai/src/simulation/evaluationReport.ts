@@ -350,9 +350,16 @@ function toMeanDeltaConfidenceInterval(
   }
 
   const delta = summary.averagePointCards - baseline.averagePointCards;
+  const summaryVariance = pointCardMeanVariance(stats);
+  const baselineVariance = pointCardMeanVariance(baselineStats);
+
+  if (summaryVariance === null || baselineVariance === null) {
+    return emptyConfidenceInterval("normal");
+  }
+
   const standardError = Math.sqrt(
-    pointCardMeanVariance(stats) / summary.sampleCount
-    + pointCardMeanVariance(baselineStats) / baseline.sampleCount
+    summaryVariance / summary.sampleCount
+    + baselineVariance / baseline.sampleCount
   );
 
   if (!Number.isFinite(standardError)) {
@@ -369,9 +376,9 @@ function toMeanDeltaConfidenceInterval(
   };
 }
 
-function pointCardMeanVariance(stats: MutableStats): number {
+function pointCardMeanVariance(stats: MutableStats): number | null {
   if (stats.games.completed < 2) {
-    return 0;
+    return null;
   }
 
   const mean = stats.pointCardTotal / stats.games.completed;

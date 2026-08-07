@@ -254,6 +254,28 @@ describe("createEvaluationReport", () => {
     expectReportHasNoNonFiniteNumbers(report);
   });
 
+  it("does not report a point-card delta interval when a mean variance is not estimable", () => {
+    const run = createFixtureRun();
+    const singletonRun: EvaluationRunRecord = {
+      ...run,
+      games: run.games.slice(0, 1),
+      gameCount: 1,
+      endSeed: 10,
+      completedCount: 1,
+      failedCount: 0
+    };
+
+    const report = createEvaluationReport(singletonRun);
+
+    expect(report.agents).toHaveLength(5);
+    expect(report.agents.every((agent) => agent.sampleCount === 1)).toBe(true);
+    expect(report.agents.every((agent) =>
+      agent.comparison.averagePointCardsDeltaConfidenceInterval.lower === null
+      && agent.comparison.averagePointCardsDeltaConfidenceInterval.upper === null
+    )).toBe(true);
+    expectReportHasNoNonFiniteNumbers(report);
+  });
+
   it("keeps agent definitions separate when they share the same display name", () => {
     const run = createFixtureRun();
     const duplicateNameRun: EvaluationRunRecord = {
