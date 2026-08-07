@@ -247,6 +247,15 @@ def _validate_export_paths(*, checkpoint_path: Path, onnx_path: Path, metadata_p
         raise PolicyCheckpointCompatibilityError(
             "metadata output and checkpoint input must be different paths."
         )
+    _validate_writable_artifact_path(onnx_path, label="ONNX output")
+    _validate_writable_artifact_path(metadata_path, label="metadata output")
+
+
+def _validate_writable_artifact_path(path: Path, *, label: str) -> None:
+    if path.exists() and not path.is_file():
+        raise PolicyCheckpointCompatibilityError(
+            f"{label} must be a file path, got existing non-file path: {path}."
+        )
 
 
 def _validate_checkpoint_metadata_for_export(checkpoint: dict[str, object]) -> None:

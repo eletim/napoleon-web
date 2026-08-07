@@ -805,6 +805,60 @@ def test_policy_onnx_export_keeps_existing_artifact_when_staged_validation_fails
     assert not list(tmp_path.parent.glob(f".{tmp_path.name}-policy.*.tmp"))
 
 
+def test_policy_onnx_export_rejects_metadata_directory_before_replacing_existing_onnx(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_dataset(tmp_path, seeds=(0, 1, 2))
+    checkpoint_path = tmp_path.parent / f"{tmp_path.name}-policy.pt"
+    onnx_path = tmp_path.parent / f"{tmp_path.name}-policy.onnx"
+    metadata_path = tmp_path.parent / f"{tmp_path.name}-policy.json"
+    assert (
+        train_main(
+            [
+                str(tmp_path),
+                "--output",
+                str(checkpoint_path),
+                "--epochs",
+                "1",
+                "--batch-size",
+                "1",
+                "--hidden-dim",
+                "8",
+                "--hidden-layers",
+                "1",
+                "--train-ratio",
+                "1",
+                "--validation-ratio",
+                "1",
+                "--test-ratio",
+                "98",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    onnx_path.write_bytes(b"previous onnx")
+    metadata_path.mkdir()
+
+    exit_code = export_main(
+        [
+            str(tmp_path),
+            "--checkpoint",
+            str(checkpoint_path),
+            "--output",
+            str(onnx_path),
+            "--metadata-output",
+            str(metadata_path),
+        ]
+    )
+
+    assert exit_code == 1
+    assert "existing non-file path" in capsys.readouterr().err
+    assert onnx_path.read_bytes() == b"previous onnx"
+    assert metadata_path.is_dir()
+
+
 def test_policy_onnx_export_cli_writes_model_metadata_and_checks_runtime_parity(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
