@@ -85,14 +85,15 @@ def export_policy_checkpoint_to_onnx(
     model, checkpoint = load_policy_checkpoint(checkpoint_path, manifest=manifest)
     _validate_model_for_export(model)
 
-    sample = next(
-        iter_tensorized_samples(dataset_directory, verify_integrity=verify_integrity),
-        None,
-    )
+    samples = iter_tensorized_samples(dataset_directory, verify_integrity=verify_integrity)
+    sample = next(samples, None)
     if sample is None:
         raise PolicyCheckpointCompatibilityError(
             "dataset contains no samples for ONNX parity check."
         )
+    if verify_integrity:
+        for _ in samples:
+            pass
 
     model.eval()
     output = Path(onnx_path)
