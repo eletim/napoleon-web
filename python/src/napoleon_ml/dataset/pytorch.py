@@ -366,6 +366,7 @@ def create_training_dataloader(
     """Create a DataLoader whose batch type is selected from manifest sampleType."""
 
     manifest = load_manifest(dataset_directory)
+    _coerce_mask_dtype(mask_dtype)
 
     if manifest.sample_type == PLAYING_DATASET_SAMPLE_TYPE:
         return create_playing_dataloader(
@@ -377,6 +378,11 @@ def create_training_dataloader(
             mask_dtype=mask_dtype,
             drop_last=drop_last,
             num_workers=num_workers,
+        )
+    if mask_dtype != torch.bool:
+        raise DatasetError(
+            "mask_dtype is only supported for playing-training-sample datasets; "
+            "non-playing DataLoader masks are always torch.bool."
         )
     if manifest.sample_type == BIDDING_DATASET_SAMPLE_TYPE:
         return create_bidding_dataloader(

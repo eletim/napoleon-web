@@ -395,6 +395,18 @@ def test_specific_multiphase_dataloader_rejects_different_manifest_sample_type(
         next(iter(loader))
 
 
+def test_training_dataloader_rejects_non_playing_mask_dtype_override(tmp_path: Path) -> None:
+    _write_multiphase_dataset(tmp_path, _bidding_sample())
+
+    with pytest.raises(DatasetError, match="non-playing DataLoader masks are always torch.bool"):
+        create_training_dataloader(
+            tmp_path,
+            split=DatasetSplit.TRAIN,
+            batch_size=1,
+            mask_dtype=torch.uint8,
+        )
+
+
 def test_bidding_dataloader_rejects_in_range_actor_target_missing_from_legal_mask(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
