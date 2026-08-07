@@ -97,6 +97,11 @@ def export_policy_checkpoint_to_onnx(
     model.eval()
     output = Path(onnx_path)
     metadata_output = Path(metadata_path)
+    if output.resolve() == metadata_output.resolve():
+        raise PolicyCheckpointCompatibilityError(
+            "ONNX output and metadata output must be different paths."
+        )
+
     output.parent.mkdir(parents=True, exist_ok=True)
     metadata_output.parent.mkdir(parents=True, exist_ok=True)
 

@@ -584,6 +584,54 @@ def test_policy_onnx_export_rejects_checkpoint_with_wrong_input_shape_before_out
     assert not metadata_path.exists()
 
 
+def test_policy_onnx_export_cli_rejects_overlapping_output_paths(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_dataset(tmp_path, seeds=(0, 1, 2))
+    checkpoint_path = tmp_path.parent / f"{tmp_path.name}-policy.pt"
+    output_path = tmp_path.parent / f"{tmp_path.name}-policy.json"
+    assert (
+        train_main(
+            [
+                str(tmp_path),
+                "--output",
+                str(checkpoint_path),
+                "--epochs",
+                "1",
+                "--batch-size",
+                "1",
+                "--hidden-dim",
+                "8",
+                "--hidden-layers",
+                "1",
+                "--train-ratio",
+                "1",
+                "--validation-ratio",
+                "1",
+                "--test-ratio",
+                "98",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    exit_code = export_main(
+        [
+            str(tmp_path),
+            "--checkpoint",
+            str(checkpoint_path),
+            "--output",
+            str(output_path),
+        ]
+    )
+
+    assert exit_code == 1
+    assert "must be different paths" in capsys.readouterr().err
+    assert not output_path.exists()
+
+
 def test_policy_onnx_export_cli_writes_model_metadata_and_checks_runtime_parity(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
