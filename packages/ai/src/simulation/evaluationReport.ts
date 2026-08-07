@@ -2,6 +2,7 @@ import type {
   CompletedEvaluationGameRecord,
   EvaluationAgentPerformanceSummary,
   EvaluationComparisonSummary,
+  EvaluationConfidenceInterval,
   EvaluationFailureSummary,
   EvaluationGameCountSummary,
   EvaluationGameRecord,
@@ -19,6 +20,8 @@ import type {
 type CompletedRole = Exclude<EvaluationSeatRole, "unknown">;
 
 const completedRoles: readonly CompletedRole[] = ["napoleon", "adjutant", "alliance"];
+const confidenceLevel = 0.95;
+const z95 = 1.959963984540054;
 
 interface MutableStats {
   games: {
@@ -30,6 +33,7 @@ interface MutableStats {
   losses: number;
   contractSuccesses: number;
   pointCardTotal: number;
+  pointCardSquareTotal: number;
   failuresByReason: Map<string, number>;
 }
 
@@ -84,7 +88,8 @@ export function createEvaluationReport(record: EvaluationRunRecord): EvaluationR
         stats,
         agentRoleStats.get(sourceAgentIndex),
         agentSeatStats.get(sourceAgentIndex),
-        participantSummary
+        participantSummary,
+        participantStats
       )
     );
 
@@ -115,9 +120,11 @@ function countGame(
   stats.contractSuccesses += game.contractSucceeded ? 1 : 0;
 
   if (seat === undefined) {
+    const pointCards = game.pointCards.napoleonTeam;
     stats.wins += game.winner === "napoleon-team" ? 1 : 0;
     stats.losses += game.winner === "alliance" ? 1 : 0;
-    stats.pointCardTotal += game.pointCards.napoleonTeam;
+    stats.pointCardTotal += pointCards;
+    stats.pointCardSquareTotal += pointCards * pointCards;
     return;
   }
 
@@ -126,9 +133,11 @@ function countGame(
   }
 
   const won = didSeatWin(game, seat.role);
+  const pointCards = pointCardsForRole(game, seat.role);
   stats.wins += won ? 1 : 0;
   stats.losses += won ? 0 : 1;
-  stats.pointCardTotal += pointCardsForRole(game, seat.role);
+  stats.pointCardTotal += pointCards;
+  stats.pointCardSquareTotal += pointCards * pointCards;
 }
 
 function didSeatWin(game: CompletedEvaluationGameRecord, role: CompletedRole): boolean {
@@ -147,7 +156,8 @@ function toAgentSummary(
   stats: MutableStats,
   roleStats: ReadonlyMap<CompletedRole, MutableStats> | undefined,
   seatStats: ReadonlyMap<number, MutableStats> | undefined,
-  baseline: EvaluationPerformanceSummary
+  baseline: EvaluationPerformanceSummary,
+  baselineStats: MutableStats
 ): EvaluationAgentPerformanceSummary {
   const summary = toPerformanceSummary(stats);
 
@@ -161,7 +171,7 @@ function toAgentSummary(
     seatResults: [...(seatStats?.entries() ?? [])]
       .sort(([left], [right]) => left - right)
       .map(([seatIndex, seatSummaryStats]) => toSeatSummary(seatIndex, seatSummaryStats)),
-    comparison: createComparison(summary, baseline)
+    comparison: createComparison(summary, stats, baseline, baselineStats)
   };
 }
 
@@ -195,6 +205,7 @@ function toRoleSummary(
 function toPerformanceSummary(stats: MutableStats): EvaluationPerformanceSummary {
   return {
     games: toGameCountSummary(stats.games),
+    sampleCount: stats.games.completed,
     wins: stats.wins,
     losses: stats.losses,
     winRate: toRate(stats.wins, stats.games.completed),
@@ -209,17 +220,33 @@ function toPerformanceSummary(stats: MutableStats): EvaluationPerformanceSummary
 
 function createComparison(
   summary: EvaluationPerformanceSummary,
-  baseline: EvaluationPerformanceSummary
+  stats: MutableStats,
+  baseline: EvaluationPerformanceSummary,
+  baselineStats: MutableStats
 ): EvaluationComparisonSummary {
   return {
     winRateDelta: subtractNullable(summary.winRate.rate, baseline.winRate.rate),
+    winRateDeltaConfidenceInterval: toProportionDeltaConfidenceInterval(
+      summary.winRate,
+      baseline.winRate
+    ),
     contractSuccessRateDelta: subtractNullable(
       summary.contractSuccessRate.rate,
       baseline.contractSuccessRate.rate
     ),
+    contractSuccessRateDeltaConfidenceInterval: toProportionDeltaConfidenceInterval(
+      summary.contractSuccessRate,
+      baseline.contractSuccessRate
+    ),
     averagePointCardsDelta: subtractNullable(
       summary.averagePointCards,
       baseline.averagePointCards
+    ),
+    averagePointCardsDeltaConfidenceInterval: toMeanDeltaConfidenceInterval(
+      summary,
+      stats,
+      baseline,
+      baselineStats
     )
   };
 }
@@ -235,6 +262,7 @@ function createStats(): MutableStats {
     losses: 0,
     contractSuccesses: 0,
     pointCardTotal: 0,
+    pointCardSquareTotal: 0,
     failuresByReason: new Map()
   };
 }
@@ -243,8 +271,135 @@ function toRate(numerator: number, denominator: number): EvaluationRateSummary {
   return {
     numerator,
     denominator,
-    rate: denominator === 0 ? null : numerator / denominator
+    rate: denominator === 0 ? null : numerator / denominator,
+    confidenceInterval: toWilsonConfidenceInterval(numerator, denominator)
   };
+}
+
+function toWilsonConfidenceInterval(
+  numerator: number,
+  denominator: number
+): EvaluationConfidenceInterval {
+  if (denominator === 0) {
+    return emptyConfidenceInterval("wilson");
+  }
+
+  const proportion = numerator / denominator;
+  const zSquared = z95 * z95;
+  const scale = 1 + zSquared / denominator;
+  const center = (proportion + zSquared / (2 * denominator)) / scale;
+  const margin = (
+    z95
+    * Math.sqrt((proportion * (1 - proportion) + zSquared / (4 * denominator)) / denominator)
+  ) / scale;
+
+  return {
+    level: confidenceLevel,
+    method: "wilson",
+    lower: clamp(center - margin, 0, 1),
+    upper: clamp(center + margin, 0, 1)
+  };
+}
+
+function toProportionDeltaConfidenceInterval(
+  summary: EvaluationRateSummary,
+  baseline: EvaluationRateSummary
+): EvaluationConfidenceInterval {
+  if (summary.rate === null || baseline.rate === null) {
+    return emptyConfidenceInterval("newcombe-wilson");
+  }
+
+  const summaryInterval = summary.confidenceInterval;
+  const baselineInterval = baseline.confidenceInterval;
+
+  if (
+    summaryInterval.lower === null
+    || summaryInterval.upper === null
+    || baselineInterval.lower === null
+    || baselineInterval.upper === null
+  ) {
+    return emptyConfidenceInterval("newcombe-wilson");
+  }
+
+  const delta = summary.rate - baseline.rate;
+  const lowerMargin = Math.sqrt(
+    ((summary.rate - summaryInterval.lower) ** 2)
+    + ((baselineInterval.upper - baseline.rate) ** 2)
+  );
+  const upperMargin = Math.sqrt(
+    ((summaryInterval.upper - summary.rate) ** 2)
+    + ((baseline.rate - baselineInterval.lower) ** 2)
+  );
+
+  return {
+    level: confidenceLevel,
+    method: "newcombe-wilson",
+    lower: clamp(delta - lowerMargin, -1, 1),
+    upper: clamp(delta + upperMargin, -1, 1)
+  };
+}
+
+function toMeanDeltaConfidenceInterval(
+  summary: EvaluationPerformanceSummary,
+  stats: MutableStats,
+  baseline: EvaluationPerformanceSummary,
+  baselineStats: MutableStats
+): EvaluationConfidenceInterval {
+  if (summary.averagePointCards === null || baseline.averagePointCards === null) {
+    return emptyConfidenceInterval("normal");
+  }
+
+  const delta = summary.averagePointCards - baseline.averagePointCards;
+  const summaryVariance = pointCardMeanVariance(stats);
+  const baselineVariance = pointCardMeanVariance(baselineStats);
+
+  if (summaryVariance === null || baselineVariance === null) {
+    return emptyConfidenceInterval("normal");
+  }
+
+  const standardError = Math.sqrt(
+    summaryVariance / summary.sampleCount
+    + baselineVariance / baseline.sampleCount
+  );
+
+  if (!Number.isFinite(standardError)) {
+    return emptyConfidenceInterval("normal");
+  }
+
+  const margin = z95 * standardError;
+
+  return {
+    level: confidenceLevel,
+    method: "normal",
+    lower: delta - margin,
+    upper: delta + margin
+  };
+}
+
+function pointCardMeanVariance(stats: MutableStats): number | null {
+  if (stats.games.completed < 2) {
+    return null;
+  }
+
+  const mean = stats.pointCardTotal / stats.games.completed;
+  const numerator = stats.pointCardSquareTotal - stats.games.completed * mean ** 2;
+
+  return Math.max(0, numerator / (stats.games.completed - 1));
+}
+
+function emptyConfidenceInterval(
+  method: EvaluationConfidenceInterval["method"]
+): EvaluationConfidenceInterval {
+  return {
+    level: confidenceLevel,
+    method,
+    lower: null,
+    upper: null
+  };
+}
+
+function clamp(value: number, lower: number, upper: number): number {
+  return Math.min(Math.max(value, lower), upper);
 }
 
 function toGameCountSummary(games: MutableStats["games"]): EvaluationGameCountSummary {

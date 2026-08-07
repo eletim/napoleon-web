@@ -48,13 +48,21 @@ The report schema is stable JSON data with:
 
 - overall completed and failed game counts
 - agent summaries keyed by `sourceAgentIndex` with wins, losses, contract
-  success rate, average team point cards, role results, seat results, and
-  comparison deltas against the participating-agent average
-- seat summaries for seat-index bias checks
-- Napoleon, adjutant, and alliance role summaries
+  success rate, average team point cards, role results, seat results, sample
+  counts, and comparison deltas against the participating-agent average
+- Wilson 95% confidence intervals for win rate and contract success rate
+- 95% confidence intervals for win-rate, contract-success-rate, and average
+  point-card comparison deltas
+- seat summaries for seat-index bias checks, including sample counts
+- Napoleon, adjutant, and alliance role summaries, including sample counts
 - failed-game counts by reason
 
 Rates with no completed games and averages with no samples are represented as
 `null`, not `NaN` or `Infinity`. Report output is sorted by agent name, seat
 index, role order, and failure reason so the same input games produce the same
 report even when the input array order changes.
+
+Rate intervals use the Wilson score interval at 95% confidence. Proportion
+comparison intervals use the Newcombe-Wilson method, and average point-card
+comparison intervals use a normal approximation over the observed point-card
+samples. Empty comparisons keep the interval bounds as `null`.

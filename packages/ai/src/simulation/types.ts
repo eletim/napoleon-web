@@ -144,6 +144,19 @@ export interface EvaluationRateSummary {
   numerator: number;
   denominator: number;
   rate: number | null;
+  confidenceInterval: EvaluationConfidenceInterval;
+}
+
+export type EvaluationConfidenceIntervalMethod =
+  | "wilson"
+  | "newcombe-wilson"
+  | "normal";
+
+export interface EvaluationConfidenceInterval {
+  level: 0.95;
+  method: EvaluationConfidenceIntervalMethod;
+  lower: number | null;
+  upper: number | null;
 }
 
 export interface EvaluationGameCountSummary {
@@ -159,6 +172,7 @@ export interface EvaluationFailureSummary {
 
 export interface EvaluationPerformanceSummary {
   games: EvaluationGameCountSummary;
+  sampleCount: number;
   wins: number;
   losses: number;
   winRate: EvaluationRateSummary;
@@ -186,8 +200,11 @@ export interface EvaluationAgentPerformanceSummary extends EvaluationPerformance
 
 export interface EvaluationComparisonSummary {
   winRateDelta: number | null;
+  winRateDeltaConfidenceInterval: EvaluationConfidenceInterval;
   contractSuccessRateDelta: number | null;
+  contractSuccessRateDeltaConfidenceInterval: EvaluationConfidenceInterval;
   averagePointCardsDelta: number | null;
+  averagePointCardsDeltaConfidenceInterval: EvaluationConfidenceInterval;
 }
 
 export interface EvaluationReportSummary extends EvaluationPerformanceSummary {
