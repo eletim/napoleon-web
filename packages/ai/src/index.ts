@@ -23,6 +23,7 @@ export {
   selectPlayAction
 } from "./playStrategy.js";
 export { runAutomatedGame } from "./simulation/runAutomatedGame.js";
+export { runEvaluation } from "./simulation/runEvaluation.js";
 export {
   assertValidSeed,
   createSeededRandom,
@@ -35,5 +36,16 @@ export type {
   AutomatedAgentContext,
   AutomatedGameRecord,
   DecisionRecord,
+  CompletedEvaluationGameRecord,
+  EvaluationAgentContext,
+  EvaluationAgentDefinition,
+  EvaluationContractSummary,
+  EvaluationGameRecord,
+  EvaluationPointCardSummary,
+  EvaluationRunRecord,
+  EvaluationSeatAssignment,
+  EvaluationSeatRole,
+  FailedEvaluationGameRecord,
+  RunEvaluationOptions,
   RunAutomatedGameOptions
 } from "./simulation/types.js";

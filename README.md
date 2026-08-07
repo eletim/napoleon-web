@@ -130,7 +130,7 @@ React画面から通信Actionを送信し、Fastifyサーバーが内部Action�
 
 - `packages/game-core`: UI、HTTP、AIに依存しないゲーム状態と状態遷移
 - `packages/protocol`: フロントエンドとバックエンドで共有するAPI型
-- `packages/ai`: Agentインターフェース、標準の`RuleBasedAgent`、比較用の`RandomAgent`
+- `packages/ai`: Agentインターフェース、標準の`RuleBasedAgent`、比較用の`RandomAgent`、再現可能な評価runner
 - `apps/server`: Fastify API、インメモリゲーム管理、AI自動進行
 - `apps/web`: React + ViteのブラウザUI、APIクライアント、表示コンポーネント
 
