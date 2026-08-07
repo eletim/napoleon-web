@@ -24,11 +24,10 @@ _SHARD_KEYS = frozenset(
     {"file", "startSeed", "endSeed", "gameCount", "sampleCount", "byteLength", "sha256"}
 )
 _AGENT_KEYS = frozenset({"type", "version"})
-_MANIFEST_KEYS = frozenset(
+_MANIFEST_BASE_KEYS = frozenset(
     {
         "datasetSchemaVersion",
         "generatorVersion",
-        "playingEncoderSchemaVersion",
         "format",
         "sampleType",
         "agent",
@@ -45,6 +44,8 @@ _MANIFEST_KEYS = frozenset(
         "shards",
     }
 )
+_PLAYING_MANIFEST_KEYS = _MANIFEST_BASE_KEYS | frozenset({"playingEncoderSchemaVersion"})
+_MULTIPHASE_MANIFEST_KEYS = _MANIFEST_BASE_KEYS | frozenset({"encoderSchemaVersion"})
 
 
 @dataclass(frozen=True)
@@ -68,7 +69,8 @@ class DatasetAgentInfo:
 class DatasetManifest:
     dataset_schema_version: int
     generator_version: int
-    playing_encoder_schema_version: int
+    playing_encoder_schema_version: int | None
+    encoder_schema_version: int | None
     format: str
     sample_type: str
     agent: DatasetAgentInfo
@@ -128,22 +130,41 @@ def parse_manifest(raw: object) -> DatasetManifest:
     """
 
     obj = require_dict(raw, path="manifest", error=_error)
-    require_exact_keys(obj, _MANIFEST_KEYS, path="manifest", error=_error)
+    dataset_schema_version = require_int(
+        obj.get("datasetSchemaVersion"),
+        path="manifest.datasetSchemaVersion",
+        error=_error,
+    )
+
+    if dataset_schema_version == 1:
+        require_exact_keys(obj, _PLAYING_MANIFEST_KEYS, path="manifest", error=_error)
+        playing_encoder_schema_version = require_int(
+            obj["playingEncoderSchemaVersion"],
+            path="manifest.playingEncoderSchemaVersion",
+            error=_error,
+        )
+        encoder_schema_version = None
+    elif dataset_schema_version == 2:
+        require_exact_keys(obj, _MULTIPHASE_MANIFEST_KEYS, path="manifest", error=_error)
+        playing_encoder_schema_version = None
+        encoder_schema_version = require_int(
+            obj["encoderSchemaVersion"], path="manifest.encoderSchemaVersion", error=_error
+        )
+    else:
+        raise _error(
+            "manifest.datasetSchemaVersion must be 1 or 2, "
+            f"got {dataset_schema_version}."
+        )
 
     shards_raw = require_list(obj["shards"], path="manifest.shards", error=_error)
 
     return DatasetManifest(
-        dataset_schema_version=require_int(
-            obj["datasetSchemaVersion"], path="manifest.datasetSchemaVersion", error=_error
-        ),
+        dataset_schema_version=dataset_schema_version,
         generator_version=require_int(
             obj["generatorVersion"], path="manifest.generatorVersion", error=_error
         ),
-        playing_encoder_schema_version=require_int(
-            obj["playingEncoderSchemaVersion"],
-            path="manifest.playingEncoderSchemaVersion",
-            error=_error,
-        ),
+        playing_encoder_schema_version=playing_encoder_schema_version,
+        encoder_schema_version=encoder_schema_version,
         format=require_str(obj["format"], path="manifest.format", error=_error),
         sample_type=require_str(obj["sampleType"], path="manifest.sampleType", error=_error),
         agent=_parse_agent(obj["agent"]),

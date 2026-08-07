@@ -155,7 +155,7 @@ package uses `object_pairs_hook` to reject it instead); or contains a
 literal `NaN`, `Infinity`, or `-Infinity` token (accepted by
 `json.loads()` by default; rejected here via `parse_constant`).
 
-### Sample schema v1
+### Sample schemas
 
 `napoleon_ml.dataset.sample` defines typed, frozen dataclasses that mirror
 `packages/ai-observation/src/createPlayingTrainingSample.ts`'s
@@ -172,6 +172,20 @@ same numeric ranges, one-hot/mask invariants, and cross-field rules as
 is legal, and that every bidding-history slot's fields are consistent with
 its action type.
 
+The reader supports both TypeScript dataset manifest shapes:
+
+| Manifest | Row sample type | Python sample dataclass |
+| --- | --- | --- |
+| v1 (`datasetSchemaVersion = 1`) | `playing-training-sample` | `PlayingTrainingSample` |
+| v2 (`datasetSchemaVersion = 2`) | `bidding-training-sample` | `BiddingTrainingSample` |
+| v2 (`datasetSchemaVersion = 2`) | `exchange-training-sample` | `ExchangeTrainingSample` |
+| v2 (`datasetSchemaVersion = 2`) | `adjutant-training-sample` | `AdjutantTrainingSample` |
+
+Manifest `sampleType` selects the parser, validator, and tensorizer. A v2
+row whose `sampleType` does not match the manifest is rejected. Unknown keys,
+missing keys, wrong fixed lengths, wrong mask values, illegal targets, and
+schema-version drift are rejected before tensorization.
+
 `iter_samples()` additionally enforces dataset-wide ordering that a single
 sample can't check on its own: seeds are non-decreasing and form one
 contiguous block per game (a seed reappearing after the dataset has moved
@@ -181,7 +195,21 @@ rejected), and `step` strictly increases within a seed's block.
 ## NumPy tensors
 
 `napoleon_ml.dataset.tensors.tensorize_sample()` converts one validated
-`PlayingTrainingSample` into a `TensorizedPlayingSample`:
+sample into the matching tensorized dataclass. The four fixed `model_input`
+lengths are:
+
+| Sample type | Tensorized dataclass | `model_input` shape |
+| --- | --- | --- |
+| `playing-training-sample` | `TensorizedPlayingSample` | `(6242,)` |
+| `bidding-training-sample` | `TensorizedBiddingSample` | `(2333,)` |
+| `exchange-training-sample` | `TensorizedExchangeSample` | `(2611,)` |
+| `adjutant-training-sample` | `TensorizedAdjutantSample` | `(2553,)` |
+
+The existing PyTorch DataLoader, policy model, and ONNX export remain
+playing-only in this version. The non-playing tensors are exposed for future
+phase-specific supervised models.
+
+For playing, `tensorize_sample()` returns a `TensorizedPlayingSample`:
 
 | Field | Shape | dtype |
 | --- | --- | --- |
@@ -289,6 +317,20 @@ from napoleon_ml.dataset.tensors import MODEL_INPUT_LAYOUT
 for feature in MODEL_INPUT_LAYOUT:
     print(feature.name, feature.start, feature.stop, feature.shape)
 ```
+
+The non-playing phases expose equivalent named layouts:
+
+| Constant | Feature count | Notes |
+| --- | --- | --- |
+| `BIDDING_MODEL_INPUT_LAYOUT` | 2333 | self hand, legal bid mask, bidding state, shared bidding history |
+| `EXCHANGE_MODEL_INPUT_LAYOUT` | 2611 | includes `handCountByPlayer (5,)` and excludes discard target |
+| `ADJUTANT_MODEL_INPUT_LAYOUT` | 2553 | adjutant legal mask plus shared bidding history |
+
+All layout slices are explicit `FeatureSlice` entries. The tensorizer does
+not recursively flatten arbitrary JSON. Training labels (`actorTarget` and
+`discardTargetMask`), hidden ownership, other players' private hands,
+complete `actualState` information, buried-card provenance, and unrevealed
+adjutant ownership are deliberately excluded from every `model_input`.
 
 ## Train/validation/test splits
 

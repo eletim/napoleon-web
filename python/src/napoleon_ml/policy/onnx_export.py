@@ -101,6 +101,10 @@ def export_policy_checkpoint_to_onnx(
         raise PolicyCheckpointCompatibilityError(
             "dataset contains no samples for ONNX parity check."
         )
+    if not isinstance(sample, TensorizedPlayingSample):
+        raise PolicyCheckpointCompatibilityError(
+            "policy ONNX export requires a playing-training-sample dataset."
+        )
     if verify_integrity:
         for _ in samples:
             pass

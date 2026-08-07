@@ -67,6 +67,7 @@ def _minimal_manifest(*, sample_count: int) -> DatasetManifest:
         dataset_schema_version=1,
         generator_version=1,
         playing_encoder_schema_version=1,
+        encoder_schema_version=None,
         format="jsonl",
         sample_type="playing-training-sample",
         agent=DatasetAgentInfo(type="rule-based", version=1),

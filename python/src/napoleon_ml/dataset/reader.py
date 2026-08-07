@@ -19,9 +19,9 @@ from ._json import loads_strict
 from ._strict import require_int
 from .errors import ManifestValidationError, SampleValidationError, ShardIntegrityError
 from .manifest import DatasetManifest, DatasetShardManifest, parse_manifest
-from .sample import PlayingTrainingSample, parse_sample
+from .sample import TrainingSample, parse_sample
 from .split import DatasetSplit, SplitConfig, split_for_seed
-from .tensors import TensorizedPlayingSample, tensorize_sample
+from .tensors import TensorizedTrainingSample, tensorize_sample
 from .validation import validate_dataset_directory, validate_manifest, validate_sample
 
 
@@ -229,7 +229,7 @@ def iter_samples(
     dataset_directory: Path | str,
     *,
     verify_integrity: bool = True,
-) -> Iterator[PlayingTrainingSample]:
+) -> Iterator[TrainingSample]:
     """Stream every sample as a fully parsed, fully validated dataclass.
 
     In addition to per-sample structural and semantic validation (see
@@ -256,7 +256,7 @@ def iter_samples(
             shard_line_number += 1
             context = f"{shard.file}:{shard_line_number}"
 
-            sample = parse_sample(raw, context=context)
+            sample = parse_sample(raw, context=context, sample_type=manifest.sample_type)
             validate_sample(sample)
 
             if current_seed is None:
@@ -302,7 +302,7 @@ def iter_tensorized_samples(
     split: DatasetSplit | None = None,
     split_config: SplitConfig | None = None,
     verify_integrity: bool = True,
-) -> Iterator[TensorizedPlayingSample]:
+) -> Iterator[TensorizedTrainingSample]:
     """Stream fully validated, tensorized samples, optionally filtered to one split.
 
     Filtering happens inline as each sample is produced (its seed is checked
