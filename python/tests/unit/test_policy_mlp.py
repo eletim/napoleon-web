@@ -17,7 +17,7 @@ from napoleon_ml.cli.export_policy_onnx import main as export_main
 from napoleon_ml.cli.train_policy_mlp import main as train_main
 from napoleon_ml.dataset.constants import CARD_COUNT, EXPECTED_CARD_IDS
 from napoleon_ml.dataset.pytorch import create_playing_dataloader
-from napoleon_ml.dataset.reader import load_manifest
+from napoleon_ml.dataset.reader import iter_tensorized_samples, load_manifest
 from napoleon_ml.dataset.split import DatasetSplit, SplitConfig, split_for_seed
 from napoleon_ml.dataset.tensors import MODEL_INPUT_FEATURE_COUNT
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
@@ -863,7 +863,7 @@ def test_policy_onnx_export_cli_writes_model_metadata_and_checks_runtime_parity(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     onnx = pytest.importorskip("onnx")
-    pytest.importorskip("onnxruntime")
+    onnxruntime = pytest.importorskip("onnxruntime")
     _write_dataset(tmp_path, seeds=(0, 1, 2))
     checkpoint_path = tmp_path.parent / f"{tmp_path.name}-policy.pt"
     onnx_path = tmp_path.parent / f"{tmp_path.name}-policy.onnx"
@@ -921,3 +921,13 @@ def test_policy_onnx_export_cli_writes_model_metadata_and_checks_runtime_parity(
         "onnxSelectedCardIndex"
     ]
     assert report["paritySample"]["maxAbsLogitDiff"] <= 1e-4
+
+    samples = list(iter_tensorized_samples(tmp_path, verify_integrity=True))[:2]
+    batch_input = torch.stack(
+        [torch.from_numpy(sample.model_input.copy()) for sample in samples]
+    ).numpy()
+    session = onnxruntime.InferenceSession(
+        str(onnx_path), providers=["CPUExecutionProvider"]
+    )
+    batch_logits = session.run([ONNX_OUTPUT_NAME], {ONNX_INPUT_NAME: batch_input})[0]
+    assert batch_logits.shape == (2, CARD_COUNT)

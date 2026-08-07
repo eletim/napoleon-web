@@ -109,7 +109,7 @@ def export_policy_checkpoint_to_onnx(
     output.parent.mkdir(parents=True, exist_ok=True)
     metadata_output.parent.mkdir(parents=True, exist_ok=True)
 
-    dummy_input = torch.zeros((1, MODEL_INPUT_FEATURE_COUNT), dtype=torch.float32)
+    dummy_input = torch.zeros((2, MODEL_INPUT_FEATURE_COUNT), dtype=torch.float32)
     staged_output = _temporary_sibling(output)
     staged_metadata = _temporary_sibling(metadata_output)
     try:
