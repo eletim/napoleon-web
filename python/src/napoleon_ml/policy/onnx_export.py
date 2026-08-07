@@ -82,7 +82,16 @@ def export_policy_checkpoint_to_onnx(
     manifest: DatasetManifest,
     verify_integrity: bool = True,
 ) -> PolicyOnnxExportReport:
-    model, checkpoint = load_policy_checkpoint(checkpoint_path, manifest=manifest)
+    checkpoint_file = Path(checkpoint_path)
+    output = Path(onnx_path)
+    metadata_output = Path(metadata_path)
+    _validate_export_paths(
+        checkpoint_path=checkpoint_file,
+        onnx_path=output,
+        metadata_path=metadata_output,
+    )
+
+    model, checkpoint = load_policy_checkpoint(checkpoint_file, manifest=manifest)
     _validate_model_for_export(model)
 
     samples = iter_tensorized_samples(dataset_directory, verify_integrity=verify_integrity)
@@ -96,13 +105,6 @@ def export_policy_checkpoint_to_onnx(
             pass
 
     model.eval()
-    output = Path(onnx_path)
-    metadata_output = Path(metadata_path)
-    if output.resolve() == metadata_output.resolve():
-        raise PolicyCheckpointCompatibilityError(
-            "ONNX output and metadata output must be different paths."
-        )
-
     output.parent.mkdir(parents=True, exist_ok=True)
     metadata_output.parent.mkdir(parents=True, exist_ok=True)
 
@@ -185,6 +187,13 @@ def validate_policy_onnx_metadata(metadata: dict[str, Any]) -> None:
     if not isinstance(onnx, dict):
         raise PolicyCheckpointCompatibilityError("metadata onnx must be a dictionary.")
 
+    opset_version = onnx.get("opsetVersion")
+    if opset_version != ONNX_OPSET_VERSION:
+        raise PolicyCheckpointCompatibilityError(
+            "metadata onnx opsetVersion mismatch: "
+            f"expected {ONNX_OPSET_VERSION!r}, got {opset_version!r}."
+        )
+
     _validate_io_metadata(
         onnx.get("inputs"),
         expected_name=ONNX_INPUT_NAME,
@@ -199,6 +208,25 @@ def validate_policy_onnx_metadata(metadata: dict[str, Any]) -> None:
         expected_dtype=_FLOAT32_DTYPE,
         label="output",
     )
+
+
+def _validate_export_paths(*, checkpoint_path: Path, onnx_path: Path, metadata_path: Path) -> None:
+    resolved_checkpoint = checkpoint_path.resolve()
+    resolved_onnx = onnx_path.resolve()
+    resolved_metadata = metadata_path.resolve()
+
+    if resolved_onnx == resolved_metadata:
+        raise PolicyCheckpointCompatibilityError(
+            "ONNX output and metadata output must be different paths."
+        )
+    if resolved_onnx == resolved_checkpoint:
+        raise PolicyCheckpointCompatibilityError(
+            "ONNX output and checkpoint input must be different paths."
+        )
+    if resolved_metadata == resolved_checkpoint:
+        raise PolicyCheckpointCompatibilityError(
+            "metadata output and checkpoint input must be different paths."
+        )
 
 
 def _validate_checkpoint_metadata_for_export(checkpoint: dict[str, object]) -> None:

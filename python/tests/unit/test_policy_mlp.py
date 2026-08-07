@@ -38,6 +38,7 @@ from napoleon_ml.policy.model import (
 )
 from napoleon_ml.policy.onnx_export import (
     ONNX_INPUT_NAME,
+    ONNX_OPSET_VERSION,
     ONNX_OUTPUT_NAME,
     build_policy_onnx_metadata,
     export_policy_checkpoint_to_onnx,
@@ -547,6 +548,12 @@ def test_policy_onnx_metadata_records_runtime_contract(tmp_path: Path) -> None:
     assert onnx_metadata["outputs"] == [
         {"name": ONNX_OUTPUT_NAME, "shape": ["batch", CARD_COUNT], "dtype": "float32"}
     ]
+    assert onnx_metadata["opsetVersion"] == ONNX_OPSET_VERSION
+
+    invalid_metadata = dict(metadata)
+    invalid_metadata["onnx"] = dict(onnx_metadata, opsetVersion=ONNX_OPSET_VERSION + 1)
+    with pytest.raises(PolicyCheckpointCompatibilityError, match="opsetVersion"):
+        validate_policy_onnx_metadata(invalid_metadata)
 
 
 def test_policy_onnx_export_rejects_checkpoint_with_wrong_input_shape_before_output(
@@ -630,6 +637,58 @@ def test_policy_onnx_export_cli_rejects_overlapping_output_paths(
     assert exit_code == 1
     assert "must be different paths" in capsys.readouterr().err
     assert not output_path.exists()
+
+
+def test_policy_onnx_export_cli_rejects_checkpoint_output_path_overlap(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_dataset(tmp_path, seeds=(0, 1, 2))
+    checkpoint_path = tmp_path.parent / f"{tmp_path.name}-policy.pt"
+    metadata_path = tmp_path.parent / f"{tmp_path.name}-policy.json"
+    assert (
+        train_main(
+            [
+                str(tmp_path),
+                "--output",
+                str(checkpoint_path),
+                "--epochs",
+                "1",
+                "--batch-size",
+                "1",
+                "--hidden-dim",
+                "8",
+                "--hidden-layers",
+                "1",
+                "--train-ratio",
+                "1",
+                "--validation-ratio",
+                "1",
+                "--test-ratio",
+                "98",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    original_checkpoint = checkpoint_path.read_bytes()
+
+    exit_code = export_main(
+        [
+            str(tmp_path),
+            "--checkpoint",
+            str(checkpoint_path),
+            "--output",
+            str(checkpoint_path),
+            "--metadata-output",
+            str(metadata_path),
+        ]
+    )
+
+    assert exit_code == 1
+    assert "checkpoint input must be different paths" in capsys.readouterr().err
+    assert checkpoint_path.read_bytes() == original_checkpoint
+    assert not metadata_path.exists()
 
 
 def test_policy_onnx_export_cli_rejects_corrupted_later_dataset_bytes_before_output(
