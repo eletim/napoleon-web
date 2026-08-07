@@ -42,6 +42,8 @@ export type {
   EvaluationAgentDefinition,
   EvaluationAgentPerformanceSummary,
   EvaluationComparisonSummary,
+  EvaluationConfidenceInterval,
+  EvaluationConfidenceIntervalMethod,
   EvaluationContractSummary,
   EvaluationFailureSummary,
   EvaluationGameRecord,

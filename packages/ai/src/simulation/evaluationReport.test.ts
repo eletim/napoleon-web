@@ -23,6 +23,7 @@ describe("createEvaluationReport", () => {
         completed: 2,
         failed: 1
       },
+      sampleCount: 2,
       wins: 1,
       losses: 1,
       contractSuccesses: 1,
@@ -44,6 +45,15 @@ describe("createEvaluationReport", () => {
         }
       }
     });
+    expect(report.summary.winRate.confidenceInterval).toEqual({
+      level: 0.95,
+      method: "wilson",
+      lower: 0.09453120573423074,
+      upper: 0.9054687942657693
+    });
+    expect(report.summary.contractSuccessRate.confidenceInterval).toEqual(
+      report.summary.winRate.confidenceInterval
+    );
 
     expect(report.agents.map((agent) => agent.agentName)).toEqual([
       "Agent-0",
@@ -60,6 +70,7 @@ describe("createEvaluationReport", () => {
       completed: 2,
       failed: 1
     });
+    expect(agent0.sampleCount).toBe(2);
     expect(agent0.wins).toBe(2);
     expect(agent0.losses).toBe(0);
     expect(agent0.averagePointCards).toBe(12);
@@ -72,13 +83,48 @@ describe("createEvaluationReport", () => {
     expect(agent0.comparison.contractSuccessRateDelta).toBe(0);
     expect(agent0.comparison.winRateDelta).toBeCloseTo(0.4);
     expect(agent0.comparison.averagePointCardsDelta).toBeCloseTo(2.4);
+    expect(agent0.winRate.confidenceInterval).toEqual({
+      level: 0.95,
+      method: "wilson",
+      lower: 0.34238022750665303,
+      upper: 1
+    });
+    expect(agent0.comparison.winRateDeltaConfidenceInterval).toEqual({
+      level: 0.95,
+      method: "newcombe-wilson",
+      lower: -0.29728338909607677,
+      upper: 0.6873262302663418
+    });
+    expect(agent0.comparison.contractSuccessRateDeltaConfidenceInterval).toEqual({
+      level: 0.95,
+      method: "newcombe-wilson",
+      lower: -0.48351643517987997,
+      upper: 0.48351643517987997
+    });
+    expect(agent0.comparison.averagePointCardsDeltaConfidenceInterval).toEqual({
+      level: 0.95,
+      method: "normal",
+      lower: -1.9257568984351092,
+      upper: 6.72575689843511
+    });
 
     expect(agent0.roleResults.map((role) => [role.role, role.games.total])).toEqual([
       ["napoleon", 1],
       ["adjutant", 0],
       ["alliance", 1]
     ]);
+    expect(agent0.roleResults.map((role) => [role.role, role.sampleCount])).toEqual([
+      ["napoleon", 1],
+      ["adjutant", 0],
+      ["alliance", 1]
+    ]);
     expect(agent0.roleResults[1].winRate.rate).toBeNull();
+    expect(agent0.roleResults[1].winRate.confidenceInterval).toEqual({
+      level: 0.95,
+      method: "wilson",
+      lower: null,
+      upper: null
+    });
     expect(agent0.roleResults[1].averagePointCards).toBeNull();
 
     expect(report.seats.map((seat) => [seat.seatIndex, seat.games.total])).toEqual([
@@ -88,8 +134,16 @@ describe("createEvaluationReport", () => {
       [3, 3],
       [4, 3]
     ]);
+    expect(report.seats.map((seat) => [seat.seatIndex, seat.sampleCount])).toEqual([
+      [0, 2],
+      [1, 2],
+      [2, 2],
+      [3, 2],
+      [4, 2]
+    ]);
     expect(report.seats[0]).toMatchObject({
       seatIndex: 0,
+      sampleCount: 2,
       wins: 2,
       losses: 0,
       failures: {
@@ -105,6 +159,12 @@ describe("createEvaluationReport", () => {
       ["adjutant", 1, 1],
       ["alliance", 7, 4]
     ]);
+    expect(report.roles.map((role) => [role.role, role.sampleCount])).toEqual([
+      ["napoleon", 2],
+      ["adjutant", 1],
+      ["alliance", 7]
+    ]);
+    expectReportHasNoNonFiniteNumbers(report);
   });
 
   it("creates the same report when evaluation games and seats are provided in a different order", () => {
@@ -140,6 +200,58 @@ describe("createEvaluationReport", () => {
       completed: 2,
       failed: 0
     });
+  });
+
+  it("reports empty runs without NaN or Infinity values", () => {
+    const report = createEvaluationReport({
+      schemaVersion: 1,
+      startSeed: 10,
+      endSeed: 9,
+      gameCount: 0,
+      rotationOffsets: [0],
+      playerIds,
+      games: [],
+      completedCount: 0,
+      failedCount: 0
+    });
+
+    expect(report.summary).toMatchObject({
+      expectedGameCount: 0,
+      sampleCount: 0,
+      wins: 0,
+      losses: 0,
+      winRate: {
+        numerator: 0,
+        denominator: 0,
+        rate: null,
+        confidenceInterval: {
+          level: 0.95,
+          method: "wilson",
+          lower: null,
+          upper: null
+        }
+      },
+      contractSuccessRate: {
+        numerator: 0,
+        denominator: 0,
+        rate: null,
+        confidenceInterval: {
+          level: 0.95,
+          method: "wilson",
+          lower: null,
+          upper: null
+        }
+      },
+      averagePointCards: null
+    });
+    expect(report.agents).toEqual([]);
+    expect(report.seats).toEqual([]);
+    expect(report.roles.map((role) => [role.role, role.sampleCount])).toEqual([
+      ["napoleon", 0],
+      ["adjutant", 0],
+      ["alliance", 0]
+    ]);
+    expectReportHasNoNonFiniteNumbers(report);
   });
 
   it("keeps agent definitions separate when they share the same display name", () => {
@@ -214,6 +326,26 @@ describe("createEvaluationReport", () => {
     expect(createEvaluationReport(reorderedRun)).toEqual(report);
   });
 });
+
+function expectReportHasNoNonFiniteNumbers(value: unknown): void {
+  if (typeof value === "number") {
+    expect(Number.isFinite(value)).toBe(true);
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      expectReportHasNoNonFiniteNumbers(item);
+    }
+    return;
+  }
+
+  if (value !== null && typeof value === "object") {
+    for (const item of Object.values(value)) {
+      expectReportHasNoNonFiniteNumbers(item);
+    }
+  }
+}
 
 function createFixtureRun(): EvaluationRunRecord {
   const games: readonly EvaluationGameRecord[] = [
