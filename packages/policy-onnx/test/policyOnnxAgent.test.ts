@@ -180,6 +180,9 @@ describe("PolicyOnnxAgent", () => {
         "missing-player"
       ])
     ).toThrow("must contain exactly the same players");
+    expect(() =>
+      createPolicyOnnxPlayInput(decision.observation, [...source.playerIds].reverse())
+    ).toThrow("must match the observation player order");
   });
 
   it("rejects playing observations that do not carry public action history", async () => {

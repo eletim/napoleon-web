@@ -115,4 +115,10 @@ function validatePlayerIdsForObservation(
       "PolicyOnnxAgent playerIds must contain exactly the same players as the observation."
     );
   }
+
+  if (!playerIds.every((playerId, index) => playerId === observedPlayerIds[index])) {
+    throw new PolicyOnnxCompatibilityError(
+      "PolicyOnnxAgent playerIds must match the observation player order."
+    );
+  }
 }
