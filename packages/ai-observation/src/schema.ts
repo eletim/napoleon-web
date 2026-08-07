@@ -1,5 +1,4 @@
 import {
-  biddingSuitOrder,
   maxBidTargetPointCards,
   minBidTargetPointCards
 } from "@napoleon/game-core";
@@ -31,12 +30,11 @@ export const EMPTY_BIDDING_SUIT_INDEX = -1;
 
 export const MIN_BIDDING_TARGET_POINT_CARDS = minBidTargetPointCards;
 export const MAX_BIDDING_TARGET_POINT_CARDS = maxBidTargetPointCards;
-export const BIDDING_ACTION_COUNT =
-  1 + (MAX_BIDDING_TARGET_POINT_CARDS - MIN_BIDDING_TARGET_POINT_CARDS + 1) *
-  BIDDING_HISTORY_SUIT_ORDER.length;
-
 const BIDDING_BID_ACTION_COUNT =
-  (maxBidTargetPointCards - minBidTargetPointCards + 1) * biddingSuitOrder.length;
+  (MAX_BIDDING_TARGET_POINT_CARDS - MIN_BIDDING_TARGET_POINT_CARDS + 1) *
+  BIDDING_HISTORY_SUIT_ORDER.length;
+export const BIDDING_ACTION_COUNT =
+  1 + BIDDING_BID_ACTION_COUNT;
 
 export const MAX_BIDDING_ACTION_COUNT =
   PLAYER_COUNT + BIDDING_BID_ACTION_COUNT * (PLAYER_COUNT - 1);

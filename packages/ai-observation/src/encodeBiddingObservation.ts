@@ -147,6 +147,8 @@ function getPublicBiddingHistory(
 
   const history = observation.view.bidding?.history ?? [];
 
+  // The history encoder only uses ordering and action/player fields; these
+  // fallback step numbers are positional for direct PlayerObservation callers.
   return history.map((action, index) => ({
     step: index + 1,
     playerId: action.playerId,
