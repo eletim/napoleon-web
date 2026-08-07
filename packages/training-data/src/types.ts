@@ -1,12 +1,28 @@
 import type { AutomatedGameRecord } from "@napoleon/ai";
-import type { PlayingTrainingSample } from "@napoleon/ai-observation";
 import type {
+  AdjutantTrainingSample,
+  BiddingTrainingSample,
+  ExchangeTrainingSample,
+  PlayingTrainingSample
+} from "@napoleon/ai-observation";
+import type {
+  DATASET_SAMPLE_TYPES,
   DATASET_FORMAT,
   DATASET_GENERATOR_VERSION,
   DATASET_SAMPLE_TYPE,
   DATASET_SCHEMA_VERSION,
+  MULTIPHASE_DATASET_GENERATOR_VERSION,
+  MULTIPHASE_DATASET_SCHEMA_VERSION,
   RULE_BASED_AGENT_VERSION
 } from "./schema.js";
+
+export type DatasetSampleType = typeof DATASET_SAMPLE_TYPES[number];
+export type NonPlayingDatasetSampleType = Exclude<DatasetSampleType, typeof DATASET_SAMPLE_TYPE>;
+export type TrainingSample =
+  | PlayingTrainingSample
+  | BiddingTrainingSample
+  | ExchangeTrainingSample
+  | AdjutantTrainingSample;
 
 export interface DatasetShardManifest {
   file: string;
@@ -18,12 +34,8 @@ export interface DatasetShardManifest {
   sha256: string;
 }
 
-export interface DatasetManifest {
-  datasetSchemaVersion: typeof DATASET_SCHEMA_VERSION;
-  generatorVersion: typeof DATASET_GENERATOR_VERSION;
-  playingEncoderSchemaVersion: 1;
+interface DatasetManifestBase {
   format: typeof DATASET_FORMAT;
-  sampleType: typeof DATASET_SAMPLE_TYPE;
   agent: {
     type: "rule-based";
     version: typeof RULE_BASED_AGENT_VERSION;
@@ -41,6 +53,22 @@ export interface DatasetManifest {
   shards: readonly DatasetShardManifest[];
 }
 
+export interface LegacyPlayingDatasetManifest extends DatasetManifestBase {
+  datasetSchemaVersion: typeof DATASET_SCHEMA_VERSION;
+  generatorVersion: typeof DATASET_GENERATOR_VERSION;
+  playingEncoderSchemaVersion: 1;
+  sampleType: typeof DATASET_SAMPLE_TYPE;
+}
+
+export interface MultiphaseDatasetManifest extends DatasetManifestBase {
+  datasetSchemaVersion: typeof MULTIPHASE_DATASET_SCHEMA_VERSION;
+  generatorVersion: typeof MULTIPHASE_DATASET_GENERATOR_VERSION;
+  encoderSchemaVersion: 1;
+  sampleType: NonPlayingDatasetSampleType;
+}
+
+export type DatasetManifest = LegacyPlayingDatasetManifest | MultiphaseDatasetManifest;
+
 export interface DatasetGenerationProgress {
   completedGames: number;
   totalGames: number;
@@ -49,7 +77,7 @@ export interface DatasetGenerationProgress {
   currentSeed: number;
 }
 
-export interface GenerateRuleBasedDatasetOptions {
+interface GenerateRuleBasedDatasetBaseOptions {
   startSeed: number;
   gameCount: number;
   gamesPerShard: number;
@@ -57,20 +85,50 @@ export interface GenerateRuleBasedDatasetOptions {
   onProgress?: (progress: DatasetGenerationProgress) => void;
 }
 
-export interface GenerateDatasetResult {
+export interface GeneratePlayingRuleBasedDatasetOptions
+  extends GenerateRuleBasedDatasetBaseOptions {
+  sampleType?: typeof DATASET_SAMPLE_TYPE;
+}
+
+export interface GenerateNonPlayingRuleBasedDatasetOptions<
+  TSampleType extends NonPlayingDatasetSampleType = NonPlayingDatasetSampleType
+> extends GenerateRuleBasedDatasetBaseOptions {
+  sampleType: TSampleType;
+}
+
+export type GenerateRuleBasedDatasetOptions =
+  | GeneratePlayingRuleBasedDatasetOptions
+  | GenerateNonPlayingRuleBasedDatasetOptions;
+
+export type DatasetManifestForSampleType<TSampleType extends DatasetSampleType> =
+  TSampleType extends typeof DATASET_SAMPLE_TYPE
+    ? LegacyPlayingDatasetManifest
+    : MultiphaseDatasetManifest & { sampleType: TSampleType };
+
+export interface GenerateDatasetResult<
+  TSampleType extends DatasetSampleType = typeof DATASET_SAMPLE_TYPE
+> {
   outputDirectory: string;
-  manifest: DatasetManifest;
+  manifest: DatasetManifestForSampleType<TSampleType>;
 }
 
 export type GameRunner = (seed: number) => Promise<AutomatedGameRecord>;
 export type SampleCreator = (
   record: AutomatedGameRecord
-) => readonly PlayingTrainingSample[];
-export type CreateShardWriter = typeof import("./shardWriter.js").createJsonlShardWriter;
+) => readonly TrainingSample[];
+export type SampleValidator = (sample: TrainingSample, expectedSeed: number) => void;
+export type SampleSerializer = (sample: TrainingSample) => string;
+export type CreateShardWriter = (
+  directory: string,
+  shardIndex: number,
+  startSeed: number,
+  serializeSample: SampleSerializer
+) => import("./shardWriter.js").JsonlShardWriter;
 
-export interface GenerateRuleBasedDatasetInternalOptions
-  extends GenerateRuleBasedDatasetOptions {
+export type GenerateRuleBasedDatasetInternalOptions = GenerateRuleBasedDatasetOptions & {
   runGame?: GameRunner;
   createSamples?: SampleCreator;
+  validateSample?: SampleValidator;
+  serializeSample?: SampleSerializer;
   createShardWriter?: CreateShardWriter;
-}
+};

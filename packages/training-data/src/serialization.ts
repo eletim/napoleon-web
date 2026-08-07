@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { PlayingTrainingSample } from "@napoleon/ai-observation";
 import { CARD_IDS } from "@napoleon/ai-observation";
+import type { TrainingSample } from "./types.js";
 
 export function sha256Utf8(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -21,6 +22,14 @@ export function serializePlayingTrainingSample(sample: PlayingTrainingSample): s
     actorTarget: sample.actorTarget,
     beliefTarget: sample.beliefTarget
   })}\n`;
+}
+
+export function serializeTrainingSample(sample: TrainingSample): string {
+  if (!("sampleType" in sample)) {
+    return serializePlayingTrainingSample(sample);
+  }
+
+  return `${JSON.stringify(sample)}\n`;
 }
 
 export function serializeManifest(manifest: unknown): string {

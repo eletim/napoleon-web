@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import { RuleBasedAgent, runAutomatedGame } from "@napoleon/ai";
 import { CARD_IDS, createPlayingTrainingSamples } from "@napoleon/ai-observation";
 import {
+  BIDDING_DATASET_SAMPLE_TYPE,
   calculateCardIdsSha256,
   DATASET_FORMAT,
   DATASET_GENERATOR_VERSION,
   DATASET_SAMPLE_TYPE,
   DATASET_SCHEMA_VERSION,
   MAX_SHARD_COUNT,
+  MULTIPHASE_DATASET_GENERATOR_VERSION,
+  MULTIPHASE_DATASET_SCHEMA_VERSION,
   RULE_BASED_AGENT_VERSION,
   shardFileName,
   validateDatasetManifest,
@@ -116,6 +119,20 @@ describe("validation", () => {
     mutate(manifest);
 
     expect(() => validateDatasetManifest(manifest)).toThrow();
+  });
+
+  it("validates a v2 non-playing manifest with an explicit encoder schema version", () => {
+    const manifest: DatasetManifest = {
+      ...validManifest(),
+      datasetSchemaVersion: MULTIPHASE_DATASET_SCHEMA_VERSION,
+      generatorVersion: MULTIPHASE_DATASET_GENERATOR_VERSION,
+      encoderSchemaVersion: 1,
+      sampleType: BIDDING_DATASET_SAMPLE_TYPE
+    };
+
+    delete (manifest as { playingEncoderSchemaVersion?: number }).playingEncoderSchemaVersion;
+
+    expect(() => validateDatasetManifest(manifest)).not.toThrow();
   });
 
   it("rejects samples with non-json-safe values", async () => {

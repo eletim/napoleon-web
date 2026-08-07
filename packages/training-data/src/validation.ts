@@ -1,32 +1,58 @@
 import { CARD_IDS } from "@napoleon/ai-observation";
 import {
+  ADJUTANT_ENCODER_SCHEMA_VERSION,
+  BIDDING_ENCODER_SCHEMA_VERSION,
   CARD_COUNT,
+  EXCHANGE_ENCODER_SCHEMA_VERSION,
   PLAYER_COUNT,
   PLAYING_ENCODER_SCHEMA_VERSION,
+  validateAdjutantTrainingSample as validateAdjutantTrainingSampleSchema,
+  validateBiddingTrainingSample as validateBiddingTrainingSampleSchema,
   validateEncodedBeliefTarget,
-  validateEncodedPlayingObservation
+  validateEncodedPlayingObservation,
+  validateExchangeTrainingSample as validateExchangeTrainingSampleSchema
 } from "@napoleon/ai-observation";
-import type { PlayingTrainingSample } from "@napoleon/ai-observation";
+import type {
+  AdjutantTrainingSample,
+  BiddingTrainingSample,
+  ExchangeTrainingSample,
+  PlayingTrainingSample
+} from "@napoleon/ai-observation";
 import {
+  ADJUTANT_DATASET_SAMPLE_TYPE,
+  BIDDING_DATASET_SAMPLE_TYPE,
   DATASET_FORMAT,
   DATASET_GENERATOR_VERSION,
   DATASET_SAMPLE_TYPE,
+  DATASET_SAMPLE_TYPES,
   DATASET_SCHEMA_VERSION,
+  EXCHANGE_DATASET_SAMPLE_TYPE,
+  MULTIPHASE_DATASET_GENERATOR_VERSION,
+  MULTIPHASE_DATASET_SCHEMA_VERSION,
   RULE_BASED_AGENT_VERSION,
   MAX_SHARD_COUNT,
+  PLAYING_DATASET_SAMPLE_TYPE,
   SHARD_FILE_DIGITS,
   UINT32_MAX
 } from "./schema.js";
 import type {
   DatasetManifest,
   DatasetShardManifest,
-  GenerateRuleBasedDatasetOptions
+  DatasetSampleType,
+  GenerateRuleBasedDatasetOptions,
+  TrainingSample
 } from "./types.js";
 import { calculateCardIdsSha256 } from "./serialization.js";
 
 const sha256Pattern = /^[0-9a-f]{64}$/;
 
 export function validateGenerationOptions(options: GenerateRuleBasedDatasetOptions): void {
+  const sampleType = options.sampleType ?? DATASET_SAMPLE_TYPE;
+
+  if (!isDatasetSampleType(sampleType)) {
+    throw new Error(`Unsupported dataset sampleType: ${String(sampleType)}`);
+  }
+
   validateUint32("startSeed", options.startSeed);
   validatePositiveInteger("gameCount", options.gameCount);
   validatePositiveInteger("gamesPerShard", options.gamesPerShard);
@@ -96,22 +122,43 @@ export function validatePlayingTrainingSample(
   JSON.stringify(sample);
 }
 
+export function validateTrainingSample(
+  sample: TrainingSample,
+  expectedSeed: number,
+  expectedSampleType: DatasetSampleType
+): void {
+  switch (expectedSampleType) {
+    case PLAYING_DATASET_SAMPLE_TYPE:
+      validatePlayingTrainingSample(sample as PlayingTrainingSample, expectedSeed);
+      return;
+    case BIDDING_DATASET_SAMPLE_TYPE:
+      validateSampleCommon(sample, expectedSeed, BIDDING_DATASET_SAMPLE_TYPE);
+      validateBiddingTrainingSampleSchema(sample as BiddingTrainingSample);
+      return;
+    case EXCHANGE_DATASET_SAMPLE_TYPE:
+      validateSampleCommon(sample, expectedSeed, EXCHANGE_DATASET_SAMPLE_TYPE);
+      validateExchangeTrainingSampleSchema(sample as ExchangeTrainingSample);
+      return;
+    case ADJUTANT_DATASET_SAMPLE_TYPE:
+      validateSampleCommon(sample, expectedSeed, ADJUTANT_DATASET_SAMPLE_TYPE);
+      validateAdjutantTrainingSampleSchema(sample as AdjutantTrainingSample);
+      return;
+  }
+}
+
 export function validateDatasetManifest(manifest: DatasetManifest): void {
-  if (manifest.datasetSchemaVersion !== DATASET_SCHEMA_VERSION) {
+  if (
+    manifest.datasetSchemaVersion !== DATASET_SCHEMA_VERSION &&
+    manifest.datasetSchemaVersion !== MULTIPHASE_DATASET_SCHEMA_VERSION
+  ) {
     throw new Error("Manifest datasetSchemaVersion mismatch.");
   }
 
-  if (manifest.generatorVersion !== DATASET_GENERATOR_VERSION) {
-    throw new Error("Manifest generatorVersion mismatch.");
-  }
-
-  if (manifest.playingEncoderSchemaVersion !== PLAYING_ENCODER_SCHEMA_VERSION) {
-    throw new Error("Manifest playingEncoderSchemaVersion mismatch.");
-  }
-
-  if (manifest.format !== DATASET_FORMAT || manifest.sampleType !== DATASET_SAMPLE_TYPE) {
+  if (manifest.format !== DATASET_FORMAT || !isDatasetSampleType(manifest.sampleType)) {
     throw new Error("Manifest format or sampleType mismatch.");
   }
+
+  validateManifestSchemaIdentity(manifest);
 
   if (
     manifest.agent.type !== "rule-based" ||
@@ -156,6 +203,24 @@ export function validateDatasetManifest(manifest: DatasetManifest): void {
   }
 
   validateShards(manifest);
+}
+
+export function getEncoderSchemaVersion(sampleType: DatasetSampleType): number {
+  switch (sampleType) {
+    case PLAYING_DATASET_SAMPLE_TYPE:
+      return PLAYING_ENCODER_SCHEMA_VERSION;
+    case BIDDING_DATASET_SAMPLE_TYPE:
+      return BIDDING_ENCODER_SCHEMA_VERSION;
+    case EXCHANGE_DATASET_SAMPLE_TYPE:
+      return EXCHANGE_ENCODER_SCHEMA_VERSION;
+    case ADJUTANT_DATASET_SAMPLE_TYPE:
+      return ADJUTANT_ENCODER_SCHEMA_VERSION;
+  }
+}
+
+export function isDatasetSampleType(value: unknown): value is DatasetSampleType {
+  return typeof value === "string" &&
+    (DATASET_SAMPLE_TYPES as readonly string[]).includes(value);
 }
 
 export function shardFileName(shardIndex: number): string {
@@ -246,6 +311,60 @@ function validateManifestNumbers(manifest: DatasetManifest): void {
 
   if (manifest.cardCount !== CARD_COUNT) {
     throw new Error(`Manifest cardCount must be ${CARD_COUNT}.`);
+  }
+}
+
+function validateManifestSchemaIdentity(manifest: DatasetManifest): void {
+  if (manifest.datasetSchemaVersion === DATASET_SCHEMA_VERSION) {
+    if (manifest.generatorVersion !== DATASET_GENERATOR_VERSION) {
+      throw new Error("Manifest generatorVersion mismatch.");
+    }
+
+    if (manifest.sampleType !== DATASET_SAMPLE_TYPE) {
+      throw new Error("Manifest v1 sampleType must be playing-training-sample.");
+    }
+
+    if (
+      !("playingEncoderSchemaVersion" in manifest) ||
+      manifest.playingEncoderSchemaVersion !== PLAYING_ENCODER_SCHEMA_VERSION
+    ) {
+      throw new Error("Manifest playingEncoderSchemaVersion mismatch.");
+    }
+
+    return;
+  }
+
+  if (manifest.generatorVersion !== MULTIPHASE_DATASET_GENERATOR_VERSION) {
+    throw new Error("Manifest generatorVersion mismatch.");
+  }
+
+  const sampleType = manifest.sampleType as DatasetSampleType;
+
+  if (sampleType === DATASET_SAMPLE_TYPE) {
+    throw new Error("Manifest v2 sampleType must use a non-playing sample type.");
+  }
+
+  if (
+    !("encoderSchemaVersion" in manifest) ||
+    manifest.encoderSchemaVersion !== getEncoderSchemaVersion(sampleType)
+  ) {
+    throw new Error("Manifest encoderSchemaVersion mismatch.");
+  }
+}
+
+function validateSampleCommon(
+  sample: TrainingSample,
+  expectedSeed: number,
+  expectedSampleType: DatasetSampleType
+): void {
+  validateJsonSafeValue("sample", sample);
+
+  if (!("sampleType" in sample) || sample.sampleType !== expectedSampleType) {
+    throw new Error(`Sample sampleType must be ${expectedSampleType}.`);
+  }
+
+  if (sample.seed !== expectedSeed) {
+    throw new Error(`Sample seed must match current seed: ${sample.seed} !== ${expectedSeed}`);
   }
 }
 

@@ -4,20 +4,46 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Writable } from "node:stream";
 import { describe, expect, it } from "vitest";
-import { CARD_IDS } from "@napoleon/ai-observation";
 import {
-  validateEncodedBeliefTarget,
-  validateEncodedPlayingObservation
+  ADJUTANT_ENCODER_SCHEMA_VERSION,
+  BIDDING_ENCODER_SCHEMA_VERSION,
+  CARD_COUNT,
+  CARD_IDS,
+  EXCHANGE_ENCODER_SCHEMA_VERSION,
+  PLAYING_ENCODER_SCHEMA_VERSION
 } from "@napoleon/ai-observation";
-import type { PlayingTrainingSample } from "@napoleon/ai-observation";
 import {
+  validateAdjutantTrainingSample,
+  validateBiddingTrainingSample,
+  validateEncodedBeliefTarget,
+  validateEncodedPlayingObservation,
+  validateExchangeTrainingSample
+} from "@napoleon/ai-observation";
+import type {
+  AdjutantTrainingSample,
+  BiddingTrainingSample,
+  ExchangeTrainingSample,
+  PlayingTrainingSample
+} from "@napoleon/ai-observation";
+import {
+  ADJUTANT_DATASET_SAMPLE_TYPE,
+  BIDDING_DATASET_SAMPLE_TYPE,
   calculateCardIdsSha256,
   generateRuleBasedDataset,
+  DATASET_GENERATOR_VERSION,
+  DATASET_SCHEMA_VERSION,
+  DATASET_SAMPLE_TYPE,
+  EXCHANGE_DATASET_SAMPLE_TYPE,
+  MULTIPHASE_DATASET_GENERATOR_VERSION,
+  MULTIPHASE_DATASET_SCHEMA_VERSION,
+  PLAYING_DATASET_SAMPLE_TYPE,
   validateDatasetManifest
 } from "../src/index.js";
-import type { DatasetManifest } from "../src/index.js";
+import type { DatasetManifest, DatasetSampleType, TrainingSample } from "../src/index.js";
 import { generateRuleBasedDatasetWithDependencies } from "../src/generateRuleBasedDataset.js";
 import { createJsonlShardWriter } from "../src/shardWriter.js";
+
+type ParsedTrainingSample = TrainingSample & { sampleType?: DatasetSampleType };
 
 describe("generateRuleBasedDataset", () => {
   it("generates a small dataset with valid shards and manifest", async () => {
@@ -34,6 +60,10 @@ describe("generateRuleBasedDataset", () => {
 
       expect(result.manifest).toEqual(manifest);
       validateDatasetManifest(manifest);
+      expect(manifest.datasetSchemaVersion).toBe(DATASET_SCHEMA_VERSION);
+      expect(manifest.generatorVersion).toBe(DATASET_GENERATOR_VERSION);
+      expect(manifest.sampleType).toBe(DATASET_SAMPLE_TYPE);
+      expect(manifest.playingEncoderSchemaVersion).toBe(PLAYING_ENCODER_SCHEMA_VERSION);
       expect(manifest.gameCount).toBe(3);
       expect(manifest.sampleCount).toBe(lines.length);
       expect(manifest.shardCount).toBe(2);
@@ -45,6 +75,7 @@ describe("generateRuleBasedDataset", () => {
 
       const parsedSamples = lines.map((line) => JSON.parse(line) as PlayingTrainingSample);
       expect(parsedSamples).toHaveLength(150);
+      expect(parsedSamples.every((sample) => !("sampleType" in sample))).toBe(true);
       assertSampleOrderAndValidity(parsedSamples);
 
       for (const shard of manifest.shards) {
@@ -56,6 +87,85 @@ describe("generateRuleBasedDataset", () => {
         expect(fileStat.size).toBe(shard.byteLength);
         expect(sha256(file)).toBe(shard.sha256);
       }
+    });
+  });
+
+  it.each([
+    PLAYING_DATASET_SAMPLE_TYPE,
+    BIDDING_DATASET_SAMPLE_TYPE,
+    EXCHANGE_DATASET_SAMPLE_TYPE,
+    ADJUTANT_DATASET_SAMPLE_TYPE
+  ] as const)("smoke-generates a deterministic %s dataset", async (sampleType) => {
+    await withTempDir(async (directory) => {
+      const firstOutput = join(directory, "first");
+      const secondOutput = join(directory, "second");
+      const progressEvents: Array<{
+        completedGames: number;
+        sampleCount: number;
+        currentSeed: number;
+      }> = [];
+      const options = {
+        startSeed: 7,
+        gameCount: 2,
+        gamesPerShard: 1,
+        sampleType,
+        outputDirectory: firstOutput,
+        onProgress: (progress: {
+          completedGames: number;
+          sampleCount: number;
+          currentSeed: number;
+        }) => {
+          progressEvents.push({
+            completedGames: progress.completedGames,
+            sampleCount: progress.sampleCount,
+            currentSeed: progress.currentSeed
+          });
+        }
+      };
+
+      await generateRuleBasedDataset(options);
+      await generateRuleBasedDataset({
+        startSeed: options.startSeed,
+        gameCount: options.gameCount,
+        gamesPerShard: options.gamesPerShard,
+        sampleType: options.sampleType,
+        outputDirectory: secondOutput
+      });
+
+      await expectDirectoriesToBeByteIdentical(firstOutput, secondOutput);
+
+      const manifest = await readManifest(firstOutput);
+      const lines = await readAllShardLines(firstOutput, manifest);
+
+      validateDatasetManifest(manifest);
+      assertManifestSampleType(manifest, sampleType);
+      expect(manifest.startSeed).toBe(7);
+      expect(manifest.endSeed).toBe(8);
+      expect(manifest.gameCount).toBe(2);
+      expect(manifest.shardCount).toBe(2);
+      expect(manifest.sampleCount).toBe(lines.length);
+      expect(manifest.sampleCount).toBeGreaterThan(0);
+      expect(progressEvents).toHaveLength(2);
+      expect(progressEvents.map((event) => event.completedGames)).toEqual([1, 2]);
+      expect(progressEvents.map((event) => event.currentSeed)).toEqual([7, 8]);
+      expect(progressEvents.at(-1)?.sampleCount).toBe(manifest.sampleCount);
+      expect(manifest.shards.map((shard) => shard.sampleCount).reduce((a, b) => a + b, 0))
+        .toBe(manifest.sampleCount);
+
+      for (const shard of manifest.shards) {
+        const shardPath = join(firstOutput, shard.file);
+        const file = await readFile(shardPath, "utf8");
+        const fileStat = await stat(shardPath);
+
+        expect(file.split("\n").filter(Boolean)).toHaveLength(shard.sampleCount);
+        expect(fileStat.size).toBe(shard.byteLength);
+        expect(sha256(file)).toBe(shard.sha256);
+      }
+
+      const parsedSamples = lines.map((line) => JSON.parse(line) as ParsedTrainingSample);
+      expect(new Set(parsedSamples.map((sample) => sample.sampleType ?? PLAYING_DATASET_SAMPLE_TYPE)))
+        .toEqual(new Set([sampleType]));
+      assertSamplesForType(sampleType, parsedSamples);
     });
   });
 
@@ -222,6 +332,22 @@ async function withTempDir(run: (directory: string) => Promise<void>): Promise<v
   }
 }
 
+async function expectDirectoriesToBeByteIdentical(
+  firstOutput: string,
+  secondOutput: string
+): Promise<void> {
+  const firstFiles = (await readdir(firstOutput)).sort();
+  const secondFiles = (await readdir(secondOutput)).sort();
+
+  expect(firstFiles).toEqual(secondFiles);
+
+  for (const file of firstFiles) {
+    expect(await readFile(join(firstOutput, file), "utf8")).toBe(
+      await readFile(join(secondOutput, file), "utf8")
+    );
+  }
+}
+
 async function readManifest(output: string): Promise<DatasetManifest> {
   return JSON.parse(await readFile(join(output, "manifest.json"), "utf8")) as DatasetManifest;
 }
@@ -257,6 +383,77 @@ function assertSampleOrderAndValidity(samples: readonly PlayingTrainingSample[])
   }
 }
 
+function assertManifestSampleType(
+  manifest: DatasetManifest,
+  sampleType: DatasetSampleType
+): void {
+  expect(manifest.sampleType).toBe(sampleType);
+  expect(manifest.cardIds).toEqual(CARD_IDS);
+  expect(manifest.cardIdsSha256).toBe(calculateCardIdsSha256());
+
+  if (sampleType === PLAYING_DATASET_SAMPLE_TYPE) {
+    expect(manifest.datasetSchemaVersion).toBe(DATASET_SCHEMA_VERSION);
+    expect(manifest.generatorVersion).toBe(DATASET_GENERATOR_VERSION);
+    expect("playingEncoderSchemaVersion" in manifest && manifest.playingEncoderSchemaVersion)
+      .toBe(PLAYING_ENCODER_SCHEMA_VERSION);
+    return;
+  }
+
+  expect(manifest.datasetSchemaVersion).toBe(MULTIPHASE_DATASET_SCHEMA_VERSION);
+  expect(manifest.generatorVersion).toBe(MULTIPHASE_DATASET_GENERATOR_VERSION);
+  expect("encoderSchemaVersion" in manifest && manifest.encoderSchemaVersion)
+    .toBe(expectedEncoderSchemaVersion(sampleType));
+}
+
+function assertSamplesForType(
+  sampleType: DatasetSampleType,
+  samples: readonly ParsedTrainingSample[]
+): void {
+  switch (sampleType) {
+    case PLAYING_DATASET_SAMPLE_TYPE:
+      assertSampleOrderAndValidity(samples as readonly PlayingTrainingSample[]);
+      return;
+    case BIDDING_DATASET_SAMPLE_TYPE:
+      samples.forEach((sample) =>
+        validateBiddingTrainingSample(sample as BiddingTrainingSample)
+      );
+      return;
+    case EXCHANGE_DATASET_SAMPLE_TYPE:
+      samples.forEach((sample) => {
+        const exchangeSample = sample as ExchangeTrainingSample;
+
+        validateExchangeTrainingSample(exchangeSample);
+        expect(exchangeSample.observation.selfHandMask.reduce((a, b) => a + b, 0)).toBe(13);
+        expect(exchangeSample.actorTarget.discardTargetMask.reduce((a, b) => a + b, 0))
+          .toBe(3);
+      });
+      return;
+    case ADJUTANT_DATASET_SAMPLE_TYPE:
+      samples.forEach((sample) => {
+        const adjutantSample = sample as AdjutantTrainingSample;
+
+        validateAdjutantTrainingSample(adjutantSample);
+        expect(adjutantSample.observation.legalAdjutantMask).toHaveLength(CARD_COUNT);
+        expect(adjutantSample.observation.legalAdjutantMask[adjutantSample.actorTarget])
+          .toBe(1);
+      });
+      return;
+  }
+}
+
+function expectedEncoderSchemaVersion(sampleType: DatasetSampleType): number {
+  switch (sampleType) {
+    case PLAYING_DATASET_SAMPLE_TYPE:
+      return PLAYING_ENCODER_SCHEMA_VERSION;
+    case BIDDING_DATASET_SAMPLE_TYPE:
+      return BIDDING_ENCODER_SCHEMA_VERSION;
+    case EXCHANGE_DATASET_SAMPLE_TYPE:
+      return EXCHANGE_ENCODER_SCHEMA_VERSION;
+    case ADJUTANT_DATASET_SAMPLE_TYPE:
+      return ADJUTANT_ENCODER_SCHEMA_VERSION;
+  }
+}
+
 function sha256(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
@@ -285,7 +482,7 @@ function createJsonlShardWriterWithWritable(
   startSeed: number,
   createWritable: () => Writable
 ) {
-  return createJsonlShardWriter(directory, shardIndex, startSeed, createWritable);
+  return createJsonlShardWriter(directory, shardIndex, startSeed, undefined, createWritable);
 }
 
 class FailingWriteWritable extends Writable {
