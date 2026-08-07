@@ -3,15 +3,14 @@ import { createWriteStream } from "node:fs";
 import { join } from "node:path";
 import { finished } from "node:stream/promises";
 import type { Writable } from "node:stream";
-import type { PlayingTrainingSample } from "@napoleon/ai-observation";
-import type { DatasetShardManifest } from "./types.js";
-import { serializePlayingTrainingSample } from "./serialization.js";
+import type { DatasetShardManifest, SampleSerializer, TrainingSample } from "./types.js";
+import { serializeTrainingSample } from "./serialization.js";
 import { shardFileName } from "./validation.js";
 
 export interface JsonlShardWriter {
   readonly fileName: string;
   readonly sampleCount: number;
-  writeSample: (sample: PlayingTrainingSample) => Promise<void>;
+  writeSample: (sample: TrainingSample) => Promise<void>;
   close: (endSeed: number, gameCount: number) => Promise<DatasetShardManifest>;
   abort: () => Promise<void>;
 }
@@ -23,6 +22,7 @@ export function createJsonlShardWriter(
   directory: string,
   shardIndex: number,
   startSeed: number,
+  serializeSample: SampleSerializer = serializeTrainingSample,
   writableFactory: WritableFactory = (path) => createWriteStream(path, {
     encoding: "utf8",
     flags: "wx"
@@ -111,7 +111,7 @@ export function createJsonlShardWriter(
     get sampleCount() {
       return sampleCount;
     },
-    writeSample: (sample) => writeChunk(serializePlayingTrainingSample(sample)),
+    writeSample: (sample) => writeChunk(serializeSample(sample)),
     close,
     abort
   };

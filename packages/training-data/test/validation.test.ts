@@ -2,19 +2,26 @@ import { describe, expect, it } from "vitest";
 import { RuleBasedAgent, runAutomatedGame } from "@napoleon/ai";
 import { CARD_IDS, createPlayingTrainingSamples } from "@napoleon/ai-observation";
 import {
+  BIDDING_DATASET_SAMPLE_TYPE,
   calculateCardIdsSha256,
   DATASET_FORMAT,
   DATASET_GENERATOR_VERSION,
   DATASET_SAMPLE_TYPE,
   DATASET_SCHEMA_VERSION,
   MAX_SHARD_COUNT,
+  MULTIPHASE_DATASET_GENERATOR_VERSION,
+  MULTIPHASE_DATASET_SCHEMA_VERSION,
   RULE_BASED_AGENT_VERSION,
   shardFileName,
   validateDatasetManifest,
   validateGenerationOptions,
   validatePlayingTrainingSample
 } from "../src/index.js";
-import type { DatasetManifest } from "../src/index.js";
+import type {
+  DatasetManifest,
+  GenerateRuleBasedDatasetOptions,
+  RuleBasedDatasetManifest
+} from "../src/index.js";
 
 describe("validation", () => {
   it("validates generation options and seed ranges", () => {
@@ -38,6 +45,14 @@ describe("validation", () => {
       gamesPerShard: 1,
       outputDirectory: "out"
     })).toThrow(`exceeding the maximum ${MAX_SHARD_COUNT}`);
+
+    expect(() => validateGenerationOptions({
+      startSeed: 0,
+      gameCount: 1,
+      gamesPerShard: 1,
+      outputDirectory: "out",
+      sampleType: "bogus-training-sample"
+    } as unknown as GenerateRuleBasedDatasetOptions)).toThrow("Unsupported dataset sampleType");
   });
 
   it("rejects invalid shard file indexes", () => {
@@ -118,6 +133,31 @@ describe("validation", () => {
     expect(() => validateDatasetManifest(manifest)).toThrow();
   });
 
+  it("validates a v2 non-playing manifest with an explicit encoder schema version", () => {
+    const manifest = validV2Manifest();
+
+    expect(() => validateDatasetManifest(manifest)).not.toThrow();
+  });
+
+  it.each([
+    ["v1 manifest with a non-playing sampleType", () => ({
+      ...validManifest(),
+      sampleType: BIDDING_DATASET_SAMPLE_TYPE
+    })],
+    ["v2 manifest with a playing sampleType", () => ({
+      ...validV2Manifest(),
+      sampleType: DATASET_SAMPLE_TYPE
+    })],
+    ["v2 manifest with a mismatched encoderSchemaVersion", () => ({
+      ...validV2Manifest(),
+      encoderSchemaVersion: 2
+    })]
+  ])("rejects mixed manifest schema identity: %s", (_label, createManifest) => {
+    expect(() =>
+      validateDatasetManifest(createManifest() as unknown as RuleBasedDatasetManifest)
+    ).toThrow();
+  });
+
   it("rejects samples with non-json-safe values", async () => {
     const record = await runAutomatedGame({
       seed: 0,
@@ -173,4 +213,18 @@ function validManifest(): DatasetManifest {
       }
     ]
   };
+}
+
+function validV2Manifest(): RuleBasedDatasetManifest {
+  const manifest: RuleBasedDatasetManifest = {
+    ...validManifest(),
+    datasetSchemaVersion: MULTIPHASE_DATASET_SCHEMA_VERSION,
+    generatorVersion: MULTIPHASE_DATASET_GENERATOR_VERSION,
+    encoderSchemaVersion: 1,
+    sampleType: BIDDING_DATASET_SAMPLE_TYPE
+  };
+
+  delete (manifest as { playingEncoderSchemaVersion?: number }).playingEncoderSchemaVersion;
+
+  return manifest;
 }
