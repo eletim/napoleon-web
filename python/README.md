@@ -427,8 +427,8 @@ same dataset, split, and split config produce the same sample order each
 time, and the dataset can be iterated again for a new epoch because each
 `__iter__()` call reopens the shard stream from the beginning. An empty split
 simply yields no batches. This first version only supports `num_workers=0`;
-`create_playing_dataloader(..., num_workers=1)` and direct worker-process
-iteration raise `DatasetError`.
+all DataLoader factories reject `num_workers=1`, and direct worker-process
+iteration raises `DatasetError`.
 
 ## Inspecting a dataset
 

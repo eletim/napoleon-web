@@ -5,13 +5,14 @@ import hashlib
 import json
 from collections.abc import Iterator, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pytest
 import torch
 
 import napoleon_ml.dataset.pytorch as pytorch_module
+import napoleon_ml.dataset.reader as reader_module
 from napoleon_ml.dataset.constants import CARD_COUNT, EXPECTED_CARD_IDS
 from napoleon_ml.dataset.errors import DatasetError
 from napoleon_ml.dataset.pytorch import (
@@ -271,6 +272,30 @@ def test_iterable_dataset_restarts_from_front_each_epoch(tmp_path: Path) -> None
 
     assert first_epoch == [(0, 1), (0, 2), (1, 1), (1, 2)]
     assert second_epoch == first_epoch
+
+
+def test_iterable_dataset_reuses_loaded_manifest_during_sample_stream(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_dataset(tmp_path, list(_samples_by_seed(seeds=(0,), steps_per_seed=1)))
+    original_load_manifest = cast(Any, getattr(pytorch_module, "load_manifest"))  # noqa: B009
+    load_count = 0
+
+    def _counted_load_manifest(dataset_directory: Path | str) -> Any:
+        nonlocal load_count
+        load_count += 1
+        return original_load_manifest(dataset_directory)
+
+    def _unexpected_reader_load_manifest(dataset_directory: Path | str) -> Any:
+        raise AssertionError("reader.load_manifest should not be called during DataLoader stream")
+
+    monkeypatch.setattr(pytorch_module, "load_manifest", _counted_load_manifest)
+    monkeypatch.setattr(reader_module, "load_manifest", _unexpected_reader_load_manifest)
+
+    dataset = PlayingIterableDataset(tmp_path, split=DatasetSplit.TRAIN)
+
+    assert [(int(sample["seed"]), int(sample["step"])) for sample in dataset] == [(0, 1)]
+    assert load_count == 1
 
 
 def test_same_configuration_produces_same_batch_order(tmp_path: Path) -> None:
