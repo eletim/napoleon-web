@@ -75,7 +75,7 @@ export function encodeBiddingHistoryFromPublicActions(
 
     if (action.playerId !== record.playerId) {
       throw new Error(
-        `Bidding action playerId must match record playerId: ${action.playerId} !== ${record.playerId}`
+        `Bidding action playerId must match record/decision playerId: ${action.playerId} !== ${record.playerId}`
       );
     }
 

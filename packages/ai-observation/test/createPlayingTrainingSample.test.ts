@@ -303,7 +303,7 @@ describe("createPlayingTrainingSample", () => {
         }],
         relativePlayerIds
       )
-    ).toThrow("must match record playerId");
+    ).toThrow("must match record/decision playerId");
 
     expect(() =>
       encodeBiddingHistoryFromPublicActions(

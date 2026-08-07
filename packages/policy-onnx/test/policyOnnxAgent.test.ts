@@ -33,6 +33,11 @@ describe("PolicyOnnxAgent", () => {
 
     expect(record.result.winner).toMatch(/^(napoleon-team|alliance)$/);
     expect(playDecisions.length).toBeGreaterThan(0);
+    expect(
+      playDecisions.every((decision) =>
+        decision.legalActions.every((action) => action.type === "play-card")
+      )
+    ).toBe(true);
     expect(countIllegalPlayActions(playDecisions)).toBe(0);
   });
 
@@ -64,6 +69,27 @@ describe("PolicyOnnxAgent", () => {
     });
 
     expect(nonPlayingActions(onnx)).toEqual(nonPlayingActions(ruleBased));
+  });
+
+  it("selects the only legal play-card action for forced plays", async () => {
+    const policy = await createIncreasingLogitPolicy();
+    const source = await runAutomatedGame({
+      seed: 12345,
+      createAgent: ({ rng }) => new RuleBasedAgent(rng)
+    });
+    const forcedDecision = source.decisions.find(
+      (decision) => decision.phase === "playing" && decision.legalActions.length === 1
+    );
+
+    if (forcedDecision === undefined) {
+      throw new Error("Expected a forced play decision.");
+    }
+
+    const agent = new PolicyOnnxAgent({ policy });
+
+    await expect(agent.selectAction(forcedDecision.observation)).resolves.toEqual(
+      forcedDecision.legalActions[0]
+    );
   });
 
   it("builds the same live model input as the training sample pipeline for every seat", async () => {
