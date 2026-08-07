@@ -11,6 +11,7 @@ from typing import Any, cast
 import pytest
 import torch
 
+import napoleon_ml.policy.onnx_export as onnx_export_module
 from napoleon_ml.cli.evaluate_policy_mlp import main as evaluate_main
 from napoleon_ml.cli.export_policy_onnx import main as export_main
 from napoleon_ml.cli.train_policy_mlp import main as train_main
@@ -743,6 +744,65 @@ def test_policy_onnx_export_cli_rejects_corrupted_later_dataset_bytes_before_out
     assert "final line is missing a trailing newline" in capsys.readouterr().err
     assert not onnx_path.exists()
     assert not metadata_path.exists()
+
+
+def test_policy_onnx_export_keeps_existing_artifact_when_staged_validation_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_dataset(tmp_path, seeds=(0, 1, 2))
+    checkpoint_path = tmp_path.parent / f"{tmp_path.name}-policy.pt"
+    onnx_path = tmp_path.parent / f"{tmp_path.name}-policy.onnx"
+    metadata_path = tmp_path.parent / f"{tmp_path.name}-policy.json"
+    assert (
+        train_main(
+            [
+                str(tmp_path),
+                "--output",
+                str(checkpoint_path),
+                "--epochs",
+                "1",
+                "--batch-size",
+                "1",
+                "--hidden-dim",
+                "8",
+                "--hidden-layers",
+                "1",
+                "--train-ratio",
+                "1",
+                "--validation-ratio",
+                "1",
+                "--test-ratio",
+                "98",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    onnx_path.write_bytes(b"previous onnx")
+
+    def write_staged_onnx(
+        *, model: PolicyMlpModel, dummy_input: torch.Tensor, output: Path
+    ) -> None:
+        output.write_bytes(b"new onnx")
+
+    def fail_parity(**kwargs: object) -> object:
+        raise PolicyCheckpointCompatibilityError("parity failed")
+
+    monkeypatch.setattr(onnx_export_module, "_export_onnx", write_staged_onnx)
+    monkeypatch.setattr(onnx_export_module, "_check_onnx_runtime_parity", fail_parity)
+
+    with pytest.raises(PolicyCheckpointCompatibilityError, match="parity failed"):
+        export_policy_checkpoint_to_onnx(
+            dataset_directory=tmp_path,
+            checkpoint_path=checkpoint_path,
+            onnx_path=onnx_path,
+            metadata_path=metadata_path,
+            manifest=load_manifest(tmp_path),
+        )
+
+    assert onnx_path.read_bytes() == b"previous onnx"
+    assert not metadata_path.exists()
+    assert not list(tmp_path.parent.glob(f".{tmp_path.name}-policy.*.tmp"))
 
 
 def test_policy_onnx_export_cli_writes_model_metadata_and_checks_runtime_parity(

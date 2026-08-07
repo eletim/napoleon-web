@@ -7,6 +7,7 @@ from contextlib import redirect_stdout
 from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any, NamedTuple, cast
 
 import numpy as np
@@ -109,15 +110,24 @@ def export_policy_checkpoint_to_onnx(
     metadata_output.parent.mkdir(parents=True, exist_ok=True)
 
     dummy_input = torch.zeros((1, MODEL_INPUT_FEATURE_COUNT), dtype=torch.float32)
-    with torch.no_grad():
-        _export_onnx(model=model, dummy_input=dummy_input, output=output)
+    staged_output = _temporary_sibling(output)
+    staged_metadata = _temporary_sibling(metadata_output)
+    try:
+        with torch.no_grad():
+            _export_onnx(model=model, dummy_input=dummy_input, output=staged_output)
 
-    parity = _check_onnx_runtime_parity(model=model, onnx_path=output, sample=sample)
-    metadata = build_policy_onnx_metadata(model=model, checkpoint=checkpoint)
-    metadata_output.write_text(
-        json.dumps(metadata, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+        parity = _check_onnx_runtime_parity(model=model, onnx_path=staged_output, sample=sample)
+        metadata = build_policy_onnx_metadata(model=model, checkpoint=checkpoint)
+        staged_metadata.write_text(
+            json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        staged_output.replace(output)
+        staged_metadata.replace(metadata_output)
+    except Exception:
+        staged_output.unlink(missing_ok=True)
+        staged_metadata.unlink(missing_ok=True)
+        raise
 
     return PolicyOnnxExportReport(
         onnx_path=output,
@@ -208,6 +218,16 @@ def validate_policy_onnx_metadata(metadata: dict[str, Any]) -> None:
         expected_dtype=_FLOAT32_DTYPE,
         label="output",
     )
+
+
+def _temporary_sibling(path: Path) -> Path:
+    with NamedTemporaryFile(
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        delete=False,
+    ) as file:
+        return Path(file.name)
 
 
 def _validate_export_paths(*, checkpoint_path: Path, onnx_path: Path, metadata_path: Path) -> None:
