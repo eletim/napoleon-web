@@ -63,3 +63,39 @@ NAPOLEON_POLICY_ONNX_PATH=/path/to/policy.onnx \
 NAPOLEON_POLICY_METADATA_PATH=/path/to/policy.json \
 pnpm --filter @napoleon/policy-onnx test
 ```
+
+## RuleBased comparison evaluation
+
+`runPolicyVsRuleBasedEvaluation` connects the loaded ONNX playing policy to the
+existing `@napoleon/ai` evaluation runner. The scheduled matchup uses one
+`PolicyOnnxAgent` and four `RuleBasedAgent` seats, then rotates the policy
+through all five seats by default with fixed seeds and fixed options.
+
+```ts
+import {
+  loadPolicyOnnxModel,
+  runPolicyVsRuleBasedEvaluation
+} from "@napoleon/policy-onnx";
+
+const policy = await loadPolicyOnnxModel({
+  onnxPath: "/path/to/policy.onnx",
+  metadataPath: "/path/to/policy.json"
+});
+
+const result = await runPolicyVsRuleBasedEvaluation({
+  policy,
+  startSeed: 900,
+  gameCount: 10
+});
+
+console.log(result.comparison.illegalActionCount);
+console.log(result.comparison.failedGames);
+console.log(result.comparison.policy.comparison.winRateDeltaConfidenceInterval);
+```
+
+The result keeps the raw evaluation run, the existing detailed evaluation
+report, and a policy-vs-rulebased grouped comparison. The comparison includes
+win rate, contract success rate, role summaries, seat summaries, failed games,
+illegal-action failure count, and 95% confidence intervals for rate and
+point-card deltas. Failed games remain in the output instead of being excluded
+from denominators.

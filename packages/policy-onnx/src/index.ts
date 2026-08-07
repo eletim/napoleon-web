@@ -27,6 +27,15 @@ export {
   createPolicyOnnxPlayInput
 } from "./policyOnnxAgent.js";
 export type { PolicyOnnxAgentOptions, PolicyOnnxPlayInput } from "./policyOnnxAgent.js";
+export { runPolicyVsRuleBasedEvaluation } from "./policyVsRuleBasedEvaluation.js";
+export type {
+  FailedPolicyVsRuleBasedGame,
+  PolicyVsRuleBasedAgentSummary,
+  PolicyVsRuleBasedComparisonReport,
+  PolicyVsRuleBasedEvaluationConfiguration,
+  PolicyVsRuleBasedEvaluationResult,
+  RunPolicyVsRuleBasedEvaluationOptions
+} from "./policyVsRuleBasedEvaluation.js";
 export type {
   PolicyOnnxIoMetadata,
   PolicyOnnxLoadOptions,
