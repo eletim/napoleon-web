@@ -1,13 +1,13 @@
 # @napoleon/ai-observation
 
-This package converts automated `playing` card decisions into a fixed-length,
-deterministic numeric schema for future Actor training and hidden-card ownership
-supervision.
+This package converts automated `bidding` and `playing` decisions into
+fixed-length, deterministic numeric schemas for future Actor training and
+hidden-card ownership supervision.
 
-It currently covers only the `playing` phase and only `play-card` actions.
-Past public bidding actions are preserved in every playing sample. Adjutant
-selection, buried-card exchange, Python, neural-network models, PyTorch, ONNX,
-dataset files, and batch self-play generation are not included.
+Playing samples cover only `play-card` actions. Bidding samples cover only
+`pass` and `bid` actions. Adjutant selection, buried-card exchange, Python,
+neural-network models, PyTorch, ONNX, dataset files, and batch self-play
+generation are not included.
 
 ## Schema
 
@@ -19,6 +19,11 @@ dataset files, and batch self-play generation are not included.
   - clubs `A, K, Q, J, 10, 9, 8, 7, 6, 5, 4, 3, 2`
   - joker
 - Actor action space: 53 card indices
+- Bidding schema version: `1`
+- Bidding action space: 29 fixed indices
+  - index `0`: pass
+  - index `1..28`: 13 to 19 cards x 4 suits
+  - bid index: `1 + (targetPointCards - 13) * 4 + suitIndex`
 - Relative players: 5 seats rotated so the acting player is index `0`
 - Bidding history: fixed-length public action sequence with max length `117`
 - Belief owner classes: `0..4` for relative players currently holding a card,
@@ -56,6 +61,29 @@ from the internal bidding suit priority. An all-pass contract is represented as
 the real five pass actions. The automatic 12-card spades contract is visible via
 `contractTargetPointCards` and `trumpSuitOneHot`; it is not added as a synthetic
 bid.
+
+## Bidding Observation
+
+`EncodedBiddingObservation` uses only the acting player's `PlayerObservation`,
+the absolute table player order, and public bidding history. It contains:
+
+- `relativePlayerIds`: `[5]`, with the acting player at index `0`
+- `selfHandMask`: `[53]`
+- `legalBidMask`: `[29]`
+- `starterPlayerIndex`: `0..4`
+- `highestBidPresent`: `0/1`
+- `highestBidPlayerIndex`: `-1` or `0..4`
+- `highestBidSuitIndex`: `-1` or `0..3`
+- `highestBidTargetPointCards`: `0` or `13..19`
+- `consecutivePassCount`: `0..5`
+- `biddingHistory`: existing fixed `[117]` public history fields
+
+`legalBidMask` is generated only from `decision.observation.legalActions`; it
+does not recalculate bidding rules. `actorTarget` is the RuleBasedAgent-selected
+action encoded into `0..28`, and the validator requires
+`legalBidMask[actorTarget] === 1`. The all-pass automatic spades-12 contract is
+not part of the action space, so the fifth all-pass teacher action remains
+`pass = 0`.
 
 ## Major Shapes
 
