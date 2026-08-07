@@ -152,7 +152,7 @@ describe("runAutomatedGame", () => {
       );
       expect(
         decision.observation.publicActionHistory?.every(
-          (record) => record.action.type === "bid" || record.action.type === "pass"
+          (historyRecord) => historyRecord.action.type === "bid" || historyRecord.action.type === "pass"
         )
       ).toBe(true);
     });

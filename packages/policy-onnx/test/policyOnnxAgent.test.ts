@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 import { RuleBasedAgent, runAutomatedGame } from "@napoleon/ai";
 import {
   createPlayingTrainingSample,
-  encodePlayingModelInput
+  encodePlayingModelInput,
+  getCardId
 } from "@napoleon/ai-observation";
 import type { GameAction } from "@napoleon/game-core";
 import {
@@ -78,6 +79,7 @@ describe("PolicyOnnxAgent", () => {
       throw new Error("Expected a playing decision.");
     }
 
+    const defaultLiveInput = createPolicyOnnxPlayInput(decision.observation);
     const liveInput = createPolicyOnnxPlayInput(decision.observation, source.playerIds);
     const sample = createPlayingTrainingSample(source, decision);
 
@@ -85,6 +87,10 @@ describe("PolicyOnnxAgent", () => {
       throw new Error("Expected a playing sample.");
     }
 
+    expect(Buffer.from(defaultLiveInput.modelInput.buffer)).toEqual(
+      Buffer.from(liveInput.modelInput.buffer)
+    );
+    expect(defaultLiveInput.legalPlayMask).toEqual(liveInput.legalPlayMask);
     expect(liveInput.legalPlayMask).toEqual(sample.observation.legalPlayMask);
     expect(Buffer.from(liveInput.modelInput.buffer)).toEqual(
       Buffer.from(encodePlayingModelInput(sample.observation).buffer)
@@ -112,6 +118,40 @@ describe("PolicyOnnxAgent", () => {
     await expect(agent.selectAction(decision.observation)).rejects.toThrow(
       "inference failed for test"
     );
+  });
+
+  it("rejects an ONNX-selected card that is outside the legal action set", async () => {
+    const source = await runAutomatedGame({
+      seed: 12345,
+      createAgent: ({ rng }) => new RuleBasedAgent(rng)
+    });
+    const decision = source.decisions.find((candidate) => candidate.phase === "playing");
+
+    if (decision === undefined) {
+      throw new Error("Expected a playing decision.");
+    }
+
+    const legalCardIds = new Set(
+      decision.legalActions.flatMap((action) => action.type === "play-card" ? [action.cardId] : [])
+    );
+    const illegalCardIndex = Array.from({ length: CARD_COUNT }, (_, index) => index)
+      .find((index) => !legalCardIds.has(getCardId(index)));
+
+    if (illegalCardIndex === undefined) {
+      throw new Error("Expected at least one illegal card index.");
+    }
+
+    const illegalPolicy = {
+      async selectLegalPlay() {
+        return {
+          selectedCardIndex: illegalCardIndex,
+          logits: new Float32Array(CARD_COUNT)
+        };
+      }
+    } as unknown as PolicyOnnxModel;
+    const agent = new PolicyOnnxAgent({ policy: illegalPolicy });
+
+    await expect(agent.selectAction(decision.observation)).rejects.toThrow("outside legal actions");
   });
 
   it("rejects playing observations that do not carry public action history", async () => {

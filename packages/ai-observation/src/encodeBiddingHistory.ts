@@ -44,8 +44,10 @@ export function encodeBiddingHistory(
   }
 
   return encodeBiddingHistoryFromPublicActions(
-    record.decisions.flatMap(toPublicBiddingRecord),
-    playingDecision.step,
+    record.decisions
+      .filter((decision) => decision.step < playingDecision.step)
+      .flatMap(toPublicBiddingRecord),
+    null,
     relativePlayerIds
   );
 }
@@ -213,7 +215,9 @@ function toPublicBiddingRecord(decision: DecisionRecord): readonly PublicActionR
   }
 
   if (decision.action.type !== "bid" && decision.action.type !== "pass") {
-    throw new Error("Bidding history supports only pass and bid actions.");
+    throw new Error(
+      `Bidding history supports only pass and bid actions, got ${decision.action.type}.`
+    );
   }
 
   return [{
