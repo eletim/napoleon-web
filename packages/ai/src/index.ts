@@ -23,6 +23,7 @@ export {
   selectPlayAction
 } from "./playStrategy.js";
 export { runAutomatedGame } from "./simulation/runAutomatedGame.js";
+export { createEvaluationReport } from "./simulation/evaluationReport.js";
 export { runEvaluation } from "./simulation/runEvaluation.js";
 export {
   assertValidSeed,
@@ -39,11 +40,21 @@ export type {
   CompletedEvaluationGameRecord,
   EvaluationAgentContext,
   EvaluationAgentDefinition,
+  EvaluationAgentPerformanceSummary,
+  EvaluationComparisonSummary,
   EvaluationContractSummary,
+  EvaluationFailureSummary,
   EvaluationGameRecord,
+  EvaluationGameCountSummary,
+  EvaluationPerformanceSummary,
   EvaluationPointCardSummary,
+  EvaluationRateSummary,
+  EvaluationReport,
+  EvaluationReportSummary,
+  EvaluationRolePerformanceSummary,
   EvaluationRunRecord,
   EvaluationSeatAssignment,
+  EvaluationSeatPerformanceSummary,
   EvaluationSeatRole,
   FailedEvaluationGameRecord,
   RunEvaluationOptions,
