@@ -1,5 +1,11 @@
 export { CARD_IDS, getCardId, getCardIndex } from "./cardIndex.js";
 export {
+  createAdjutantTrainingSample,
+  createAdjutantTrainingSamples,
+  validateAdjutantTrainingSample
+} from "./createAdjutantTrainingSample.js";
+export type { AdjutantTrainingSample } from "./createAdjutantTrainingSample.js";
+export {
   createBiddingTrainingSample,
   createBiddingTrainingSamples,
   validateBiddingTrainingSample
@@ -16,6 +22,18 @@ export {
   createPlayingTrainingSamples
 } from "./createPlayingTrainingSample.js";
 export type { PlayingTrainingSample } from "./createPlayingTrainingSample.js";
+export {
+  decodeAdjutantAction,
+  encodeAdjutantAction,
+  encodeLegalAdjutantMask,
+  validateLegalAdjutantMask
+} from "./encodeAdjutantAction.js";
+export type { DecodedAdjutantAction } from "./encodeAdjutantAction.js";
+export {
+  encodeAdjutantObservation,
+  validateEncodedAdjutantObservation
+} from "./encodeAdjutantObservation.js";
+export type { EncodedAdjutantObservation } from "./encodeAdjutantObservation.js";
 export {
   decodeBiddingAction,
   encodeBiddingAction,
@@ -72,6 +90,7 @@ export {
 export type { ModelInputFeatureSlice, PlayingModelInput } from "./modelInput.js";
 export { createRelativePlayerOrder, getRelativePlayerIndex } from "./playerIndex.js";
 export {
+  ADJUTANT_ENCODER_SCHEMA_VERSION,
   BIDDING_ACTION_COUNT,
   CARD_COUNT,
   CARDS_PER_TRICK,

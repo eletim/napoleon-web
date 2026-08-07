@@ -1,13 +1,14 @@
 # @napoleon/ai-observation
 
-This package converts automated `bidding`, `exchanging`, and `playing` decisions into
-fixed-length, deterministic numeric schemas for future Actor training and
+This package converts automated `bidding`, `choosing-adjutant`, `exchanging`,
+and `playing` decisions into fixed-length, deterministic numeric schemas for future Actor training and
 hidden-card ownership supervision.
 
 Playing samples cover only `play-card` actions. Bidding samples cover only
-`pass` and `bid` actions. Exchange samples cover only `discard-cards` actions.
-Adjutant selection, Python, neural-network models, PyTorch, ONNX, dataset files,
-and batch self-play generation are not included.
+`pass` and `bid` actions. Adjutant samples cover only `choose-adjutant` actions.
+Exchange samples cover only `discard-cards` actions. Python, neural-network
+models, PyTorch, ONNX, dataset files, and batch self-play generation are not
+included.
 
 ## Schema
 
@@ -19,6 +20,8 @@ and batch self-play generation are not included.
   - clubs `A, K, Q, J, 10, 9, 8, 7, 6, 5, 4, 3, 2`
   - joker
 - Actor action space: 53 card indices
+- Adjutant action space: 53 card indices
+- Adjutant legal mask: 53-card mask generated from `choose-adjutant` legal actions
 - Exchange discard target space: 53-card exactly 3-hot mask
 - Exchange legal discard mask: 53-card mask equal to Napoleon's 13-card self hand
 - Bidding schema version: `1`
@@ -51,6 +54,7 @@ that value. Normal training sample generation uses `encodeBiddingHistory()` to
 derive the real public bidding history from the automated game record, and
 `encodeBiddingHistory()` validates its generated schema before returning it.
 Exchange training sample generation uses the same `EncodedBiddingHistory` schema.
+Adjutant training sample generation also uses this same public history schema.
 
 - `actionTypeIndices`: `0` pass, `1` bid, `-1` empty
 - `playerIndices`: `0..4` actor-relative player index, `-1` empty
@@ -88,6 +92,31 @@ action encoded into `0..28`, and the validator requires
 not part of the action space, so the fifth all-pass teacher action remains
 `pass = 0`.
 
+## Adjutant Observation
+
+`EncodedAdjutantObservation` uses only Napoleon's adjutant-choice-time
+`PlayerObservation`, the absolute table player order, and the existing public
+`EncodedBiddingHistory`. It contains:
+
+- `relativePlayerIds`: `[5]`, with Napoleon at index `0`
+- `trumpSuitOneHot`: `[4]`
+- `contractTargetPointCards`: `12..19`
+- `selfHandMask`: `[53]`, exactly 10 cards
+- `legalAdjutantMask`: `[53]`
+- `specialCardIndices`: public special card indices for the resolved trump
+- `biddingHistory`: existing fixed `[117]` public history fields
+
+`legalAdjutantMask` is generated only from `decision.observation.legalActions`
+entries whose type is `choose-adjutant`. It does not apply RuleBasedAgent's
+candidate filtering, so current game-core rules encode all 53 cards as legal,
+including Joker and cards in Napoleon's own 10-card hand. `actorTarget` is the
+RuleBasedAgent-selected `choose-adjutant.cardId` encoded as the existing
+`CARD_IDS` index, and validation requires it to be inside `legalAdjutantMask`.
+
+The observation is before exchange: the buried three cards have not joined
+Napoleon's hand, and the chosen card's true owner or resulting adjutant player is
+not included.
+
 ## Exchange Observation
 
 `EncodedExchangeObservation` uses only Napoleon's exchange-time
@@ -119,6 +148,7 @@ adjutant ownership, buried-card provenance, or the teacher discard mask.
 | `revealedAdjutantPlayerOneHot` | `[6]` |
 | `calledAdjutantCardMask` | `[53]` |
 | `selfHandMask` | `[53]` |
+| `legalAdjutantMask` | `[53]` |
 | `legalDiscardCardMask` | `[53]` |
 | `discardTargetMask` | `[53]` |
 | `legalPlayMask` | `[53]` |
