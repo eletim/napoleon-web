@@ -21,11 +21,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..dataset.constants import BELIEF_OWNER_CLASS_COUNT, CARD_COUNT
+from ..dataset.constants import BELIEF_OWNER_CLASS_COUNT, CARD_COUNT, DATASET_SAMPLE_TYPE
 from ..dataset.errors import DatasetError
 from ..dataset.manifest import DatasetManifest
 from ..dataset.reader import iter_tensorized_samples, load_manifest
 from ..dataset.split import DatasetSplit, SplitConfig, split_for_seed
+from ..dataset.tensors import TensorizedPlayingSample
 
 
 @dataclass
@@ -58,11 +59,20 @@ def _collect(
     dataset_directory: Path, *, verify_integrity: bool, split_config: SplitConfig
 ) -> tuple[DatasetManifest, _Aggregates]:
     manifest = load_manifest(dataset_directory)
+    if manifest.sample_type != DATASET_SAMPLE_TYPE:
+        raise DatasetError(
+            "inspect_dataset currently supports only playing-training-sample datasets, "
+            f"got {manifest.sample_type!r}."
+        )
+
     aggregates = _Aggregates()
 
     for tensorized in iter_tensorized_samples(
         dataset_directory, verify_integrity=verify_integrity, split_config=split_config
     ):
+        if not isinstance(tensorized, TensorizedPlayingSample):
+            raise DatasetError("inspect_dataset expected a TensorizedPlayingSample.")
+
         aggregates.sample_count += 1
 
         actor_target = int(tensorized.actor_target)

@@ -67,6 +67,11 @@ class PlayingIterableDataset(IterableDataset[PlayingTorchSample]):
             split_config=self.split_config,
             verify_integrity=self.verify_integrity,
         ):
+            if not isinstance(sample, TensorizedPlayingSample):
+                raise DatasetError(
+                    "PlayingIterableDataset requires a playing-training-sample dataset."
+                )
+
             yield _torch_sample(sample, mask_dtype=self.mask_dtype)
 
 

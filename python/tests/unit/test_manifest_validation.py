@@ -70,10 +70,25 @@ def test_valid_manifest_passes() -> None:
 
 def test_schema_version_mismatch_rejected() -> None:
     raw = _valid_manifest_dict()
-    raw["datasetSchemaVersion"] = 2
+    raw["datasetSchemaVersion"] = 3
 
     with pytest.raises(ManifestValidationError, match="datasetSchemaVersion"):
         _parse_and_validate(raw)
+
+
+def test_multiphase_manifest_passes() -> None:
+    raw = _valid_manifest_dict()
+    raw["datasetSchemaVersion"] = 2
+    raw["generatorVersion"] = 2
+    raw["encoderSchemaVersion"] = 1
+    raw["sampleType"] = "bidding-training-sample"
+    del raw["playingEncoderSchemaVersion"]
+
+    manifest = parse_manifest(raw)
+    validate_manifest(manifest)
+
+    assert manifest.encoder_schema_version == 1
+    assert manifest.playing_encoder_schema_version is None
 
 
 def test_generator_version_mismatch_rejected() -> None:

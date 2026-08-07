@@ -20,7 +20,7 @@ from napoleon_ml.dataset import iter_samples, iter_tensorized_samples, load_mani
 from napoleon_ml.dataset.constants import EXPECTED_CARD_IDS
 from napoleon_ml.dataset.pytorch import create_playing_dataloader
 from napoleon_ml.dataset.split import DatasetSplit, split_for_seed
-from napoleon_ml.dataset.tensors import MODEL_INPUT_FEATURE_COUNT
+from napoleon_ml.dataset.tensors import MODEL_INPUT_FEATURE_COUNT, TensorizedPlayingSample
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -103,6 +103,7 @@ def test_typescript_generated_dataset_loads_and_tensorizes_cleanly() -> None:
         total_tensorized = 0
 
         for tensorized in iter_tensorized_samples(output_directory):
+            assert isinstance(tensorized, TensorizedPlayingSample)
             total_tensorized += 1
 
             flat_shapes.add(tuple(tensorized.flat_observation.shape))

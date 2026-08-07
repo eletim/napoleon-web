@@ -18,8 +18,13 @@ from pathlib import Path
 
 from ._strict import require_int_in_range
 from .constants import (
+    ADJUTANT_DATASET_SAMPLE_TYPE,
+    ADJUTANT_ENCODER_SCHEMA_VERSION,
+    BIDDING_ACTION_COUNT,
     BIDDING_ACTION_TYPE_BID,
     BIDDING_ACTION_TYPE_PASS,
+    BIDDING_DATASET_SAMPLE_TYPE,
+    BIDDING_ENCODER_SCHEMA_VERSION,
     BIDDING_HISTORY_SUIT_ORDER,
     CARD_COUNT,
     CARDS_PER_TRICK,
@@ -27,11 +32,14 @@ from .constants import (
     DATASET_FORMAT,
     DATASET_GENERATOR_VERSION,
     DATASET_SAMPLE_TYPE,
+    DATASET_SAMPLE_TYPES,
     DATASET_SCHEMA_VERSION,
     EMPTY_BIDDING_ACTION_TYPE,
     EMPTY_BIDDING_SUIT_INDEX,
     EMPTY_CARD_INDEX,
     EMPTY_PLAYER_INDEX,
+    EXCHANGE_DATASET_SAMPLE_TYPE,
+    EXCHANGE_ENCODER_SCHEMA_VERSION,
     EXPECTED_CARD_IDS,
     MAX_BIDDING_ACTION_COUNT,
     MAX_BIDDING_TARGET_POINT_CARDS,
@@ -41,6 +49,8 @@ from .constants import (
     MAX_SHARD_COUNT,
     MIN_BIDDING_TARGET_POINT_CARDS,
     MIN_CONTRACT_TARGET_POINT_CARDS,
+    MULTIPHASE_DATASET_GENERATOR_VERSION,
+    MULTIPHASE_DATASET_SCHEMA_VERSION,
     NOT_IN_HAND_CLASS_INDEX,
     PLAYER_COUNT,
     PLAYING_ENCODER_SCHEMA_VERSION,
@@ -53,11 +63,18 @@ from .constants import (
 from .errors import ManifestValidationError, SampleValidationError, ShardIntegrityError
 from .manifest import DatasetManifest, DatasetShardManifest
 from .sample import (
+    AdjutantTrainingSample,
+    BiddingTrainingSample,
+    EncodedAdjutantObservation,
     EncodedBeliefTarget,
     EncodedBiddingHistory,
+    EncodedBiddingObservation,
+    EncodedExchangeObservation,
     EncodedPlayingObservation,
+    ExchangeTrainingSample,
     PlayingTrainingSample,
     SpecialCardIndices,
+    TrainingSample,
 )
 
 _SHA256_HEX_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -183,23 +200,13 @@ def _validate_shard_file_name_is_safe(file_name: str) -> None:
 
 
 def _validate_schema_identity(manifest: DatasetManifest) -> None:
-    if manifest.dataset_schema_version != DATASET_SCHEMA_VERSION:
+    if manifest.dataset_schema_version not in {
+        DATASET_SCHEMA_VERSION,
+        MULTIPHASE_DATASET_SCHEMA_VERSION,
+    }:
         raise ManifestValidationError(
-            "manifest.datasetSchemaVersion mismatch: "
-            f"expected {DATASET_SCHEMA_VERSION}, got {manifest.dataset_schema_version}."
-        )
-
-    if manifest.generator_version != DATASET_GENERATOR_VERSION:
-        raise ManifestValidationError(
-            "manifest.generatorVersion mismatch: "
-            f"expected {DATASET_GENERATOR_VERSION}, got {manifest.generator_version}."
-        )
-
-    if manifest.playing_encoder_schema_version != PLAYING_ENCODER_SCHEMA_VERSION:
-        actual = manifest.playing_encoder_schema_version
-        raise ManifestValidationError(
-            "manifest.playingEncoderSchemaVersion mismatch: "
-            f"expected {PLAYING_ENCODER_SCHEMA_VERSION}, got {actual}."
+            "manifest.datasetSchemaVersion mismatch: expected 1 or 2, "
+            f"got {manifest.dataset_schema_version}."
         )
 
     if manifest.format != DATASET_FORMAT:
@@ -207,11 +214,48 @@ def _validate_schema_identity(manifest: DatasetManifest) -> None:
             f"manifest.format mismatch: expected {DATASET_FORMAT!r}, got {manifest.format!r}."
         )
 
-    if manifest.sample_type != DATASET_SAMPLE_TYPE:
+    if manifest.sample_type not in DATASET_SAMPLE_TYPES:
         raise ManifestValidationError(
-            f"manifest.sampleType mismatch: expected {DATASET_SAMPLE_TYPE!r}, "
-            f"got {manifest.sample_type!r}."
+            f"manifest.sampleType mismatch: unsupported sample type {manifest.sample_type!r}."
         )
+
+    if manifest.dataset_schema_version == DATASET_SCHEMA_VERSION:
+        if manifest.generator_version != DATASET_GENERATOR_VERSION:
+            raise ManifestValidationError(
+                "manifest.generatorVersion mismatch: "
+                f"expected {DATASET_GENERATOR_VERSION}, got {manifest.generator_version}."
+            )
+
+        if manifest.sample_type != DATASET_SAMPLE_TYPE:
+            raise ManifestValidationError(
+                "manifest v1 sampleType must be "
+                f"{DATASET_SAMPLE_TYPE!r}, got {manifest.sample_type!r}."
+            )
+
+        if manifest.playing_encoder_schema_version != PLAYING_ENCODER_SCHEMA_VERSION:
+            actual = manifest.playing_encoder_schema_version
+            raise ManifestValidationError(
+                "manifest.playingEncoderSchemaVersion mismatch: "
+                f"expected {PLAYING_ENCODER_SCHEMA_VERSION}, got {actual}."
+            )
+    else:
+        if manifest.generator_version != MULTIPHASE_DATASET_GENERATOR_VERSION:
+            raise ManifestValidationError(
+                "manifest.generatorVersion mismatch: "
+                f"expected {MULTIPHASE_DATASET_GENERATOR_VERSION}, "
+                f"got {manifest.generator_version}."
+            )
+
+        if manifest.sample_type == DATASET_SAMPLE_TYPE:
+            raise ManifestValidationError("manifest v2 sampleType must be a non-playing type.")
+
+        expected_encoder_version = _encoder_schema_version_for_sample_type(manifest.sample_type)
+
+        if manifest.encoder_schema_version != expected_encoder_version:
+            raise ManifestValidationError(
+                "manifest.encoderSchemaVersion mismatch: "
+                f"expected {expected_encoder_version}, got {manifest.encoder_schema_version}."
+            )
 
     if manifest.agent.type != "rule-based":
         raise ManifestValidationError(
@@ -223,6 +267,19 @@ def _validate_schema_identity(manifest: DatasetManifest) -> None:
             "manifest.agent.version mismatch: "
             f"expected {RULE_BASED_AGENT_VERSION}, got {manifest.agent.version}."
         )
+
+
+def _encoder_schema_version_for_sample_type(sample_type: str) -> int:
+    if sample_type == DATASET_SAMPLE_TYPE:
+        return PLAYING_ENCODER_SCHEMA_VERSION
+    if sample_type == BIDDING_DATASET_SAMPLE_TYPE:
+        return BIDDING_ENCODER_SCHEMA_VERSION
+    if sample_type == EXCHANGE_DATASET_SAMPLE_TYPE:
+        return EXCHANGE_ENCODER_SCHEMA_VERSION
+    if sample_type == ADJUTANT_DATASET_SAMPLE_TYPE:
+        return ADJUTANT_ENCODER_SCHEMA_VERSION
+
+    raise ManifestValidationError(f"Unsupported sampleType: {sample_type!r}.")
 
 
 def _validate_manifest_numbers(manifest: DatasetManifest) -> None:
@@ -389,8 +446,27 @@ def _sample_error(message: str) -> SampleValidationError:
     return SampleValidationError(message)
 
 
-def validate_sample(sample: PlayingTrainingSample) -> None:
-    """Validate a parsed sample against every schema-v1 numeric and cross-field rule."""
+def validate_sample(sample: TrainingSample) -> None:
+    """Validate a parsed sample against every numeric and cross-field rule."""
+
+    if isinstance(sample, PlayingTrainingSample):
+        validate_playing_training_sample(sample)
+        return
+    if isinstance(sample, BiddingTrainingSample):
+        validate_bidding_training_sample(sample)
+        return
+    if isinstance(sample, ExchangeTrainingSample):
+        validate_exchange_training_sample(sample)
+        return
+    if isinstance(sample, AdjutantTrainingSample):
+        validate_adjutant_training_sample(sample)
+        return
+
+    raise SampleValidationError(f"Unsupported sample class: {type(sample).__name__}.")
+
+
+def validate_playing_training_sample(sample: PlayingTrainingSample) -> None:
+    """Validate a parsed playing sample against every schema-v1 rule."""
 
     if sample.schema_version != PLAYING_ENCODER_SCHEMA_VERSION:
         raise SampleValidationError(
@@ -448,6 +524,109 @@ def validate_sample(sample: PlayingTrainingSample) -> None:
     for index, value in enumerate(sample.observation.legal_play_mask):
         if value == 1 and sample.observation.self_hand_mask[index] != 1:
             raise SampleValidationError(f"legalPlayMask[{index}] must be within selfHandMask.")
+
+
+def validate_bidding_training_sample(sample: BiddingTrainingSample) -> None:
+    if sample.sample_type != BIDDING_DATASET_SAMPLE_TYPE:
+        raise SampleValidationError(
+            f"sample.sampleType must be {BIDDING_DATASET_SAMPLE_TYPE!r}, "
+            f"got {sample.sample_type!r}."
+        )
+
+    if sample.schema_version != BIDDING_ENCODER_SCHEMA_VERSION:
+        raise SampleValidationError(
+            f"sample.schemaVersion mismatch: expected {BIDDING_ENCODER_SCHEMA_VERSION}, "
+            f"got {sample.schema_version}."
+        )
+
+    if sample.observation.schema_version != sample.schema_version:
+        raise SampleValidationError("sample.schemaVersion must match observation.schemaVersion.")
+
+    _validate_sample_common(sample)
+    validate_encoded_bidding_observation(sample.observation)
+    _expect_int_range("actorTarget", sample.actor_target, 0, BIDDING_ACTION_COUNT - 1)
+
+    if sample.observation.legal_bid_mask[sample.actor_target] != 1:
+        raise SampleValidationError("actorTarget must be legal in observation.legalBidMask.")
+
+
+def validate_exchange_training_sample(sample: ExchangeTrainingSample) -> None:
+    if sample.sample_type != EXCHANGE_DATASET_SAMPLE_TYPE:
+        raise SampleValidationError(
+            f"sample.sampleType must be {EXCHANGE_DATASET_SAMPLE_TYPE!r}, "
+            f"got {sample.sample_type!r}."
+        )
+
+    if sample.schema_version != EXCHANGE_ENCODER_SCHEMA_VERSION:
+        raise SampleValidationError(
+            f"sample.schemaVersion mismatch: expected {EXCHANGE_ENCODER_SCHEMA_VERSION}, "
+            f"got {sample.schema_version}."
+        )
+
+    if sample.observation.schema_version != sample.schema_version:
+        raise SampleValidationError("sample.schemaVersion must match observation.schemaVersion.")
+
+    _validate_sample_common(sample)
+    validate_encoded_exchange_observation(sample.observation)
+    _validate_exchange_actor_target(
+        sample.actor_target.discard_target_mask, sample.observation.legal_discard_card_mask
+    )
+
+
+def validate_adjutant_training_sample(sample: AdjutantTrainingSample) -> None:
+    if sample.sample_type != ADJUTANT_DATASET_SAMPLE_TYPE:
+        raise SampleValidationError(
+            f"sample.sampleType must be {ADJUTANT_DATASET_SAMPLE_TYPE!r}, "
+            f"got {sample.sample_type!r}."
+        )
+
+    if sample.schema_version != ADJUTANT_ENCODER_SCHEMA_VERSION:
+        raise SampleValidationError(
+            f"sample.schemaVersion mismatch: expected {ADJUTANT_ENCODER_SCHEMA_VERSION}, "
+            f"got {sample.schema_version}."
+        )
+
+    if sample.observation.schema_version != sample.schema_version:
+        raise SampleValidationError("sample.schemaVersion must match observation.schemaVersion.")
+
+    _validate_sample_common(sample)
+    validate_encoded_adjutant_observation(sample.observation)
+    _expect_int_range("actorTarget", sample.actor_target, 0, CARD_COUNT - 1)
+
+    if sample.observation.legal_adjutant_mask[sample.actor_target] != 1:
+        raise SampleValidationError("actorTarget must be legal in observation.legalAdjutantMask.")
+
+
+def _validate_sample_common(
+    sample: BiddingTrainingSample | ExchangeTrainingSample | AdjutantTrainingSample,
+) -> None:
+    require_int_in_range(
+        sample.seed, path="sample.seed", minimum=0, maximum=UINT32_MAX, error=_sample_error
+    )
+
+    if sample.step <= 0:
+        raise SampleValidationError(f"sample.step must be a positive integer, got {sample.step}.")
+
+    if len(sample.relative_player_ids) != PLAYER_COUNT:
+        raise SampleValidationError(
+            f"sample.relativePlayerIds must have length {PLAYER_COUNT}, "
+            f"got {len(sample.relative_player_ids)}."
+        )
+
+    if len(set(sample.relative_player_ids)) != len(sample.relative_player_ids):
+        raise SampleValidationError("sample.relativePlayerIds must be unique.")
+
+    for index, player_id in enumerate(sample.relative_player_ids):
+        if len(player_id) == 0:
+            raise SampleValidationError(f"sample.relativePlayerIds[{index}] must be non-empty.")
+
+    if sample.acting_player_id != sample.relative_player_ids[0]:
+        raise SampleValidationError("sample.actingPlayerId must match relativePlayerIds[0].")
+
+    if sample.relative_player_ids != sample.observation.relative_player_ids:
+        raise SampleValidationError(
+            "sample.relativePlayerIds must match observation.relativePlayerIds."
+        )
 
 
 def validate_encoded_playing_observation(observation: EncodedPlayingObservation) -> None:
@@ -587,6 +766,126 @@ def validate_encoded_playing_observation(observation: EncodedPlayingObservation)
             "trickNumber must equal completedTrickCount + 1: "
             f"{observation.trick_number} != {observation.completed_trick_count + 1}."
         )
+
+
+def validate_encoded_bidding_observation(observation: EncodedBiddingObservation) -> None:
+    if observation.schema_version != BIDDING_ENCODER_SCHEMA_VERSION:
+        raise SampleValidationError(
+            f"Unsupported bidding encoder schema version: {observation.schema_version}"
+        )
+
+    _expect_length("relativePlayerIds", observation.relative_player_ids, PLAYER_COUNT)
+    _expect_length("selfHandMask", observation.self_hand_mask, CARD_COUNT)
+    _expect_length("legalBidMask", observation.legal_bid_mask, BIDDING_ACTION_COUNT)
+    validate_encoded_bidding_history(observation.bidding_history)
+    _validate_relative_player_ids(observation.relative_player_ids)
+    _validate_mask("selfHandMask", observation.self_hand_mask)
+    _validate_mask("legalBidMask", observation.legal_bid_mask)
+    _validate_mask("highestBidPresent", (observation.highest_bid_present,))
+    _expect_int_range("starterPlayerIndex", observation.starter_player_index, 0, PLAYER_COUNT - 1)
+    _expect_int_range("consecutivePassCount", observation.consecutive_pass_count, 0, PLAYER_COUNT)
+
+    if observation.highest_bid_present == 0:
+        if (
+            observation.highest_bid_player_index,
+            observation.highest_bid_suit_index,
+            observation.highest_bid_target_point_cards,
+        ) != (EMPTY_PLAYER_INDEX, EMPTY_BIDDING_SUIT_INDEX, 0):
+            raise SampleValidationError(
+                "Empty highest bid fields must use player -1, suit -1, and target 0."
+            )
+        return
+
+    _expect_int_range(
+        "highestBidPlayerIndex", observation.highest_bid_player_index, 0, PLAYER_COUNT - 1
+    )
+    _expect_int_range(
+        "highestBidSuitIndex",
+        observation.highest_bid_suit_index,
+        0,
+        len(BIDDING_HISTORY_SUIT_ORDER) - 1,
+    )
+    _expect_int_range(
+        "highestBidTargetPointCards",
+        observation.highest_bid_target_point_cards,
+        MIN_BIDDING_TARGET_POINT_CARDS,
+        MAX_BIDDING_TARGET_POINT_CARDS,
+    )
+
+
+def validate_encoded_exchange_observation(observation: EncodedExchangeObservation) -> None:
+    if observation.schema_version != EXCHANGE_ENCODER_SCHEMA_VERSION:
+        raise SampleValidationError(
+            f"Unsupported exchange encoder schema version: {observation.schema_version}"
+        )
+
+    _expect_length("relativePlayerIds", observation.relative_player_ids, PLAYER_COUNT)
+    _expect_length("trumpSuitOneHot", observation.trump_suit_one_hot, _TRUMP_SUIT_OPTION_COUNT)
+    _expect_length("calledAdjutantCardMask", observation.called_adjutant_card_mask, CARD_COUNT)
+    _expect_length("selfHandMask", observation.self_hand_mask, CARD_COUNT)
+    _expect_length("legalDiscardCardMask", observation.legal_discard_card_mask, CARD_COUNT)
+    _expect_length("handCountByPlayer", observation.hand_count_by_player, PLAYER_COUNT)
+    validate_encoded_bidding_history(observation.bidding_history)
+    _validate_relative_player_ids(observation.relative_player_ids)
+    _expect_int_range(
+        "contractTargetPointCards",
+        observation.contract_target_point_cards,
+        MIN_CONTRACT_TARGET_POINT_CARDS,
+        MAX_CONTRACT_TARGET_POINT_CARDS,
+    )
+    _validate_one_hot("trumpSuitOneHot", observation.trump_suit_one_hot)
+    _validate_mask("calledAdjutantCardMask", observation.called_adjutant_card_mask)
+    _expect_sum("calledAdjutantCardMask", observation.called_adjutant_card_mask, 1)
+    _validate_mask("selfHandMask", observation.self_hand_mask)
+    _expect_sum("selfHandMask", observation.self_hand_mask, 13)
+    _validate_mask("legalDiscardCardMask", observation.legal_discard_card_mask)
+
+    if observation.legal_discard_card_mask != observation.self_hand_mask:
+        raise SampleValidationError("legalDiscardCardMask must equal selfHandMask at exchange.")
+
+    for index, value in enumerate(observation.hand_count_by_player):
+        _expect_int_range(f"handCountByPlayer[{index}]", value, 0, MAX_HAND_COUNT)
+
+    if observation.hand_count_by_player[0] != 13:
+        raise SampleValidationError("handCountByPlayer[0] must be 13 for Napoleon at exchange.")
+
+    _validate_special_card_indices(observation.special_card_indices)
+
+
+def validate_encoded_adjutant_observation(observation: EncodedAdjutantObservation) -> None:
+    if observation.schema_version != ADJUTANT_ENCODER_SCHEMA_VERSION:
+        raise SampleValidationError(
+            f"Unsupported adjutant encoder schema version: {observation.schema_version}"
+        )
+
+    _expect_length("relativePlayerIds", observation.relative_player_ids, PLAYER_COUNT)
+    _expect_length("trumpSuitOneHot", observation.trump_suit_one_hot, _TRUMP_SUIT_OPTION_COUNT)
+    _expect_length("selfHandMask", observation.self_hand_mask, CARD_COUNT)
+    _expect_length("legalAdjutantMask", observation.legal_adjutant_mask, CARD_COUNT)
+    validate_encoded_bidding_history(observation.bidding_history)
+    _validate_relative_player_ids(observation.relative_player_ids)
+    _validate_one_hot("trumpSuitOneHot", observation.trump_suit_one_hot)
+    _validate_mask("selfHandMask", observation.self_hand_mask)
+    _expect_sum("selfHandMask", observation.self_hand_mask, 10)
+    _validate_mask("legalAdjutantMask", observation.legal_adjutant_mask)
+    _expect_int_range(
+        "contractTargetPointCards",
+        observation.contract_target_point_cards,
+        MIN_CONTRACT_TARGET_POINT_CARDS,
+        MAX_CONTRACT_TARGET_POINT_CARDS,
+    )
+    _validate_special_card_indices(observation.special_card_indices)
+
+
+def _validate_exchange_actor_target(
+    discard_target_mask: tuple[int, ...], legal_discard_card_mask: tuple[int, ...]
+) -> None:
+    _expect_length("discardTargetMask", discard_target_mask, CARD_COUNT)
+    _validate_mask("discardTargetMask", discard_target_mask)
+    _expect_sum("discardTargetMask", discard_target_mask, 3)
+    _validate_mask_is_subset(
+        "discardTargetMask", discard_target_mask, "legalDiscardCardMask", legal_discard_card_mask
+    )
 
 
 def validate_encoded_bidding_history(history: EncodedBiddingHistory) -> None:
