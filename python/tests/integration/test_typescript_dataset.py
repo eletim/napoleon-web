@@ -18,7 +18,7 @@ import torch
 
 from napoleon_ml.dataset import iter_samples, iter_tensorized_samples, load_manifest
 from napoleon_ml.dataset.constants import EXPECTED_CARD_IDS
-from napoleon_ml.dataset.pytorch import create_playing_dataloader
+from napoleon_ml.dataset.pytorch import create_playing_dataloader, create_training_dataloader
 from napoleon_ml.dataset.sample import (
     AdjutantTrainingSample,
     BiddingTrainingSample,
@@ -216,6 +216,41 @@ def test_typescript_generated_multiphase_datasets_load_and_tensorize_cleanly() -
                 (feature_count,)
             }
             assert {str(sample.model_input.dtype) for sample in tensorized_samples} == {"float32"}
+
+            loader = create_training_dataloader(
+                output_directory,
+                split=DatasetSplit.TRAIN,
+                batch_size=1,
+            )
+            batch = next(iter(loader))
+            assert batch["model_input"].shape == (1, feature_count)
+            assert str(batch["model_input"].dtype) == "torch.float32"
+
+            if sample_type == "bidding-training-sample":
+                assert batch["legal_bid_mask"].shape == (1, 29)
+                assert str(batch["legal_bid_mask"].dtype) == "torch.bool"
+                assert batch["actor_target"].shape == (1,)
+                assert str(batch["actor_target"].dtype) == "torch.int64"
+                assert batch["legal_bid_mask"][torch.arange(1), batch["actor_target"]].all()
+            elif sample_type == "exchange-training-sample":
+                assert batch["legal_discard_card_mask"].shape == (1, 53)
+                assert str(batch["legal_discard_card_mask"].dtype) == "torch.bool"
+                assert batch["discard_target_mask"].shape == (1, 53)
+                assert str(batch["discard_target_mask"].dtype) == "torch.bool"
+                assert batch["legal_discard_card_mask"].sum(dim=1).tolist() == [13]
+                assert batch["discard_target_mask"].sum(dim=1).tolist() == [3]
+                assert torch.logical_or(
+                    torch.logical_not(batch["discard_target_mask"]),
+                    batch["legal_discard_card_mask"],
+                ).all()
+            elif sample_type == "adjutant-training-sample":
+                assert batch["legal_adjutant_mask"].shape == (1, 53)
+                assert str(batch["legal_adjutant_mask"].dtype) == "torch.bool"
+                assert batch["actor_target"].shape == (1,)
+                assert str(batch["actor_target"].dtype) == "torch.int64"
+                assert batch["legal_adjutant_mask"][torch.arange(1), batch["actor_target"]].all()
+            else:
+                raise AssertionError(f"Unexpected sample type: {sample_type}")
 
     assert not tmp_root.exists()
 
