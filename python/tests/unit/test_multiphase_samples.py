@@ -145,6 +145,14 @@ def test_bidding_rejects_illegal_target_and_bad_highest_bid_sentinel() -> None:
         validate_sample(parse_sample(raw))
 
 
+def test_bidding_rejects_wrong_self_hand_count() -> None:
+    raw = _bidding_sample()
+    raw["observation"]["selfHandMask"] = _mask(list(range(9)))
+
+    with pytest.raises(SampleValidationError, match="selfHandMask"):
+        validate_sample(parse_sample(raw))
+
+
 def test_exchange_rejects_wrong_masks_and_target_subset() -> None:
     raw = _exchange_sample()
     raw["observation"]["selfHandMask"] = _mask(list(range(12)))
