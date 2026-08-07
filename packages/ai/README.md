@@ -31,3 +31,30 @@ seeds. Every scheduled game produces exactly one record:
 
 The runner records failures instead of dropping failed games, so callers can
 compare result counts against the expected `gameCount * rotationOffsets.length`.
+
+## Evaluation reports
+
+`createEvaluationReport` aggregates the reusable evaluation runner schema. It
+does not run games; it only summarizes an existing `EvaluationRunRecord`.
+
+```ts
+import { createEvaluationReport, runEvaluation } from "@napoleon/ai";
+
+const run = await runEvaluation(options);
+const report = createEvaluationReport(run);
+```
+
+The report schema is stable JSON data with:
+
+- overall completed and failed game counts
+- agent summaries keyed by `sourceAgentIndex` with wins, losses, contract
+  success rate, average team point cards, role results, seat results, and
+  comparison deltas against the participating-agent average
+- seat summaries for seat-index bias checks
+- Napoleon, adjutant, and alliance role summaries
+- failed-game counts by reason
+
+Rates with no completed games and averages with no samples are represented as
+`null`, not `NaN` or `Infinity`. Report output is sorted by agent name, seat
+index, role order, and failure reason so the same input games produce the same
+report even when the input array order changes.

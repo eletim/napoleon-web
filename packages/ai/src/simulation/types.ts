@@ -139,3 +139,66 @@ export interface EvaluationRunRecord {
   completedCount: number;
   failedCount: number;
 }
+
+export interface EvaluationRateSummary {
+  numerator: number;
+  denominator: number;
+  rate: number | null;
+}
+
+export interface EvaluationGameCountSummary {
+  total: number;
+  completed: number;
+  failed: number;
+}
+
+export interface EvaluationFailureSummary {
+  total: number;
+  byReason: Readonly<Record<string, number>>;
+}
+
+export interface EvaluationPerformanceSummary {
+  games: EvaluationGameCountSummary;
+  wins: number;
+  losses: number;
+  winRate: EvaluationRateSummary;
+  contractSuccesses: number;
+  contractSuccessRate: EvaluationRateSummary;
+  averagePointCards: number | null;
+  failures: EvaluationFailureSummary;
+}
+
+export interface EvaluationRolePerformanceSummary extends EvaluationPerformanceSummary {
+  role: Exclude<EvaluationSeatRole, "unknown">;
+}
+
+export interface EvaluationSeatPerformanceSummary extends EvaluationPerformanceSummary {
+  seatIndex: number;
+}
+
+export interface EvaluationAgentPerformanceSummary extends EvaluationPerformanceSummary {
+  sourceAgentIndex: number;
+  agentName: string;
+  roleResults: readonly EvaluationRolePerformanceSummary[];
+  seatResults: readonly EvaluationSeatPerformanceSummary[];
+  comparison: EvaluationComparisonSummary;
+}
+
+export interface EvaluationComparisonSummary {
+  winRateDelta: number | null;
+  contractSuccessRateDelta: number | null;
+  averagePointCardsDelta: number | null;
+}
+
+export interface EvaluationReportSummary extends EvaluationPerformanceSummary {
+  expectedGameCount: number;
+}
+
+export interface EvaluationReport {
+  schemaVersion: 1;
+  sourceSchemaVersion: 1;
+  summary: EvaluationReportSummary;
+  agents: readonly EvaluationAgentPerformanceSummary[];
+  seats: readonly EvaluationSeatPerformanceSummary[];
+  roles: readonly EvaluationRolePerformanceSummary[];
+}
