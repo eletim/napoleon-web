@@ -13,12 +13,12 @@ dependencies = ["numpy>=1.26"]
 
 [project.optional-dependencies]
 train = ["torch>=2.2"]
-export = ["torch>=2.2", "onnx>=1.16", "onnxruntime>=1.18", "onnxscript>=0.1"]
+export = ["torch>=2.8", "onnx>=1.16", "onnxruntime>=1.18", "onnxscript>=0.1"]
 dev = [
     "pytest>=8",
     "mypy>=1.10",
     "ruff>=0.6",
-    "torch>=2.2",
+    "torch>=2.8",
     "onnx>=1.16",
     "onnxruntime>=1.18",
     "onnxscript>=0.1",
