@@ -18,7 +18,8 @@ learning, a parallel `DataLoader`, dataset caching, or compression. See
 ## Requirements
 
 Python 3.11 or newer. The only required runtime dependency is `numpy`.
-PyTorch is available through the `train` extra.
+PyTorch is available through the `train` extra. ONNX export and parity checks
+are available through the `export` extra.
 
 ## Setup
 
@@ -37,6 +38,12 @@ For a runtime install that includes only the training adapter dependency:
 
 ```bash
 python -m pip install -e "./python[train]"
+```
+
+For ONNX export and ONNX Runtime parity checks:
+
+```bash
+python -m pip install -e "./python[export]"
 ```
 
 ## Generating a dataset
@@ -468,6 +475,29 @@ napoleon-evaluate-policy-mlp ./datasets/rule-based-v1 \
   --split test
 ```
 
+Export a saved checkpoint for TypeScript-side inference:
+
+```bash
+napoleon-export-policy-onnx ./datasets/rule-based-v1 \
+  --checkpoint ./models/policy-mlp.pt \
+  --output ./models/policy-mlp.onnx \
+  --metadata-output ./models/policy-mlp.json
+```
+
+The ONNX model has one input named `model_input` with shape `(batch, 6242)`
+and dtype `float32`, and one output named `logits` with shape `(batch, 53)`
+and dtype `float32`; the batch dimension is dynamic. The JSON metadata records
+the dataset schema version, playing encoder schema version, model input schema
+version, `CARD_IDS` SHA-256 hash, ONNX input/output names, shapes, dtypes, ONNX
+opset, and the policy model config.
+
+Before writing a usable export, the command refuses a checkpoint whose saved
+schema metadata, `CARD_IDS` hash, model input size, state dict, or output logit
+shape is inconsistent with the current package and dataset. It then runs a
+CPU ONNX Runtime smoke check on the first validated dataset sample and verifies
+that PyTorch and ONNX Runtime logits match within tolerance and that
+`legal_play_mask`-masked top-1 selection picks the same card.
+
 The report includes top-1 accuracy and counts for all positions, forced
 positions with exactly one legal card, and non-forced positions with
 multiple legal cards. It also reports the expected accuracy of a legal-card
@@ -511,5 +541,5 @@ output is committed.
 ## Not implemented
 
 TensorFlow, JAX, behavior cloning, actor-critic or other reinforcement
-learning, ONNX export, GPU code, TensorBoard, shuffle, a parallel
+learning, GPU code, TensorBoard, shuffle, a parallel
 `DataLoader`, dataset caching, gzip/compression, and a database or web UI.
