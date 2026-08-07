@@ -239,6 +239,10 @@ def _validate_export_paths(*, checkpoint_path: Path, onnx_path: Path, metadata_p
         raise PolicyCheckpointCompatibilityError(
             "ONNX output and metadata output must be different paths."
         )
+    if _is_nested_path(resolved_onnx, resolved_metadata):
+        raise PolicyCheckpointCompatibilityError(
+            "ONNX output and metadata output must not be nested under each other."
+        )
     if resolved_onnx == resolved_checkpoint:
         raise PolicyCheckpointCompatibilityError(
             "ONNX output and checkpoint input must be different paths."
@@ -249,6 +253,10 @@ def _validate_export_paths(*, checkpoint_path: Path, onnx_path: Path, metadata_p
         )
     _validate_writable_artifact_path(onnx_path, label="ONNX output")
     _validate_writable_artifact_path(metadata_path, label="metadata output")
+
+
+def _is_nested_path(first: Path, second: Path) -> bool:
+    return first != second and (first.is_relative_to(second) or second.is_relative_to(first))
 
 
 def _validate_writable_artifact_path(path: Path, *, label: str) -> None:

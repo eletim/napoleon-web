@@ -640,6 +640,65 @@ def test_policy_onnx_export_cli_rejects_overlapping_output_paths(
     assert not output_path.exists()
 
 
+@pytest.mark.parametrize("metadata_nested_under_output", (True, False))
+def test_policy_onnx_export_cli_rejects_nested_artifact_paths_before_output(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    metadata_nested_under_output: bool,
+) -> None:
+    _write_dataset(tmp_path, seeds=(0, 1, 2))
+    checkpoint_path = tmp_path.parent / f"{tmp_path.name}-policy.pt"
+    artifact_root = tmp_path.parent / f"{tmp_path.name}-artifact"
+    if metadata_nested_under_output:
+        onnx_path = artifact_root
+        metadata_path = artifact_root / "policy.json"
+    else:
+        onnx_path = artifact_root / "policy.onnx"
+        metadata_path = artifact_root
+    assert (
+        train_main(
+            [
+                str(tmp_path),
+                "--output",
+                str(checkpoint_path),
+                "--epochs",
+                "1",
+                "--batch-size",
+                "1",
+                "--hidden-dim",
+                "8",
+                "--hidden-layers",
+                "1",
+                "--train-ratio",
+                "1",
+                "--validation-ratio",
+                "1",
+                "--test-ratio",
+                "98",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    exit_code = export_main(
+        [
+            str(tmp_path),
+            "--checkpoint",
+            str(checkpoint_path),
+            "--output",
+            str(onnx_path),
+            "--metadata-output",
+            str(metadata_path),
+        ]
+    )
+
+    assert exit_code == 1
+    assert "must not be nested under each other" in capsys.readouterr().err
+    assert not artifact_root.exists()
+
+
 def test_policy_onnx_export_cli_rejects_checkpoint_output_path_overlap(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
