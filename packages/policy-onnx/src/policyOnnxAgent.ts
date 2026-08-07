@@ -17,6 +17,11 @@ export interface PolicyOnnxAgentOptions {
   playerIds?: readonly PlayerId[];
 }
 
+export interface PolicyOnnxPlayInput {
+  modelInput: Float32Array;
+  legalPlayMask: readonly number[];
+}
+
 export class PolicyOnnxAgent implements Agent {
   private readonly policy: PolicyOnnxModel;
   private readonly ruleBasedAgent: RuleBasedAgent;
@@ -33,26 +38,10 @@ export class PolicyOnnxAgent implements Agent {
       return this.ruleBasedAgent.selectAction(observation);
     }
 
-    const publicActionHistory = observation.publicActionHistory;
-    if (publicActionHistory === undefined) {
-      throw new PolicyOnnxCompatibilityError(
-        "PolicyOnnxAgent requires PlayerObservation.publicActionHistory to build biddingHistory."
-      );
-    }
-
-    const playerIds = this.playerIds ?? observation.view.players.map((player) => player.id);
-    const relativePlayerIds = createRelativePlayerOrder(playerIds, observation.playerId);
-    const biddingHistory = encodeBiddingHistoryFromPublicActions(
-      publicActionHistory,
-      Number.POSITIVE_INFINITY,
-      relativePlayerIds
-    );
-    const encodedObservation = encodePlayingObservation(
+    const { modelInput, legalPlayMask } = createPolicyOnnxPlayInput(
       observation,
-      playerIds,
-      biddingHistory
+      this.playerIds ?? undefined
     );
-    const { modelInput, legalPlayMask } = createPlayingModelInput(encodedObservation);
     const selection = await this.policy.selectLegalPlay({ modelInput, legalPlayMask });
     const selectedCardId = getCardId(selection.selectedCardIndex);
     const selectedAction = observation.legalActions.find(
@@ -67,4 +56,37 @@ export class PolicyOnnxAgent implements Agent {
 
     return selectedAction;
   }
+}
+
+export function createPolicyOnnxPlayInput(
+  observation: PlayerObservation,
+  playerIds?: readonly PlayerId[]
+): PolicyOnnxPlayInput {
+  if (observation.view.phase !== "playing") {
+    throw new PolicyOnnxCompatibilityError(
+      `createPolicyOnnxPlayInput requires a playing observation, got ${observation.view.phase}.`
+    );
+  }
+
+  const publicActionHistory = observation.publicActionHistory;
+  if (publicActionHistory === undefined) {
+    throw new PolicyOnnxCompatibilityError(
+      "PolicyOnnxAgent requires PlayerObservation.publicActionHistory to build biddingHistory."
+    );
+  }
+
+  const absolutePlayerIds = playerIds ?? observation.view.players.map((player) => player.id);
+  const relativePlayerIds = createRelativePlayerOrder(absolutePlayerIds, observation.playerId);
+  const biddingHistory = encodeBiddingHistoryFromPublicActions(
+    publicActionHistory,
+    null,
+    relativePlayerIds
+  );
+  const encodedObservation = encodePlayingObservation(
+    observation,
+    absolutePlayerIds,
+    biddingHistory
+  );
+
+  return createPlayingModelInput(encodedObservation);
 }

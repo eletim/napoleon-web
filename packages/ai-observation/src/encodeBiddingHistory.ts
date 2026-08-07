@@ -53,11 +53,11 @@ export function encodeBiddingHistory(
 
 export function encodeBiddingHistoryFromPublicActions(
   publicActionHistory: readonly PublicActionRecord[],
-  beforeStep: number,
+  beforeStep: number | null,
   relativePlayerIds: readonly PlayerId[]
 ): EncodedBiddingHistory {
   const biddingDecisions = publicActionHistory.filter(
-    (record) => record.phase === "bidding" && record.step < beforeStep
+    (record) => record.phase === "bidding" && (beforeStep === null || record.step < beforeStep)
   );
 
   if (biddingDecisions.length > MAX_BIDDING_ACTION_COUNT) {

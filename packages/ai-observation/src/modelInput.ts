@@ -27,10 +27,74 @@ interface OneHotIndexField {
   minValue: number;
 }
 
+export interface ModelInputFeatureSlice {
+  name: string;
+  start: number;
+  stop: number;
+  shape: readonly number[];
+  dtype: "float32";
+}
+
 export interface PlayingModelInput {
   modelInput: Float32Array;
   legalPlayMask: readonly number[];
 }
+
+const FLAT_LAYOUT_SPEC: readonly (readonly [string, readonly number[]])[] = [
+  ["trumpSuitOneHot", [4]],
+  ["napoleonPlayerOneHot", [PLAYER_COUNT]],
+  ["revealedAdjutantPlayerOneHot", [PLAYER_COUNT + 1]],
+  ["calledAdjutantCardMask", [CARD_COUNT]],
+  ["selfHandMask", [CARD_COUNT]],
+  ["legalPlayMask", [CARD_COUNT]],
+  ["handCountByPlayer", [PLAYER_COUNT]],
+  ["capturedPointCardMaskByPlayer", [PLAYER_COUNT, CARD_COUNT]],
+  ["currentTrickSlotMask", [CARDS_PER_TRICK]],
+  ["completedTrickSlotMask", [COMPLETED_TRICK_CARD_SLOT_COUNT]],
+  ["completedTrickMask", [TRICK_COUNT]],
+  ["biddingHistoryActionMask", [MAX_BIDDING_ACTION_COUNT]],
+  ["latestBuriedEventPointCardMask", [CARD_COUNT]],
+  ["trickNumber", [1]],
+  ["completedTrickCount", [1]],
+  ["contractTargetPointCards", [1]],
+  ["latestBuriedEventHiddenNonPointCount", [1]],
+  ["latestBuriedEventPresent", [1]]
+];
+
+const MODEL_INPUT_ONEHOT_SPEC: readonly (readonly [string, readonly number[]])[] = [
+  ["specialCardIndicesOneHot", [SPECIAL_CARD_INDEX_COUNT, CARD_COUNT]],
+  ["currentTrickCardIndicesOneHot", [CARDS_PER_TRICK, CARD_COUNT]],
+  ["completedTrickCardIndicesOneHot", [COMPLETED_TRICK_CARD_SLOT_COUNT, CARD_COUNT]],
+  ["currentTrickPlayerIndicesOneHot", [CARDS_PER_TRICK, PLAYER_COUNT]],
+  ["completedTrickPlayerIndicesOneHot", [COMPLETED_TRICK_CARD_SLOT_COUNT, PLAYER_COUNT]],
+  ["completedTrickWinnerIndicesOneHot", [TRICK_COUNT, PLAYER_COUNT]],
+  ["biddingHistoryActionTypeIndicesOneHot", [MAX_BIDDING_ACTION_COUNT, BIDDING_ACTION_TYPE_CLASS_COUNT]],
+  ["biddingHistoryPlayerIndicesOneHot", [MAX_BIDDING_ACTION_COUNT, PLAYER_COUNT]],
+  ["biddingHistorySuitIndicesOneHot", [MAX_BIDDING_ACTION_COUNT, BIDDING_HISTORY_SUIT_ORDER.length]],
+  ["biddingHistoryTargetPointCardsOneHot", [MAX_BIDDING_ACTION_COUNT, BIDDING_TARGET_POINT_CARDS_CLASS_COUNT]]
+];
+
+export const FLAT_OBSERVATION_LAYOUT: readonly ModelInputFeatureSlice[] = buildLayout(
+  FLAT_LAYOUT_SPEC,
+  0
+);
+export const MODEL_INPUT_ONEHOT_LAYOUT: readonly ModelInputFeatureSlice[] = buildLayout(
+  MODEL_INPUT_ONEHOT_SPEC,
+  FLAT_OBSERVATION_FEATURE_COUNT
+);
+export const MODEL_INPUT_LAYOUT: readonly ModelInputFeatureSlice[] = [
+  ...FLAT_OBSERVATION_LAYOUT,
+  ...MODEL_INPUT_ONEHOT_LAYOUT
+];
+
+validateLayout(FLAT_OBSERVATION_LAYOUT, 0, FLAT_OBSERVATION_FEATURE_COUNT, "FLAT_OBSERVATION_LAYOUT");
+validateLayout(
+  MODEL_INPUT_ONEHOT_LAYOUT,
+  FLAT_OBSERVATION_FEATURE_COUNT,
+  MODEL_INPUT_FEATURE_COUNT,
+  "MODEL_INPUT_ONEHOT_LAYOUT"
+);
+validateLayout(MODEL_INPUT_LAYOUT, 0, MODEL_INPUT_FEATURE_COUNT, "MODEL_INPUT_LAYOUT");
 
 export function createPlayingModelInput(
   observation: EncodedPlayingObservation
@@ -196,5 +260,56 @@ function appendOneHotIndexField(target: number[], field: OneHotIndexField): void
 function append(target: number[], values: readonly number[]): void {
   for (const value of values) {
     target.push(value);
+  }
+}
+
+function buildLayout(
+  spec: readonly (readonly [string, readonly number[]])[],
+  start: number
+): readonly ModelInputFeatureSlice[] {
+  const slices: ModelInputFeatureSlice[] = [];
+  let offset = start;
+
+  for (const [name, shape] of spec) {
+    const length = shape.reduce((product, dimension) => product * dimension, 1);
+    slices.push({
+      name,
+      start: offset,
+      stop: offset + length,
+      shape,
+      dtype: "float32"
+    });
+    offset += length;
+  }
+
+  return slices;
+}
+
+function validateLayout(
+  layout: readonly ModelInputFeatureSlice[],
+  expectedStart: number,
+  expectedStop: number,
+  label: string
+): void {
+  let offset = expectedStart;
+  const names = new Set<string>();
+
+  for (const feature of layout) {
+    if (feature.start !== offset) {
+      throw new Error(`${label} has a gap or overlap before ${feature.name}.`);
+    }
+    if (feature.stop <= feature.start) {
+      throw new Error(`${label} slice ${feature.name} is empty.`);
+    }
+    if (names.has(feature.name)) {
+      throw new Error(`${label} contains duplicate feature name ${feature.name}.`);
+    }
+
+    names.add(feature.name);
+    offset = feature.stop;
+  }
+
+  if (offset !== expectedStop) {
+    throw new Error(`${label} must stop at ${expectedStop}, got ${offset}.`);
   }
 }

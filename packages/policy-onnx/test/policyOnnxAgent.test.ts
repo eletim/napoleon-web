@@ -3,6 +3,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { RuleBasedAgent, runAutomatedGame } from "@napoleon/ai";
+import {
+  createPlayingTrainingSample,
+  encodePlayingModelInput
+} from "@napoleon/ai-observation";
 import type { GameAction } from "@napoleon/game-core";
 import {
   CARD_COUNT,
@@ -12,6 +16,7 @@ import {
   ONNX_OUTPUT_NAME,
   PolicyOnnxAgent,
   calculateCardIdsSha256,
+  createPolicyOnnxPlayInput,
   loadPolicyOnnxModel
 } from "../src/index.js";
 import type { PolicyOnnxModel } from "../src/index.js";
@@ -58,6 +63,32 @@ describe("PolicyOnnxAgent", () => {
     });
 
     expect(nonPlayingActions(onnx)).toEqual(nonPlayingActions(ruleBased));
+  });
+
+  it("builds the same live model input as the training sample pipeline", async () => {
+    const source = await runAutomatedGame({
+      seed: 12345,
+      createAgent: ({ rng }) => new RuleBasedAgent(rng)
+    });
+    const decision = source.decisions.find(
+      (candidate) => candidate.phase === "playing" && candidate.action.type === "play-card"
+    );
+
+    if (decision === undefined) {
+      throw new Error("Expected a playing decision.");
+    }
+
+    const liveInput = createPolicyOnnxPlayInput(decision.observation, source.playerIds);
+    const sample = createPlayingTrainingSample(source, decision);
+
+    if (sample === null) {
+      throw new Error("Expected a playing sample.");
+    }
+
+    expect(liveInput.legalPlayMask).toEqual(sample.observation.legalPlayMask);
+    expect(Buffer.from(liveInput.modelInput.buffer)).toEqual(
+      Buffer.from(encodePlayingModelInput(sample.observation).buffer)
+    );
   });
 
   it("does not silently fall back to RuleBasedAgent when inference fails", async () => {

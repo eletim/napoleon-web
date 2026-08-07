@@ -28,9 +28,12 @@ export {
 export type { EncodedPlayingObservation } from "./encodePlayingObservation.js";
 export {
   createPlayingModelInput,
-  encodePlayingModelInput
+  encodePlayingModelInput,
+  FLAT_OBSERVATION_LAYOUT,
+  MODEL_INPUT_LAYOUT,
+  MODEL_INPUT_ONEHOT_LAYOUT
 } from "./modelInput.js";
-export type { PlayingModelInput } from "./modelInput.js";
+export type { ModelInputFeatureSlice, PlayingModelInput } from "./modelInput.js";
 export { createRelativePlayerOrder, getRelativePlayerIndex } from "./playerIndex.js";
 export {
   CARD_COUNT,

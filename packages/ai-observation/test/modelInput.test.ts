@@ -3,13 +3,55 @@ import { RuleBasedAgent, runAutomatedGame } from "@napoleon/ai";
 import {
   CARD_COUNT,
   FLAT_OBSERVATION_FEATURE_COUNT,
+  FLAT_OBSERVATION_LAYOUT,
+  MODEL_INPUT_LAYOUT,
   MODEL_INPUT_FEATURE_COUNT,
+  MODEL_INPUT_ONEHOT_LAYOUT,
   createPlayingTrainingSample,
   encodePlayingModelInput,
   getCardIndex
 } from "../src/index.js";
 
 describe("encodePlayingModelInput", () => {
+  it("matches the Python MODEL_INPUT_LAYOUT slice contract", () => {
+    expect(FLAT_OBSERVATION_LAYOUT).toEqual([
+      { name: "trumpSuitOneHot", start: 0, stop: 4, shape: [4], dtype: "float32" },
+      { name: "napoleonPlayerOneHot", start: 4, stop: 9, shape: [5], dtype: "float32" },
+      { name: "revealedAdjutantPlayerOneHot", start: 9, stop: 15, shape: [6], dtype: "float32" },
+      { name: "calledAdjutantCardMask", start: 15, stop: 68, shape: [53], dtype: "float32" },
+      { name: "selfHandMask", start: 68, stop: 121, shape: [53], dtype: "float32" },
+      { name: "legalPlayMask", start: 121, stop: 174, shape: [53], dtype: "float32" },
+      { name: "handCountByPlayer", start: 174, stop: 179, shape: [5], dtype: "float32" },
+      { name: "capturedPointCardMaskByPlayer", start: 179, stop: 444, shape: [5, 53], dtype: "float32" },
+      { name: "currentTrickSlotMask", start: 444, stop: 449, shape: [5], dtype: "float32" },
+      { name: "completedTrickSlotMask", start: 449, stop: 499, shape: [50], dtype: "float32" },
+      { name: "completedTrickMask", start: 499, stop: 509, shape: [10], dtype: "float32" },
+      { name: "biddingHistoryActionMask", start: 509, stop: 626, shape: [117], dtype: "float32" },
+      { name: "latestBuriedEventPointCardMask", start: 626, stop: 679, shape: [53], dtype: "float32" },
+      { name: "trickNumber", start: 679, stop: 680, shape: [1], dtype: "float32" },
+      { name: "completedTrickCount", start: 680, stop: 681, shape: [1], dtype: "float32" },
+      { name: "contractTargetPointCards", start: 681, stop: 682, shape: [1], dtype: "float32" },
+      { name: "latestBuriedEventHiddenNonPointCount", start: 682, stop: 683, shape: [1], dtype: "float32" },
+      { name: "latestBuriedEventPresent", start: 683, stop: 684, shape: [1], dtype: "float32" }
+    ]);
+    expect(MODEL_INPUT_ONEHOT_LAYOUT).toEqual([
+      { name: "specialCardIndicesOneHot", start: 684, stop: 896, shape: [4, 53], dtype: "float32" },
+      { name: "currentTrickCardIndicesOneHot", start: 896, stop: 1161, shape: [5, 53], dtype: "float32" },
+      { name: "completedTrickCardIndicesOneHot", start: 1161, stop: 3811, shape: [50, 53], dtype: "float32" },
+      { name: "currentTrickPlayerIndicesOneHot", start: 3811, stop: 3836, shape: [5, 5], dtype: "float32" },
+      { name: "completedTrickPlayerIndicesOneHot", start: 3836, stop: 4086, shape: [50, 5], dtype: "float32" },
+      { name: "completedTrickWinnerIndicesOneHot", start: 4086, stop: 4136, shape: [10, 5], dtype: "float32" },
+      { name: "biddingHistoryActionTypeIndicesOneHot", start: 4136, stop: 4370, shape: [117, 2], dtype: "float32" },
+      { name: "biddingHistoryPlayerIndicesOneHot", start: 4370, stop: 4955, shape: [117, 5], dtype: "float32" },
+      { name: "biddingHistorySuitIndicesOneHot", start: 4955, stop: 5423, shape: [117, 4], dtype: "float32" },
+      { name: "biddingHistoryTargetPointCardsOneHot", start: 5423, stop: 6242, shape: [117, 7], dtype: "float32" }
+    ]);
+    expect(MODEL_INPUT_LAYOUT).toEqual([
+      ...FLAT_OBSERVATION_LAYOUT,
+      ...MODEL_INPUT_ONEHOT_LAYOUT
+    ]);
+  });
+
   it("builds the fixed 6242-feature model_input from an encoded playing observation", async () => {
     const record = await runAutomatedGame({
       seed: 12345,
