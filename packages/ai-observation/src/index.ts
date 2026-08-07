@@ -1,9 +1,22 @@
 export { CARD_IDS, getCardId, getCardIndex } from "./cardIndex.js";
 export {
+  createBiddingTrainingSample,
+  createBiddingTrainingSamples,
+  validateBiddingTrainingSample
+} from "./createBiddingTrainingSample.js";
+export type { BiddingTrainingSample } from "./createBiddingTrainingSample.js";
+export {
   createPlayingTrainingSample,
   createPlayingTrainingSamples
 } from "./createPlayingTrainingSample.js";
 export type { PlayingTrainingSample } from "./createPlayingTrainingSample.js";
+export {
+  decodeBiddingAction,
+  encodeBiddingAction,
+  encodeLegalBidMask,
+  validateLegalBidMask
+} from "./encodeBiddingAction.js";
+export type { DecodedBiddingAction } from "./encodeBiddingAction.js";
 export {
   createEmptyEncodedBiddingHistory,
   encodeBiddingHistory,
@@ -12,6 +25,11 @@ export {
   validateEncodedBiddingHistory
 } from "./encodeBiddingHistory.js";
 export type { EncodedBiddingHistory } from "./encodeBiddingHistory.js";
+export {
+  encodeBiddingObservation,
+  validateEncodedBiddingObservation
+} from "./encodeBiddingObservation.js";
+export type { EncodedBiddingObservation } from "./encodeBiddingObservation.js";
 export {
   encodeBeliefTarget,
   validateEncodedBeliefTarget
@@ -36,10 +54,12 @@ export {
 export type { ModelInputFeatureSlice, PlayingModelInput } from "./modelInput.js";
 export { createRelativePlayerOrder, getRelativePlayerIndex } from "./playerIndex.js";
 export {
+  BIDDING_ACTION_COUNT,
   CARD_COUNT,
   CARDS_PER_TRICK,
   BIDDING_ACTION_TYPE_BID,
   BIDDING_ACTION_TYPE_PASS,
+  BIDDING_ENCODER_SCHEMA_VERSION,
   BIDDING_HISTORY_SUIT_ORDER,
   EMPTY_CARD_INDEX,
   EMPTY_BIDDING_ACTION_TYPE,
