@@ -1,7 +1,7 @@
 import type { AutomatedGameRecord, DecisionRecord } from "@napoleon/ai";
 import { encodeBiddingAction } from "./encodeBiddingAction.js";
-import { encodeBiddingObservation } from "./encodeBiddingObservation.js";
 import {
+  encodeBiddingObservation,
   validateEncodedBiddingObservation,
   type EncodedBiddingObservation
 } from "./encodeBiddingObservation.js";

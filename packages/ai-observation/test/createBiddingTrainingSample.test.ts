@@ -120,6 +120,38 @@ describe("createBiddingTrainingSample", () => {
     );
   });
 
+  it("falls back to public view bidding history when publicActionHistory is omitted", async () => {
+    const record = await createRecord(smokeSeed);
+    const decision = getBiddingDecisions(record).find(
+      (candidate) => (candidate.observation.publicActionHistory?.length ?? 0) > 0
+    );
+
+    if (decision === undefined || decision.observation.view.bidding === null) {
+      throw new Error("Expected a bidding decision with public history.");
+    }
+
+    const publicActionHistory = decision.observation.publicActionHistory ?? [];
+    const encodedWithPublicActionHistory = encodeBiddingObservation(
+      decision.observation,
+      record.playerIds
+    );
+    const encodedFromViewHistory = encodeBiddingObservation({
+      ...decision.observation,
+      publicActionHistory: undefined,
+      view: {
+        ...decision.observation.view,
+        bidding: {
+          ...decision.observation.view.bidding,
+          history: publicActionHistory.map((actionRecord) => actionRecord.action)
+        }
+      }
+    }, record.playerIds);
+
+    expect(encodedFromViewHistory.biddingHistory).toEqual(
+      encodedWithPublicActionHistory.biddingHistory
+    );
+  });
+
   it("keeps the fifth all-pass teacher as pass index 0 and adds no spades-12 action", async () => {
     const record = await createSyntheticAllPassRecord(smokeSeed);
     const decision = record.decisions[4];
