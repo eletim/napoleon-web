@@ -43,9 +43,17 @@ export function encodeBiddingHistory(
     );
   }
 
+  return encodeBiddingHistoryBeforeDecision(record, playingDecision, relativePlayerIds);
+}
+
+export function encodeBiddingHistoryBeforeDecision(
+  record: AutomatedGameRecord,
+  decision: DecisionRecord,
+  relativePlayerIds: readonly PlayerId[]
+): EncodedBiddingHistory {
   return encodeBiddingHistoryFromPublicActions(
     record.decisions
-      .filter((decision) => decision.step < playingDecision.step)
+      .filter((candidate) => candidate.step < decision.step)
       .flatMap(toPublicBiddingRecord),
     relativePlayerIds
   );

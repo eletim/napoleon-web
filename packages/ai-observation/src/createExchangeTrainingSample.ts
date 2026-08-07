@@ -1,7 +1,6 @@
-import type { AutomatedGameRecord, DecisionRecord, PublicActionRecord } from "@napoleon/ai";
-import type { GameAction } from "@napoleon/game-core";
+import type { AutomatedGameRecord, DecisionRecord } from "@napoleon/ai";
 import {
-  encodeBiddingHistoryFromPublicActions
+  encodeBiddingHistoryBeforeDecision
 } from "./encodeBiddingHistory.js";
 import { encodeDiscardAction, validateEncodedExchangeAction } from "./encodeExchangeAction.js";
 import type { EncodedExchangeAction } from "./encodeExchangeAction.js";
@@ -39,12 +38,7 @@ export function createExchangeTrainingSample(
   validateExchangeDecisionConsistency(record, decision);
 
   const relativePlayerIds = createRelativePlayerOrder(record.playerIds, decision.playerId);
-  const biddingHistory = encodeBiddingHistoryFromPublicActions(
-    record.decisions
-      .filter((candidate) => candidate.step < decision.step)
-      .flatMap(toPublicBiddingRecord),
-    relativePlayerIds
-  );
+  const biddingHistory = encodeBiddingHistoryBeforeDecision(record, decision, relativePlayerIds);
   const observation = encodeExchangeObservation(
     decision.observation,
     record.playerIds,
@@ -214,23 +208,4 @@ function expectIntegerInRange(name: string, value: number, min: number, max: num
   if (value < min || value > max) {
     throw new Error(`${name} must be between ${min} and ${max}, got ${value}.`);
   }
-}
-
-function toPublicBiddingRecord(decision: DecisionRecord): readonly PublicActionRecord[] {
-  if (decision.phase !== "bidding") {
-    return [];
-  }
-
-  if (decision.action.type !== "bid" && decision.action.type !== "pass") {
-    throw new Error(
-      `Bidding history supports only pass and bid actions, got ${(decision.action as GameAction).type}.`
-    );
-  }
-
-  return [{
-    step: decision.step,
-    playerId: decision.playerId,
-    phase: "bidding",
-    action: decision.action
-  }];
 }

@@ -26,6 +26,7 @@ export type { DecodedBiddingAction } from "./encodeBiddingAction.js";
 export {
   createEmptyEncodedBiddingHistory,
   encodeBiddingHistory,
+  encodeBiddingHistoryBeforeDecision,
   encodeBiddingHistoryFromPublicActions,
   getBiddingSuitIndex,
   validateEncodedBiddingHistory

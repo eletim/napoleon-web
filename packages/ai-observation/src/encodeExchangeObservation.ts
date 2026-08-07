@@ -13,6 +13,7 @@ import {
 } from "./schema.js";
 
 const SUIT_ORDER: readonly Suit[] = ["spades", "hearts", "diamonds", "clubs"];
+// All-pass bidding resolves to a forced spades-12 contract before exchange.
 const MIN_EXCHANGE_CONTRACT_TARGET_POINT_CARDS = 12;
 
 export interface EncodedExchangeObservation {
