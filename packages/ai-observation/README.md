@@ -1,13 +1,13 @@
 # @napoleon/ai-observation
 
-This package converts automated `bidding` and `playing` decisions into
+This package converts automated `bidding`, `exchanging`, and `playing` decisions into
 fixed-length, deterministic numeric schemas for future Actor training and
 hidden-card ownership supervision.
 
 Playing samples cover only `play-card` actions. Bidding samples cover only
-`pass` and `bid` actions. Adjutant selection, buried-card exchange, Python,
-neural-network models, PyTorch, ONNX, dataset files, and batch self-play
-generation are not included.
+`pass` and `bid` actions. Exchange samples cover only `discard-cards` actions.
+Adjutant selection, Python, neural-network models, PyTorch, ONNX, dataset files,
+and batch self-play generation are not included.
 
 ## Schema
 
@@ -19,6 +19,8 @@ generation are not included.
   - clubs `A, K, Q, J, 10, 9, 8, 7, 6, 5, 4, 3, 2`
   - joker
 - Actor action space: 53 card indices
+- Exchange discard target space: 53-card exactly 3-hot mask
+- Exchange legal discard mask: 53-card mask equal to Napoleon's 13-card self hand
 - Bidding schema version: `1`
 - Bidding action space: 29 fixed indices
   - index `0`: pass
@@ -30,7 +32,7 @@ generation are not included.
   `5` for not currently in any player's hand
 
 Actor observations are built only from `PlayerObservation`, the table player
-order, and public actions that occurred before the playing decision. They do not
+order, and public actions that occurred before the acting decision. They do not
 consume `ActualCardState`, actual opponent hands, excluded card ids, or any other
 complete-information field. Complete card locations are used only by
 `encodeBeliefTarget` to build supervised labels.
@@ -38,9 +40,9 @@ complete-information field. Complete card locations are used only by
 ## Bidding History
 
 `biddingHistory` stores only real bidding decisions whose `phase` is `bidding`
-and whose `step` is before the playing decision. The encoder does not reconstruct
-history from `view.bidding`, because that field is `null` after bidding has
-resolved.
+and whose `step` is before the playing or exchange decision. The encoder does not
+reconstruct history from `view.bidding`, because that field is `null` after
+bidding has resolved.
 
 `encodePlayingObservation()` requires a `biddingHistory` argument and never
 silently falls back to an empty history. Tests or tooling that need an explicit
@@ -48,6 +50,7 @@ empty fixed-length history can call `createEmptyEncodedBiddingHistory()` and pas
 that value. Normal training sample generation uses `encodeBiddingHistory()` to
 derive the real public bidding history from the automated game record, and
 `encodeBiddingHistory()` validates its generated schema before returning it.
+Exchange training sample generation uses the same `EncodedBiddingHistory` schema.
 
 - `actionTypeIndices`: `0` pass, `1` bid, `-1` empty
 - `playerIndices`: `0..4` actor-relative player index, `-1` empty
@@ -85,6 +88,28 @@ action encoded into `0..28`, and the validator requires
 not part of the action space, so the fifth all-pass teacher action remains
 `pass = 0`.
 
+## Exchange Observation
+
+`EncodedExchangeObservation` uses only Napoleon's exchange-time
+`PlayerObservation`, the absolute table player order, and the existing public
+`EncodedBiddingHistory`. It contains:
+
+- `relativePlayerIds`: `[5]`, with Napoleon at index `0`
+- `contractTargetPointCards`: `12..19`
+- `trumpSuitOneHot`: `[4]`
+- `calledAdjutantCardMask`: `[53]`
+- `selfHandMask`: `[53]`, exactly 13 cards
+- `legalDiscardCardMask`: `[53]`, exactly equal to `selfHandMask`
+- `handCountByPlayer`: `[5]`
+- `specialCardIndices`: public special card indices for the resolved trump
+- `biddingHistory`: existing fixed `[117]` public history fields
+
+`actorTarget.discardTargetMask` is a separate `[53]` exactly 3-hot mask. The
+three selected cards must be a subset of `legalDiscardCardMask`, and
+`discard-cards.cardIds` order is encoded as an unordered set. The observation
+does not include other players' hands, complete `ActualCardState`, unrevealed
+adjutant ownership, buried-card provenance, or the teacher discard mask.
+
 ## Major Shapes
 
 | Field | Shape |
@@ -94,6 +119,8 @@ not part of the action space, so the fifth all-pass teacher action remains
 | `revealedAdjutantPlayerOneHot` | `[6]` |
 | `calledAdjutantCardMask` | `[53]` |
 | `selfHandMask` | `[53]` |
+| `legalDiscardCardMask` | `[53]` |
+| `discardTargetMask` | `[53]` |
 | `legalPlayMask` | `[53]` |
 | `handCountByPlayer` | `[5]` |
 | `capturedPointCardMaskByPlayer` | `[5][53]` |
@@ -137,4 +164,7 @@ completed-trick counts, latest buried-card event consistency, and that
 `legalPlayMask` is a subset of the acting player's `selfHandMask`. Bidding
 history validation checks fixed lengths, contiguous action masks, pass/bid/empty
 slot consistency, relative player index ranges, suit index ranges, and bid target
-ranges before samples are handed to JSONL or downstream training code.
+ranges before samples are handed to JSONL or downstream training code. Exchange
+validation additionally requires Napoleon's self hand to be 13 cards,
+`discardCount` to be 3, `legalDiscardCardMask` to equal `selfHandMask`, and
+`discardTargetMask` to be an exactly 3-card subset of that legal mask.

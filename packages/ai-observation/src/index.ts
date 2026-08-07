@@ -6,6 +6,12 @@ export {
 } from "./createBiddingTrainingSample.js";
 export type { BiddingTrainingSample } from "./createBiddingTrainingSample.js";
 export {
+  createExchangeTrainingSample,
+  createExchangeTrainingSamples,
+  validateExchangeTrainingSample
+} from "./createExchangeTrainingSample.js";
+export type { ExchangeTrainingSample } from "./createExchangeTrainingSample.js";
+export {
   createPlayingTrainingSample,
   createPlayingTrainingSamples
 } from "./createPlayingTrainingSample.js";
@@ -20,6 +26,7 @@ export type { DecodedBiddingAction } from "./encodeBiddingAction.js";
 export {
   createEmptyEncodedBiddingHistory,
   encodeBiddingHistory,
+  encodeBiddingHistoryBeforeDecision,
   encodeBiddingHistoryFromPublicActions,
   getBiddingSuitIndex,
   validateEncodedBiddingHistory
@@ -35,6 +42,17 @@ export {
   validateEncodedBeliefTarget
 } from "./encodeBeliefTarget.js";
 export type { EncodedBeliefTarget } from "./encodeBeliefTarget.js";
+export {
+  encodeDiscardAction,
+  validateEncodedExchangeAction,
+  validateLegalDiscardCardMask
+} from "./encodeExchangeAction.js";
+export type { EncodedExchangeAction } from "./encodeExchangeAction.js";
+export {
+  encodeExchangeObservation,
+  validateEncodedExchangeObservation
+} from "./encodeExchangeObservation.js";
+export type { EncodedExchangeObservation } from "./encodeExchangeObservation.js";
 export {
   encodePlayAction
 } from "./encodePlayAction.js";
@@ -65,6 +83,7 @@ export {
   EMPTY_BIDDING_ACTION_TYPE,
   EMPTY_BIDDING_SUIT_INDEX,
   EMPTY_PLAYER_INDEX,
+  EXCHANGE_ENCODER_SCHEMA_VERSION,
   FLAT_OBSERVATION_FEATURE_COUNT,
   MAX_BIDDING_ACTION_COUNT,
   MAX_BIDDING_TARGET_POINT_CARDS,

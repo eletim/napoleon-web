@@ -6,6 +6,7 @@ import type { Suit } from "@napoleon/game-core";
 
 export const PLAYING_ENCODER_SCHEMA_VERSION = 1 as const;
 export const BIDDING_ENCODER_SCHEMA_VERSION = 1 as const;
+export const EXCHANGE_ENCODER_SCHEMA_VERSION = 1 as const;
 export const MODEL_INPUT_SCHEMA_VERSION = 1 as const;
 
 export const CARD_COUNT = 53;
