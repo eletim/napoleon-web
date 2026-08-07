@@ -36,9 +36,9 @@ highest-logit card index.
 card exchange, and adjutant selection are delegated to the existing
 `RuleBasedAgent`. The agent builds the existing encoded playing observation,
 `model_input`, and `legalPlayMask` from the current player observation plus
-`runAutomatedGame`'s public action history. Missing public history, schema/hash
-drift, shape mismatch, or inference failure is treated as an error and is not
-silently converted into a RuleBased play.
+`runAutomatedGame`'s public bidding action history. During play, missing bidding
+history, schema/hash drift, shape mismatch, or inference failure is treated as an
+error and is not silently converted into a RuleBased play.
 
 The loader rejects artifacts whose metadata or ONNX graph disagrees with the
 expected contract:

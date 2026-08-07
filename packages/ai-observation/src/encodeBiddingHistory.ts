@@ -1,5 +1,4 @@
-import type { AutomatedGameRecord, DecisionRecord } from "@napoleon/ai";
-import type { PublicActionRecord } from "@napoleon/ai";
+import type { AutomatedGameRecord, DecisionRecord, PublicActionRecord } from "@napoleon/ai";
 import type { GameAction, PlayerId, Suit } from "@napoleon/game-core";
 import { getRelativePlayerIndex } from "./playerIndex.js";
 import {
@@ -45,7 +44,7 @@ export function encodeBiddingHistory(
   }
 
   return encodeBiddingHistoryFromPublicActions(
-    record.decisions,
+    record.decisions.flatMap(toPublicBiddingRecord),
     playingDecision.step,
     relativePlayerIds
   );
@@ -98,7 +97,7 @@ export function encodeBiddingHistoryFromPublicActions(
       return;
     }
 
-    throw new Error(`Bidding history supports only pass and bid actions, got ${action.type}.`);
+    throw new Error("Bidding history supports only pass and bid actions.");
   });
 
   const result: EncodedBiddingHistory = {
@@ -206,6 +205,23 @@ function encodeBiddingActionType(action: GameAction): number {
     default:
       throw new Error(`Bidding history supports only pass and bid actions, got ${action.type}.`);
   }
+}
+
+function toPublicBiddingRecord(decision: DecisionRecord): readonly PublicActionRecord[] {
+  if (decision.phase !== "bidding") {
+    return [];
+  }
+
+  if (decision.action.type !== "bid" && decision.action.type !== "pass") {
+    throw new Error("Bidding history supports only pass and bid actions.");
+  }
+
+  return [{
+    step: decision.step,
+    playerId: decision.playerId,
+    phase: decision.phase,
+    action: decision.action
+  }];
 }
 
 function expectLength(name: string, value: readonly unknown[], expectedLength: number): void {

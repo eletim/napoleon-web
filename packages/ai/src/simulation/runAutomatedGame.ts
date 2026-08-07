@@ -74,12 +74,17 @@ export async function runAutomatedGame(
       playerId,
       view,
       legalActions,
-      publicActionHistory: decisions.map((decision) => ({
-        step: decision.step,
-        playerId: decision.playerId,
-        phase: decision.phase,
-        action: decision.action
-      }))
+      publicActionHistory: decisions.flatMap((decision) =>
+        decision.phase === "bidding" &&
+        (decision.action.type === "bid" || decision.action.type === "pass")
+          ? [{
+              step: decision.step,
+              playerId: decision.playerId,
+              phase: decision.phase,
+              action: decision.action
+            }]
+          : []
+      )
     };
     const action = await agent.selectAction(observation);
 

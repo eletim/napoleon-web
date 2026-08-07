@@ -128,21 +128,33 @@ describe("runAutomatedGame", () => {
     }
   });
 
-  it("includes prior public actions in each observation", async () => {
+  it("includes only prior public bidding actions in each observation", async () => {
     const record = await runAutomatedGame({
       seed: 777,
       createAgent: ({ rng }) => new RuleBasedAgent(rng)
     });
 
-    record.decisions.forEach((decision, index) => {
+    record.decisions.forEach((decision) => {
       expect(decision.observation.publicActionHistory).toEqual(
-        record.decisions.slice(0, index).map((previous) => ({
-          step: previous.step,
-          playerId: previous.playerId,
-          phase: previous.phase,
-          action: previous.action
-        }))
+        record.decisions
+          .filter(
+            (previous) =>
+              previous.step < decision.step &&
+              previous.phase === "bidding" &&
+              (previous.action.type === "bid" || previous.action.type === "pass")
+          )
+          .map((previous) => ({
+            step: previous.step,
+            playerId: previous.playerId,
+            phase: previous.phase,
+            action: previous.action
+          }))
       );
+      expect(
+        decision.observation.publicActionHistory?.every(
+          (record) => record.action.type === "bid" || record.action.type === "pass"
+        )
+      ).toBe(true);
     });
   });
 

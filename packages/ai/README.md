@@ -6,9 +6,9 @@
 `runAutomatedGame` simulation.
 
 `runAutomatedGame` passes each agent a `PlayerObservation` containing the player
-view, legal actions, and prior public action history. Existing agents can ignore
-the history; policy agents that need public bidding history can use it without
-accessing hidden card state.
+view, legal actions, and prior public bidding action history. Existing agents
+can ignore the history; policy agents that need bidding history can use it
+without accessing hidden card state.
 
 ```ts
 import { RuleBasedAgent, runEvaluation } from "@napoleon/ai";

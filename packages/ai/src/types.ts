@@ -1,10 +1,10 @@
-import type { GameAction, GamePhase, PlayerId, PlayerView } from "@napoleon/game-core";
+import type { BidAction, PassAction, GameAction, PlayerId, PlayerView } from "@napoleon/game-core";
 
 export interface PublicActionRecord {
   step: number;
   playerId: PlayerId;
-  phase: GamePhase;
-  action: GameAction;
+  phase: "bidding";
+  action: BidAction | PassAction;
 }
 
 export interface PlayerObservation {
