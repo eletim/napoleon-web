@@ -2,7 +2,6 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { GameAction } from "@napoleon/game-core";
 import {
   CARD_COUNT,
   MODEL_INPUT_FEATURE_COUNT,
@@ -14,7 +13,7 @@ import {
   loadPolicyOnnxModel,
   runPolicyVsRuleBasedEvaluation
 } from "../src/index.js";
-import type { PolicyOnnxModel } from "../src/index.js";
+import type { PolicyOnnxModel, SelectLegalPlayInput } from "../src/index.js";
 import { createConstantPolicyOnnx } from "./testOnnxFixture.js";
 
 const playerIds = ["player-0", "player-1", "player-2", "player-3", "player-4"] as const;
@@ -153,6 +152,42 @@ describe("runPolicyVsRuleBasedEvaluation", () => {
         "forced policy failure": 20
       }
     });
+  });
+
+  it("counts ONNX selections outside legal play actions as illegal action failures", async () => {
+    const illegalSelectionPolicy = {
+      metadata: createMetadata(),
+      async selectLegalPlay(input: SelectLegalPlayInput) {
+        const illegalCardIndex = Array.from(
+          { length: input.legalPlayMask.length },
+          (_, index) => index
+        ).find((index) => input.legalPlayMask[index] === 0);
+
+        if (illegalCardIndex === undefined) {
+          throw new Error("Expected at least one illegal card index.");
+        }
+
+        return {
+          selectedCardIndex: illegalCardIndex,
+          logits: new Float32Array(CARD_COUNT)
+        };
+      }
+    } as unknown as PolicyOnnxModel;
+    const result = await runPolicyVsRuleBasedEvaluation({
+      policy: illegalSelectionPolicy,
+      startSeed: 810,
+      gameCount: 1,
+      playerIds
+    });
+
+    expect(result.run.games).toHaveLength(5);
+    expect(result.run.completedCount).toBe(0);
+    expect(result.run.failedCount).toBe(5);
+    expect(result.comparison.failedGames).toHaveLength(5);
+    expect(result.comparison.illegalActionCount).toBe(5);
+    expect(result.comparison.failedGames.every((game) =>
+      game.failureReason.includes("outside legal actions")
+    )).toBe(true);
   });
 });
 
