@@ -1,13 +1,29 @@
+import type { EncodedAdjutantObservation } from "./encodeAdjutantObservation.js";
+import { validateEncodedAdjutantObservation } from "./encodeAdjutantObservation.js";
+import type { EncodedBiddingHistory } from "./encodeBiddingHistory.js";
+import type { EncodedBiddingObservation } from "./encodeBiddingObservation.js";
+import { validateEncodedBiddingObservation } from "./encodeBiddingObservation.js";
+import type { EncodedExchangeObservation } from "./encodeExchangeObservation.js";
+import { validateEncodedExchangeObservation } from "./encodeExchangeObservation.js";
 import type { EncodedPlayingObservation } from "./encodePlayingObservation.js";
 import { validateEncodedPlayingObservation } from "./encodePlayingObservation.js";
 import {
+  ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
+  ADJUTANT_MODEL_INPUT_SCHEMA_VERSION,
+  BIDDING_ACTION_COUNT,
   BIDDING_HISTORY_SUIT_ORDER,
+  BIDDING_MODEL_INPUT_FEATURE_COUNT,
+  BIDDING_MODEL_INPUT_SCHEMA_VERSION,
   CARD_COUNT,
   CARDS_PER_TRICK,
+  EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
+  EXCHANGE_MODEL_INPUT_SCHEMA_VERSION,
   FLAT_OBSERVATION_FEATURE_COUNT,
   MAX_BIDDING_ACTION_COUNT,
   MAX_BIDDING_TARGET_POINT_CARDS,
   MIN_BIDDING_TARGET_POINT_CARDS,
+  MIN_CONTRACT_TARGET_POINT_CARDS,
+  MODEL_INPUT_SCHEMA_VERSION,
   MODEL_INPUT_FEATURE_COUNT,
   PLAYER_COUNT,
   TRICK_COUNT
@@ -18,6 +34,9 @@ const SPECIAL_CARD_INDEX_COUNT = 4;
 const BIDDING_ACTION_TYPE_CLASS_COUNT = 2;
 const BIDDING_TARGET_POINT_CARDS_CLASS_COUNT =
   MAX_BIDDING_TARGET_POINT_CARDS - MIN_BIDDING_TARGET_POINT_CARDS + 1;
+const CONTRACT_TARGET_POINT_CARDS_CLASS_COUNT =
+  MAX_BIDDING_TARGET_POINT_CARDS - MIN_CONTRACT_TARGET_POINT_CARDS + 1;
+const CONSECUTIVE_PASS_COUNT_CLASS_COUNT = PLAYER_COUNT + 1;
 
 interface OneHotIndexField {
   name: string;
@@ -39,6 +58,21 @@ export interface ModelInputFeatureSlice {
 export interface PlayingModelInput {
   modelInput: Float32Array;
   legalPlayMask: readonly number[];
+}
+
+export interface BiddingModelInput {
+  modelInput: Float32Array;
+  legalBidMask: readonly number[];
+}
+
+export interface ExchangeModelInput {
+  modelInput: Float32Array;
+  legalDiscardCardMask: readonly number[];
+}
+
+export interface AdjutantModelInput {
+  modelInput: Float32Array;
+  legalAdjutantMask: readonly number[];
 }
 
 const FLAT_LAYOUT_SPEC: readonly (readonly [string, readonly number[]])[] = [
@@ -75,6 +109,48 @@ const MODEL_INPUT_ONEHOT_SPEC: readonly (readonly [string, readonly number[]])[]
   ["biddingHistoryTargetPointCardsOneHot", [MAX_BIDDING_ACTION_COUNT, BIDDING_TARGET_POINT_CARDS_CLASS_COUNT]]
 ];
 
+const BIDDING_HISTORY_ONEHOT_SPEC: readonly (readonly [string, readonly number[]])[] = [
+  ["biddingHistoryActionTypeIndicesOneHot", [MAX_BIDDING_ACTION_COUNT, BIDDING_ACTION_TYPE_CLASS_COUNT]],
+  ["biddingHistoryPlayerIndicesOneHot", [MAX_BIDDING_ACTION_COUNT, PLAYER_COUNT]],
+  ["biddingHistorySuitIndicesOneHot", [MAX_BIDDING_ACTION_COUNT, BIDDING_HISTORY_SUIT_ORDER.length]],
+  ["biddingHistoryTargetPointCardsOneHot", [MAX_BIDDING_ACTION_COUNT, BIDDING_TARGET_POINT_CARDS_CLASS_COUNT]]
+];
+
+const BIDDING_MODEL_INPUT_SPEC: readonly (readonly [string, readonly number[]])[] = [
+  ["selfHandMask", [CARD_COUNT]],
+  ["legalBidMask", [BIDDING_ACTION_COUNT]],
+  ["starterPlayerOneHot", [PLAYER_COUNT]],
+  ["highestBidPresent", [1]],
+  ["highestBidPlayerOneHot", [PLAYER_COUNT]],
+  ["highestBidSuitOneHot", [BIDDING_HISTORY_SUIT_ORDER.length]],
+  ["highestBidTargetPointCardsOneHot", [BIDDING_TARGET_POINT_CARDS_CLASS_COUNT]],
+  ["consecutivePassCountOneHot", [CONSECUTIVE_PASS_COUNT_CLASS_COUNT]],
+  ["biddingHistoryActionMask", [MAX_BIDDING_ACTION_COUNT]],
+  ...BIDDING_HISTORY_ONEHOT_SPEC
+];
+
+const EXCHANGE_MODEL_INPUT_SPEC: readonly (readonly [string, readonly number[]])[] = [
+  ["trumpSuitOneHot", [BIDDING_HISTORY_SUIT_ORDER.length]],
+  ["selfHandMask", [CARD_COUNT]],
+  ["legalDiscardCardMask", [CARD_COUNT]],
+  ["calledAdjutantCardMask", [CARD_COUNT]],
+  ["contractTargetPointCardsOneHot", [CONTRACT_TARGET_POINT_CARDS_CLASS_COUNT]],
+  ["handCountByPlayer", [PLAYER_COUNT]],
+  ["specialCardIndicesOneHot", [SPECIAL_CARD_INDEX_COUNT, CARD_COUNT]],
+  ["biddingHistoryActionMask", [MAX_BIDDING_ACTION_COUNT]],
+  ...BIDDING_HISTORY_ONEHOT_SPEC
+];
+
+const ADJUTANT_MODEL_INPUT_SPEC: readonly (readonly [string, readonly number[]])[] = [
+  ["trumpSuitOneHot", [BIDDING_HISTORY_SUIT_ORDER.length]],
+  ["selfHandMask", [CARD_COUNT]],
+  ["legalAdjutantMask", [CARD_COUNT]],
+  ["contractTargetPointCardsOneHot", [CONTRACT_TARGET_POINT_CARDS_CLASS_COUNT]],
+  ["specialCardIndicesOneHot", [SPECIAL_CARD_INDEX_COUNT, CARD_COUNT]],
+  ["biddingHistoryActionMask", [MAX_BIDDING_ACTION_COUNT]],
+  ...BIDDING_HISTORY_ONEHOT_SPEC
+];
+
 export const FLAT_OBSERVATION_LAYOUT: readonly ModelInputFeatureSlice[] = buildLayout(
   FLAT_LAYOUT_SPEC,
   0
@@ -87,6 +163,18 @@ export const MODEL_INPUT_LAYOUT: readonly ModelInputFeatureSlice[] = [
   ...FLAT_OBSERVATION_LAYOUT,
   ...MODEL_INPUT_ONEHOT_LAYOUT
 ];
+export const BIDDING_MODEL_INPUT_LAYOUT: readonly ModelInputFeatureSlice[] = buildLayout(
+  BIDDING_MODEL_INPUT_SPEC,
+  0
+);
+export const EXCHANGE_MODEL_INPUT_LAYOUT: readonly ModelInputFeatureSlice[] = buildLayout(
+  EXCHANGE_MODEL_INPUT_SPEC,
+  0
+);
+export const ADJUTANT_MODEL_INPUT_LAYOUT: readonly ModelInputFeatureSlice[] = buildLayout(
+  ADJUTANT_MODEL_INPUT_SPEC,
+  0
+);
 
 validateLayout(FLAT_OBSERVATION_LAYOUT, 0, FLAT_OBSERVATION_FEATURE_COUNT, "FLAT_OBSERVATION_LAYOUT");
 validateLayout(
@@ -96,6 +184,32 @@ validateLayout(
   "MODEL_INPUT_ONEHOT_LAYOUT"
 );
 validateLayout(MODEL_INPUT_LAYOUT, 0, MODEL_INPUT_FEATURE_COUNT, "MODEL_INPUT_LAYOUT");
+validateLayout(
+  BIDDING_MODEL_INPUT_LAYOUT,
+  0,
+  BIDDING_MODEL_INPUT_FEATURE_COUNT,
+  "BIDDING_MODEL_INPUT_LAYOUT"
+);
+validateLayout(
+  EXCHANGE_MODEL_INPUT_LAYOUT,
+  0,
+  EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
+  "EXCHANGE_MODEL_INPUT_LAYOUT"
+);
+validateLayout(
+  ADJUTANT_MODEL_INPUT_LAYOUT,
+  0,
+  ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
+  "ADJUTANT_MODEL_INPUT_LAYOUT"
+);
+
+if (
+  BIDDING_MODEL_INPUT_SCHEMA_VERSION !== MODEL_INPUT_SCHEMA_VERSION ||
+  EXCHANGE_MODEL_INPUT_SCHEMA_VERSION !== MODEL_INPUT_SCHEMA_VERSION ||
+  ADJUTANT_MODEL_INPUT_SCHEMA_VERSION !== MODEL_INPUT_SCHEMA_VERSION
+) {
+  throw new Error("Non-playing model_input schema versions must match schema v1.");
+}
 
 export function createPlayingModelInput(
   observation: EncodedPlayingObservation
@@ -125,6 +239,150 @@ export function encodePlayingModelInput(
   }
 
   return Float32Array.from(modelInputParts);
+}
+
+export function createBiddingModelInput(
+  observation: EncodedBiddingObservation
+): BiddingModelInput {
+  return {
+    modelInput: encodeBiddingModelInput(observation),
+    legalBidMask: observation.legalBidMask
+  };
+}
+
+export function encodeBiddingModelInput(
+  observation: EncodedBiddingObservation
+): Float32Array {
+  validateEncodedBiddingObservation(observation);
+
+  const modelInputParts: number[] = [];
+
+  append(modelInputParts, observation.selfHandMask);
+  append(modelInputParts, observation.legalBidMask);
+  appendOneHotIndexField(modelInputParts, {
+    name: "starterPlayerOneHot",
+    indices: [observation.starterPlayerIndex],
+    slotCount: 1,
+    classCount: PLAYER_COUNT,
+    minValue: 0,
+    emptyValues: []
+  });
+  modelInputParts.push(observation.highestBidPresent);
+  appendOneHotIndexField(modelInputParts, {
+    name: "highestBidPlayerOneHot",
+    indices: [observation.highestBidPlayerIndex],
+    slotCount: 1,
+    classCount: PLAYER_COUNT,
+    minValue: 0,
+    emptyValues: [-1]
+  });
+  appendOneHotIndexField(modelInputParts, {
+    name: "highestBidSuitOneHot",
+    indices: [observation.highestBidSuitIndex],
+    slotCount: 1,
+    classCount: BIDDING_HISTORY_SUIT_ORDER.length,
+    minValue: 0,
+    emptyValues: [-1]
+  });
+  appendOneHotIndexField(modelInputParts, {
+    name: "highestBidTargetPointCardsOneHot",
+    indices: [observation.highestBidTargetPointCards],
+    slotCount: 1,
+    classCount: BIDDING_TARGET_POINT_CARDS_CLASS_COUNT,
+    minValue: MIN_BIDDING_TARGET_POINT_CARDS,
+    emptyValues: [0]
+  });
+  appendOneHotIndexField(modelInputParts, {
+    name: "consecutivePassCountOneHot",
+    indices: [observation.consecutivePassCount],
+    slotCount: 1,
+    classCount: CONSECUTIVE_PASS_COUNT_CLASS_COUNT,
+    minValue: 0,
+    emptyValues: []
+  });
+  appendBiddingHistoryModelInputParts(modelInputParts, observation.biddingHistory);
+
+  return toCheckedFloat32Array(
+    modelInputParts,
+    BIDDING_MODEL_INPUT_FEATURE_COUNT,
+    "bidding model_input"
+  );
+}
+
+export function createExchangeModelInput(
+  observation: EncodedExchangeObservation
+): ExchangeModelInput {
+  return {
+    modelInput: encodeExchangeModelInput(observation),
+    legalDiscardCardMask: observation.legalDiscardCardMask
+  };
+}
+
+export function encodeExchangeModelInput(
+  observation: EncodedExchangeObservation
+): Float32Array {
+  validateEncodedExchangeObservation(observation);
+
+  const modelInputParts: number[] = [];
+
+  append(modelInputParts, observation.trumpSuitOneHot);
+  append(modelInputParts, observation.selfHandMask);
+  append(modelInputParts, observation.legalDiscardCardMask);
+  append(modelInputParts, observation.calledAdjutantCardMask);
+  appendOneHotIndexField(modelInputParts, {
+    name: "contractTargetPointCardsOneHot",
+    indices: [observation.contractTargetPointCards],
+    slotCount: 1,
+    classCount: CONTRACT_TARGET_POINT_CARDS_CLASS_COUNT,
+    minValue: MIN_CONTRACT_TARGET_POINT_CARDS,
+    emptyValues: []
+  });
+  append(modelInputParts, observation.handCountByPlayer);
+  appendSpecialCardIndicesOneHot(modelInputParts, observation.specialCardIndices, "exchange");
+  appendBiddingHistoryModelInputParts(modelInputParts, observation.biddingHistory);
+
+  return toCheckedFloat32Array(
+    modelInputParts,
+    EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
+    "exchange model_input"
+  );
+}
+
+export function createAdjutantModelInput(
+  observation: EncodedAdjutantObservation
+): AdjutantModelInput {
+  return {
+    modelInput: encodeAdjutantModelInput(observation),
+    legalAdjutantMask: observation.legalAdjutantMask
+  };
+}
+
+export function encodeAdjutantModelInput(
+  observation: EncodedAdjutantObservation
+): Float32Array {
+  validateEncodedAdjutantObservation(observation);
+
+  const modelInputParts: number[] = [];
+
+  append(modelInputParts, observation.trumpSuitOneHot);
+  append(modelInputParts, observation.selfHandMask);
+  append(modelInputParts, observation.legalAdjutantMask);
+  appendOneHotIndexField(modelInputParts, {
+    name: "contractTargetPointCardsOneHot",
+    indices: [observation.contractTargetPointCards],
+    slotCount: 1,
+    classCount: CONTRACT_TARGET_POINT_CARDS_CLASS_COUNT,
+    minValue: MIN_CONTRACT_TARGET_POINT_CARDS,
+    emptyValues: []
+  });
+  appendSpecialCardIndicesOneHot(modelInputParts, observation.specialCardIndices, "adjutant");
+  appendBiddingHistoryModelInputParts(modelInputParts, observation.biddingHistory);
+
+  return toCheckedFloat32Array(
+    modelInputParts,
+    ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
+    "adjutant model_input"
+  );
 }
 
 function flattenObservation(observation: EncodedPlayingObservation): readonly number[] {
@@ -160,6 +418,67 @@ function flattenObservation(observation: EncodedPlayingObservation): readonly nu
   }
 
   return values;
+}
+
+function appendBiddingHistoryModelInputParts(
+  target: number[],
+  biddingHistory: EncodedBiddingHistory
+): void {
+  append(target, biddingHistory.actionMask);
+  appendOneHotIndexField(target, {
+    name: "biddingHistoryActionTypeIndicesOneHot",
+    indices: biddingHistory.actionTypeIndices,
+    slotCount: MAX_BIDDING_ACTION_COUNT,
+    classCount: BIDDING_ACTION_TYPE_CLASS_COUNT,
+    minValue: 0,
+    emptyValues: [-1]
+  });
+  appendOneHotIndexField(target, {
+    name: "biddingHistoryPlayerIndicesOneHot",
+    indices: biddingHistory.playerIndices,
+    slotCount: MAX_BIDDING_ACTION_COUNT,
+    classCount: PLAYER_COUNT,
+    minValue: 0,
+    emptyValues: [-1]
+  });
+  appendOneHotIndexField(target, {
+    name: "biddingHistorySuitIndicesOneHot",
+    indices: biddingHistory.suitIndices,
+    slotCount: MAX_BIDDING_ACTION_COUNT,
+    classCount: BIDDING_HISTORY_SUIT_ORDER.length,
+    minValue: 0,
+    emptyValues: [-1]
+  });
+  appendOneHotIndexField(target, {
+    name: "biddingHistoryTargetPointCardsOneHot",
+    indices: biddingHistory.targetPointCards,
+    slotCount: MAX_BIDDING_ACTION_COUNT,
+    classCount: BIDDING_TARGET_POINT_CARDS_CLASS_COUNT,
+    minValue: MIN_BIDDING_TARGET_POINT_CARDS,
+    emptyValues: [0]
+  });
+}
+
+function appendSpecialCardIndicesOneHot(
+  target: number[],
+  specialCardIndices:
+    | EncodedExchangeObservation["specialCardIndices"]
+    | EncodedAdjutantObservation["specialCardIndices"],
+  phase: "exchange" | "adjutant"
+): void {
+  appendOneHotIndexField(target, {
+    name: `${phase} specialCardIndicesOneHot`,
+    indices: [
+      specialCardIndices.oruma,
+      specialCardIndices.yoromeki,
+      specialCardIndices.seiJack,
+      specialCardIndices.uraJack
+    ],
+    slotCount: SPECIAL_CARD_INDEX_COUNT,
+    classCount: CARD_COUNT,
+    minValue: 0,
+    emptyValues: []
+  });
 }
 
 function createOneHotFields(
@@ -280,6 +599,18 @@ function append(target: number[], values: readonly number[]): void {
   for (const value of values) {
     target.push(value);
   }
+}
+
+function toCheckedFloat32Array(
+  modelInputParts: readonly number[],
+  featureCount: number,
+  label: string
+): Float32Array {
+  if (modelInputParts.length !== featureCount) {
+    throw new Error(`${label} length must be ${featureCount}, got ${modelInputParts.length}.`);
+  }
+
+  return Float32Array.from(modelInputParts);
 }
 
 function buildLayout(

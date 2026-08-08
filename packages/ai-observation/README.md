@@ -182,9 +182,28 @@ index fields one-hot encoded in the same order as the Python
 `napoleon_ml.dataset.tensors.MODEL_INPUT_LAYOUT` schema. Empty index slots encode
 as all-zero rows.
 
-`createPlayingModelInput()` returns that `modelInput` together with the
-observation's independent `legalPlayMask`, so inference callers can pass both to
-the ONNX policy and mask illegal logits without re-deriving legal cards.
+The non-playing phases expose the same API shape:
+
+| Phase | Encoder | Wrapper | Features | Legal mask returned by wrapper |
+| --- | --- | --- | ---: | --- |
+| bidding | `encodeBiddingModelInput()` | `createBiddingModelInput()` | 2333 | `legalBidMask` |
+| exchange | `encodeExchangeModelInput()` | `createExchangeModelInput()` | 2611 | `legalDiscardCardMask` |
+| adjutant | `encodeAdjutantModelInput()` | `createAdjutantModelInput()` | 2553 | `legalAdjutantMask` |
+
+Each phase exports its named layout (`BIDDING_MODEL_INPUT_LAYOUT`,
+`EXCHANGE_MODEL_INPUT_LAYOUT`, `ADJUTANT_MODEL_INPUT_LAYOUT`), feature count,
+and model input schema version. The layouts mirror Python's
+`BIDDING_MODEL_INPUT_LAYOUT`, `EXCHANGE_MODEL_INPUT_LAYOUT`, and
+`ADJUTANT_MODEL_INPUT_LAYOUT`, including all-zero rows for absent bidding
+history slots. Exchange and adjutant special card indices must be concrete
+card indices `0..52`.
+
+The `create*ModelInput()` wrappers return `modelInput` together with the
+observation's independent legal mask, so inference callers can pass both to an
+ONNX policy and mask illegal logits without re-deriving legal actions. The
+model input is built only from the encoded observation; teacher targets,
+discard target masks, complete state, hidden hands, and unrevealed adjutant
+ownership are not included.
 
 ## Validation
 

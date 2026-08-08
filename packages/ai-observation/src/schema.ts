@@ -9,6 +9,9 @@ export const BIDDING_ENCODER_SCHEMA_VERSION = 1 as const;
 export const EXCHANGE_ENCODER_SCHEMA_VERSION = 1 as const;
 export const ADJUTANT_ENCODER_SCHEMA_VERSION = 1 as const;
 export const MODEL_INPUT_SCHEMA_VERSION = 1 as const;
+export const BIDDING_MODEL_INPUT_SCHEMA_VERSION = 1 as const;
+export const EXCHANGE_MODEL_INPUT_SCHEMA_VERSION = 1 as const;
+export const ADJUTANT_MODEL_INPUT_SCHEMA_VERSION = 1 as const;
 
 export const CARD_COUNT = 53;
 export const PLAYER_COUNT = 5;
@@ -32,6 +35,8 @@ export const EMPTY_BIDDING_SUIT_INDEX = -1;
 
 export const MIN_BIDDING_TARGET_POINT_CARDS = minBidTargetPointCards;
 export const MAX_BIDDING_TARGET_POINT_CARDS = maxBidTargetPointCards;
+// All-pass bidding resolves to a forced spades-12 contract before adjutant/exchange.
+export const MIN_CONTRACT_TARGET_POINT_CARDS = 12 as const;
 const BIDDING_BID_ACTION_COUNT =
   (MAX_BIDDING_TARGET_POINT_CARDS - MIN_BIDDING_TARGET_POINT_CARDS + 1) *
   BIDDING_HISTORY_SUIT_ORDER.length;
@@ -43,3 +48,6 @@ export const MAX_BIDDING_ACTION_COUNT =
 
 export const FLAT_OBSERVATION_FEATURE_COUNT = 684 as const;
 export const MODEL_INPUT_FEATURE_COUNT = 6242 as const;
+export const BIDDING_MODEL_INPUT_FEATURE_COUNT = 2333 as const;
+export const EXCHANGE_MODEL_INPUT_FEATURE_COUNT = 2611 as const;
+export const ADJUTANT_MODEL_INPUT_FEATURE_COUNT = 2553 as const;
