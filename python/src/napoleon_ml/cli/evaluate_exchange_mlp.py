@@ -1,0 +1,92 @@
+"""Evaluate a saved exchange discard MLP checkpoint on CPU."""
+
+from __future__ import annotations
+
+import argparse
+from collections.abc import Sequence
+from pathlib import Path
+
+from napoleon_ml.cli._exchange_common import (
+    add_split_config_arguments,
+    dataset_split,
+    handle_cli_error,
+    load_checked_exchange_manifest,
+    print_exchange_report,
+    split_config_from_args,
+)
+from napoleon_ml.dataset.pytorch import create_exchange_dataloader
+from napoleon_ml.dataset.split import DatasetSplit, SplitConfig
+from napoleon_ml.exchange.checkpoint import (
+    ExchangeCheckpointCompatibilityError,
+    load_exchange_checkpoint,
+)
+from napoleon_ml.exchange.metrics import evaluate_exchange_model
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("dataset_directory", type=Path)
+    parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument("--split", type=dataset_split, default=DatasetSplit.TEST)
+    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--no-integrity-check", action="store_true")
+    parser.add_argument("--json", action="store_true")
+    add_split_config_arguments(parser)
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    try:
+        return _run(args)
+    except Exception as error:
+        return handle_cli_error(error)
+
+
+def _run(args: argparse.Namespace) -> int:
+    split_config = split_config_from_args(args)
+    manifest = load_checked_exchange_manifest(
+        args.dataset_directory, command_label="evaluate-exchange"
+    )
+    model, checkpoint = load_exchange_checkpoint(args.checkpoint, manifest=manifest)
+    _validate_checkpoint_split_config(checkpoint, split_config=split_config)
+    loader = create_exchange_dataloader(
+        args.dataset_directory,
+        split=args.split,
+        split_config=split_config,
+        batch_size=args.batch_size,
+        verify_integrity=not args.no_integrity_check,
+    )
+    report = evaluate_exchange_model(model, loader, split=args.split.value)
+    print_exchange_report(report, as_json=args.json)
+    return 0
+
+
+def _validate_checkpoint_split_config(
+    checkpoint: dict[str, object], *, split_config: SplitConfig
+) -> None:
+    training_config = checkpoint.get("training_config")
+    if not isinstance(training_config, dict):
+        raise ExchangeCheckpointCompatibilityError(
+            "checkpoint training_config must be a dictionary."
+        )
+
+    expected = {
+        "train_ratio": split_config.train,
+        "validation_ratio": split_config.validation,
+        "test_ratio": split_config.test,
+    }
+
+    for key, value in expected.items():
+        actual = training_config.get(key)
+        if actual != value:
+            raise ExchangeCheckpointCompatibilityError(
+                f"checkpoint split ratios do not match evaluation split ratios: "
+                f"{key} is {actual!r} in checkpoint, got {value!r} for evaluation."
+            )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
