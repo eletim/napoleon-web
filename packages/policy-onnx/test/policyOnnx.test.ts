@@ -16,11 +16,13 @@ import {
   ONNX_OUTPUT_NAME,
   PolicyOnnxCompatibilityError,
   calculateCardIdsSha256,
+  calculateLegalPolicyLogProbability,
   loadNonPlayingPolicyOnnxModel,
   loadPolicyOnnxModel,
   maskIllegalPolicyLogits,
   parseNonPlayingPolicyOnnxMetadata,
   parsePolicyOnnxMetadata,
+  sampleLegalPolicyAction,
   selectLegalAdjutantCard,
   selectLegalBiddingAction,
   selectLegalExchangeDiscards,
@@ -75,6 +77,116 @@ describe("legal policy selection", () => {
     expect(() =>
       selectLegalPolicyAction(new Float32Array(CARD_COUNT), new Uint8Array(CARD_COUNT))
     ).toThrow(/at least one legal card/);
+  });
+});
+
+describe("masked categorical policy sampling", () => {
+  it("samples only legal cards and records the selected log probability", () => {
+    const logits = new Float32Array(CARD_COUNT);
+    logits[0] = 1000;
+    logits[3] = 0;
+    logits[7] = Math.log(3);
+    const legalPlayMask = new Uint8Array(CARD_COUNT);
+    legalPlayMask[3] = 1;
+    legalPlayMask[7] = 1;
+
+    const lowDraw = sampleLegalPolicyAction({
+      logits,
+      legalPlayMask,
+      rng: () => 0.1,
+      temperature: 1
+    });
+    const highDraw = sampleLegalPolicyAction({
+      logits,
+      legalPlayMask,
+      rng: () => 0.99,
+      temperature: 1
+    });
+
+    expect(lowDraw.selectedCardIndex).toBe(3);
+    expect(lowDraw.logProbability).toBeCloseTo(Math.log(0.25), 6);
+    expect(highDraw.selectedCardIndex).toBe(7);
+    expect(highDraw.logProbability).toBeCloseTo(Math.log(0.75), 6);
+    expect(calculateLegalPolicyLogProbability({
+      logits,
+      legalPlayMask,
+      selectedCardIndex: highDraw.selectedCardIndex,
+      temperature: 1
+    })).toBeCloseTo(highDraw.logProbability, 6);
+    expect(() =>
+      calculateLegalPolicyLogProbability({
+        logits,
+        legalPlayMask,
+        selectedCardIndex: 0,
+        temperature: 1
+      })
+    ).toThrow(/not legal/);
+  });
+
+  it("does not call rng and returns log probability 0 for a forced legal card", () => {
+    const logits = new Float32Array(CARD_COUNT);
+    logits[4] = -100;
+    const legalPlayMask = new Uint8Array(CARD_COUNT);
+    legalPlayMask[4] = 1;
+    let rngCallCount = 0;
+
+    const selection = sampleLegalPolicyAction({
+      logits,
+      legalPlayMask,
+      rng: () => {
+        rngCallCount += 1;
+        return 0.5;
+      }
+    });
+
+    expect(selection).toEqual({
+      selectedCardIndex: 4,
+      logProbability: 0
+    });
+    expect(rngCallCount).toBe(0);
+  });
+
+  it("rejects invalid temperature, rng values, and non-finite logits", () => {
+    const logits = new Float32Array(CARD_COUNT);
+    const legalPlayMask = new Uint8Array(CARD_COUNT);
+    legalPlayMask[1] = 1;
+    legalPlayMask[2] = 1;
+
+    expect(() =>
+      sampleLegalPolicyAction({ logits, legalPlayMask, rng: () => 0.5, temperature: 0 })
+    ).toThrow(/temperature/);
+    expect(() =>
+      sampleLegalPolicyAction({ logits, legalPlayMask, rng: () => 1, temperature: 1 })
+    ).toThrow(/rng/);
+
+    logits[52] = Number.POSITIVE_INFINITY;
+    expect(() =>
+      sampleLegalPolicyAction({ logits, legalPlayMask, rng: () => 0.5, temperature: 1 })
+    ).toThrow(/logits\[52\] must be finite/);
+  });
+
+  it("changes the masked distribution with temperature", () => {
+    const logits = new Float32Array(CARD_COUNT);
+    logits[10] = 0;
+    logits[11] = 2;
+    const legalPlayMask = new Uint8Array(CARD_COUNT);
+    legalPlayMask[10] = 1;
+    legalPlayMask[11] = 1;
+
+    const coldHighActionLogProbability = calculateLegalPolicyLogProbability({
+      logits,
+      legalPlayMask,
+      selectedCardIndex: 11,
+      temperature: 0.5
+    });
+    const hotHighActionLogProbability = calculateLegalPolicyLogProbability({
+      logits,
+      legalPlayMask,
+      selectedCardIndex: 11,
+      temperature: 2
+    });
+
+    expect(coldHighActionLogProbability).toBeGreaterThan(hotHighActionLogProbability);
   });
 });
 

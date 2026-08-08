@@ -17,9 +17,12 @@ import type {
   NonPlayingPolicyOnnxExchangeSelection,
   NonPlayingPolicyOnnxMetadata,
   NonPlayingPolicyOnnxSingleSelection,
+  CalculateLegalPolicyLogProbabilityOptions,
   PolicyOnnxLoadOptions,
   PolicyOnnxMetadata,
+  PolicyOnnxSampledSelection,
   PolicyOnnxSelection,
+  SampleLegalPolicyActionOptions,
   SelectLegalAdjutantInput,
   SelectLegalBiddingInput,
   SelectLegalExchangeInput,
@@ -44,6 +47,23 @@ export class PolicyOnnxModel {
 
     return {
       selectedCardIndex,
+      logits
+    };
+  }
+
+  async sampleLegalPlay(
+    input: SelectLegalPlayInput & { rng: () => number; temperature?: number }
+  ): Promise<PolicyOnnxSampledSelection> {
+    const logits = await this.predictLogits(input.modelInput);
+    const selection = sampleLegalPolicyAction({
+      logits,
+      legalPlayMask: input.legalPlayMask,
+      rng: input.rng,
+      temperature: input.temperature
+    });
+
+    return {
+      ...selection,
       logits
     };
   }
@@ -156,6 +176,67 @@ export function selectLegalPolicyAction(
   }
 
   return selectedIndex;
+}
+
+export function sampleLegalPolicyAction(
+  options: SampleLegalPolicyActionOptions
+): Omit<PolicyOnnxSampledSelection, "logits"> {
+  const distribution = createMaskedCategoricalDistribution(
+    options.logits,
+    options.legalPlayMask,
+    options.temperature ?? 1
+  );
+
+  if (distribution.legalCardIndices.length === 1) {
+    return {
+      selectedCardIndex: distribution.legalCardIndices[0],
+      logProbability: 0
+    };
+  }
+
+  const randomValue = options.rng();
+  if (!Number.isFinite(randomValue) || randomValue < 0 || randomValue >= 1) {
+    throw new PolicyOnnxCompatibilityError("rng must return a finite value in [0, 1).");
+  }
+
+  let cumulativeProbability = 0;
+
+  for (let index = 0; index < distribution.legalCardIndices.length; index += 1) {
+    cumulativeProbability += distribution.probabilities[index];
+
+    if (randomValue < cumulativeProbability) {
+      return {
+        selectedCardIndex: distribution.legalCardIndices[index],
+        logProbability: distribution.logProbabilities[index]
+      };
+    }
+  }
+
+  const lastIndex = distribution.legalCardIndices.length - 1;
+
+  return {
+    selectedCardIndex: distribution.legalCardIndices[lastIndex],
+    logProbability: distribution.logProbabilities[lastIndex]
+  };
+}
+
+export function calculateLegalPolicyLogProbability(
+  options: CalculateLegalPolicyLogProbabilityOptions
+): number {
+  const distribution = createMaskedCategoricalDistribution(
+    options.logits,
+    options.legalPlayMask,
+    options.temperature ?? 1
+  );
+  const index = distribution.legalCardIndices.indexOf(options.selectedCardIndex);
+
+  if (index === -1) {
+    throw new PolicyOnnxCompatibilityError(
+      `selectedCardIndex ${options.selectedCardIndex} is not legal under legalPlayMask.`
+    );
+  }
+
+  return distribution.logProbabilities[index];
 }
 
 export function selectLegalBiddingAction(
@@ -341,6 +422,82 @@ function selectLegalIndex(
   }
 
   return selectedIndex;
+}
+
+function createMaskedCategoricalDistribution(
+  logits: Float32Array | readonly number[],
+  legalPlayMask: ArrayLike<number | boolean>,
+  temperature: number
+): {
+  legalCardIndices: readonly number[];
+  probabilities: readonly number[];
+  logProbabilities: readonly number[];
+} {
+  if (logits.length !== CARD_COUNT) {
+    throw new PolicyOnnxCompatibilityError(`logits must contain ${CARD_COUNT} values, got ${logits.length}.`);
+  }
+
+  validateLegalPlayMask(legalPlayMask);
+  validateTemperature(temperature);
+
+  const legalCardIndices: number[] = [];
+  const scaledLogits: number[] = [];
+
+  for (let index = 0; index < CARD_COUNT; index += 1) {
+    const logit = Number(logits[index]);
+
+    if (!Number.isFinite(logit)) {
+      throw new PolicyOnnxCompatibilityError(`logits[${index}] must be finite.`);
+    }
+
+    if (isLegalMaskValue(legalPlayMask[index])) {
+      legalCardIndices.push(index);
+      scaledLogits.push(logit / temperature);
+    }
+  }
+
+  if (legalCardIndices.length === 1) {
+    return {
+      legalCardIndices,
+      probabilities: [1],
+      logProbabilities: [0]
+    };
+  }
+
+  const maxScaledLogit = Math.max(...scaledLogits);
+  const expValues = scaledLogits.map((logit) => Math.exp(logit - maxScaledLogit));
+  const expSum = expValues.reduce((sum, value) => sum + value, 0);
+
+  if (!Number.isFinite(expSum) || expSum <= 0) {
+    throw new PolicyOnnxCompatibilityError("masked categorical softmax normalization failed.");
+  }
+
+  const logDenominator = maxScaledLogit + Math.log(expSum);
+  const probabilities = expValues.map((value) => value / expSum);
+  const logProbabilities = scaledLogits.map((logit) => logit - logDenominator);
+
+  for (let index = 0; index < probabilities.length; index += 1) {
+    if (
+      !Number.isFinite(probabilities[index]) ||
+      probabilities[index] < 0 ||
+      !Number.isFinite(logProbabilities[index]) ||
+      logProbabilities[index] > 1e-12
+    ) {
+      throw new PolicyOnnxCompatibilityError("masked categorical distribution contains an invalid probability.");
+    }
+  }
+
+  return {
+    legalCardIndices,
+    probabilities,
+    logProbabilities
+  };
+}
+
+function validateTemperature(temperature: number): void {
+  if (!Number.isFinite(temperature) || temperature <= 0) {
+    throw new PolicyOnnxCompatibilityError("temperature must be finite and greater than 0.");
+  }
 }
 
 function validateMask(mask: ArrayLike<number | boolean>, count: number, label: string): number {

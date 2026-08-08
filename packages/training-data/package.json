@@ -19,7 +19,8 @@
   },
   "dependencies": {
     "@napoleon/ai": "workspace:*",
-    "@napoleon/ai-observation": "workspace:*"
+    "@napoleon/ai-observation": "workspace:*",
+    "@napoleon/game-core": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.7.2",

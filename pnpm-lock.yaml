@@ -170,6 +170,9 @@ importers:
       '@napoleon/ai-observation':
         specifier: workspace:*
         version: link:../ai-observation
+      '@napoleon/game-core':
+        specifier: workspace:*
+        version: link:../game-core
     devDependencies:
       typescript:
         specifier: ^5.7.2
