@@ -676,3 +676,53 @@ def test_bidding_onnx_export_cli_writes_metadata_and_checks_parity(
     assert session.get_outputs()[0].shape[1] == BIDDING_ACTION_COUNT
     assert session.get_inputs()[0].type == "tensor(float)"
     assert session.get_outputs()[0].type == "tensor(float)"
+
+
+def test_bidding_onnx_export_cli_rejects_overlapping_output_paths(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_bidding_dataset(tmp_path, seeds=(0, 1, 2))
+    checkpoint_path = tmp_path.parent / f"{tmp_path.name}-bidding.pt"
+    output_path = tmp_path.parent / f"{tmp_path.name}-bidding.json"
+    assert (
+        train_main(
+            [
+                str(tmp_path),
+                "--output",
+                str(checkpoint_path),
+                "--epochs",
+                "1",
+                "--batch-size",
+                "1",
+                "--hidden-dim",
+                "8",
+                "--hidden-layers",
+                "1",
+                "--train-ratio",
+                "1",
+                "--validation-ratio",
+                "1",
+                "--test-ratio",
+                "98",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    exit_code = export_main(
+        [
+            str(tmp_path),
+            "--policy-type",
+            "bidding",
+            "--checkpoint",
+            str(checkpoint_path),
+            "--output",
+            str(output_path),
+        ]
+    )
+
+    assert exit_code == 1
+    assert "must be different paths" in capsys.readouterr().err
+    assert not output_path.exists()

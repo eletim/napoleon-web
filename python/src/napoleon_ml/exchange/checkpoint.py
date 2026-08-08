@@ -21,7 +21,7 @@ from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 from .metrics import DISCARD_COUNT
 from .model import ExchangeMlpConfig, ExchangeMlpModel
 
-CHECKPOINT_SCHEMA_VERSION = 1
+CHECKPOINT_SCHEMA_VERSION = 2
 
 
 class ExchangeCheckpointCompatibilityError(ValueError):

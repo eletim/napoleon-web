@@ -505,3 +505,62 @@ def test_exchange_onnx_export_cli_writes_metadata_and_checks_top3_set_parity(
     assert session.get_outputs()[0].shape[1] == CARD_COUNT
     assert session.get_inputs()[0].type == "tensor(float)"
     assert session.get_outputs()[0].type == "tensor(float)"
+
+
+def test_exchange_onnx_export_rejects_v1_checkpoint_metadata_before_output(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_dataset(tmp_path, seeds=(0, 1, 2))
+    checkpoint_path = tmp_path.parent / f"{tmp_path.name}-old-exchange.pt"
+    onnx_path = tmp_path.parent / f"{tmp_path.name}-exchange.onnx"
+    metadata_path = tmp_path.parent / f"{tmp_path.name}-exchange.json"
+    assert (
+        train_main(
+            [
+                str(tmp_path),
+                "--output",
+                str(checkpoint_path),
+                "--epochs",
+                "1",
+                "--batch-size",
+                "1",
+                "--hidden-dim",
+                "8",
+                "--hidden-layers",
+                "1",
+                "--train-ratio",
+                "1",
+                "--validation-ratio",
+                "1",
+                "--test-ratio",
+                "98",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    raw = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    raw["checkpoint_schema_version"] = 1
+    raw.pop("sample_type")
+    raw.pop("action_count")
+    torch.save(raw, checkpoint_path)
+
+    exit_code = export_main(
+        [
+            str(tmp_path),
+            "--policy-type",
+            "exchange",
+            "--checkpoint",
+            str(checkpoint_path),
+            "--output",
+            str(onnx_path),
+            "--metadata-output",
+            str(metadata_path),
+        ]
+    )
+
+    assert exit_code == 1
+    assert "checkpoint_schema_version" in capsys.readouterr().err
+    assert not onnx_path.exists()
+    assert not metadata_path.exists()
