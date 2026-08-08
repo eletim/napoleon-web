@@ -1,26 +1,47 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { RuleBasedAgent, runAutomatedGame } from "@napoleon/ai";
 import {
+  createAdjutantTrainingSample,
+  createBiddingTrainingSample,
+  createExchangeTrainingSample,
   createPlayingTrainingSample,
+  encodeAdjutantModelInput,
+  encodeBiddingModelInput,
+  encodeExchangeModelInput,
   encodePlayingModelInput,
   getCardId
 } from "@napoleon/ai-observation";
 import type { GameAction } from "@napoleon/game-core";
 import {
+  ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
+  BIDDING_ACTION_COUNT,
+  BIDDING_MODEL_INPUT_FEATURE_COUNT,
   CARD_COUNT,
+  EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
   MODEL_INPUT_FEATURE_COUNT,
+  MULTIPHASE_DATASET_SCHEMA_VERSION,
+  NONPLAYING_ONNX_METADATA_SCHEMA_VERSION,
   ONNX_INPUT_NAME,
   ONNX_OPSET_VERSION,
   ONNX_OUTPUT_NAME,
   PolicyOnnxAgent,
   calculateCardIdsSha256,
+  createPolicyOnnxAdjutantInput,
+  createPolicyOnnxBiddingInput,
+  createPolicyOnnxExchangeInput,
   createPolicyOnnxPlayInput,
+  loadNonPlayingPolicyOnnxModel,
   loadPolicyOnnxModel
 } from "../src/index.js";
-import type { PolicyOnnxModel } from "../src/index.js";
+import type {
+  NonPlayingPolicyOnnxMetadata,
+  NonPlayingPolicyOnnxModel,
+  NonPlayingPolicyType,
+  PolicyOnnxModel
+} from "../src/index.js";
 import { createConstantPolicyOnnx } from "./testOnnxFixture.js";
 
 describe("PolicyOnnxAgent", () => {
@@ -72,6 +93,67 @@ describe("PolicyOnnxAgent", () => {
     expect(nonPlayingActions(onnx)).toEqual(nonPlayingActions(ruleBased));
   });
 
+  it("runs a complete deterministic game with ONNX policies for every phase", async () => {
+    const {
+      policy,
+      biddingPolicy,
+      adjutantPolicy,
+      exchangePolicy
+    } = await createFullPolicyFixture();
+    const biddingSpy = vi.spyOn(biddingPolicy, "selectBidding");
+    const adjutantSpy = vi.spyOn(adjutantPolicy, "selectAdjutant");
+    const exchangeSpy = vi.spyOn(exchangePolicy, "selectExchange");
+    const playSpy = vi.spyOn(policy, "selectLegalPlay");
+    const ruleBasedSpy = vi.spyOn(RuleBasedAgent.prototype, "selectAction");
+    const createRecord = () =>
+      runAutomatedGame({
+        seed: 112233,
+        createAgent: ({ rng }) =>
+          new PolicyOnnxAgent({
+            policy,
+            biddingPolicy,
+            adjutantPolicy,
+            exchangePolicy,
+            rng
+          })
+      });
+
+    try {
+      const first = await createRecord();
+      const second = await createRecord();
+
+      expect(first.result.winner).toMatch(/^(napoleon-team|alliance)$/);
+      expect(biddingSpy).toHaveBeenCalled();
+      expect(adjutantSpy).toHaveBeenCalled();
+      expect(exchangeSpy).toHaveBeenCalled();
+      expect(playSpy).toHaveBeenCalled();
+      expect(ruleBasedSpy).not.toHaveBeenCalled();
+      expect(countIllegalActions(first.decisions)).toBe(0);
+      expect(exchangeActionsAreLegalThreeCardDiscards(first.decisions)).toBe(true);
+      expect(second.decisions.map((decision) => decision.action)).toEqual(
+        first.decisions.map((decision) => decision.action)
+      );
+    } finally {
+      ruleBasedSpy.mockRestore();
+      playSpy.mockRestore();
+      exchangeSpy.mockRestore();
+      adjutantSpy.mockRestore();
+      biddingSpy.mockRestore();
+    }
+  });
+
+  it("rejects non-playing policy artifact types assigned to the wrong phase slots", async () => {
+    const policy = await createIncreasingLogitPolicy();
+    const exchangePolicy = await createNonPlayingPolicy("exchange");
+
+    expect(() =>
+      new PolicyOnnxAgent({
+        policy,
+        biddingPolicy: exchangePolicy
+      })
+    ).toThrow(/biddingPolicy policy type mismatch/);
+  });
+
   it("selects the only legal play-card action for forced plays", async () => {
     const policy = await createIncreasingLogitPolicy();
     const source = await runAutomatedGame({
@@ -93,12 +175,15 @@ describe("PolicyOnnxAgent", () => {
     );
   });
 
-  it("builds the same live model input as the training sample pipeline for every seat", async () => {
+  it("builds the same live model input as the training sample pipeline for every phase", async () => {
     const source = await runAutomatedGame({
       seed: 12345,
       createAgent: ({ rng }) => new RuleBasedAgent(rng)
     });
-    const decisions = source.playerIds.map((playerId) => {
+    const biddingDecision = requiredDecision(source, "bidding");
+    const adjutantDecision = requiredDecision(source, "choosing-adjutant");
+    const exchangeDecision = requiredDecision(source, "exchanging");
+    const playingDecisions = source.playerIds.map((playerId) => {
       const decision = source.decisions.find(
         (candidate) =>
           candidate.playerId === playerId &&
@@ -113,7 +198,50 @@ describe("PolicyOnnxAgent", () => {
       return decision;
     });
 
-    for (const decision of decisions) {
+    const biddingLiveInput = createPolicyOnnxBiddingInput(
+      biddingDecision.observation,
+      source.playerIds
+    );
+    const biddingSample = createBiddingTrainingSample(source, biddingDecision);
+    if (biddingSample === null) {
+      throw new Error("Expected a bidding sample.");
+    }
+    expect(biddingLiveInput.legalBidMask).toEqual(biddingSample.observation.legalBidMask);
+    expect(Buffer.from(biddingLiveInput.modelInput.buffer)).toEqual(
+      Buffer.from(encodeBiddingModelInput(biddingSample.observation).buffer)
+    );
+
+    const adjutantLiveInput = createPolicyOnnxAdjutantInput(
+      adjutantDecision.observation,
+      source.playerIds
+    );
+    const adjutantSample = createAdjutantTrainingSample(source, adjutantDecision);
+    if (adjutantSample === null) {
+      throw new Error("Expected an adjutant sample.");
+    }
+    expect(adjutantLiveInput.legalAdjutantMask).toEqual(
+      adjutantSample.observation.legalAdjutantMask
+    );
+    expect(Buffer.from(adjutantLiveInput.modelInput.buffer)).toEqual(
+      Buffer.from(encodeAdjutantModelInput(adjutantSample.observation).buffer)
+    );
+
+    const exchangeLiveInput = createPolicyOnnxExchangeInput(
+      exchangeDecision.observation,
+      source.playerIds
+    );
+    const exchangeSample = createExchangeTrainingSample(source, exchangeDecision);
+    if (exchangeSample === null) {
+      throw new Error("Expected an exchange sample.");
+    }
+    expect(exchangeLiveInput.legalDiscardCardMask).toEqual(
+      exchangeSample.observation.legalDiscardCardMask
+    );
+    expect(Buffer.from(exchangeLiveInput.modelInput.buffer)).toEqual(
+      Buffer.from(encodeExchangeModelInput(exchangeSample.observation).buffer)
+    );
+
+    for (const decision of playingDecisions) {
       const defaultLiveInput = createPolicyOnnxPlayInput(decision.observation);
       const liveInput = createPolicyOnnxPlayInput(decision.observation, source.playerIds);
       const sample = createPlayingTrainingSample(source, decision);
@@ -212,23 +340,44 @@ describe("PolicyOnnxAgent", () => {
     ).toThrow("must match the observation player order");
   });
 
-  it("rejects playing observations that do not carry public action history", async () => {
+  it("rejects live observations that do not carry public action history", async () => {
     const policy = await createIncreasingLogitPolicy();
     const source = await runAutomatedGame({
       seed: 12345,
       createAgent: ({ rng }) => new RuleBasedAgent(rng)
     });
-    const decision = source.decisions.find((candidate) => candidate.phase === "playing");
+    const biddingDecision = requiredDecision(source, "bidding");
+    const adjutantDecision = requiredDecision(source, "choosing-adjutant");
+    const exchangeDecision = requiredDecision(source, "exchanging");
+    const playDecision = source.decisions.find((candidate) => candidate.phase === "playing");
 
-    if (decision === undefined) {
+    if (playDecision === undefined) {
       throw new Error("Expected a playing decision.");
     }
 
     const agent = new PolicyOnnxAgent({ policy });
 
+    expect(() =>
+      createPolicyOnnxBiddingInput({
+        ...biddingDecision.observation,
+        publicActionHistory: undefined
+      })
+    ).toThrow("publicActionHistory");
+    expect(() =>
+      createPolicyOnnxAdjutantInput({
+        ...adjutantDecision.observation,
+        publicActionHistory: undefined
+      })
+    ).toThrow("publicActionHistory");
+    expect(() =>
+      createPolicyOnnxExchangeInput({
+        ...exchangeDecision.observation,
+        publicActionHistory: undefined
+      })
+    ).toThrow("publicActionHistory");
     await expect(
       agent.selectAction({
-        ...decision.observation,
+        ...playDecision.observation,
         publicActionHistory: undefined
       })
     ).rejects.toThrow("publicActionHistory");
@@ -267,6 +416,93 @@ describe("PolicyOnnxAgent external artifact smoke", () => {
   });
 });
 
+const externalBiddingOnnxPath = process.env.NAPOLEON_BIDDING_POLICY_ONNX_PATH;
+const externalBiddingMetadataPath = process.env.NAPOLEON_BIDDING_POLICY_METADATA_PATH;
+const externalAdjutantOnnxPath = process.env.NAPOLEON_ADJUTANT_POLICY_ONNX_PATH;
+const externalAdjutantMetadataPath = process.env.NAPOLEON_ADJUTANT_POLICY_METADATA_PATH;
+const externalExchangeOnnxPath = process.env.NAPOLEON_EXCHANGE_POLICY_ONNX_PATH;
+const externalExchangeMetadataPath = process.env.NAPOLEON_EXCHANGE_POLICY_METADATA_PATH;
+const maybeExternalFullIt =
+  externalOnnxPath !== undefined &&
+  externalMetadataPath !== undefined &&
+  externalBiddingOnnxPath !== undefined &&
+  externalBiddingMetadataPath !== undefined &&
+  externalAdjutantOnnxPath !== undefined &&
+  externalAdjutantMetadataPath !== undefined &&
+  externalExchangeOnnxPath !== undefined &&
+  externalExchangeMetadataPath !== undefined
+    ? it
+    : it.skip;
+
+describe("PolicyOnnxAgent external full-policy artifact smoke", () => {
+  maybeExternalFullIt("runs a deterministic full game with supplied phase artifacts", async () => {
+    if (
+      externalOnnxPath === undefined ||
+      externalMetadataPath === undefined ||
+      externalBiddingOnnxPath === undefined ||
+      externalBiddingMetadataPath === undefined ||
+      externalAdjutantOnnxPath === undefined ||
+      externalAdjutantMetadataPath === undefined ||
+      externalExchangeOnnxPath === undefined ||
+      externalExchangeMetadataPath === undefined
+    ) {
+      throw new Error("Expected all external full-policy artifact paths.");
+    }
+
+    const policy = await loadPolicyOnnxModel({
+      onnxPath: externalOnnxPath,
+      metadataPath: externalMetadataPath
+    });
+    const biddingPolicy = await loadNonPlayingPolicyOnnxModel({
+      onnxPath: externalBiddingOnnxPath,
+      metadataPath: externalBiddingMetadataPath
+    });
+    const adjutantPolicy = await loadNonPlayingPolicyOnnxModel({
+      onnxPath: externalAdjutantOnnxPath,
+      metadataPath: externalAdjutantMetadataPath
+    });
+    const exchangePolicy = await loadNonPlayingPolicyOnnxModel({
+      onnxPath: externalExchangeOnnxPath,
+      metadataPath: externalExchangeMetadataPath
+    });
+    const createRecord = () =>
+      runAutomatedGame({
+        seed: 424242,
+        createAgent: ({ rng }) =>
+          new PolicyOnnxAgent({
+            policy,
+            biddingPolicy,
+            adjutantPolicy,
+            exchangePolicy,
+            rng
+          })
+      });
+    const first = await createRecord();
+    const second = await createRecord();
+
+    expect(first.result.winner).toMatch(/^(napoleon-team|alliance)$/);
+    expect(countIllegalActions(first.decisions)).toBe(0);
+    expect(exchangeActionsAreLegalThreeCardDiscards(first.decisions)).toBe(true);
+    expect(second.decisions.map((decision) => decision.action)).toEqual(
+      first.decisions.map((decision) => decision.action)
+    );
+  });
+});
+
+async function createFullPolicyFixture(): Promise<{
+  policy: PolicyOnnxModel;
+  biddingPolicy: NonPlayingPolicyOnnxModel;
+  adjutantPolicy: NonPlayingPolicyOnnxModel;
+  exchangePolicy: NonPlayingPolicyOnnxModel;
+}> {
+  return {
+    policy: await createIncreasingLogitPolicy(),
+    biddingPolicy: await createNonPlayingPolicy("bidding"),
+    adjutantPolicy: await createNonPlayingPolicy("adjutant"),
+    exchangePolicy: await createNonPlayingPolicy("exchange")
+  };
+}
+
 async function createIncreasingLogitPolicy(): Promise<PolicyOnnxModel> {
   const logits = new Float32Array(CARD_COUNT);
   for (let index = 0; index < CARD_COUNT; index += 1) {
@@ -282,6 +518,30 @@ async function createIncreasingLogitPolicy(): Promise<PolicyOnnxModel> {
   return loadPolicyOnnxModel({ onnxPath, metadataPath });
 }
 
+async function createNonPlayingPolicy(
+  policyType: NonPlayingPolicyType
+): Promise<NonPlayingPolicyOnnxModel> {
+  const spec = nonPlayingSpec(policyType);
+  const logits = new Float32Array(spec.outputCount);
+  for (let index = 0; index < logits.length; index += 1) {
+    logits[index] = index;
+  }
+
+  const directory = await temporaryDirectory();
+  const onnxPath = join(directory, `${policyType}.onnx`);
+  const metadataPath = join(directory, `${policyType}.json`);
+  await writeFile(
+    onnxPath,
+    createConstantPolicyOnnx(logits, ONNX_OUTPUT_NAME, {
+      inputFeatureCount: spec.inputFeatureCount,
+      outputCount: spec.outputCount
+    })
+  );
+  await writeFile(metadataPath, JSON.stringify(createNonPlayingMetadata(policyType)) + "\n", "utf8");
+
+  return loadNonPlayingPolicyOnnxModel({ onnxPath, metadataPath });
+}
+
 function countIllegalPlayActions(
   decisions: readonly {
     action: GameAction;
@@ -295,12 +555,58 @@ function countIllegalPlayActions(
   ).length;
 }
 
+function countIllegalActions(
+  decisions: readonly {
+    action: GameAction;
+    legalActions: readonly GameAction[];
+  }[]
+): number {
+  return decisions.filter(
+    (decision) =>
+      !decision.legalActions.some((action) => actionsEqual(action, decision.action))
+  ).length;
+}
+
 function nonPlayingActions(
   record: Awaited<ReturnType<typeof runAutomatedGame>>
 ): readonly GameAction[] {
   return record.decisions
     .filter((decision) => decision.phase !== "playing")
     .map((decision) => decision.action);
+}
+
+function exchangeActionsAreLegalThreeCardDiscards(
+  decisions: Awaited<ReturnType<typeof runAutomatedGame>>["decisions"]
+): boolean {
+  return decisions
+    .filter((decision) => decision.phase === "exchanging")
+    .every((decision) => {
+      if (decision.action.type !== "discard-cards") {
+        return false;
+      }
+
+      const self = decision.observation.view.players.find(
+        (player) => player.id === decision.playerId
+      );
+      const handIds = new Set(self?.hand?.map((card) => card.id) ?? []);
+
+      return decision.action.cardIds.length === 3 &&
+        new Set(decision.action.cardIds).size === 3 &&
+        decision.action.cardIds.every((cardId) => handIds.has(cardId));
+    });
+}
+
+function requiredDecision(
+  record: Awaited<ReturnType<typeof runAutomatedGame>>,
+  phase: "bidding" | "choosing-adjutant" | "exchanging"
+): Awaited<ReturnType<typeof runAutomatedGame>>["decisions"][number] {
+  const decision = record.decisions.find((candidate) => candidate.phase === phase);
+
+  if (decision === undefined) {
+    throw new Error(`Expected a ${phase} decision.`);
+  }
+
+  return decision;
 }
 
 function createMetadata() {
@@ -335,6 +641,121 @@ function createMetadata() {
       dropout: 0
     }
   };
+}
+
+function createNonPlayingMetadata(policyType: NonPlayingPolicyType): NonPlayingPolicyOnnxMetadata {
+  const spec = nonPlayingSpec(policyType);
+  const metadata: NonPlayingPolicyOnnxMetadata = {
+    metadataSchemaVersion: NONPLAYING_ONNX_METADATA_SCHEMA_VERSION,
+    artifactType: spec.artifactType,
+    policyType,
+    checkpointSchemaVersion: 1,
+    datasetSchemaVersion: MULTIPHASE_DATASET_SCHEMA_VERSION,
+    encoderSchemaVersion: 1,
+    modelInputSchemaVersion: 1,
+    modelInputFeatureCount: spec.inputFeatureCount,
+    outputLogitCount: spec.outputCount,
+    actionCount: spec.outputCount,
+    cardIdsSha256: calculateCardIdsSha256(),
+    inputName: ONNX_INPUT_NAME,
+    outputName: ONNX_OUTPUT_NAME,
+    inputShape: ["batch", spec.inputFeatureCount],
+    outputShape: ["batch", spec.outputCount],
+    inputDtype: "float32",
+    outputDtype: "float32",
+    onnx: {
+      opsetVersion: ONNX_OPSET_VERSION,
+      inputs: [
+        {
+          name: ONNX_INPUT_NAME,
+          shape: ["batch", spec.inputFeatureCount],
+          dtype: "float32"
+        }
+      ],
+      outputs: [
+        {
+          name: ONNX_OUTPUT_NAME,
+          shape: ["batch", spec.outputCount],
+          dtype: "float32"
+        }
+      ]
+    },
+    modelConfig: {
+      input_dim: spec.inputFeatureCount,
+      hidden_dim: 8,
+      hidden_layers: 1,
+      dropout: 0
+    },
+    checkpointSeed: 123,
+    checkpointCompatibilityMetadata: {
+      modelInputFeatureCount: spec.inputFeatureCount,
+      outputCount: spec.outputCount
+    }
+  };
+
+  if (policyType === "exchange") {
+    metadata.discardCount = 3;
+  }
+
+  return metadata;
+}
+
+function nonPlayingSpec(policyType: NonPlayingPolicyType): {
+  artifactType: string;
+  inputFeatureCount: number;
+  outputCount: number;
+} {
+  if (policyType === "bidding") {
+    return {
+      artifactType: "napoleon-bidding-policy-onnx",
+      inputFeatureCount: BIDDING_MODEL_INPUT_FEATURE_COUNT,
+      outputCount: BIDDING_ACTION_COUNT
+    };
+  }
+  if (policyType === "exchange") {
+    return {
+      artifactType: "napoleon-exchange-policy-onnx",
+      inputFeatureCount: EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
+      outputCount: CARD_COUNT
+    };
+  }
+  return {
+    artifactType: "napoleon-adjutant-policy-onnx",
+    inputFeatureCount: ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
+    outputCount: CARD_COUNT
+  };
+}
+
+function actionsEqual(left: GameAction, right: GameAction): boolean {
+  if (left.type !== right.type || left.playerId !== right.playerId) {
+    return false;
+  }
+
+  switch (left.type) {
+    case "bid":
+      return right.type === "bid" &&
+        left.suit === right.suit &&
+        left.targetPointCards === right.targetPointCards;
+    case "pass":
+      return right.type === "pass";
+    case "choose-adjutant":
+      return right.type === "choose-adjutant" && left.cardId === right.cardId;
+    case "discard-cards":
+      return right.type === "discard-cards" && sameCardIds(left.cardIds, right.cardIds);
+    case "play-card":
+      return right.type === "play-card" && left.cardId === right.cardId;
+  }
+}
+
+function sameCardIds(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  const sortedLeft = [...left].sort();
+  const sortedRight = [...right].sort();
+
+  return sortedLeft.every((cardId, index) => cardId === sortedRight[index]);
 }
 
 async function temporaryDirectory(): Promise<string> {

@@ -41,9 +41,18 @@ export {
 } from "./policyOnnx.js";
 export {
   PolicyOnnxAgent,
+  createPolicyOnnxAdjutantInput,
+  createPolicyOnnxBiddingInput,
+  createPolicyOnnxExchangeInput,
   createPolicyOnnxPlayInput
 } from "./policyOnnxAgent.js";
-export type { PolicyOnnxAgentOptions, PolicyOnnxPlayInput } from "./policyOnnxAgent.js";
+export type {
+  PolicyOnnxAdjutantInput,
+  PolicyOnnxAgentOptions,
+  PolicyOnnxBiddingInput,
+  PolicyOnnxExchangeInput,
+  PolicyOnnxPlayInput
+} from "./policyOnnxAgent.js";
 export { runPolicyVsRuleBasedEvaluation } from "./policyVsRuleBasedEvaluation.js";
 export type {
   FailedPolicyVsRuleBasedGame,
