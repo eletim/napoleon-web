@@ -8,11 +8,19 @@ import {
 
 export function createConstantPolicyOnnx(
   logits: Float32Array,
-  outputName = ONNX_OUTPUT_NAME
+  outputName = ONNX_OUTPUT_NAME,
+  options: {
+    inputName?: string;
+    inputFeatureCount?: number;
+    outputCount?: number;
+  } = {}
 ): Uint8Array {
+  const inputName = options.inputName ?? ONNX_INPUT_NAME;
+  const inputFeatureCount = options.inputFeatureCount ?? MODEL_INPUT_FEATURE_COUNT;
+  const outputCount = options.outputCount ?? CARD_COUNT;
   const tensor = message(
     fieldVarint(1, 1),
-    fieldVarint(1, CARD_COUNT),
+    fieldVarint(1, outputCount),
     fieldVarint(2, 1),
     fieldString(8, "constant_logits"),
     fieldBytes(9, new Uint8Array(logits.buffer, logits.byteOffset, logits.byteLength))
@@ -31,8 +39,8 @@ export function createConstantPolicyOnnx(
   const graph = message(
     fieldBytes(1, node),
     fieldString(2, "policy_graph"),
-    fieldBytes(11, valueInfo(ONNX_INPUT_NAME, ["batch", MODEL_INPUT_FEATURE_COUNT])),
-    fieldBytes(12, valueInfo(outputName, ["batch", CARD_COUNT]))
+    fieldBytes(11, valueInfo(inputName, ["batch", inputFeatureCount])),
+    fieldBytes(12, valueInfo(outputName, ["batch", outputCount]))
   );
   const opset = message(fieldVarint(2, ONNX_OPSET_VERSION));
 

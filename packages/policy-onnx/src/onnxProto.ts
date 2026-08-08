@@ -1,14 +1,10 @@
 import { readFile } from "node:fs/promises";
 import {
-  CARD_COUNT,
-  MODEL_INPUT_FEATURE_COUNT,
-  ONNX_BATCH_DIMENSION,
-  ONNX_INPUT_NAME,
-  ONNX_OUTPUT_NAME,
   ONNX_TENSOR_FLOAT_TYPE
 } from "./constants.js";
 import { PolicyOnnxCompatibilityError } from "./errors.js";
 import type { PolicyOnnxIoMetadata, PolicyOnnxMetadata } from "./types.js";
+import { PLAYING_POLICY_ONNX_SPEC, type RuntimePolicyOnnxSpec } from "./policySpecs.js";
 
 const MODEL_GRAPH_FIELD = 7;
 const GRAPH_INPUT_FIELD = 11;
@@ -25,19 +21,20 @@ const ONNX_FLOAT_ELEM_TYPE = 1;
 
 export async function validateOnnxModelIo(
   onnxPath: string,
-  metadata: PolicyOnnxMetadata
+  metadata: Pick<PolicyOnnxMetadata, "onnx">,
+  spec: RuntimePolicyOnnxSpec = PLAYING_POLICY_ONNX_SPEC
 ): Promise<void> {
   const bytes = await readFile(onnxPath);
   const modelIo = parseOnnxModelIo(bytes);
 
   validateSingleIo("input", modelIo.inputs, metadata.onnx.inputs[0], {
-    name: ONNX_INPUT_NAME,
-    shape: [ONNX_BATCH_DIMENSION, MODEL_INPUT_FEATURE_COUNT],
+    name: spec.inputName,
+    shape: spec.inputShape,
     dtype: ONNX_TENSOR_FLOAT_TYPE
   });
   validateSingleIo("output", modelIo.outputs, metadata.onnx.outputs[0], {
-    name: ONNX_OUTPUT_NAME,
-    shape: [ONNX_BATCH_DIMENSION, CARD_COUNT],
+    name: spec.outputName,
+    shape: spec.outputShape,
     dtype: ONNX_TENSOR_FLOAT_TYPE
   });
 }
