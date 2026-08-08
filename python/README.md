@@ -5,13 +5,13 @@ A strict Python consumer for the self-play datasets that
 dataset directory end to end — `manifest.json`, every shard's raw bytes,
 and every individual sample — and converts validated samples into
 fixed-shape, fixed-dtype NumPy tensors. It also includes first CPU-only
-PyTorch MLP baselines for predicting hidden card ownership and selecting a
-legal play from `model_input`.
+PyTorch MLP baselines for predicting hidden card ownership, selecting a
+legal play from `model_input`, and selecting a legal bidding action.
 
 This package covers the boundary from a generated dataset directory to
 validated NumPy arrays, an optional PyTorch `IterableDataset` adapter for
-fixed-shape training batches, and the first supervised ownership-belief and
-legal-play policy MLP baselines. It does not include TensorFlow, JAX, ONNX export, reinforcement
+fixed-shape training batches, and the first supervised ownership-belief,
+legal-play policy, and legal-bidding policy MLP baselines. It does not include TensorFlow, JAX, ONNX export, reinforcement
 learning, a parallel `DataLoader`, dataset caching, or compression. See
 [Not implemented](#not-implemented) below.
 
@@ -205,8 +205,8 @@ lengths are:
 | `exchange-training-sample` | `TensorizedExchangeSample` | `(2611,)` |
 | `adjutant-training-sample` | `TensorizedAdjutantSample` | `(2553,)` |
 
-The PyTorch DataLoader supports all four sample types. The policy model and
-ONNX export remain playing-only in this version.
+The PyTorch DataLoader supports all four sample types. ONNX export remains
+playing-only in this version.
 
 For playing, `tensorize_sample()` returns a `TensorizedPlayingSample`:
 
@@ -330,6 +330,12 @@ not recursively flatten arbitrary JSON. Training labels (`actorTarget` and
 `discardTargetMask`), hidden ownership, other players' private hands,
 complete `actualState` information, buried-card provenance, and unrevealed
 adjutant ownership are deliberately excluded from every `model_input`.
+
+For bidding, action index `0` is pass. Indices `1..28` enumerate bid actions
+by target point cards `13..19` and suit order `spades`, `hearts`,
+`diamonds`, `clubs`; `legalBidMask` is included in `model_input` and exposed
+again as `TensorizedBiddingSample.legal_bid_mask` for masked loss and
+inference.
 
 ## Train/validation/test splits
 
@@ -504,6 +510,40 @@ metadata or card-id hash does not match the current package and dataset.
 For reproducibility, `--seed` fixes model initialization and the DataLoader
 keeps the deterministic shard/seed sample order; no shuffle option is
 exposed.
+
+## Bidding MLP baseline
+
+Install the `train` or `dev` extra, then train the CPU-only behavior-cloning
+baseline on the rule-based agent's selected bidding actions:
+
+```bash
+napoleon-train-bidding-mlp ./datasets/rule-based-bidding-v1 \
+  --output ./models/bidding-mlp.pt \
+  --epochs 3 \
+  --batch-size 32 \
+  --seed 0
+```
+
+The model consumes bidding `model_input` with shape `(batch, 2333)` and emits
+29 logits. Training, evaluation, and `select_bidding_action()` mask
+`legal_bid_mask` before cross entropy or argmax, so illegal actions are never
+selected or trained as targets. Evaluation reports top-1 accuracy, pass/bid
+accuracy, target-point-card and suit breakdowns, a legal-action uniform
+random baseline, and illegal prediction count.
+
+Evaluate a saved checkpoint without training:
+
+```bash
+napoleon-evaluate-bidding-mlp ./datasets/rule-based-bidding-v1 \
+  --checkpoint ./models/bidding-mlp.pt \
+  --split test
+```
+
+Bidding checkpoints store the model state, model/training settings, v2
+dataset schema version, bidding encoder schema version, bidding model-input
+schema version, action count, `CARD_IDS` SHA-256 hash, and seed. Loading
+refuses incompatible schema, action-count, sample-type, split-ratio, or
+card-id metadata.
 
 ## Policy MLP baseline
 

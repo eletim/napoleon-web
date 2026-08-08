@@ -53,9 +53,14 @@ def load_checked_manifest(dataset_directory: Path, *, command_label: str) -> Dat
         raise DatasetError(f"dataset directory does not exist: {dataset_directory}")
 
     manifest = load_manifest(dataset_directory)
+    encoder_schema_version = (
+        manifest.playing_encoder_schema_version
+        if manifest.playing_encoder_schema_version is not None
+        else manifest.encoder_schema_version
+    )
     print(
         f"{command_label}: dataset schema={manifest.dataset_schema_version}, "
-        f"encoder schema={manifest.playing_encoder_schema_version}, "
+        f"encoder schema={encoder_schema_version}, "
         f"samples={manifest.sample_count}",
         file=sys.stderr,
     )
