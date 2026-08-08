@@ -25,6 +25,8 @@ from napoleon_ml.dataset.tensors import (
     MODEL_INPUT_LAYOUT,
     MODEL_INPUT_ONEHOT_LAYOUT,
     FeatureSlice,
+    TensorizedPlayingSample,
+    TensorizedPlayingSelfPlaySample,
     tensorize_sample,
     validate_tensorized_sample,
 )
@@ -35,6 +37,28 @@ _COMPLETED_TRICK_CARD_SLOT_COUNT = TRICK_COUNT * CARDS_PER_TRICK
 
 def _load_valid_sample() -> dict[str, Any]:
     return json.loads(_FIXTURE_PATH.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
+
+
+def _load_valid_self_play_sample() -> dict[str, Any]:
+    raw = _load_valid_sample()
+    selected_card_index = raw["actorTarget"]["selectedCardIndex"]
+    del raw["actorTarget"]
+    del raw["beliefTarget"]
+    raw.update(
+        {
+            "sampleType": "playing-self-play-sample",
+            "selectedCardIndex": selected_card_index,
+            "behaviorLogProbability": -0.5,
+            "terminalReward": 1,
+            "outcome": {
+                "winner": "napoleon-team",
+                "napoleonPlayerId": "player-4",
+                "actingPlayerTeam": "napoleon-team",
+                "actingPlayerRole": "napoleon",
+            },
+        }
+    )
+    return raw
 
 
 def _find_slice(name: str) -> FeatureSlice:
@@ -111,6 +135,24 @@ def test_tensorize_sample_shapes_and_dtypes() -> None:
     assert observation.bidding_history_action_mask.dtype == np.uint8
     assert observation.bidding_history_action_type_indices.shape == (MAX_BIDDING_ACTION_COUNT,)
     assert observation.bidding_history_action_type_indices.dtype == np.int64
+
+
+def test_self_play_tensorizer_matches_supervised_playing_model_input_bytes() -> None:
+    supervised = tensorize_sample(parse_sample(_load_valid_sample()))
+    self_play = tensorize_sample(
+        parse_sample(_load_valid_self_play_sample(), sample_type="playing-self-play-sample")
+    )
+    assert isinstance(supervised, TensorizedPlayingSample)
+    assert isinstance(self_play, TensorizedPlayingSelfPlaySample)
+
+    assert self_play.model_input.shape == (MODEL_INPUT_FEATURE_COUNT,)
+    assert self_play.model_input.dtype == np.float32
+    assert self_play.legal_play_mask.shape == (CARD_COUNT,)
+    assert self_play.legal_play_mask.dtype == np.uint8
+    assert self_play.selected_card_index.dtype == np.int64
+    assert self_play.behavior_log_probability.dtype == np.float32
+    assert self_play.terminal_reward.dtype == np.float32
+    assert self_play.model_input.tobytes() == supervised.model_input.tobytes()
 
 
 def test_flat_observation_is_c_contiguous() -> None:

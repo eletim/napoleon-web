@@ -16,13 +16,24 @@ from pathlib import Path
 import pytest
 import torch
 
-from napoleon_ml.dataset import iter_samples, iter_tensorized_samples, load_manifest
+from napoleon_ml.dataset import (
+    iter_playing_self_play_samples,
+    iter_samples,
+    iter_tensorized_playing_self_play_samples,
+    iter_tensorized_samples,
+    load_manifest,
+)
 from napoleon_ml.dataset.constants import EXPECTED_CARD_IDS
-from napoleon_ml.dataset.pytorch import create_playing_dataloader, create_training_dataloader
+from napoleon_ml.dataset.pytorch import (
+    create_playing_dataloader,
+    create_playing_self_play_dataloader,
+    create_training_dataloader,
+)
 from napoleon_ml.dataset.sample import (
     AdjutantTrainingSample,
     BiddingTrainingSample,
     ExchangeTrainingSample,
+    PlayingSelfPlaySample,
 )
 from napoleon_ml.dataset.split import DatasetSplit, split_for_seed
 from napoleon_ml.dataset.tensors import (
@@ -31,6 +42,7 @@ from napoleon_ml.dataset.tensors import (
     EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
     MODEL_INPUT_FEATURE_COUNT,
     TensorizedPlayingSample,
+    TensorizedPlayingSelfPlaySample,
 )
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 
@@ -255,6 +267,88 @@ def test_typescript_generated_multiphase_datasets_load_and_tensorize_cleanly() -
     assert not tmp_root.exists()
 
 
+@pytest.mark.integration
+def test_typescript_generated_playing_self_play_dataset_loads_rl_batch() -> None:
+    with tempfile.TemporaryDirectory(prefix="napoleon-python-self-play-v3-") as tmp_dir_name:
+        tmp_root = Path(tmp_dir_name)
+        output_directory = tmp_root / "playing-self-play"
+        _build_training_data_package()
+        _generate_playing_self_play_dataset(output_directory=output_directory)
+
+        manifest = load_manifest(output_directory)
+
+        assert manifest.dataset_schema_version == 3
+        assert manifest.generator_version == 1
+        assert manifest.sample_type == "playing-self-play-sample"
+        assert manifest.sample_schema_version == 1
+        assert manifest.playing_encoder_schema_version == 1
+        assert manifest.playing_model_input_schema_version == 1
+        assert manifest.sampling_algorithm == "masked-categorical"
+        assert manifest.temperature == 1.25
+        assert manifest.reward is not None
+        assert manifest.reward.type == "terminal-team-win"
+        assert manifest.reward.version == 1
+        assert manifest.non_playing_agent is not None
+        assert manifest.non_playing_agent.type == "rule-based"
+        assert manifest.behavior_policy is not None
+        assert manifest.behavior_policy.artifact_id == "python-integration-policy"
+        assert manifest.card_ids == EXPECTED_CARD_IDS
+        assert manifest.card_ids_sha256 == calculate_card_ids_sha256()
+
+        samples = list(iter_playing_self_play_samples(output_directory))
+        assert len(samples) == manifest.sample_count
+        assert all(isinstance(sample, PlayingSelfPlaySample) for sample in samples)
+        assert all(sample.terminal_reward in {-1, 1} for sample in samples)
+        assert all(sample.behavior_log_probability <= 0 for sample in samples)
+        assert all(
+            sample.observation.legal_play_mask[sample.selected_card_index] == 1
+            for sample in samples
+        )
+        forced = [sample for sample in samples if sum(sample.observation.legal_play_mask) == 1]
+        assert forced
+        assert all(sample.behavior_log_probability == 0 for sample in forced)
+
+        tensorized = next(iter_tensorized_playing_self_play_samples(output_directory))
+        assert isinstance(tensorized, TensorizedPlayingSelfPlaySample)
+        assert tensorized.model_input.shape == (MODEL_INPUT_FEATURE_COUNT,)
+        assert str(tensorized.model_input.dtype) == "float32"
+        assert tensorized.legal_play_mask.shape == (53,)
+        assert tensorized.legal_play_mask[int(tensorized.selected_card_index)] == 1
+
+        loader = create_playing_self_play_dataloader(
+            output_directory,
+            split=DatasetSplit.TRAIN,
+            batch_size=4,
+        )
+        batch = next(iter(loader))
+
+        assert batch["model_input"].shape == (4, MODEL_INPUT_FEATURE_COUNT)
+        assert batch["model_input"].dtype == torch.float32
+        assert batch["legal_play_mask"].shape == (4, 53)
+        assert batch["legal_play_mask"].dtype == torch.bool
+        assert batch["selected_card_index"].shape == (4,)
+        assert batch["selected_card_index"].dtype == torch.int64
+        assert batch["behavior_log_probability"].shape == (4,)
+        assert batch["behavior_log_probability"].dtype == torch.float32
+        assert torch.isfinite(batch["behavior_log_probability"]).all()
+        assert batch["terminal_reward"].shape == (4,)
+        assert batch["terminal_reward"].dtype == torch.float32
+        assert set(batch["terminal_reward"].tolist()) <= {-1.0, 1.0}
+        assert batch["legal_play_mask"][torch.arange(4), batch["selected_card_index"]].all()
+        assert batch["seed"].dtype == torch.int64
+        assert batch["step"].dtype == torch.int64
+
+        seed_to_split: dict[int, DatasetSplit] = {}
+        for sample in iter_tensorized_playing_self_play_samples(output_directory):
+            split = split_for_seed(sample.seed)
+            seed_to_split.setdefault(sample.seed, split)
+            assert seed_to_split[sample.seed] == split
+
+        assert set(seed_to_split) == set(range(manifest.start_seed, manifest.end_seed + 1))
+
+    assert not tmp_root.exists()
+
+
 def _build_training_data_package() -> None:
     result = subprocess.run(
         ["pnpm", "--filter", "@napoleon/training-data...", "build"],
@@ -292,5 +386,51 @@ await generateRuleBasedDataset({
 
     assert result.returncode == 0, (
         f"node multiphase generator failed for {sample_type} (exit {result.returncode}):\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+
+
+def _generate_playing_self_play_dataset(*, output_directory: Path) -> None:
+    script = """
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { generatePlayingSelfPlayDataset } from "./packages/training-data/dist/index.js";
+
+const outputDirectory = process.argv[1];
+const artifactDirectory = join(dirname(outputDirectory), "artifacts");
+await mkdir(artifactDirectory, { recursive: true });
+const onnxPath = join(artifactDirectory, "policy.onnx");
+const metadataPath = join(artifactDirectory, "policy.json");
+await writeFile(onnxPath, new Uint8Array([1, 2, 3, 4]));
+await writeFile(metadataPath, JSON.stringify({ metadataSchemaVersion: 1 }) + "\\n", "utf8");
+const logits = Float32Array.from(Array.from({ length: 53 }, (_, index) => (index % 13) / 5));
+
+await generatePlayingSelfPlayDataset({
+  outputDirectory,
+  playingPolicy: {
+    metadata: { metadataSchemaVersion: 1, source: "python-integration" },
+    predictLogits: async () => Float32Array.from(logits)
+  },
+  playingPolicyArtifact: {
+    onnxPath,
+    metadataPath,
+    artifactId: "python-integration-policy"
+  },
+  startSeed: 21,
+  gameCount: 3,
+  gamesPerShard: 2,
+  temperature: 1.25
+});
+"""
+    result = subprocess.run(
+        ["node", "--input-type=module", "--eval", script, str(output_directory)],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+
+    assert result.returncode == 0, (
+        f"node playing self-play generator failed (exit {result.returncode}):\n"
         f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )

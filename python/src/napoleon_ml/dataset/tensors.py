@@ -63,6 +63,7 @@ from .sample import (
     EncodedExchangeObservation,
     EncodedPlayingObservation,
     ExchangeTrainingSample,
+    PlayingSelfPlaySample,
     PlayingTrainingSample,
     TrainingSample,
 )
@@ -231,11 +232,25 @@ class TensorizedAdjutantSample:
     actor_target: np.int64
 
 
+@dataclass(frozen=True)
+class TensorizedPlayingSelfPlaySample:
+    seed: int
+    step: int
+    acting_player_index: int
+    observation: PlayingObservationTensors
+    model_input: np.ndarray
+    legal_play_mask: np.ndarray
+    selected_card_index: np.int64
+    behavior_log_probability: np.float32
+    terminal_reward: np.float32
+
+
 TensorizedTrainingSample = (
     TensorizedPlayingSample
     | TensorizedBiddingSample
     | TensorizedExchangeSample
     | TensorizedAdjutantSample
+    | TensorizedPlayingSelfPlaySample
 )
 _SpecialCardObservation = (
     EncodedPlayingObservation | EncodedExchangeObservation | EncodedAdjutantObservation
@@ -966,6 +981,10 @@ def tensorize_sample(sample: AdjutantTrainingSample) -> TensorizedAdjutantSample
 
 
 @overload
+def tensorize_sample(sample: PlayingSelfPlaySample) -> TensorizedPlayingSelfPlaySample: ...
+
+
+@overload
 def tensorize_sample(sample: TrainingSample) -> TensorizedTrainingSample: ...
 
 
@@ -978,6 +997,8 @@ def tensorize_sample(sample: TrainingSample) -> TensorizedTrainingSample:
         return tensorize_exchange_sample(sample)
     if isinstance(sample, AdjutantTrainingSample):
         return tensorize_adjutant_sample(sample)
+    if isinstance(sample, PlayingSelfPlaySample):
+        return tensorize_playing_self_play_sample(sample)
 
     raise SampleValidationError(f"Unsupported sample class: {type(sample).__name__}.")
 
@@ -1030,6 +1051,27 @@ def tensorize_adjutant_sample(sample: AdjutantTrainingSample) -> TensorizedAdjut
     return tensorized
 
 
+def tensorize_playing_self_play_sample(
+    sample: PlayingSelfPlaySample,
+) -> TensorizedPlayingSelfPlaySample:
+    observation_tensors = tensorize_observation(sample.observation)
+    flat = _flat_observation(observation_tensors)
+    model_input = _model_input(observation_tensors, flat)
+    tensorized = TensorizedPlayingSelfPlaySample(
+        seed=sample.seed,
+        step=sample.step,
+        acting_player_index=sample.relative_player_ids.index(sample.acting_player_id),
+        observation=observation_tensors,
+        model_input=model_input,
+        legal_play_mask=observation_tensors.legal_play_mask,
+        selected_card_index=np.int64(sample.selected_card_index),
+        behavior_log_probability=np.float32(sample.behavior_log_probability),
+        terminal_reward=np.float32(sample.terminal_reward),
+    )
+    validate_tensorized_sample(tensorized)
+    return tensorized
+
+
 def validate_tensorized_sample(tensorized: TensorizedTrainingSample) -> None:
     """Check the shape/dtype/value invariants tensorization must uphold."""
 
@@ -1069,6 +1111,9 @@ def validate_tensorized_sample(tensorized: TensorizedTrainingSample) -> None:
             legal_mask_name="legal_adjutant_mask",
             legal_mask_length=CARD_COUNT,
         )
+        return
+    if isinstance(tensorized, TensorizedPlayingSelfPlaySample):
+        validate_tensorized_playing_self_play_sample(tensorized)
         return
 
     raise SampleValidationError(f"Unsupported tensorized sample: {type(tensorized).__name__}.")
@@ -1133,6 +1178,49 @@ def validate_tensorized_playing_sample(tensorized: TensorizedPlayingSample) -> N
         )
 
     _validate_model_input(tensorized.model_input, flat, tensorized.observation)
+
+
+def validate_tensorized_playing_self_play_sample(
+    tensorized: TensorizedPlayingSelfPlaySample,
+) -> None:
+    _validate_model_input_basic(tensorized.model_input, feature_count=MODEL_INPUT_FEATURE_COUNT)
+    _validate_mask_shape(tensorized.legal_play_mask, "legal_play_mask")
+
+    if tensorized.selected_card_index.dtype != np.int64:
+        raise SampleValidationError(
+            "selected_card_index dtype must be int64, "
+            f"got {tensorized.selected_card_index.dtype}."
+        )
+
+    selected = int(tensorized.selected_card_index)
+
+    if selected < 0 or selected >= CARD_COUNT:
+        raise SampleValidationError(
+            f"selected_card_index must be between 0 and {CARD_COUNT - 1}, got {selected}."
+        )
+
+    if tensorized.legal_play_mask[selected] != 1:
+        raise SampleValidationError("legal_play_mask at the selected_card_index must be 1.")
+
+    if tensorized.behavior_log_probability.dtype != np.float32:
+        raise SampleValidationError(
+            "behavior_log_probability dtype must be float32, "
+            f"got {tensorized.behavior_log_probability.dtype}."
+        )
+
+    if not np.isfinite(tensorized.behavior_log_probability):
+        raise SampleValidationError("behavior_log_probability must be finite.")
+
+    if float(tensorized.behavior_log_probability) > 1e-12:
+        raise SampleValidationError("behavior_log_probability must be <= 0.")
+
+    if tensorized.terminal_reward.dtype != np.float32:
+        raise SampleValidationError(
+            f"terminal_reward dtype must be float32, got {tensorized.terminal_reward.dtype}."
+        )
+
+    if float(tensorized.terminal_reward) not in {-1.0, 1.0}:
+        raise SampleValidationError("terminal_reward must be +1 or -1.")
 
 
 def _validate_model_input_basic(model_input: np.ndarray, *, feature_count: int) -> None:

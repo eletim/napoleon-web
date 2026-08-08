@@ -46,6 +46,12 @@ def require_int(value: object, *, path: str, error: ErrorFactory) -> int:
     return value
 
 
+def require_number(value: object, *, path: str, error: ErrorFactory) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise error(f"{path} must be a number, got {describe_type(value)}.")
+    return float(value)
+
+
 def require_key(obj: Mapping[str, object], key: str, *, path: str, error: ErrorFactory) -> object:
     if key not in obj:
         raise error(f"{path} is missing required key {key!r}.")

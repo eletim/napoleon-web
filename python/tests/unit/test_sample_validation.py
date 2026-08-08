@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from napoleon_ml.dataset.errors import SampleValidationError
-from napoleon_ml.dataset.sample import parse_sample
+from napoleon_ml.dataset.sample import PlayingSelfPlaySample, parse_sample
 from napoleon_ml.dataset.validation import validate_sample
 
 _FIXTURE_PATH = Path(__file__).parent / "fixtures" / "valid_sample.json"
@@ -24,6 +24,35 @@ def _parse_and_validate(raw: dict[str, Any]) -> None:
     validate_sample(parse_sample(raw))
 
 
+def _load_valid_self_play_sample() -> dict[str, Any]:
+    raw = _load_valid_sample()
+    selected_card_index = raw["actorTarget"]["selectedCardIndex"]
+    del raw["actorTarget"]
+    del raw["beliefTarget"]
+    raw.update(
+        {
+            "sampleType": "playing-self-play-sample",
+            "selectedCardIndex": selected_card_index,
+            "behaviorLogProbability": -0.5,
+            "terminalReward": 1,
+            "outcome": {
+                "winner": "napoleon-team",
+                "napoleonPlayerId": "player-4",
+                "actingPlayerTeam": "napoleon-team",
+                "actingPlayerRole": "napoleon",
+            },
+        }
+    )
+    return raw
+
+
+def _parse_and_validate_self_play(raw: dict[str, Any]) -> PlayingSelfPlaySample:
+    sample = parse_sample(raw, sample_type="playing-self-play-sample")
+    validate_sample(sample)
+    assert isinstance(sample, PlayingSelfPlaySample)
+    return sample
+
+
 def test_valid_sample_passes() -> None:
     raw = _load_valid_sample()
     sample = parse_sample(raw)
@@ -34,6 +63,83 @@ def test_valid_sample_passes() -> None:
     assert sample.acting_player_id == "player-4"
     assert len(sample.observation.legal_play_mask) == 53
     assert len(sample.belief_target.owner_class_by_card) == 53
+
+
+def test_valid_self_play_sample_passes() -> None:
+    sample = _parse_and_validate_self_play(_load_valid_self_play_sample())
+
+    assert sample.sample_type == "playing-self-play-sample"
+    assert sample.observation.legal_play_mask[sample.selected_card_index] == 1
+    assert sample.terminal_reward == 1
+    assert sample.outcome.acting_player_role == "napoleon"
+
+
+def test_self_play_unknown_hidden_fields_rejected() -> None:
+    for hidden_key in (
+        "actualState",
+        "actualHands",
+        "opponentPrivateHand",
+        "unusedCards",
+        "teacherAction",
+        "futureAction",
+        "actorTarget",
+        "beliefTarget",
+    ):
+        raw = _load_valid_self_play_sample()
+        raw[hidden_key] = {}
+
+        with pytest.raises(SampleValidationError, match="unknown key"):
+            _parse_and_validate_self_play(raw)
+
+
+def test_self_play_illegal_selected_action_rejected() -> None:
+    raw = _load_valid_self_play_sample()
+    raw["selectedCardIndex"] = raw["observation"]["legalPlayMask"].index(0)
+
+    with pytest.raises(SampleValidationError, match="selectedCardIndex"):
+        _parse_and_validate_self_play(raw)
+
+
+def test_self_play_positive_log_probability_rejected() -> None:
+    raw = _load_valid_self_play_sample()
+    raw["behaviorLogProbability"] = 0.1
+
+    with pytest.raises(SampleValidationError, match="behaviorLogProbability"):
+        _parse_and_validate_self_play(raw)
+
+
+def test_self_play_forced_action_requires_zero_log_probability() -> None:
+    raw = _load_valid_self_play_sample()
+    selected = raw["selectedCardIndex"]
+    raw["observation"]["legalPlayMask"] = [1 if index == selected else 0 for index in range(53)]
+    raw["behaviorLogProbability"] = -0.1
+
+    with pytest.raises(SampleValidationError, match="forced"):
+        _parse_and_validate_self_play(raw)
+
+
+def test_self_play_outcome_reward_mismatch_rejected() -> None:
+    raw = _load_valid_self_play_sample()
+    raw["terminalReward"] = -1
+
+    with pytest.raises(SampleValidationError, match="terminalReward"):
+        _parse_and_validate_self_play(raw)
+
+
+def test_self_play_role_team_mismatch_rejected() -> None:
+    raw = _load_valid_self_play_sample()
+    raw["outcome"]["actingPlayerRole"] = "alliance"
+
+    with pytest.raises(SampleValidationError, match="actingPlayerTeam"):
+        _parse_and_validate_self_play(raw)
+
+
+def test_self_play_missing_outcome_key_rejected() -> None:
+    raw = _load_valid_self_play_sample()
+    del raw["outcome"]["winner"]
+
+    with pytest.raises(SampleValidationError, match="winner"):
+        parse_sample(raw, sample_type="playing-self-play-sample")
 
 
 def test_schema_version_mismatch_rejected() -> None:

@@ -20,10 +20,12 @@ from napoleon_ml.dataset.pytorch import (
     BiddingIterableDataset,
     ExchangeIterableDataset,
     PlayingIterableDataset,
+    PlayingSelfPlayIterableDataset,
     create_adjutant_dataloader,
     create_bidding_dataloader,
     create_exchange_dataloader,
     create_playing_dataloader,
+    create_playing_self_play_dataloader,
     create_training_dataloader,
 )
 from napoleon_ml.dataset.sample import parse_sample
@@ -37,6 +39,7 @@ from napoleon_ml.dataset.tensors import (
     TensorizedBiddingSample,
     TensorizedExchangeSample,
     TensorizedPlayingSample,
+    TensorizedPlayingSelfPlaySample,
     tensorize_sample,
 )
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
@@ -58,6 +61,30 @@ def _samples_by_seed(*, seeds: tuple[int, ...], steps_per_seed: int) -> Iterator
     for seed in seeds:
         for step in range(1, steps_per_seed + 1):
             yield dict(base, seed=seed, step=step)
+
+
+def _self_play_sample(*, seed: int = 0, step: int = 1) -> dict[str, Any]:
+    raw = _load_valid_sample()
+    selected_card_index = raw["actorTarget"]["selectedCardIndex"]
+    del raw["actorTarget"]
+    del raw["beliefTarget"]
+    raw.update(
+        {
+            "sampleType": "playing-self-play-sample",
+            "seed": seed,
+            "step": step,
+            "selectedCardIndex": selected_card_index,
+            "behaviorLogProbability": -0.5,
+            "terminalReward": 1,
+            "outcome": {
+                "winner": "napoleon-team",
+                "napoleonPlayerId": "player-4",
+                "actingPlayerTeam": "napoleon-team",
+                "actingPlayerRole": "napoleon",
+            },
+        }
+    )
+    return raw
 
 
 def _write_dataset(directory: Path, samples: list[dict[str, Any]]) -> None:
@@ -102,6 +129,64 @@ def _write_dataset(directory: Path, samples: list[dict[str, Any]]) -> None:
                 "sha256": hashlib.sha256(shard_bytes).hexdigest(),
             }
         ],
+    }
+    (directory / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def _write_self_play_dataset(directory: Path, samples: list[dict[str, Any]]) -> None:
+    shard_bytes = b"".join(_one_line(sample) for sample in samples)
+    (directory / "shard-00000.jsonl").write_bytes(shard_bytes)
+    seeds = [sample["seed"] for sample in samples]
+    unique_seed_runs = 0
+    previous_seed: int | None = None
+
+    for seed in seeds:
+        if seed != previous_seed:
+            unique_seed_runs += 1
+            previous_seed = seed
+
+    manifest = {
+        "datasetSchemaVersion": 3,
+        "generatorVersion": 1,
+        "format": "jsonl",
+        "sampleType": "playing-self-play-sample",
+        "sampleSchemaVersion": 1,
+        "startSeed": seeds[0],
+        "endSeed": seeds[-1],
+        "gameCount": unique_seed_runs,
+        "sampleCount": len(samples),
+        "gamesPerShard": unique_seed_runs,
+        "shardCount": 1,
+        "playerCount": 5,
+        "cardCount": CARD_COUNT,
+        "cardIds": list(EXPECTED_CARD_IDS),
+        "cardIdsSha256": calculate_card_ids_sha256(),
+        "shards": [
+            {
+                "file": "shard-00000.jsonl",
+                "startSeed": seeds[0],
+                "endSeed": seeds[-1],
+                "gameCount": unique_seed_runs,
+                "sampleCount": len(samples),
+                "byteLength": len(shard_bytes),
+                "sha256": hashlib.sha256(shard_bytes).hexdigest(),
+            }
+        ],
+        "playingEncoderSchemaVersion": 1,
+        "playingModelInputSchemaVersion": 1,
+        "behaviorPolicy": {
+            "type": "playing-onnx",
+            "artifactId": "unit-policy",
+            "onnxFileName": "policy.onnx",
+            "metadataFileName": "policy.json",
+            "onnxSha256": "c" * 64,
+            "metadataSha256": "d" * 64,
+            "metadata": {"metadataSchemaVersion": 1},
+        },
+        "samplingAlgorithm": "masked-categorical",
+        "temperature": 1.0,
+        "reward": {"type": "terminal-team-win", "version": 1},
+        "nonPlayingAgent": {"type": "rule-based", "version": 1},
     }
     (directory / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
@@ -337,6 +422,92 @@ def test_empty_split_produces_no_batches(tmp_path: Path) -> None:
     )
 
     assert list(loader) == []
+
+
+def test_playing_self_play_dataloader_batches_rl_fields(tmp_path: Path) -> None:
+    _write_self_play_dataset(
+        tmp_path,
+        [
+            _self_play_sample(seed=0, step=1),
+            _self_play_sample(seed=0, step=2),
+            _self_play_sample(seed=1, step=1),
+        ],
+    )
+    loader = create_playing_self_play_dataloader(
+        tmp_path,
+        split=DatasetSplit.VALIDATION,
+        split_config=SplitConfig(train=1, validation=1, test=98),
+        batch_size=1,
+    )
+    batch = next(iter(loader))
+
+    assert set(batch) == {
+        "model_input",
+        "legal_play_mask",
+        "selected_card_index",
+        "behavior_log_probability",
+        "terminal_reward",
+        "seed",
+        "step",
+        "acting_player_index",
+    }
+    assert batch["model_input"].shape == (1, MODEL_INPUT_FEATURE_COUNT)
+    assert batch["model_input"].dtype == torch.float32
+    assert batch["legal_play_mask"].shape == (1, CARD_COUNT)
+    assert batch["legal_play_mask"].dtype == torch.bool
+    assert batch["selected_card_index"].shape == (1,)
+    assert batch["selected_card_index"].dtype == torch.int64
+    assert batch["behavior_log_probability"].shape == (1,)
+    assert batch["behavior_log_probability"].dtype == torch.float32
+    assert torch.isfinite(batch["behavior_log_probability"]).all()
+    assert batch["terminal_reward"].shape == (1,)
+    assert batch["terminal_reward"].dtype == torch.float32
+    assert batch["terminal_reward"].tolist() == [1.0]
+    assert batch["legal_play_mask"][torch.arange(1), batch["selected_card_index"]].all()
+    assert batch["seed"].tolist() == [1]
+    assert batch["step"].tolist() == [1]
+    assert batch["acting_player_index"].tolist() == [0]
+
+
+def test_self_play_is_not_loaded_as_supervised_training_dataloader(tmp_path: Path) -> None:
+    _write_self_play_dataset(tmp_path, [_self_play_sample()])
+
+    with pytest.raises(DatasetError, match="create_playing_self_play_dataloader"):
+        create_training_dataloader(tmp_path, split=DatasetSplit.TRAIN, batch_size=1)
+
+    loader = create_playing_dataloader(tmp_path, split=DatasetSplit.TRAIN, batch_size=1)
+
+    with pytest.raises(DatasetError, match="playing-training-sample"):
+        next(iter(loader))
+
+
+def test_playing_self_play_dataloader_rejects_illegal_tensorized_action(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_self_play_dataset(tmp_path, [_self_play_sample()])
+    tensorized = tensorize_sample(
+        parse_sample(_self_play_sample(), sample_type="playing-self-play-sample")
+    )
+    assert isinstance(tensorized, TensorizedPlayingSelfPlaySample)
+    legal_play_mask = tensorized.legal_play_mask.copy()
+    legal_play_mask[int(tensorized.selected_card_index)] = 0
+    bad = dataclasses.replace(tensorized, legal_play_mask=legal_play_mask)
+
+    def _fake_iter_tensorized_samples(
+        *args: object, **kwargs: object
+    ) -> Iterator[TensorizedPlayingSelfPlaySample]:
+        yield bad
+
+    monkeypatch.setattr(
+        pytorch_module,
+        "_iter_tensorized_samples_with_manifest",
+        _fake_iter_tensorized_samples,
+    )
+
+    dataset = PlayingSelfPlayIterableDataset(tmp_path, split=DatasetSplit.TRAIN)
+
+    with pytest.raises(DatasetError, match="selected_card_index must be legal"):
+        next(iter(dataset))
 
 
 def test_mask_dtype_can_be_uint8(tmp_path: Path) -> None:

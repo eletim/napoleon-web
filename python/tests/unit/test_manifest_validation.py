@@ -60,6 +60,35 @@ def _valid_manifest_dict() -> dict[str, Any]:
     }
 
 
+def _valid_self_play_manifest_dict() -> dict[str, Any]:
+    raw = _valid_manifest_dict()
+    del raw["agent"]
+    raw.update(
+        {
+            "datasetSchemaVersion": 3,
+            "generatorVersion": 1,
+            "sampleType": "playing-self-play-sample",
+            "sampleSchemaVersion": 1,
+            "playingEncoderSchemaVersion": 1,
+            "playingModelInputSchemaVersion": 1,
+            "behaviorPolicy": {
+                "type": "playing-onnx",
+                "artifactId": "policy-fixture",
+                "onnxFileName": "policy.onnx",
+                "metadataFileName": "policy.json",
+                "onnxSha256": "c" * 64,
+                "metadataSha256": "d" * 64,
+                "metadata": {"metadataSchemaVersion": 1},
+            },
+            "samplingAlgorithm": "masked-categorical",
+            "temperature": 1.25,
+            "reward": {"type": "terminal-team-win", "version": 1},
+            "nonPlayingAgent": {"type": "rule-based", "version": 1},
+        }
+    )
+    return raw
+
+
 def _parse_and_validate(raw: dict[str, Any]) -> None:
     validate_manifest(parse_manifest(raw))
 
@@ -70,7 +99,7 @@ def test_valid_manifest_passes() -> None:
 
 def test_schema_version_mismatch_rejected() -> None:
     raw = _valid_manifest_dict()
-    raw["datasetSchemaVersion"] = 3
+    raw["datasetSchemaVersion"] = 4
 
     with pytest.raises(ManifestValidationError, match="datasetSchemaVersion"):
         _parse_and_validate(raw)
@@ -89,6 +118,54 @@ def test_multiphase_manifest_passes() -> None:
 
     assert manifest.encoder_schema_version == 1
     assert manifest.playing_encoder_schema_version is None
+
+
+def test_self_play_manifest_v3_passes() -> None:
+    manifest = parse_manifest(_valid_self_play_manifest_dict())
+    validate_manifest(manifest)
+
+    assert manifest.dataset_schema_version == 3
+    assert manifest.sample_type == "playing-self-play-sample"
+    assert manifest.sample_schema_version == 1
+    assert manifest.playing_encoder_schema_version == 1
+    assert manifest.playing_model_input_schema_version == 1
+    assert manifest.agent is None
+    assert manifest.behavior_policy is not None
+    assert manifest.behavior_policy.artifact_id == "policy-fixture"
+    assert manifest.reward is not None
+    assert manifest.reward.type == "terminal-team-win"
+    assert manifest.non_playing_agent is not None
+    assert manifest.non_playing_agent.type == "rule-based"
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (lambda raw: raw.update({"sampleSchemaVersion": 2}), "sampleSchemaVersion"),
+        (lambda raw: raw.update({"playingModelInputSchemaVersion": 2}), "ModelInput"),
+        (lambda raw: raw.update({"samplingAlgorithm": "greedy"}), "samplingAlgorithm"),
+        (lambda raw: raw.update({"temperature": 0}), "temperature"),
+        (lambda raw: raw["behaviorPolicy"].update({"onnxSha256": "not-a-hash"}), "onnxSha256"),
+        (lambda raw: raw["reward"].update({"type": "dense"}), "reward"),
+        (lambda raw: raw["nonPlayingAgent"].update({"version": 2}), "nonPlayingAgent"),
+    ],
+)
+def test_invalid_self_play_manifest_v3_rejected(
+    mutate: Any, message: str
+) -> None:
+    raw = _valid_self_play_manifest_dict()
+    mutate(raw)
+
+    with pytest.raises(ManifestValidationError, match=message):
+        _parse_and_validate(raw)
+
+
+def test_self_play_manifest_unknown_behavior_policy_key_rejected() -> None:
+    raw = _valid_self_play_manifest_dict()
+    raw["behaviorPolicy"]["extraField"] = True
+
+    with pytest.raises(ManifestValidationError, match="unknown key"):
+        parse_manifest(raw)
 
 
 def test_generator_version_mismatch_rejected() -> None:

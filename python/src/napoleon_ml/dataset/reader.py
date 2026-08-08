@@ -17,11 +17,12 @@ from pathlib import Path
 
 from ._json import loads_strict
 from ._strict import require_int
+from .constants import PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE
 from .errors import ManifestValidationError, SampleValidationError, ShardIntegrityError
 from .manifest import DatasetManifest, DatasetShardManifest, parse_manifest
-from .sample import TrainingSample, parse_sample
+from .sample import PlayingSelfPlaySample, TrainingSample, parse_sample
 from .split import DatasetSplit, SplitConfig, split_for_seed
-from .tensors import TensorizedTrainingSample, tensorize_sample
+from .tensors import TensorizedPlayingSelfPlaySample, TensorizedTrainingSample, tensorize_sample
 from .validation import validate_dataset_directory, validate_manifest, validate_sample
 
 
@@ -309,6 +310,35 @@ def _iter_samples_with_manifest(
         )
 
 
+def iter_playing_self_play_samples(
+    dataset_directory: Path | str,
+    *,
+    verify_integrity: bool = True,
+) -> Iterator[PlayingSelfPlaySample]:
+    """Stream a v3 ``playing-self-play-sample`` dataset as validated samples."""
+
+    directory = Path(dataset_directory)
+    manifest = load_manifest(directory)
+
+    if manifest.sample_type != PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE:
+        raise SampleValidationError(
+            "iter_playing_self_play_samples requires a playing-self-play-sample dataset, "
+            f"got {manifest.sample_type!r}."
+        )
+
+    for sample in _iter_samples_with_manifest(
+        directory,
+        manifest,
+        verify_integrity=verify_integrity,
+    ):
+        if not isinstance(sample, PlayingSelfPlaySample):
+            raise SampleValidationError(
+                "iter_playing_self_play_samples received a non-self-play sample."
+            )
+
+        yield sample
+
+
 def iter_tensorized_samples(
     dataset_directory: Path | str,
     *,
@@ -333,6 +363,39 @@ def iter_tensorized_samples(
         split_config=split_config,
         verify_integrity=verify_integrity,
     )
+
+
+def iter_tensorized_playing_self_play_samples(
+    dataset_directory: Path | str,
+    *,
+    split: DatasetSplit | None = None,
+    split_config: SplitConfig | None = None,
+    verify_integrity: bool = True,
+) -> Iterator[TensorizedPlayingSelfPlaySample]:
+    """Stream tensorized self-play samples, optionally filtered by game seed split."""
+
+    directory = Path(dataset_directory)
+    manifest = load_manifest(directory)
+
+    if manifest.sample_type != PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE:
+        raise SampleValidationError(
+            "iter_tensorized_playing_self_play_samples requires a "
+            f"playing-self-play-sample dataset, got {manifest.sample_type!r}."
+        )
+
+    for sample in _iter_tensorized_samples_with_manifest(
+        directory,
+        manifest,
+        split=split,
+        split_config=split_config,
+        verify_integrity=verify_integrity,
+    ):
+        if not isinstance(sample, TensorizedPlayingSelfPlaySample):
+            raise SampleValidationError(
+                "iter_tensorized_playing_self_play_samples received a non-self-play sample."
+            )
+
+        yield sample
 
 
 def _iter_tensorized_samples_with_manifest(
