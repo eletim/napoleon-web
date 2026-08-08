@@ -783,6 +783,25 @@ def validate_playing_self_play_sample(sample: PlayingSelfPlaySample) -> None:
             f"outcome.actingPlayerRole is invalid: {outcome.acting_player_role!r}."
         )
 
+    napoleon_player_index = sample.observation.napoleon_player_one_hot.index(1)
+    expected_napoleon_player_id = sample.relative_player_ids[napoleon_player_index]
+
+    if outcome.napoleon_player_id != expected_napoleon_player_id:
+        raise SampleValidationError(
+            "outcome.napoleonPlayerId must match observation.napoleonPlayerOneHot."
+        )
+
+    if outcome.acting_player_role == "napoleon":
+        if sample.acting_player_id != outcome.napoleon_player_id:
+            raise SampleValidationError(
+                "outcome.actingPlayerRole napoleon must match outcome.napoleonPlayerId."
+            )
+    elif sample.acting_player_id == outcome.napoleon_player_id:
+        raise SampleValidationError(
+            "outcome.actingPlayerRole must be napoleon when the acting player is "
+            "outcome.napoleonPlayerId."
+        )
+
     expected_team = (
         "napoleon-team"
         if outcome.acting_player_role in {"napoleon", "adjutant"}

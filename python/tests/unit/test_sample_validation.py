@@ -130,7 +130,27 @@ def test_self_play_role_team_mismatch_rejected() -> None:
     raw = _load_valid_self_play_sample()
     raw["outcome"]["actingPlayerRole"] = "alliance"
 
-    with pytest.raises(SampleValidationError, match="actingPlayerTeam"):
+    with pytest.raises(SampleValidationError, match="actingPlayerRole"):
+        _parse_and_validate_self_play(raw)
+
+
+def test_self_play_napoleon_player_id_must_match_observation_rejected() -> None:
+    raw = _load_valid_self_play_sample()
+    raw["outcome"]["napoleonPlayerId"] = raw["relativePlayerIds"][1]
+
+    with pytest.raises(SampleValidationError, match="napoleonPlayerId"):
+        _parse_and_validate_self_play(raw)
+
+
+def test_self_play_napoleon_role_must_match_acting_player_rejected() -> None:
+    raw = _load_valid_self_play_sample()
+    original_ids = raw["relativePlayerIds"]
+    raw["actingPlayerId"] = original_ids[1]
+    raw["relativePlayerIds"] = [original_ids[1], original_ids[0], *original_ids[2:]]
+    raw["observation"]["relativePlayerIds"] = raw["relativePlayerIds"]
+    raw["observation"]["napoleonPlayerOneHot"] = [0, 1, 0, 0, 0]
+
+    with pytest.raises(SampleValidationError, match="actingPlayerRole napoleon"):
         _parse_and_validate_self_play(raw)
 
 
