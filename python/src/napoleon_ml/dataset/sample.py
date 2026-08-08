@@ -26,6 +26,7 @@ from ._strict import (
     require_fixed_length_int_tuple,
     require_int,
     require_list,
+    require_number,
     require_str,
     require_str_tuple,
 )
@@ -39,6 +40,7 @@ from .constants import (
     MAX_BIDDING_ACTION_COUNT,
     PLAYER_COUNT,
     PLAYING_DATASET_SAMPLE_TYPE,
+    PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE,
     REVEALED_ADJUTANT_CLASS_COUNT,
     TRICK_COUNT,
 )
@@ -151,6 +153,24 @@ _BIDDING_SAMPLE_KEYS = frozenset(
 )
 _EXCHANGE_SAMPLE_KEYS = _BIDDING_SAMPLE_KEYS
 _ADJUTANT_SAMPLE_KEYS = _BIDDING_SAMPLE_KEYS
+_PLAYING_SELF_PLAY_SAMPLE_KEYS = frozenset(
+    {
+        "sampleType",
+        "schemaVersion",
+        "seed",
+        "step",
+        "actingPlayerId",
+        "relativePlayerIds",
+        "observation",
+        "selectedCardIndex",
+        "behaviorLogProbability",
+        "terminalReward",
+        "outcome",
+    }
+)
+_PLAYING_SELF_PLAY_OUTCOME_KEYS = frozenset(
+    {"winner", "napoleonPlayerId", "actingPlayerTeam", "actingPlayerRole"}
+)
 
 
 @dataclass(frozen=True)
@@ -305,8 +325,35 @@ class AdjutantTrainingSample:
     actor_target: int
 
 
+@dataclass(frozen=True)
+class PlayingSelfPlayOutcome:
+    winner: str
+    napoleon_player_id: str
+    acting_player_team: str
+    acting_player_role: str
+
+
+@dataclass(frozen=True)
+class PlayingSelfPlaySample:
+    sample_type: str
+    schema_version: int
+    seed: int
+    step: int
+    acting_player_id: str
+    relative_player_ids: tuple[str, ...]
+    observation: EncodedPlayingObservation
+    selected_card_index: int
+    behavior_log_probability: float
+    terminal_reward: int
+    outcome: PlayingSelfPlayOutcome
+
+
 TrainingSample = (
-    PlayingTrainingSample | BiddingTrainingSample | ExchangeTrainingSample | AdjutantTrainingSample
+    PlayingTrainingSample
+    | BiddingTrainingSample
+    | ExchangeTrainingSample
+    | AdjutantTrainingSample
+    | PlayingSelfPlaySample
 )
 
 
@@ -681,6 +728,27 @@ def _parse_belief_target(raw: object, *, error: ErrorFactory) -> EncodedBeliefTa
     )
 
 
+def _parse_playing_self_play_outcome(
+    raw: object, *, error: ErrorFactory
+) -> PlayingSelfPlayOutcome:
+    path = "outcome"
+    obj = require_dict(raw, path=path, error=error)
+    require_exact_keys(obj, _PLAYING_SELF_PLAY_OUTCOME_KEYS, path=path, error=error)
+
+    return PlayingSelfPlayOutcome(
+        winner=require_str(obj["winner"], path=f"{path}.winner", error=error),
+        napoleon_player_id=require_str(
+            obj["napoleonPlayerId"], path=f"{path}.napoleonPlayerId", error=error
+        ),
+        acting_player_team=require_str(
+            obj["actingPlayerTeam"], path=f"{path}.actingPlayerTeam", error=error
+        ),
+        acting_player_role=require_str(
+            obj["actingPlayerRole"], path=f"{path}.actingPlayerRole", error=error
+        ),
+    )
+
+
 @overload
 def parse_sample(
     raw: object, *, context: str = "sample", sample_type: None = None
@@ -721,6 +789,15 @@ def parse_sample(
     context: str = "sample",
     sample_type: Literal["adjutant-training-sample"],
 ) -> AdjutantTrainingSample: ...
+
+
+@overload
+def parse_sample(
+    raw: object,
+    *,
+    context: str = "sample",
+    sample_type: Literal["playing-self-play-sample"],
+) -> PlayingSelfPlaySample: ...
 
 
 @overload
@@ -837,6 +914,38 @@ def parse_sample(
             ),
             observation=_parse_adjutant_observation(obj["observation"], error=error),
             actor_target=require_int(obj["actorTarget"], path="actorTarget", error=error),
+        )
+
+    if sample_type == PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE:
+        require_exact_keys(obj, _PLAYING_SELF_PLAY_SAMPLE_KEYS, path="sample", error=error)
+        actual_sample_type = require_str(obj["sampleType"], path="sample.sampleType", error=error)
+
+        if actual_sample_type != PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE:
+            raise error(
+                "sample.sampleType mismatch: "
+                f"expected {PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE!r}, got {actual_sample_type!r}."
+            )
+
+        return PlayingSelfPlaySample(
+            sample_type=actual_sample_type,
+            schema_version=require_int(obj["schemaVersion"], path="schemaVersion", error=error),
+            seed=require_int(obj["seed"], path="seed", error=error),
+            step=require_int(obj["step"], path="step", error=error),
+            acting_player_id=require_str(obj["actingPlayerId"], path="actingPlayerId", error=error),
+            relative_player_ids=require_str_tuple(
+                obj["relativePlayerIds"], path="relativePlayerIds", error=error
+            ),
+            observation=_parse_playing_observation(obj["observation"], error=error),
+            selected_card_index=require_int(
+                obj["selectedCardIndex"], path="selectedCardIndex", error=error
+            ),
+            behavior_log_probability=require_number(
+                obj["behaviorLogProbability"], path="behaviorLogProbability", error=error
+            ),
+            terminal_reward=require_int(
+                obj["terminalReward"], path="terminalReward", error=error
+            ),
+            outcome=_parse_playing_self_play_outcome(obj["outcome"], error=error),
         )
 
     raise error(f"Unsupported sampleType: {sample_type!r}.")
