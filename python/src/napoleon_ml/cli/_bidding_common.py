@@ -4,16 +4,18 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 
 from napoleon_ml.bidding.checkpoint import BiddingCheckpointCompatibilityError
 from napoleon_ml.bidding.metrics import BiddingEvaluationReport, BiddingMetric
 from napoleon_ml.dataset.errors import DatasetError
+from napoleon_ml.dataset.manifest import DatasetManifest
+from napoleon_ml.dataset.reader import load_manifest
 
 from ._ownership_common import (
     add_split_config_arguments,
     configure_reproducibility,
     dataset_split,
-    load_checked_manifest,
     split_config_from_args,
 )
 
@@ -65,6 +67,20 @@ def handle_cli_error(error: Exception) -> int:
         return 1
 
     raise error
+
+
+def load_checked_manifest(dataset_directory: Path, *, command_label: str) -> DatasetManifest:
+    if not dataset_directory.exists():
+        raise DatasetError(f"dataset directory does not exist: {dataset_directory}")
+
+    manifest = load_manifest(dataset_directory)
+    print(
+        f"{command_label}: dataset schema={manifest.dataset_schema_version}, "
+        f"encoder schema={manifest.encoder_schema_version}, "
+        f"samples={manifest.sample_count}",
+        file=sys.stderr,
+    )
+    return manifest
 
 
 def _print_metric(label: str, metric: BiddingMetric) -> None:

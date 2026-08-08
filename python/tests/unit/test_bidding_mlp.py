@@ -92,13 +92,26 @@ def _one_line(sample: dict[str, Any]) -> bytes:
     return (json.dumps(sample) + "\n").encode("utf-8")
 
 
-def _write_bidding_dataset(directory: Path, *, seeds: tuple[int, ...]) -> None:
+def _write_bidding_dataset(
+    directory: Path,
+    *,
+    seeds: tuple[int, ...],
+    legal_actions_by_sample: tuple[list[int], ...] | None = None,
+) -> None:
     actor_targets = (0, 1, 5, 2, 9)
+    legal_actions = (
+        legal_actions_by_sample
+        if legal_actions_by_sample is not None
+        else tuple([0, 1, 2, 5, 9] for _ in seeds)
+    )
+    if len(legal_actions) != len(seeds):
+        raise ValueError("legal_actions_by_sample must match seeds length.")
+
     samples = [
         _bidding_sample(
             seed=seed,
             actor_target=actor_targets[index % len(actor_targets)],
-            legal_actions=[0, 1, 2, 5, 9],
+            legal_actions=legal_actions[index],
         )
         for index, seed in enumerate(seeds)
     ]
@@ -250,6 +263,30 @@ def test_bidding_evaluation_reports_required_breakdowns_and_uniform_baseline(
     assert report.target_point_cards["13"].count == 1
     assert report.target_point_cards["14"].count == 1
     assert report.suits["spades"].count == 2
+
+
+def test_bidding_evaluation_uses_per_row_legal_counts_for_uniform_baseline(
+    tmp_path: Path,
+) -> None:
+    _write_bidding_dataset(
+        tmp_path,
+        seeds=(0, 1, 2),
+        legal_actions_by_sample=([0, 1], [0, 1, 2, 5, 9], [0, 5, 9]),
+    )
+    loader = create_bidding_dataloader(
+        tmp_path,
+        split=DatasetSplit.TRAIN,
+        split_config=SplitConfig(train=100, validation=0, test=0),
+        batch_size=3,
+    )
+    model = BiddingMlpModel(BiddingMlpConfig(hidden_dim=8, hidden_layers=1))
+
+    report = evaluate_bidding_model(model, loader, split=DatasetSplit.TRAIN.value)
+
+    assert report.masked_loss is not None
+    assert report.masked_loss > 0.0
+    assert report.illegal_prediction_count == 0
+    assert report.top1.legal_uniform_accuracy == pytest.approx((1 / 2 + 1 / 5 + 1 / 3) / 3)
 
 
 def test_train_cli_saves_checkpoint_and_evaluate_cli_loads_test_split(
@@ -434,6 +471,45 @@ def test_bidding_checkpoint_rejects_incompatible_metadata(
     torch.save(raw, checkpoint_path)
 
     with pytest.raises(BiddingCheckpointCompatibilityError, match=metadata_key):
+        load_bidding_checkpoint(checkpoint_path, manifest=load_manifest(tmp_path))
+
+
+def test_bidding_checkpoint_rejects_invalid_model_config_as_compatibility_error(
+    tmp_path: Path,
+) -> None:
+    _write_bidding_dataset(tmp_path, seeds=(0, 1, 2))
+    checkpoint_path = tmp_path.parent / f"{tmp_path.name}-bad-config-bidding.pt"
+    assert (
+        train_main(
+            [
+                str(tmp_path),
+                "--output",
+                str(checkpoint_path),
+                "--epochs",
+                "1",
+                "--batch-size",
+                "1",
+                "--hidden-dim",
+                "8",
+                "--hidden-layers",
+                "1",
+                "--train-ratio",
+                "1",
+                "--validation-ratio",
+                "1",
+                "--test-ratio",
+                "98",
+                "--json",
+            ]
+        )
+        == 0
+    )
+
+    raw = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    raw["model_config"] = {"input_dim": BIDDING_MODEL_INPUT_FEATURE_COUNT}
+    torch.save(raw, checkpoint_path)
+
+    with pytest.raises(BiddingCheckpointCompatibilityError, match="model_config"):
         load_bidding_checkpoint(checkpoint_path, manifest=load_manifest(tmp_path))
 
 

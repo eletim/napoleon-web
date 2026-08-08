@@ -83,7 +83,13 @@ def load_bidding_checkpoint(
     if not isinstance(model_config_raw, dict):
         raise BiddingCheckpointCompatibilityError("checkpoint model_config must be a dictionary.")
 
-    model_config = BiddingMlpConfig.from_dict(model_config_raw)
+    try:
+        model_config = BiddingMlpConfig.from_dict(model_config_raw)
+    except ValueError as error:
+        raise BiddingCheckpointCompatibilityError(
+            f"checkpoint model_config is invalid: {error}"
+        ) from error
+
     model = BiddingMlpModel(model_config)
 
     model_state = raw.get("model_state")
