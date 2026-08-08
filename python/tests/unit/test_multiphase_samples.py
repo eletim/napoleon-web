@@ -20,6 +20,15 @@ from napoleon_ml.dataset.tensors import (
 )
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256, validate_sample
 
+_NONPLAYING_MODEL_INPUT_FIXTURE_PATH = (
+    Path(__file__).parent / "fixtures" / "nonplaying_model_input_samples.json"
+)
+_NONPLAYING_MODEL_INPUT_SHA256 = {
+    "bidding": "e4f86e8b9dd5661301e701c71ad6fc167123acedb8e118192e8ccfe6bc6df877",
+    "exchange": "f48558692dbd4bf825b0130e9940db4271c2f9653057e5f2186cb36d6d551233",
+    "adjutant": "2f0c47b5a113059ed7d06a9966db1ee553163104215981928d6111917d603d52",
+}
+
 
 def _empty_bidding_history() -> dict[str, list[int]]:
     return {
@@ -129,6 +138,17 @@ def test_multiphase_sample_parse_validate_tensorize_smoke(
         tensorized.model_input.tobytes()
         == tensorize_sample(parse_sample(raw)).model_input.tobytes()
     )
+
+
+def test_nonplaying_model_input_shared_fixture_sha256_parity() -> None:
+    fixture = json.loads(_NONPLAYING_MODEL_INPUT_FIXTURE_PATH.read_text(encoding="utf-8"))
+
+    for phase, expected_sha256 in _NONPLAYING_MODEL_INPUT_SHA256.items():
+        sample = parse_sample(fixture[phase])
+        validate_sample(sample)
+        model_input = tensorize_sample(sample).model_input
+
+        assert hashlib.sha256(model_input.tobytes()).hexdigest() == expected_sha256
 
 
 def test_bidding_rejects_illegal_target_and_bad_highest_bid_sentinel() -> None:

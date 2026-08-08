@@ -9,12 +9,11 @@ import {
   ADJUTANT_ENCODER_SCHEMA_VERSION,
   CARD_COUNT,
   MAX_BIDDING_TARGET_POINT_CARDS,
+  MIN_CONTRACT_TARGET_POINT_CARDS,
   PLAYER_COUNT
 } from "./schema.js";
 
 const SUIT_ORDER: readonly Suit[] = ["spades", "hearts", "diamonds", "clubs"];
-// All-pass bidding resolves to a forced spades-12 contract before adjutant choice.
-const MIN_ADJUTANT_CONTRACT_TARGET_POINT_CARDS = 12;
 
 export interface EncodedAdjutantObservation {
   schemaVersion: typeof ADJUTANT_ENCODER_SCHEMA_VERSION;
@@ -142,7 +141,7 @@ export function validateEncodedAdjutantObservation(
   expectIntegerInRange(
     "contractTargetPointCards",
     observation.contractTargetPointCards,
-    MIN_ADJUTANT_CONTRACT_TARGET_POINT_CARDS,
+    MIN_CONTRACT_TARGET_POINT_CARDS,
     MAX_BIDDING_TARGET_POINT_CARDS
   );
   validateSpecialCardIndices(observation.specialCardIndices);

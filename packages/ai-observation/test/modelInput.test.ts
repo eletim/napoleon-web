@@ -5,7 +5,6 @@ import { RuleBasedAgent, runAutomatedGame } from "@napoleon/ai";
 import {
   ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
   ADJUTANT_MODEL_INPUT_LAYOUT,
-  BIDDING_ACTION_COUNT,
   BIDDING_MODEL_INPUT_FEATURE_COUNT,
   BIDDING_MODEL_INPUT_LAYOUT,
   CARD_COUNT,
@@ -13,6 +12,8 @@ import {
   EXCHANGE_MODEL_INPUT_LAYOUT,
   FLAT_OBSERVATION_FEATURE_COUNT,
   FLAT_OBSERVATION_LAYOUT,
+  MAX_BIDDING_TARGET_POINT_CARDS,
+  MIN_CONTRACT_TARGET_POINT_CARDS,
   MODEL_INPUT_LAYOUT,
   MODEL_INPUT_FEATURE_COUNT,
   MODEL_INPUT_ONEHOT_LAYOUT,
@@ -302,6 +303,27 @@ describe("encodeExchangeModelInput", () => {
     expect(sha256Float32(modelInput)).toBe(pythonExchangeSampleModelInputSha256);
   });
 
+  it("encodes exchange contract target min/max edges as 12..19 one-hot", () => {
+    const minSample = createExchangeFixture();
+    const minInput = encodeExchangeModelInput(minSample.observation);
+    const maxSample = createExchangeFixture();
+    const maxInput = encodeExchangeModelInput({
+      ...maxSample.observation,
+      contractTargetPointCards: MAX_BIDDING_TARGET_POINT_CARDS
+    });
+
+    expect(Array.from(modelInputSlice(minInput, "contractTargetPointCardsOneHot", EXCHANGE_MODEL_INPUT_LAYOUT))).toEqual(
+      [1, 0, 0, 0, 0, 0, 0, 0]
+    );
+    expect(Array.from(modelInputSlice(maxInput, "contractTargetPointCardsOneHot", EXCHANGE_MODEL_INPUT_LAYOUT))).toEqual(
+      [0, 0, 0, 0, 0, 0, 0, 1]
+    );
+    expect(() => encodeExchangeModelInput({
+      ...minSample.observation,
+      contractTargetPointCards: MIN_CONTRACT_TARGET_POINT_CARDS - 1
+    })).toThrow("contractTargetPointCards");
+  });
+
   it("rejects empty special card sentinel values", () => {
     const sample = createExchangeFixture();
 
@@ -336,6 +358,27 @@ describe("encodeAdjutantModelInput", () => {
 
     expect(modelInput).toHaveLength(ADJUTANT_MODEL_INPUT_FEATURE_COUNT);
     expect(sha256Float32(modelInput)).toBe(pythonAdjutantSampleModelInputSha256);
+  });
+
+  it("encodes adjutant contract target min/max edges as 12..19 one-hot", () => {
+    const minSample = createAdjutantFixture();
+    const minInput = encodeAdjutantModelInput(minSample.observation);
+    const maxSample = createAdjutantFixture();
+    const maxInput = encodeAdjutantModelInput({
+      ...maxSample.observation,
+      contractTargetPointCards: MAX_BIDDING_TARGET_POINT_CARDS
+    });
+
+    expect(Array.from(modelInputSlice(minInput, "contractTargetPointCardsOneHot", ADJUTANT_MODEL_INPUT_LAYOUT))).toEqual(
+      [1, 0, 0, 0, 0, 0, 0, 0]
+    );
+    expect(Array.from(modelInputSlice(maxInput, "contractTargetPointCardsOneHot", ADJUTANT_MODEL_INPUT_LAYOUT))).toEqual(
+      [0, 0, 0, 0, 0, 0, 0, 1]
+    );
+    expect(() => encodeAdjutantModelInput({
+      ...minSample.observation,
+      contractTargetPointCards: MIN_CONTRACT_TARGET_POINT_CARDS - 1
+    })).toThrow("contractTargetPointCards");
   });
 
   it("rejects empty special card sentinel values", () => {
