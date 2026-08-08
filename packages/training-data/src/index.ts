@@ -26,6 +26,7 @@ export {
   PLAYING_SELF_PLAY_REWARD_VERSION,
   PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION,
   PLAYING_SELF_PLAY_SAMPLING_ALGORITHM,
+  calculatePlayingSelfPlayLogProbability,
   createPlayingSelfPlaySamples,
   generatePlayingSelfPlayDataset,
   serializePlayingSelfPlaySample,
@@ -69,7 +70,9 @@ export type {
   GeneratePlayingSelfPlayDatasetResult,
   PlayingSelfPlayDatasetManifest,
   PlayingSelfPlayOutcome,
+  PlayingSelfPlayPolicy,
   PlayingSelfPlayPolicyArtifactOptions,
   PlayingSelfPlayRole,
+  PlayingSelfPlaySampledAction,
   PlayingSelfPlaySample
 } from "./generatePlayingSelfPlayDataset.js";

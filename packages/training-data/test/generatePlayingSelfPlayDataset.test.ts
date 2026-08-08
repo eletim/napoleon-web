@@ -13,9 +13,8 @@ import {
   ONNX_OPSET_VERSION,
   ONNX_OUTPUT_NAME,
   calculateCardIdsSha256,
-  calculateLegalPolicyLogProbability,
   loadPolicyOnnxModel
-} from "@napoleon/policy-onnx";
+} from "../../policy-onnx/src/index.js";
 import {
   PLAYING_SELF_PLAY_DATASET_GENERATOR_VERSION,
   PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE,
@@ -24,6 +23,7 @@ import {
   PLAYING_SELF_PLAY_REWARD_VERSION,
   PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION,
   PLAYING_SELF_PLAY_SAMPLING_ALGORITHM,
+  calculatePlayingSelfPlayLogProbability,
   generatePlayingSelfPlayDataset,
   validatePlayingSelfPlayDatasetManifest,
   validatePlayingSelfPlaySample
@@ -38,12 +38,14 @@ describe("generatePlayingSelfPlayDataset", () => {
   it("generates deterministic playing self-play trajectories with valid rewards and hashes", async () => {
     await withTempDir(async (directory) => {
       const artifact = await createPlayingPolicyFixture(directory);
+      const policy = await loadPolicyOnnxModel(artifact);
       const firstOutput = join(directory, "first");
       const secondOutput = join(directory, "second");
       const progressEvents: Array<{ completedGames: number; sampleCount: number; currentSeed: number }> = [];
       const options = {
         outputDirectory: firstOutput,
-        playingPolicy: artifact,
+        playingPolicy: policy,
+        playingPolicyArtifact: artifact,
         startSeed: 11,
         gameCount: 2,
         gamesPerShard: 1,
@@ -72,7 +74,6 @@ describe("generatePlayingSelfPlayDataset", () => {
       const manifest = await readManifest(firstOutput);
       const lines = await readAllShardLines(firstOutput, manifest);
       const samples = lines.map((line) => JSON.parse(line) as PlayingSelfPlaySample);
-      const model = await loadPolicyOnnxModel(artifact);
 
       expect(result.manifest).toEqual(manifest);
       validatePlayingSelfPlayDatasetManifest(manifest);
@@ -115,8 +116,8 @@ describe("generatePlayingSelfPlayDataset", () => {
         expect(sample.terminalReward).toBe(sample.outcome.actingPlayerTeam === sample.outcome.winner ? 1 : -1);
 
         const { modelInput, legalPlayMask } = createPlayingModelInput(sample.observation);
-        const logits = await model.predictLogits(modelInput);
-        const recomputedLogProbability = calculateLegalPolicyLogProbability({
+        const logits = await policy.predictLogits(modelInput);
+        const recomputedLogProbability = calculatePlayingSelfPlayLogProbability({
           logits,
           legalPlayMask,
           selectedCardIndex: sample.selectedCardIndex,
@@ -152,6 +153,7 @@ describe("generatePlayingSelfPlayDataset", () => {
   it("rejects an existing output directory before writing self-play data", async () => {
     await withTempDir(async (directory) => {
       const artifact = await createPlayingPolicyFixture(directory);
+      const policy = await loadPolicyOnnxModel(artifact);
       const output = join(directory, "existing");
       const marker = join(output, "marker.txt");
       await mkdir(output);
@@ -159,7 +161,8 @@ describe("generatePlayingSelfPlayDataset", () => {
 
       await expect(generatePlayingSelfPlayDataset({
         outputDirectory: output,
-        playingPolicy: artifact,
+        playingPolicy: policy,
+        playingPolicyArtifact: artifact,
         startSeed: 0,
         gameCount: 1,
         gamesPerShard: 1

@@ -13,18 +13,12 @@ import {
   createPlayingModelInput,
   createRelativePlayerOrder,
   encodeBiddingHistory,
+  encodeBiddingHistoryFromPublicActions,
   encodePlayingObservation,
   getCardId,
   getCardIndex,
   validateEncodedPlayingObservation
 } from "@napoleon/ai-observation";
-import {
-  calculateLegalPolicyLogProbability,
-  createPolicyOnnxPlayInput,
-  loadPolicyOnnxModel,
-  sampleLegalPolicyAction
-} from "@napoleon/policy-onnx";
-import type { PolicyOnnxLoadOptions, PolicyOnnxMetadata, PolicyOnnxModel } from "@napoleon/policy-onnx";
 import {
   DATASET_FORMAT,
   MAX_SHARD_COUNT,
@@ -67,13 +61,26 @@ export interface PlayingSelfPlaySample {
   outcome: PlayingSelfPlayOutcome;
 }
 
-export interface PlayingSelfPlayPolicyArtifactOptions extends PolicyOnnxLoadOptions {
+export interface PlayingSelfPlayPolicy {
+  metadata: unknown;
+  predictLogits: (modelInput: Float32Array | readonly number[]) => Promise<Float32Array>;
+}
+
+export interface PlayingSelfPlayPolicyArtifactOptions {
+  onnxPath: string;
+  metadataPath: string;
   artifactId?: string;
+}
+
+export interface PlayingSelfPlaySampledAction {
+  selectedCardIndex: number;
+  logProbability: number;
 }
 
 export interface GeneratePlayingSelfPlayDatasetOptions {
   outputDirectory: string;
-  playingPolicy: PlayingSelfPlayPolicyArtifactOptions;
+  playingPolicy: PlayingSelfPlayPolicy;
+  playingPolicyArtifact: PlayingSelfPlayPolicyArtifactOptions;
   startSeed: number;
   gameCount: number;
   gamesPerShard: number;
@@ -108,7 +115,7 @@ export interface PlayingSelfPlayDatasetManifest {
     metadataFileName: string;
     onnxSha256: string;
     metadataSha256: string;
-    metadata: PolicyOnnxMetadata;
+    metadata: unknown;
   };
   samplingAlgorithm: typeof PLAYING_SELF_PLAY_SAMPLING_ALGORITHM;
   temperature: number;
@@ -137,14 +144,13 @@ export async function generatePlayingSelfPlayDataset(
   await ensureOutputDoesNotExist(outputDirectory);
   await mkdir(dirname(outputDirectory), { recursive: true });
 
-  const policy = await loadPolicyOnnxModel(options.playingPolicy);
   const artifact = {
-    artifactId: options.playingPolicy.artifactId ?? basename(options.playingPolicy.metadataPath),
-    onnxFileName: basename(options.playingPolicy.onnxPath),
-    metadataFileName: basename(options.playingPolicy.metadataPath),
-    onnxSha256: await sha256File(options.playingPolicy.onnxPath),
-    metadataSha256: await sha256File(options.playingPolicy.metadataPath),
-    metadata: policy.metadata
+    artifactId: options.playingPolicyArtifact.artifactId ?? basename(options.playingPolicyArtifact.metadataPath),
+    onnxFileName: basename(options.playingPolicyArtifact.onnxPath),
+    metadataFileName: basename(options.playingPolicyArtifact.metadataPath),
+    onnxSha256: await sha256File(options.playingPolicyArtifact.onnxPath),
+    metadataSha256: await sha256File(options.playingPolicyArtifact.metadataPath),
+    metadata: options.playingPolicy.metadata
   };
   const tempDirectory = await mkdtemp(
     join(dirname(outputDirectory), `.${basenameForTemp(outputDirectory)}.tmp-`)
@@ -169,8 +175,8 @@ export async function generatePlayingSelfPlayDataset(
         shardGameCount = 0;
       }
 
-      const record = await runPlayingSelfPlayGame(seed, policy, temperature, options.maxDecisionSteps);
-      const samples = await createPlayingSelfPlaySamples(record, policy, temperature);
+      const record = await runPlayingSelfPlayGame(seed, options.playingPolicy, temperature, options.maxDecisionSteps);
+      const samples = await createPlayingSelfPlaySamples(record, options.playingPolicy, temperature);
 
       for (const sample of samples) {
         validatePlayingSelfPlaySample(sample, seed);
@@ -233,7 +239,7 @@ export async function generatePlayingSelfPlayDataset(
 
 export async function createPlayingSelfPlaySamples(
   record: AutomatedGameRecord,
-  policy: PolicyOnnxModel,
+  policy: PlayingSelfPlayPolicy,
   temperature: number = DEFAULT_PLAYING_SELF_PLAY_TEMPERATURE
 ): Promise<readonly PlayingSelfPlaySample[]> {
   validateTemperature(temperature);
@@ -253,6 +259,26 @@ export async function createPlayingSelfPlaySamples(
 
 export function serializePlayingSelfPlaySample(sample: PlayingSelfPlaySample): string {
   return `${JSON.stringify(sample)}\n`;
+}
+
+export function calculatePlayingSelfPlayLogProbability(options: {
+  logits: Float32Array | readonly number[];
+  legalPlayMask: ArrayLike<number | boolean>;
+  selectedCardIndex: number;
+  temperature?: number;
+}): number {
+  const distribution = createMaskedCategoricalDistribution(
+    options.logits,
+    options.legalPlayMask,
+    options.temperature ?? DEFAULT_PLAYING_SELF_PLAY_TEMPERATURE
+  );
+  const index = distribution.legalCardIndices.indexOf(options.selectedCardIndex);
+
+  if (index === -1) {
+    throw new Error(`selectedCardIndex ${options.selectedCardIndex} is not legal under legalPlayMask.`);
+  }
+
+  return distribution.logProbabilities[index];
 }
 
 export function validatePlayingSelfPlaySample(
@@ -376,7 +402,7 @@ export function validatePlayingSelfPlayDatasetManifest(
 
 async function runPlayingSelfPlayGame(
   seed: number,
-  policy: PolicyOnnxModel,
+  policy: PlayingSelfPlayPolicy,
   temperature: number,
   maxDecisionSteps: number | undefined
 ): Promise<AutomatedGameRecord> {
@@ -395,12 +421,12 @@ async function runPlayingSelfPlayGame(
 class PlayingSelfPlayAgent implements Agent {
   private readonly ruleBasedAgent: RuleBasedAgent;
 
-  constructor(
-    private readonly options: {
-      policy: PolicyOnnxModel;
-      rng: () => number;
-      temperature: number;
-    }
+	  constructor(
+	    private readonly options: {
+	      policy: PlayingSelfPlayPolicy;
+	      rng: () => number;
+	      temperature: number;
+	    }
   ) {
     this.ruleBasedAgent = new RuleBasedAgent(options.rng);
   }
@@ -410,9 +436,9 @@ class PlayingSelfPlayAgent implements Agent {
       return this.ruleBasedAgent.selectAction(observation);
     }
 
-    const { modelInput, legalPlayMask } = createPolicyOnnxPlayInput(observation);
+    const { modelInput, legalPlayMask } = createPlayingSelfPlayPolicyInput(observation);
     const logits = await this.options.policy.predictLogits(modelInput);
-    const selection = sampleLegalPolicyAction({
+    const selection = samplePlayingSelfPlayAction({
       logits,
       legalPlayMask,
       rng: this.options.rng,
@@ -433,10 +459,154 @@ class PlayingSelfPlayAgent implements Agent {
   }
 }
 
+function createPlayingSelfPlayPolicyInput(observation: PlayerObservation): {
+  modelInput: Float32Array;
+  legalPlayMask: readonly number[];
+} {
+  if (observation.view.phase !== "playing") {
+    throw new Error(
+      `createPlayingSelfPlayPolicyInput requires a playing observation, got ${observation.view.phase}.`
+    );
+  }
+
+  if (observation.publicActionHistory === undefined) {
+    throw new Error("Playing self-play policy input requires publicActionHistory.");
+  }
+
+  const absolutePlayerIds = observation.view.players.map((player) => player.id);
+  const relativePlayerIds = createRelativePlayerOrder(absolutePlayerIds, observation.playerId);
+  const biddingHistory = encodeBiddingHistoryFromPublicActions(
+    observation.publicActionHistory,
+    relativePlayerIds
+  );
+  const encodedObservation = encodePlayingObservation(
+    observation,
+    absolutePlayerIds,
+    biddingHistory
+  );
+
+  return createPlayingModelInput(encodedObservation);
+}
+
+function samplePlayingSelfPlayAction(options: {
+  logits: Float32Array | readonly number[];
+  legalPlayMask: ArrayLike<number | boolean>;
+  rng: () => number;
+  temperature?: number;
+}): PlayingSelfPlaySampledAction {
+  const distribution = createMaskedCategoricalDistribution(
+    options.logits,
+    options.legalPlayMask,
+    options.temperature ?? DEFAULT_PLAYING_SELF_PLAY_TEMPERATURE
+  );
+
+  if (distribution.legalCardIndices.length === 1) {
+    return {
+      selectedCardIndex: distribution.legalCardIndices[0],
+      logProbability: 0
+    };
+  }
+
+  const randomValue = options.rng();
+  if (!Number.isFinite(randomValue) || randomValue < 0 || randomValue >= 1) {
+    throw new Error("rng must return a finite value in [0, 1).");
+  }
+
+  let cumulativeProbability = 0;
+
+  for (let index = 0; index < distribution.legalCardIndices.length; index += 1) {
+    cumulativeProbability += distribution.probabilities[index];
+
+    if (randomValue < cumulativeProbability) {
+      return {
+        selectedCardIndex: distribution.legalCardIndices[index],
+        logProbability: distribution.logProbabilities[index]
+      };
+    }
+  }
+
+  const lastIndex = distribution.legalCardIndices.length - 1;
+
+  return {
+    selectedCardIndex: distribution.legalCardIndices[lastIndex],
+    logProbability: distribution.logProbabilities[lastIndex]
+  };
+}
+
+function createMaskedCategoricalDistribution(
+  logits: Float32Array | readonly number[],
+  legalPlayMask: ArrayLike<number | boolean>,
+  temperature: number
+): {
+  legalCardIndices: readonly number[];
+  probabilities: readonly number[];
+  logProbabilities: readonly number[];
+} {
+  if (logits.length !== CARD_COUNT) {
+    throw new Error(`logits must contain ${CARD_COUNT} values, got ${logits.length}.`);
+  }
+
+  validateLegalPlayMask(legalPlayMask);
+  validateTemperature(temperature);
+
+  const legalCardIndices: number[] = [];
+  const scaledLogits: number[] = [];
+
+  for (let index = 0; index < CARD_COUNT; index += 1) {
+    const logit = Number(logits[index]);
+
+    if (!Number.isFinite(logit)) {
+      throw new Error(`logits[${index}] must be finite.`);
+    }
+
+    if (isLegalMaskValue(legalPlayMask[index])) {
+      legalCardIndices.push(index);
+      scaledLogits.push(logit / temperature);
+    }
+  }
+
+  if (legalCardIndices.length === 1) {
+    return {
+      legalCardIndices,
+      probabilities: [1],
+      logProbabilities: [0]
+    };
+  }
+
+  const maxScaledLogit = Math.max(...scaledLogits);
+  const expValues = scaledLogits.map((logit) => Math.exp(logit - maxScaledLogit));
+  const expSum = expValues.reduce((sumValue, value) => sumValue + value, 0);
+
+  if (!Number.isFinite(expSum) || expSum <= 0) {
+    throw new Error("masked categorical softmax normalization failed.");
+  }
+
+  const logDenominator = maxScaledLogit + Math.log(expSum);
+  const probabilities = expValues.map((value) => value / expSum);
+  const logProbabilities = scaledLogits.map((logit) => logit - logDenominator);
+
+  for (let index = 0; index < probabilities.length; index += 1) {
+    if (
+      !Number.isFinite(probabilities[index]) ||
+      probabilities[index] < 0 ||
+      !Number.isFinite(logProbabilities[index]) ||
+      logProbabilities[index] > 1e-12
+    ) {
+      throw new Error("masked categorical distribution contains an invalid probability.");
+    }
+  }
+
+  return {
+    legalCardIndices,
+    probabilities,
+    logProbabilities
+  };
+}
+
 async function createPlayingSelfPlaySample(
   record: AutomatedGameRecord,
   decision: DecisionRecord,
-  policy: PolicyOnnxModel,
+  policy: PlayingSelfPlayPolicy,
   temperature: number
 ): Promise<PlayingSelfPlaySample> {
   if (decision.action.type !== "play-card") {
@@ -453,7 +623,7 @@ async function createPlayingSelfPlaySample(
   const selectedCardIndex = getCardIndex(decision.action.cardId);
   const { modelInput, legalPlayMask } = createPlayingModelInput(observation);
   const logits = await policy.predictLogits(modelInput);
-  const behaviorLogProbability = calculateLegalPolicyLogProbability({
+  const behaviorLogProbability = calculatePlayingSelfPlayLogProbability({
     logits,
     legalPlayMask,
     selectedCardIndex,
@@ -520,7 +690,7 @@ function createPlayingSelfPlayManifest(input: {
     metadataFileName: string;
     onnxSha256: string;
     metadataSha256: string;
-    metadata: PolicyOnnxMetadata;
+    metadata: unknown;
   };
 }): PlayingSelfPlayDatasetManifest {
   return {
@@ -676,6 +846,31 @@ function validateTemperature(temperature: number): void {
   if (!Number.isFinite(temperature) || temperature <= 0) {
     throw new Error("temperature must be finite and greater than 0.");
   }
+}
+
+function validateLegalPlayMask(mask: ArrayLike<number | boolean>): void {
+  if (mask.length !== CARD_COUNT) {
+    throw new Error(`legalPlayMask must contain ${CARD_COUNT} values, got ${mask.length}.`);
+  }
+
+  let legalCount = 0;
+  for (let index = 0; index < CARD_COUNT; index += 1) {
+    const value = mask[index];
+    if (value !== 0 && value !== 1 && value !== false && value !== true) {
+      throw new Error(`legalPlayMask[${index}] must be 0/1 or boolean.`);
+    }
+    if (isLegalMaskValue(value)) {
+      legalCount += 1;
+    }
+  }
+
+  if (legalCount === 0) {
+    throw new Error("legalPlayMask must contain at least one legal card.");
+  }
+}
+
+function isLegalMaskValue(value: number | boolean): boolean {
+  return value === 1 || value === true;
 }
 
 function validateJsonSafeValue(name: string, value: unknown, seen = new WeakSet<object>()): void {
