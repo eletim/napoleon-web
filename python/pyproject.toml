@@ -31,6 +31,8 @@ napoleon-evaluate-ownership-mlp = "napoleon_ml.cli.evaluate_ownership_mlp:main"
 napoleon-train-policy-mlp = "napoleon_ml.cli.train_policy_mlp:main"
 napoleon-evaluate-policy-mlp = "napoleon_ml.cli.evaluate_policy_mlp:main"
 napoleon-export-policy-onnx = "napoleon_ml.cli.export_policy_onnx:main"
+napoleon-train-adjutant-mlp = "napoleon_ml.cli.train_adjutant_mlp:main"
+napoleon-evaluate-adjutant-mlp = "napoleon_ml.cli.evaluate_adjutant_mlp:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
