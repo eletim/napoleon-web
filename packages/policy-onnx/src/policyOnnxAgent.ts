@@ -29,6 +29,15 @@ export interface PolicyOnnxAgentOptions {
   exchangePolicy?: NonPlayingPolicyOnnxModel;
   rng?: () => number;
   playerIds?: readonly PlayerId[];
+  decisionMetrics?: PolicyOnnxAgentDecisionMetrics;
+}
+
+export interface PolicyOnnxAgentDecisionMetrics {
+  biddingOnnxCallCount: number;
+  adjutantOnnxCallCount: number;
+  exchangeOnnxCallCount: number;
+  playingOnnxCallCount: number;
+  ruleBasedFallbackDecisionCount: number;
 }
 
 export interface PolicyOnnxBiddingInput {
@@ -58,6 +67,7 @@ export class PolicyOnnxAgent implements Agent {
   private readonly exchangePolicy: NonPlayingPolicyOnnxModel | null;
   private readonly ruleBasedAgent: RuleBasedAgent;
   private readonly playerIds: readonly PlayerId[] | null;
+  private readonly decisionMetrics: PolicyOnnxAgentDecisionMetrics | null;
 
   constructor(options: PolicyOnnxAgentOptions) {
     this.policy = options.policy;
@@ -69,26 +79,66 @@ export class PolicyOnnxAgent implements Agent {
     assertNonPlayingPolicyType("exchangePolicy", this.exchangePolicy, "exchange");
     this.ruleBasedAgent = new RuleBasedAgent(options.rng);
     this.playerIds = options.playerIds ?? null;
+    this.decisionMetrics = options.decisionMetrics ?? null;
   }
 
   async selectAction(observation: PlayerObservation): Promise<GameAction> {
     switch (observation.view.phase) {
       case "bidding":
-        return this.biddingPolicy === null
-          ? this.ruleBasedAgent.selectAction(observation)
-          : this.selectBiddingAction(observation, this.biddingPolicy);
+        if (this.biddingPolicy === null) {
+          this.incrementRuleBasedFallbackDecisionCount();
+          return this.ruleBasedAgent.selectAction(observation);
+        }
+        this.incrementOnnxCallCount("bidding");
+        return this.selectBiddingAction(observation, this.biddingPolicy);
       case "choosing-adjutant":
-        return this.adjutantPolicy === null
-          ? this.ruleBasedAgent.selectAction(observation)
-          : this.selectAdjutantAction(observation, this.adjutantPolicy);
+        if (this.adjutantPolicy === null) {
+          this.incrementRuleBasedFallbackDecisionCount();
+          return this.ruleBasedAgent.selectAction(observation);
+        }
+        this.incrementOnnxCallCount("adjutant");
+        return this.selectAdjutantAction(observation, this.adjutantPolicy);
       case "exchanging":
-        return this.exchangePolicy === null
-          ? this.ruleBasedAgent.selectAction(observation)
-          : this.selectExchangeAction(observation, this.exchangePolicy);
+        if (this.exchangePolicy === null) {
+          this.incrementRuleBasedFallbackDecisionCount();
+          return this.ruleBasedAgent.selectAction(observation);
+        }
+        this.incrementOnnxCallCount("exchange");
+        return this.selectExchangeAction(observation, this.exchangePolicy);
       case "playing":
+        this.incrementOnnxCallCount("playing");
         return this.selectPlayAction(observation);
       case "finished":
         return this.ruleBasedAgent.selectAction(observation);
+    }
+  }
+
+  private incrementOnnxCallCount(
+    phase: "bidding" | "adjutant" | "exchange" | "playing"
+  ): void {
+    if (this.decisionMetrics === null) {
+      return;
+    }
+
+    switch (phase) {
+      case "bidding":
+        this.decisionMetrics.biddingOnnxCallCount += 1;
+        break;
+      case "adjutant":
+        this.decisionMetrics.adjutantOnnxCallCount += 1;
+        break;
+      case "exchange":
+        this.decisionMetrics.exchangeOnnxCallCount += 1;
+        break;
+      case "playing":
+        this.decisionMetrics.playingOnnxCallCount += 1;
+        break;
+    }
+  }
+
+  private incrementRuleBasedFallbackDecisionCount(): void {
+    if (this.decisionMetrics !== null) {
+      this.decisionMetrics.ruleBasedFallbackDecisionCount += 1;
     }
   }
 
@@ -273,6 +323,16 @@ export function createPolicyOnnxPlayInput(
   );
 
   return createPlayingModelInput(encodedObservation);
+}
+
+export function createPolicyOnnxAgentDecisionMetrics(): PolicyOnnxAgentDecisionMetrics {
+  return {
+    biddingOnnxCallCount: 0,
+    adjutantOnnxCallCount: 0,
+    exchangeOnnxCallCount: 0,
+    playingOnnxCallCount: 0,
+    ruleBasedFallbackDecisionCount: 0
+  };
 }
 
 function createNonPlayingObservationContext(
