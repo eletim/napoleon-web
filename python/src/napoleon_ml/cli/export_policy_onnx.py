@@ -9,16 +9,11 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import cast
 
-from napoleon_ml.adjutant.checkpoint import AdjutantCheckpointCompatibilityError
-from napoleon_ml.bidding.checkpoint import BiddingCheckpointCompatibilityError
 from napoleon_ml.dataset.errors import DatasetError
-from napoleon_ml.exchange.checkpoint import ExchangeCheckpointCompatibilityError
 from napoleon_ml.nonplaying_onnx_export import (
-    NonPlayingOnnxExportError,
     PolicyType,
     export_nonplaying_checkpoint_to_onnx,
 )
-from napoleon_ml.policy.checkpoint import PolicyCheckpointCompatibilityError
 from napoleon_ml.policy.onnx_export import export_policy_checkpoint_to_onnx
 
 from ._policy_common import load_checked_manifest
@@ -108,16 +103,7 @@ def _run(args: argparse.Namespace) -> int:
 
 
 def _handle_export_cli_error(error: Exception) -> int:
-    if isinstance(
-        error,
-        DatasetError
-        | PolicyCheckpointCompatibilityError
-        | BiddingCheckpointCompatibilityError
-        | ExchangeCheckpointCompatibilityError
-        | AdjutantCheckpointCompatibilityError
-        | NonPlayingOnnxExportError
-        | ValueError,
-    ):
+    if isinstance(error, DatasetError | ValueError):
         print(f"error: {error}", file=sys.stderr)
         return 1
 
