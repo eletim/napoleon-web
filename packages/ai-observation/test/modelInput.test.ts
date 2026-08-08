@@ -37,6 +37,10 @@ const pythonValidSampleUrl = new URL(
   "../../../python/tests/unit/fixtures/valid_sample.json",
   import.meta.url
 );
+const pythonNonplayingModelInputSamplesUrl = new URL(
+  "../../../python/tests/unit/fixtures/nonplaying_model_input_samples.json",
+  import.meta.url
+);
 const pythonValidSampleModelInputSha256 =
   "699a9fc67c6b93c5d866c73b8461f498d1183b3cefdfea693e31373b8d5380d8";
 const pythonBiddingSampleModelInputSha256 =
@@ -45,6 +49,13 @@ const pythonExchangeSampleModelInputSha256 =
   "f48558692dbd4bf825b0130e9940db4271c2f9653057e5f2186cb36d6d551233";
 const pythonAdjutantSampleModelInputSha256 =
   "2f0c47b5a113059ed7d06a9966db1ee553163104215981928d6111917d603d52";
+const pythonNonplayingModelInputSamples = JSON.parse(
+  readFileSync(pythonNonplayingModelInputSamplesUrl, "utf8")
+) as {
+  bidding: BiddingTrainingSample;
+  exchange: ExchangeTrainingSample;
+  adjutant: AdjutantTrainingSample;
+};
 
 describe("encodePlayingModelInput", () => {
   it("matches the Python MODEL_INPUT_LAYOUT slice contract", () => {
@@ -469,91 +480,15 @@ function sumModelInputSlice(
 }
 
 function createBiddingFixture(): BiddingTrainingSample {
-  const legalBidMask = createMask([0, 5], BIDDING_ACTION_COUNT);
-
-  return createCommonFixture("bidding-training-sample", {
-    schemaVersion: 1,
-    relativePlayerIds: createRelativePlayerIds(),
-    selfHandMask: createMask(range(10)),
-    legalBidMask,
-    starterPlayerIndex: 0,
-    highestBidPresent: 0,
-    highestBidPlayerIndex: -1,
-    highestBidSuitIndex: -1,
-    highestBidTargetPointCards: 0,
-    consecutivePassCount: 0,
-    biddingHistory: createEmptyBiddingHistory()
-  }, 0) as BiddingTrainingSample;
+  return structuredClone(pythonNonplayingModelInputSamples.bidding);
 }
 
 function createExchangeFixture(): ExchangeTrainingSample {
-  const selfHandMask = createMask(range(13));
-
-  return createCommonFixture("exchange-training-sample", {
-    schemaVersion: 1,
-    relativePlayerIds: createRelativePlayerIds(),
-    contractTargetPointCards: 12,
-    trumpSuitOneHot: [1, 0, 0, 0],
-    calledAdjutantCardMask: createMask([20]),
-    selfHandMask,
-    legalDiscardCardMask: [...selfHandMask],
-    handCountByPlayer: [13, 10, 10, 10, 10],
-    specialCardIndices: createSpecialCardIndices(),
-    biddingHistory: createEmptyBiddingHistory()
-  }, {
-    discardTargetMask: createMask([0, 1, 2])
-  }) as ExchangeTrainingSample;
+  return structuredClone(pythonNonplayingModelInputSamples.exchange);
 }
 
 function createAdjutantFixture(): AdjutantTrainingSample {
-  return createCommonFixture("adjutant-training-sample", {
-    schemaVersion: 1,
-    relativePlayerIds: createRelativePlayerIds(),
-    trumpSuitOneHot: [1, 0, 0, 0],
-    contractTargetPointCards: 12,
-    selfHandMask: createMask(range(10)),
-    legalAdjutantMask: createMask([20, 21]),
-    specialCardIndices: createSpecialCardIndices(),
-    biddingHistory: createEmptyBiddingHistory()
-  }, 20) as AdjutantTrainingSample;
-}
-
-function createCommonFixture(
-  sampleType: string,
-  observation: unknown,
-  actorTarget: unknown
-): unknown {
-  const relativePlayerIds = createRelativePlayerIds();
-
-  return {
-    sampleType,
-    schemaVersion: 1,
-    seed: 0,
-    step: 1,
-    actingPlayerId: relativePlayerIds[0],
-    relativePlayerIds,
-    observation,
-    actorTarget
-  };
-}
-
-function createEmptyBiddingHistory(): BiddingTrainingSample["observation"]["biddingHistory"] {
-  return {
-    actionTypeIndices: Array(117).fill(-1),
-    playerIndices: Array(117).fill(-1),
-    suitIndices: Array(117).fill(-1),
-    targetPointCards: Array(117).fill(0),
-    actionMask: Array(117).fill(0)
-  };
-}
-
-function createSpecialCardIndices(): ExchangeTrainingSample["observation"]["specialCardIndices"] {
-  return {
-    oruma: 0,
-    yoromeki: 15,
-    seiJack: 29,
-    uraJack: 16
-  };
+  return structuredClone(pythonNonplayingModelInputSamples.adjutant);
 }
 
 function createMask(indices: readonly number[], length = CARD_COUNT): number[] {
@@ -564,12 +499,4 @@ function createMask(indices: readonly number[], length = CARD_COUNT): number[] {
   }
 
   return values;
-}
-
-function createRelativePlayerIds(): readonly string[] {
-  return ["player-0", "player-1", "player-2", "player-3", "player-4"];
-}
-
-function range(length: number): number[] {
-  return Array.from({ length }, (_, index) => index);
 }
