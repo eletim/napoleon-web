@@ -6,12 +6,14 @@ dataset directory end to end — `manifest.json`, every shard's raw bytes,
 and every individual sample — and converts validated samples into
 fixed-shape, fixed-dtype NumPy tensors. It also includes first CPU-only
 PyTorch MLP baselines for predicting hidden card ownership, selecting a
-legal play from `model_input`, and selecting a legal bidding action.
+legal play, selecting a legal bidding action, choosing exchange discards,
+and choosing an adjutant card from `model_input`.
 
 This package covers the boundary from a generated dataset directory to
 validated NumPy arrays, an optional PyTorch `IterableDataset` adapter for
 fixed-shape training batches, and the first supervised ownership-belief,
-legal-play policy, and legal-bidding policy MLP baselines. It does not include TensorFlow, JAX, ONNX export, reinforcement
+legal-play policy, legal-bidding policy, exchange-discard, and
+adjutant-card MLP baselines. It does not include TensorFlow, JAX, ONNX export, reinforcement
 learning, a parallel `DataLoader`, dataset caching, or compression. See
 [Not implemented](#not-implemented) below.
 
@@ -205,8 +207,8 @@ lengths are:
 | `exchange-training-sample` | `TensorizedExchangeSample` | `(2611,)` |
 | `adjutant-training-sample` | `TensorizedAdjutantSample` | `(2553,)` |
 
-The PyTorch DataLoader supports all four sample types. ONNX export remains
-playing-only in this version.
+The PyTorch DataLoader supports all four sample types. The policy ONNX export
+remains playing-only in this version.
 
 For playing, `tensorize_sample()` returns a `TensorizedPlayingSample`:
 
@@ -544,6 +546,62 @@ dataset schema version, bidding encoder schema version, bidding model-input
 schema version, action count, `CARD_IDS` SHA-256 hash, and seed. Loading
 refuses incompatible schema, action-count, sample-type, split-ratio, or
 card-id metadata.
+
+## Exchange MLP baseline
+
+Install the `train` or `dev` extra, then train the CPU-only behavior-cloning
+baseline on the rule-based agent's exchange discard selections:
+
+```bash
+napoleon-train-exchange-mlp ./datasets/rule-based-exchange-v1 \
+  --output ./models/exchange-mlp.pt \
+  --epochs 3 \
+  --batch-size 32 \
+  --seed 0
+```
+
+The model consumes exchange `model_input` with shape `(batch, 2611)` and
+emits 53 card logits. Training computes a masked binary multi-label loss
+over `legal_discard_card_mask`, and evaluation selects distinct legal top-3
+discard cards. The report includes exact set accuracy, average overlap,
+selected teacher match rate, illegal selected card count, and legal-random
+baseline metrics.
+
+Evaluate a saved checkpoint without training:
+
+```bash
+napoleon-evaluate-exchange-mlp ./datasets/rule-based-exchange-v1 \
+  --checkpoint ./models/exchange-mlp.pt \
+  --split test
+```
+
+## Adjutant MLP baseline
+
+Install the `train` or `dev` extra, then train the CPU-only behavior-cloning
+baseline on the rule-based agent's adjutant-card choices:
+
+```bash
+napoleon-train-adjutant-mlp ./datasets/rule-based-adjutant-v1 \
+  --output ./models/adjutant-mlp.pt \
+  --epochs 3 \
+  --batch-size 32 \
+  --seed 0
+```
+
+The model consumes adjutant `model_input` with shape `(batch, 2553)` and
+emits 53 card logits. Training, evaluation, and
+`select_adjutant_action()` mask `legal_adjutant_mask` before cross entropy
+or argmax, so illegal adjutant cards are never selected or trained as
+targets. Evaluation reports top-1 accuracy, category breakdowns, a legal
+uniform baseline, and illegal prediction count.
+
+Evaluate a saved checkpoint without training:
+
+```bash
+napoleon-evaluate-adjutant-mlp ./datasets/rule-based-adjutant-v1 \
+  --checkpoint ./models/adjutant-mlp.pt \
+  --split test
+```
 
 ## Policy MLP baseline
 
