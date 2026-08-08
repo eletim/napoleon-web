@@ -119,13 +119,13 @@ export type SampleCreator = (
   record: AutomatedGameRecord
 ) => readonly TrainingSample[];
 export type SampleValidator = (sample: TrainingSample, expectedSeed: number) => void;
-export type SampleSerializer = (sample: TrainingSample) => string;
+export type SampleSerializer<TSample = TrainingSample> = (sample: TSample) => string;
 export type CreateShardWriter = (
   directory: string,
   shardIndex: number,
   startSeed: number,
   serializeSample: SampleSerializer
-) => import("./shardWriter.js").JsonlShardWriter;
+) => import("./shardWriter.js").JsonlShardWriter<TrainingSample>;
 
 export type GenerateRuleBasedDatasetInternalOptions = GenerateRuleBasedDatasetOptions & {
   runGame?: GameRunner;

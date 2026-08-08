@@ -139,9 +139,6 @@ importers:
       '@napoleon/game-core':
         specifier: workspace:*
         version: link:../game-core
-      '@napoleon/training-data':
-        specifier: workspace:*
-        version: link:../training-data
       onnxruntime-node:
         specifier: 1.27.0
         version: 1.27.0
@@ -170,6 +167,12 @@ importers:
       '@napoleon/ai-observation':
         specifier: workspace:*
         version: link:../ai-observation
+      '@napoleon/game-core':
+        specifier: workspace:*
+        version: link:../game-core
+      '@napoleon/policy-onnx':
+        specifier: workspace:*
+        version: link:../policy-onnx
     devDependencies:
       typescript:
         specifier: ^5.7.2

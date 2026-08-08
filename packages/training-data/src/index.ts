@@ -18,6 +18,21 @@ export {
   generateRuleBasedDataset
 } from "./generateRuleBasedDataset.js";
 export {
+  DEFAULT_PLAYING_SELF_PLAY_TEMPERATURE,
+  PLAYING_SELF_PLAY_DATASET_GENERATOR_VERSION,
+  PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE,
+  PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION,
+  PLAYING_SELF_PLAY_REWARD_TYPE,
+  PLAYING_SELF_PLAY_REWARD_VERSION,
+  PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION,
+  PLAYING_SELF_PLAY_SAMPLING_ALGORITHM,
+  createPlayingSelfPlaySamples,
+  generatePlayingSelfPlayDataset,
+  serializePlayingSelfPlaySample,
+  validatePlayingSelfPlayDatasetManifest,
+  validatePlayingSelfPlaySample
+} from "./generatePlayingSelfPlayDataset.js";
+export {
   calculateCardIdsSha256,
   serializeManifest,
   serializePlayingTrainingSample,
@@ -49,3 +64,12 @@ export type {
   RuleBasedDatasetManifest,
   TrainingSample
 } from "./types.js";
+export type {
+  GeneratePlayingSelfPlayDatasetOptions,
+  GeneratePlayingSelfPlayDatasetResult,
+  PlayingSelfPlayDatasetManifest,
+  PlayingSelfPlayOutcome,
+  PlayingSelfPlayPolicyArtifactOptions,
+  PlayingSelfPlayRole,
+  PlayingSelfPlaySample
+} from "./generatePlayingSelfPlayDataset.js";

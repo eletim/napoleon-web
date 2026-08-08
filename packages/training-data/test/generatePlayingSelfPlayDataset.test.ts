@@ -1,0 +1,304 @@
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { describe, expect, it } from "vitest";
+import {
+  CARD_COUNT,
+  MODEL_INPUT_FEATURE_COUNT,
+  createPlayingModelInput
+} from "@napoleon/ai-observation";
+import {
+  ONNX_INPUT_NAME,
+  ONNX_OPSET_VERSION,
+  ONNX_OUTPUT_NAME,
+  calculateCardIdsSha256,
+  calculateLegalPolicyLogProbability,
+  loadPolicyOnnxModel
+} from "@napoleon/policy-onnx";
+import {
+  PLAYING_SELF_PLAY_DATASET_GENERATOR_VERSION,
+  PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE,
+  PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION,
+  PLAYING_SELF_PLAY_REWARD_TYPE,
+  PLAYING_SELF_PLAY_REWARD_VERSION,
+  PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION,
+  PLAYING_SELF_PLAY_SAMPLING_ALGORITHM,
+  generatePlayingSelfPlayDataset,
+  validatePlayingSelfPlayDatasetManifest,
+  validatePlayingSelfPlaySample
+} from "../src/index.js";
+import type {
+  PlayingSelfPlayDatasetManifest,
+  PlayingSelfPlaySample
+} from "../src/index.js";
+import { createConstantPolicyOnnx } from "../../policy-onnx/test/testOnnxFixture.js";
+
+describe("generatePlayingSelfPlayDataset", () => {
+  it("generates deterministic playing self-play trajectories with valid rewards and hashes", async () => {
+    await withTempDir(async (directory) => {
+      const artifact = await createPlayingPolicyFixture(directory);
+      const firstOutput = join(directory, "first");
+      const secondOutput = join(directory, "second");
+      const progressEvents: Array<{ completedGames: number; sampleCount: number; currentSeed: number }> = [];
+      const options = {
+        outputDirectory: firstOutput,
+        playingPolicy: artifact,
+        startSeed: 11,
+        gameCount: 2,
+        gamesPerShard: 1,
+        temperature: 1.25,
+        onProgress: (progress: {
+          completedGames: number;
+          sampleCount: number;
+          currentSeed: number;
+        }) => {
+          progressEvents.push({
+            completedGames: progress.completedGames,
+            sampleCount: progress.sampleCount,
+            currentSeed: progress.currentSeed
+          });
+        }
+      };
+
+      const result = await generatePlayingSelfPlayDataset(options);
+      await generatePlayingSelfPlayDataset({
+        ...options,
+        outputDirectory: secondOutput,
+        onProgress: undefined
+      });
+      await expectDirectoriesToBeByteIdentical(firstOutput, secondOutput);
+
+      const manifest = await readManifest(firstOutput);
+      const lines = await readAllShardLines(firstOutput, manifest);
+      const samples = lines.map((line) => JSON.parse(line) as PlayingSelfPlaySample);
+      const model = await loadPolicyOnnxModel(artifact);
+
+      expect(result.manifest).toEqual(manifest);
+      validatePlayingSelfPlayDatasetManifest(manifest);
+      expect(manifest.datasetSchemaVersion).toBe(PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION);
+      expect(manifest.generatorVersion).toBe(PLAYING_SELF_PLAY_DATASET_GENERATOR_VERSION);
+      expect(manifest.sampleType).toBe(PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE);
+      expect(manifest.sampleSchemaVersion).toBe(PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION);
+      expect(manifest.samplingAlgorithm).toBe(PLAYING_SELF_PLAY_SAMPLING_ALGORITHM);
+      expect(manifest.temperature).toBe(1.25);
+      expect(manifest.reward).toEqual({
+        type: PLAYING_SELF_PLAY_REWARD_TYPE,
+        version: PLAYING_SELF_PLAY_REWARD_VERSION
+      });
+      expect(manifest.nonPlayingAgent).toEqual({
+        type: "rule-based",
+        version: 1
+      });
+      expect(manifest.behaviorPolicy.onnxSha256).toBe(await sha256File(artifact.onnxPath));
+      expect(manifest.behaviorPolicy.metadataSha256).toBe(await sha256File(artifact.metadataPath));
+      expect(manifest.cardIdsSha256).toBe(calculateCardIdsSha256());
+      expect(manifest.gameCount).toBe(2);
+      expect(manifest.shardCount).toBe(2);
+      expect(manifest.sampleCount).toBe(lines.length);
+      expect(manifest.sampleCount).toBeGreaterThan(0);
+      expect(progressEvents.map((event) => event.completedGames)).toEqual([1, 2]);
+      expect(progressEvents.map((event) => event.currentSeed)).toEqual([11, 12]);
+      expect(progressEvents.at(-1)?.sampleCount).toBe(manifest.sampleCount);
+
+      const rewards = new Set(samples.map((sample) => sample.terminalReward));
+      const forcedSamples = samples.filter((sample) => sum(sample.observation.legalPlayMask) === 1);
+      const nonForcedSamples = samples.filter((sample) => sum(sample.observation.legalPlayMask) > 1);
+
+      expect(rewards).toEqual(new Set([1, -1]));
+      expect(forcedSamples.length).toBeGreaterThan(0);
+      expect(nonForcedSamples.length).toBeGreaterThan(0);
+
+      for (const sample of samples) {
+        validatePlayingSelfPlaySample(sample, sample.seed);
+        expect(sample.observation.legalPlayMask[sample.selectedCardIndex]).toBe(1);
+        expect(sample.terminalReward).toBe(sample.outcome.actingPlayerTeam === sample.outcome.winner ? 1 : -1);
+
+        const { modelInput, legalPlayMask } = createPlayingModelInput(sample.observation);
+        const logits = await model.predictLogits(modelInput);
+        const recomputedLogProbability = calculateLegalPolicyLogProbability({
+          logits,
+          legalPlayMask,
+          selectedCardIndex: sample.selectedCardIndex,
+          temperature: manifest.temperature
+        });
+
+        expect(sample.behaviorLogProbability).toBeCloseTo(recomputedLogProbability, 6);
+
+        if (sum(sample.observation.legalPlayMask) === 1) {
+          expect(sample.behaviorLogProbability).toBe(0);
+        } else {
+          expect(Number.isFinite(sample.behaviorLogProbability)).toBe(true);
+          expect(sample.behaviorLogProbability).toBeLessThanOrEqual(0);
+        }
+      }
+
+      for (const shard of manifest.shards) {
+        const shardPath = join(firstOutput, shard.file);
+        const file = await readFile(shardPath, "utf8");
+        const fileStat = await stat(shardPath);
+
+        expect(file.split("\n").filter(Boolean)).toHaveLength(shard.sampleCount);
+        expect(fileStat.size).toBe(shard.byteLength);
+        expect(sha256Utf8(file)).toBe(shard.sha256);
+      }
+
+      expect(lines.some((line) => line.includes("\"terminalReward\":1"))).toBe(true);
+      expect(lines.some((line) => line.includes("\"terminalReward\":-1"))).toBe(true);
+      assertNoHiddenStateFields(lines);
+    });
+  });
+
+  it("rejects an existing output directory before writing self-play data", async () => {
+    await withTempDir(async (directory) => {
+      const artifact = await createPlayingPolicyFixture(directory);
+      const output = join(directory, "existing");
+      const marker = join(output, "marker.txt");
+      await mkdir(output);
+      await writeFile(marker, "keep\n", "utf8");
+
+      await expect(generatePlayingSelfPlayDataset({
+        outputDirectory: output,
+        playingPolicy: artifact,
+        startSeed: 0,
+        gameCount: 1,
+        gamesPerShard: 1
+      })).rejects.toThrow("Output directory already exists");
+
+      expect(await readFile(marker, "utf8")).toBe("keep\n");
+    });
+  });
+});
+
+async function createPlayingPolicyFixture(directory: string): Promise<{
+  onnxPath: string;
+  metadataPath: string;
+  artifactId: string;
+}> {
+  const onnxPath = join(directory, "playing-policy.onnx");
+  const metadataPath = join(directory, "playing-policy.json");
+  const logits = new Float32Array(CARD_COUNT);
+
+  for (let index = 0; index < logits.length; index += 1) {
+    logits[index] = (index % 13) / 5;
+  }
+
+  await writeFile(onnxPath, createConstantPolicyOnnx(logits));
+  await writeFile(metadataPath, JSON.stringify(createMetadata()) + "\n", "utf8");
+
+  return {
+    onnxPath,
+    metadataPath,
+    artifactId: "test-playing-policy"
+  };
+}
+
+function createMetadata() {
+  return {
+    metadataSchemaVersion: 1,
+    checkpointSchemaVersion: 1,
+    datasetSchemaVersion: 1,
+    playingEncoderSchemaVersion: 1,
+    modelInputSchemaVersion: 1,
+    cardIdsSha256: calculateCardIdsSha256(),
+    onnx: {
+      opsetVersion: ONNX_OPSET_VERSION,
+      inputs: [
+        {
+          name: ONNX_INPUT_NAME,
+          shape: ["batch", MODEL_INPUT_FEATURE_COUNT],
+          dtype: "float32"
+        }
+      ],
+      outputs: [
+        {
+          name: ONNX_OUTPUT_NAME,
+          shape: ["batch", CARD_COUNT],
+          dtype: "float32"
+        }
+      ]
+    },
+    policyModel: {
+      input_dim: MODEL_INPUT_FEATURE_COUNT,
+      hidden_dim: 8,
+      hidden_layers: 1,
+      dropout: 0
+    }
+  };
+}
+
+async function withTempDir(run: (directory: string) => Promise<void>): Promise<void> {
+  const directory = await mkdtemp(join(tmpdir(), "napoleon-playing-self-play-test-"));
+
+  try {
+    await run(directory);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+async function readManifest(outputDirectory: string): Promise<PlayingSelfPlayDatasetManifest> {
+  return JSON.parse(await readFile(join(outputDirectory, "manifest.json"), "utf8")) as PlayingSelfPlayDatasetManifest;
+}
+
+async function readAllShardLines(
+  outputDirectory: string,
+  manifest: PlayingSelfPlayDatasetManifest
+): Promise<readonly string[]> {
+  const chunks = await Promise.all(
+    manifest.shards.map((shard) => readFile(join(outputDirectory, shard.file), "utf8"))
+  );
+
+  return chunks.flatMap((chunk) => chunk.split("\n").filter(Boolean));
+}
+
+async function expectDirectoriesToBeByteIdentical(
+  firstOutput: string,
+  secondOutput: string
+): Promise<void> {
+  const firstFiles = (await readdir(firstOutput)).sort();
+  const secondFiles = (await readdir(secondOutput)).sort();
+
+  expect(firstFiles).toEqual(secondFiles);
+
+  for (const file of firstFiles) {
+    expect(await readFile(join(secondOutput, file), "utf8")).toBe(
+      await readFile(join(firstOutput, file), "utf8")
+    );
+  }
+}
+
+function assertNoHiddenStateFields(lines: readonly string[]): void {
+  const forbiddenFields = [
+    "actualHands",
+    "actualState",
+    "unusedCardIds",
+    "excludedCardIds",
+    "awardedPointCardIds",
+    "currentTrickCardIds",
+    "completedTrickCardIds",
+    "adjutantPlayerId",
+    "beliefTarget",
+    "teacherAction",
+    "ruleBasedAction",
+    "futureAction"
+  ];
+
+  for (const line of lines) {
+    for (const field of forbiddenFields) {
+      expect(line).not.toContain(`"${field}"`);
+    }
+  }
+}
+
+async function sha256File(path: string): Promise<string> {
+  return createHash("sha256").update(await readFile(path)).digest("hex");
+}
+
+function sha256Utf8(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function sum(values: readonly number[]): number {
+  return values.reduce((total, value) => total + value, 0);
+}

@@ -66,6 +66,24 @@ export interface PolicyOnnxSelection {
   logits: Float32Array;
 }
 
+export interface PolicyOnnxSampledSelection extends PolicyOnnxSelection {
+  logProbability: number;
+}
+
+export interface SampleLegalPolicyActionOptions {
+  logits: Float32Array | readonly number[];
+  legalPlayMask: ArrayLike<number | boolean>;
+  rng: () => number;
+  temperature?: number;
+}
+
+export interface CalculateLegalPolicyLogProbabilityOptions {
+  logits: Float32Array | readonly number[];
+  legalPlayMask: ArrayLike<number | boolean>;
+  selectedCardIndex: number;
+  temperature?: number;
+}
+
 export interface SelectLegalBiddingInput {
   modelInput: Float32Array | readonly number[];
   legalBidMask: ArrayLike<number | boolean>;

@@ -7,10 +7,10 @@ import type { DatasetShardManifest, SampleSerializer, TrainingSample } from "./t
 import { serializeTrainingSample } from "./serialization.js";
 import { shardFileName } from "./validation.js";
 
-export interface JsonlShardWriter {
+export interface JsonlShardWriter<TSample = TrainingSample> {
   readonly fileName: string;
   readonly sampleCount: number;
-  writeSample: (sample: TrainingSample) => Promise<void>;
+  writeSample: (sample: TSample) => Promise<void>;
   close: (endSeed: number, gameCount: number) => Promise<DatasetShardManifest>;
   abort: () => Promise<void>;
 }
@@ -18,16 +18,16 @@ export interface JsonlShardWriter {
 export type ShardWriterState = "open" | "closing" | "closed" | "aborted" | "failed";
 export type WritableFactory = (path: string) => Writable;
 
-export function createJsonlShardWriter(
+export function createJsonlShardWriter<TSample = TrainingSample>(
   directory: string,
   shardIndex: number,
   startSeed: number,
-  serializeSample: SampleSerializer = serializeTrainingSample,
+  serializeSample: SampleSerializer<TSample> = serializeTrainingSample as SampleSerializer<TSample>,
   writableFactory: WritableFactory = (path) => createWriteStream(path, {
     encoding: "utf8",
     flags: "wx"
   })
-): JsonlShardWriter {
+): JsonlShardWriter<TSample> {
   const fileName = shardFileName(shardIndex);
   const stream = writableFactory(join(directory, fileName));
   const hash = createHash("sha256");
