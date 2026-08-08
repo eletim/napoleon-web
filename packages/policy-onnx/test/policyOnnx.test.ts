@@ -98,6 +98,7 @@ describe("non-playing policy ONNX metadata", () => {
       ["inputName", { ...bidding, inputName: "input" }],
       ["outputShape", { ...bidding, outputShape: ["batch", BIDDING_ACTION_COUNT + 1] }],
       ["inputDtype", { ...bidding, inputDtype: "float64" }],
+      ["discardCount", { ...bidding, discardCount: 3 }],
       ["discardCount", { ...exchange, discardCount: 2 }]
     ];
 
@@ -329,6 +330,28 @@ describe("non-playing policy ONNX Runtime smoke", () => {
       PolicyOnnxCompatibilityError
     );
     await expect(loadNonPlayingPolicyOnnxModel({ onnxPath, metadataPath })).rejects.toThrow(/output shape/);
+  });
+
+  it("rejects selection methods that do not match the loaded non-playing policy type", async () => {
+    const directory = await temporaryDirectory();
+    const onnxPath = join(directory, "exchange.onnx");
+    const metadataPath = join(directory, "exchange.json");
+    await writeFile(
+      onnxPath,
+      createConstantPolicyOnnx(createExchangeGoldenLogits(), ONNX_OUTPUT_NAME, {
+        inputFeatureCount: EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
+        outputCount: CARD_COUNT
+      })
+    );
+    await writeFile(metadataPath, JSON.stringify(createNonPlayingMetadata("exchange")) + "\n", "utf8");
+
+    const model = await loadNonPlayingPolicyOnnxModel({ onnxPath, metadataPath });
+    await expect(
+      model.selectBidding({
+        modelInput: new Float32Array(EXCHANGE_MODEL_INPUT_FEATURE_COUNT),
+        legalBidMask: Array(BIDDING_ACTION_COUNT).fill(1)
+      })
+    ).rejects.toThrow(/expected bidding, got exchange/);
   });
 });
 
