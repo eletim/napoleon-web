@@ -205,9 +205,8 @@ lengths are:
 | `exchange-training-sample` | `TensorizedExchangeSample` | `(2611,)` |
 | `adjutant-training-sample` | `TensorizedAdjutantSample` | `(2553,)` |
 
-The existing PyTorch DataLoader, policy model, and ONNX export remain
-playing-only in this version. The non-playing tensors are exposed for future
-phase-specific supervised models.
+The PyTorch DataLoader supports all four sample types. The policy model and
+ONNX export remain playing-only in this version.
 
 For playing, `tensorize_sample()` returns a `TensorizedPlayingSample`:
 
@@ -364,7 +363,8 @@ in any process, on any machine.
 
 ## PyTorch DataLoader
 
-Install the training extra, then create a split-filtered loader:
+Install the training extra, then create a split-filtered loader. For
+`playing-training-sample` datasets, the existing playing-specific API remains:
 
 ```python
 from napoleon_ml.dataset import DatasetSplit, SplitConfig
@@ -404,14 +404,31 @@ streaming so `legal_play_mask[row, actor_target[row]]` is true. These policy
 fields are exposed alongside the existing ownership-belief fields; they do
 not change the dataset, observation, or `model_input` schema.
 
-`PlayingIterableDataset` streams through `iter_tensorized_samples()` and
-filters by `split_for_seed()`, so it does not load the whole dataset into
-memory. The same dataset, split, and split config produce the same sample
-order each time, and the dataset can be iterated again for a new epoch
-because each `__iter__()` call reopens the shard stream from the beginning.
-An empty split simply yields no batches. This first version only supports
-`num_workers=0`; `create_playing_dataloader(..., num_workers=1)` and direct
-worker-process iteration raise `DatasetError`.
+For manifest-selected loading, use `create_training_dataloader()`. It reads
+`manifest.sampleType` and returns the matching batch shape; phase-specific
+helpers (`create_bidding_dataloader`, `create_exchange_dataloader`,
+`create_adjutant_dataloader`) reject datasets whose manifest sample type does
+not match.
+
+| Sample type | Batch fields |
+| --- | --- |
+| `bidding-training-sample` | `model_input (batch, 2333) float32`, `legal_bid_mask (batch, 29) bool`, `actor_target (batch,) int64` |
+| `exchange-training-sample` | `model_input (batch, 2611) float32`, `legal_discard_card_mask (batch, 53) bool`, `discard_target_mask (batch, 53) bool` |
+| `adjutant-training-sample` | `model_input (batch, 2553) float32`, `legal_adjutant_mask (batch, 53) bool`, `actor_target (batch,) int64` |
+
+`mask_dtype` is only a playing-dataset compatibility option for
+`belief_hidden_ownership_loss_mask`. Non-playing DataLoader masks are always
+`torch.bool`, and `create_training_dataloader()` rejects non-playing
+`mask_dtype` overrides.
+
+All DataLoader variants stream through `iter_tensorized_samples()` and filter
+by `split_for_seed()`, so they do not load the whole dataset into memory. The
+same dataset, split, and split config produce the same sample order each
+time, and the dataset can be iterated again for a new epoch because each
+`__iter__()` call reopens the shard stream from the beginning. An empty split
+simply yields no batches. This first version only supports `num_workers=0`;
+all DataLoader factories reject `num_workers=1`, and direct worker-process
+iteration raises `DatasetError`.
 
 ## Inspecting a dataset
 

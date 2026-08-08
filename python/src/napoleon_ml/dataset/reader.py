@@ -243,6 +243,19 @@ def iter_samples(
     directory = Path(dataset_directory)
     manifest = load_manifest(directory)
 
+    yield from _iter_samples_with_manifest(
+        directory,
+        manifest,
+        verify_integrity=verify_integrity,
+    )
+
+
+def _iter_samples_with_manifest(
+    directory: Path,
+    manifest: DatasetManifest,
+    *,
+    verify_integrity: bool,
+) -> Iterator[TrainingSample]:
     current_seed: int | None = None
     previous_step: int | None = None
     shard_line_number = 0
@@ -310,9 +323,33 @@ def iter_tensorized_samples(
     sample is read); the dataset is never buffered in memory to filter it.
     """
 
+    directory = Path(dataset_directory)
+    manifest = load_manifest(directory)
+
+    yield from _iter_tensorized_samples_with_manifest(
+        directory,
+        manifest,
+        split=split,
+        split_config=split_config,
+        verify_integrity=verify_integrity,
+    )
+
+
+def _iter_tensorized_samples_with_manifest(
+    directory: Path,
+    manifest: DatasetManifest,
+    *,
+    split: DatasetSplit | None = None,
+    split_config: SplitConfig | None = None,
+    verify_integrity: bool = True,
+) -> Iterator[TensorizedTrainingSample]:
     effective_split_config = split_config if split_config is not None else SplitConfig()
 
-    for sample in iter_samples(dataset_directory, verify_integrity=verify_integrity):
+    for sample in _iter_samples_with_manifest(
+        directory,
+        manifest,
+        verify_integrity=verify_integrity,
+    ):
         if split is not None and split_for_seed(sample.seed, effective_split_config) != split:
             continue
 
