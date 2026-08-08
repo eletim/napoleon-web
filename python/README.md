@@ -5,13 +5,13 @@ A strict Python consumer for the self-play datasets that
 dataset directory end to end — `manifest.json`, every shard's raw bytes,
 and every individual sample — and converts validated samples into
 fixed-shape, fixed-dtype NumPy tensors. It also includes first CPU-only
-PyTorch MLP baselines for predicting hidden card ownership and selecting a
-legal play from `model_input`.
+PyTorch MLP baselines for predicting hidden card ownership, selecting a legal
+play, and choosing an adjutant card from `model_input`.
 
 This package covers the boundary from a generated dataset directory to
 validated NumPy arrays, an optional PyTorch `IterableDataset` adapter for
-fixed-shape training batches, and the first supervised ownership-belief and
-legal-play policy MLP baselines. It does not include TensorFlow, JAX, ONNX export, reinforcement
+fixed-shape training batches, and the first supervised ownership-belief,
+legal-play policy, and adjutant-card MLP baselines. It does not include TensorFlow, JAX, ONNX export, reinforcement
 learning, a parallel `DataLoader`, dataset caching, or compression. See
 [Not implemented](#not-implemented) below.
 
@@ -205,8 +205,8 @@ lengths are:
 | `exchange-training-sample` | `TensorizedExchangeSample` | `(2611,)` |
 | `adjutant-training-sample` | `TensorizedAdjutantSample` | `(2553,)` |
 
-The PyTorch DataLoader supports all four sample types. The policy model and
-ONNX export remain playing-only in this version.
+The PyTorch DataLoader supports all four sample types. The policy ONNX export
+remains playing-only in this version.
 
 For playing, `tensorize_sample()` returns a `TensorizedPlayingSample`:
 
