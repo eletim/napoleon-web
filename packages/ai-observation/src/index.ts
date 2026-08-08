@@ -81,16 +81,33 @@ export {
 } from "./encodePlayingObservation.js";
 export type { EncodedPlayingObservation } from "./encodePlayingObservation.js";
 export {
+  ADJUTANT_MODEL_INPUT_LAYOUT,
+  BIDDING_MODEL_INPUT_LAYOUT,
+  createAdjutantModelInput,
+  createBiddingModelInput,
+  createExchangeModelInput,
   createPlayingModelInput,
+  encodeAdjutantModelInput,
+  encodeBiddingModelInput,
+  encodeExchangeModelInput,
   encodePlayingModelInput,
+  EXCHANGE_MODEL_INPUT_LAYOUT,
   FLAT_OBSERVATION_LAYOUT,
   MODEL_INPUT_LAYOUT,
   MODEL_INPUT_ONEHOT_LAYOUT
 } from "./modelInput.js";
-export type { ModelInputFeatureSlice, PlayingModelInput } from "./modelInput.js";
+export type {
+  AdjutantModelInput,
+  BiddingModelInput,
+  ExchangeModelInput,
+  ModelInputFeatureSlice,
+  PlayingModelInput
+} from "./modelInput.js";
 export { createRelativePlayerOrder, getRelativePlayerIndex } from "./playerIndex.js";
 export {
   ADJUTANT_ENCODER_SCHEMA_VERSION,
+  ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
+  ADJUTANT_MODEL_INPUT_SCHEMA_VERSION,
   BIDDING_ACTION_COUNT,
   CARD_COUNT,
   CARDS_PER_TRICK,
@@ -98,11 +115,15 @@ export {
   BIDDING_ACTION_TYPE_PASS,
   BIDDING_ENCODER_SCHEMA_VERSION,
   BIDDING_HISTORY_SUIT_ORDER,
+  BIDDING_MODEL_INPUT_FEATURE_COUNT,
+  BIDDING_MODEL_INPUT_SCHEMA_VERSION,
   EMPTY_CARD_INDEX,
   EMPTY_BIDDING_ACTION_TYPE,
   EMPTY_BIDDING_SUIT_INDEX,
   EMPTY_PLAYER_INDEX,
   EXCHANGE_ENCODER_SCHEMA_VERSION,
+  EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
+  EXCHANGE_MODEL_INPUT_SCHEMA_VERSION,
   FLAT_OBSERVATION_FEATURE_COUNT,
   MAX_BIDDING_ACTION_COUNT,
   MAX_BIDDING_TARGET_POINT_CARDS,

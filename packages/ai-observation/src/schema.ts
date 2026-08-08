@@ -9,6 +9,9 @@ export const BIDDING_ENCODER_SCHEMA_VERSION = 1 as const;
 export const EXCHANGE_ENCODER_SCHEMA_VERSION = 1 as const;
 export const ADJUTANT_ENCODER_SCHEMA_VERSION = 1 as const;
 export const MODEL_INPUT_SCHEMA_VERSION = 1 as const;
+export const BIDDING_MODEL_INPUT_SCHEMA_VERSION = 1 as const;
+export const EXCHANGE_MODEL_INPUT_SCHEMA_VERSION = 1 as const;
+export const ADJUTANT_MODEL_INPUT_SCHEMA_VERSION = 1 as const;
 
 export const CARD_COUNT = 53;
 export const PLAYER_COUNT = 5;
@@ -43,3 +46,6 @@ export const MAX_BIDDING_ACTION_COUNT =
 
 export const FLAT_OBSERVATION_FEATURE_COUNT = 684 as const;
 export const MODEL_INPUT_FEATURE_COUNT = 6242 as const;
+export const BIDDING_MODEL_INPUT_FEATURE_COUNT = 2333 as const;
+export const EXCHANGE_MODEL_INPUT_FEATURE_COUNT = 2611 as const;
+export const ADJUTANT_MODEL_INPUT_FEATURE_COUNT = 2553 as const;
