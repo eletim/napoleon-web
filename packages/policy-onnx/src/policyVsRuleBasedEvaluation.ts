@@ -20,9 +20,20 @@ import type {
   EvaluationSeatRole
 } from "@napoleon/ai";
 import type { PlayerId } from "@napoleon/game-core";
-import { PolicyOnnxAgent } from "./policyOnnxAgent.js";
-import type { PolicyOnnxModel } from "./policyOnnx.js";
-import type { PolicyOnnxMetadata } from "./types.js";
+import { getNonPlayingPolicyOnnxSpec } from "./policySpecs.js";
+import {
+  PolicyOnnxAgent,
+  createPolicyOnnxAgentDecisionMetrics
+} from "./policyOnnxAgent.js";
+import type {
+  PolicyOnnxAgentDecisionMetrics
+} from "./policyOnnxAgent.js";
+import type { NonPlayingPolicyOnnxModel, PolicyOnnxModel } from "./policyOnnx.js";
+import type {
+  NonPlayingPolicyOnnxMetadata,
+  NonPlayingPolicyType,
+  PolicyOnnxMetadata
+} from "./types.js";
 
 type CompletedRole = Exclude<EvaluationSeatRole, "unknown">;
 type AgentGroup = "policy" | "rule-based";
@@ -50,6 +61,20 @@ export interface RunPolicyVsRuleBasedEvaluationOptions {
   ruleBasedAgentName?: string;
 }
 
+export interface RunFullPolicyVsRuleBasedEvaluationOptions {
+  playingPolicy: PolicyOnnxModel;
+  biddingPolicy: NonPlayingPolicyOnnxModel;
+  adjutantPolicy: NonPlayingPolicyOnnxModel;
+  exchangePolicy: NonPlayingPolicyOnnxModel;
+  startSeed: number;
+  gameCount: number;
+  playerIds?: readonly PlayerId[];
+  rotationOffsets?: readonly number[];
+  maxDecisionSteps?: number;
+  policyAgentName?: string;
+  ruleBasedAgentName?: string;
+}
+
 export interface PolicyVsRuleBasedEvaluationConfiguration {
   startSeed: number;
   endSeed: number;
@@ -59,6 +84,22 @@ export interface PolicyVsRuleBasedEvaluationConfiguration {
   policyAgentName: string;
   ruleBasedAgentName: string;
   policyMetadata: PolicyOnnxMetadata;
+}
+
+export interface FullPolicyVsRuleBasedEvaluationConfiguration {
+  startSeed: number;
+  endSeed: number;
+  gameCount: number;
+  rotationOffsets: readonly number[];
+  playerIds: readonly PlayerId[];
+  policyAgentName: string;
+  ruleBasedAgentName: string;
+  policyMetadata: {
+    playing: PolicyOnnxMetadata;
+    bidding: NonPlayingPolicyOnnxMetadata;
+    adjutant: NonPlayingPolicyOnnxMetadata;
+    exchange: NonPlayingPolicyOnnxMetadata;
+  };
 }
 
 export interface FailedPolicyVsRuleBasedGame {
@@ -91,6 +132,19 @@ export interface PolicyVsRuleBasedEvaluationResult {
   run: EvaluationRunRecord;
   report: EvaluationReport;
   comparison: PolicyVsRuleBasedComparisonReport;
+}
+
+export interface FullPolicyVsRuleBasedDiagnostics {
+  policyAgentDecisionCounts: PolicyOnnxAgentDecisionMetrics;
+}
+
+export interface FullPolicyVsRuleBasedEvaluationResult {
+  schemaVersion: 1;
+  configuration: FullPolicyVsRuleBasedEvaluationConfiguration;
+  run: EvaluationRunRecord;
+  report: EvaluationReport;
+  comparison: PolicyVsRuleBasedComparisonReport;
+  diagnostics: FullPolicyVsRuleBasedDiagnostics;
 }
 
 interface MutableStats {
@@ -158,6 +212,65 @@ export async function runPolicyVsRuleBasedEvaluation(
   };
 }
 
+export async function runFullPolicyVsRuleBasedEvaluation(
+  options: RunFullPolicyVsRuleBasedEvaluationOptions
+): Promise<FullPolicyVsRuleBasedEvaluationResult> {
+  assertFullPolicyTypes(options);
+
+  const playerIds = options.playerIds ?? defaultPlayerIds;
+  const rotationOffsets = options.rotationOffsets ?? defaultRotationOffsets;
+  const policyAgentName = options.policyAgentName ?? "FullPolicyOnnxAgent";
+  const ruleBasedAgentName = options.ruleBasedAgentName ?? "RuleBasedAgent";
+  const decisionMetrics = createPolicyOnnxAgentDecisionMetrics();
+  const agents = createFullPolicyVsRuleBasedAgents({
+    playingPolicy: options.playingPolicy,
+    biddingPolicy: options.biddingPolicy,
+    adjutantPolicy: options.adjutantPolicy,
+    exchangePolicy: options.exchangePolicy,
+    playerIds,
+    policyAgentName,
+    ruleBasedAgentName,
+    decisionMetrics
+  });
+  const run = await runEvaluation({
+    startSeed: options.startSeed,
+    gameCount: options.gameCount,
+    playerIds,
+    rotationOffsets,
+    maxDecisionSteps: options.maxDecisionSteps,
+    agents
+  });
+  const report = createEvaluationReport(run);
+
+  return {
+    schemaVersion: 1,
+    configuration: {
+      startSeed: run.startSeed,
+      endSeed: run.endSeed,
+      gameCount: run.gameCount,
+      rotationOffsets: run.rotationOffsets,
+      playerIds: run.playerIds,
+      policyAgentName,
+      ruleBasedAgentName,
+      policyMetadata: {
+        playing: options.playingPolicy.metadata,
+        bidding: options.biddingPolicy.metadata,
+        adjutant: options.adjutantPolicy.metadata,
+        exchange: options.exchangePolicy.metadata
+      }
+    },
+    run,
+    report,
+    comparison: createPolicyVsRuleBasedComparison(run, {
+      policyAgentName,
+      ruleBasedAgentName
+    }),
+    diagnostics: {
+      policyAgentDecisionCounts: copyDecisionMetrics(decisionMetrics)
+    }
+  };
+}
+
 function createPolicyVsRuleBasedAgents(args: {
   policy: PolicyOnnxModel;
   playerIds: readonly PlayerId[];
@@ -171,6 +284,36 @@ function createPolicyVsRuleBasedAgents(args: {
         policy: args.policy,
         rng,
         playerIds: args.playerIds
+      })
+    },
+    ...args.playerIds.slice(1).map((): EvaluationAgentDefinition => ({
+      name: args.ruleBasedAgentName,
+      createAgent: ({ rng }) => new RuleBasedAgent(rng)
+    }))
+  ];
+}
+
+function createFullPolicyVsRuleBasedAgents(args: {
+  playingPolicy: PolicyOnnxModel;
+  biddingPolicy: NonPlayingPolicyOnnxModel;
+  adjutantPolicy: NonPlayingPolicyOnnxModel;
+  exchangePolicy: NonPlayingPolicyOnnxModel;
+  playerIds: readonly PlayerId[];
+  policyAgentName: string;
+  ruleBasedAgentName: string;
+  decisionMetrics: PolicyOnnxAgentDecisionMetrics;
+}): readonly EvaluationAgentDefinition[] {
+  return [
+    {
+      name: args.policyAgentName,
+      createAgent: ({ rng }) => new PolicyOnnxAgent({
+        policy: args.playingPolicy,
+        biddingPolicy: args.biddingPolicy,
+        adjutantPolicy: args.adjutantPolicy,
+        exchangePolicy: args.exchangePolicy,
+        rng,
+        playerIds: args.playerIds,
+        decisionMetrics: args.decisionMetrics
       })
     },
     ...args.playerIds.slice(1).map((): EvaluationAgentDefinition => ({
@@ -575,6 +718,66 @@ function isCompletedRole(role: EvaluationSeatRole): role is CompletedRole {
 function isIllegalActionFailureReason(reason: string): boolean {
   return reason.includes("Automated agent selected an illegal action.")
     || reason.includes("outside legal actions");
+}
+
+function assertFullPolicyTypes(options: RunFullPolicyVsRuleBasedEvaluationOptions): void {
+  assertPlayingPolicyType("playingPolicy", options.playingPolicy);
+  assertNonPlayingPolicyModelType("biddingPolicy", options.biddingPolicy, "bidding");
+  assertNonPlayingPolicyModelType("adjutantPolicy", options.adjutantPolicy, "adjutant");
+  assertNonPlayingPolicyModelType("exchangePolicy", options.exchangePolicy, "exchange");
+}
+
+function assertPlayingPolicyType(optionName: string, policy: PolicyOnnxModel): void {
+  const metadata = policy.metadata as unknown as Record<string, unknown>;
+  if (metadata.policyType !== undefined) {
+    throw new Error(
+      `${optionName} policy type mismatch: expected playing, got ${String(metadata.policyType)}.`
+    );
+  }
+  if (metadata.artifactType !== undefined) {
+    throw new Error(`${optionName} artifact type mismatch: expected playing policy metadata.`);
+  }
+  if (metadata.playingEncoderSchemaVersion === undefined) {
+    throw new Error(`${optionName} policy type mismatch: expected playing metadata.`);
+  }
+}
+
+function assertNonPlayingPolicyModelType(
+  optionName: string,
+  policy: NonPlayingPolicyOnnxModel,
+  expectedPolicyType: NonPlayingPolicyType
+): void {
+  if (policy.policyType !== expectedPolicyType) {
+    throw new Error(
+      `${optionName} policy type mismatch: expected ${expectedPolicyType}, got ${policy.policyType}.`
+    );
+  }
+
+  const metadata = policy.metadata;
+  if (metadata.policyType !== expectedPolicyType) {
+    throw new Error(
+      `${optionName} metadata policy type mismatch: expected ${expectedPolicyType}, got ${metadata.policyType}.`
+    );
+  }
+
+  const expectedArtifactType = getNonPlayingPolicyOnnxSpec(expectedPolicyType).artifactType;
+  if (metadata.artifactType !== expectedArtifactType) {
+    throw new Error(
+      `${optionName} artifact type mismatch: expected ${expectedArtifactType}, got ${metadata.artifactType}.`
+    );
+  }
+}
+
+function copyDecisionMetrics(
+  metrics: PolicyOnnxAgentDecisionMetrics
+): PolicyOnnxAgentDecisionMetrics {
+  return {
+    biddingOnnxCallCount: metrics.biddingOnnxCallCount,
+    adjutantOnnxCallCount: metrics.adjutantOnnxCallCount,
+    exchangeOnnxCallCount: metrics.exchangeOnnxCallCount,
+    playingOnnxCallCount: metrics.playingOnnxCallCount,
+    ruleBasedFallbackDecisionCount: metrics.ruleBasedFallbackDecisionCount
+  };
 }
 
 function compareGames(left: EvaluationGameRecord, right: EvaluationGameRecord): number {

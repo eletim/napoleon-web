@@ -162,3 +162,67 @@ win rate, contract success rate, role summaries, seat summaries, failed games,
 illegal-action failure count, and 95% confidence intervals for rate and
 point-card deltas. Failed games remain in the output instead of being excluded
 from denominators.
+
+`runPolicyVsRuleBasedEvaluation` is intentionally playing-only: the
+`PolicyOnnxAgent` uses ONNX for playing decisions and keeps bidding,
+adjutant selection, and exchange on the `RuleBasedAgent` fallback path.
+
+For a full-policy comparison, load all four phase artifacts and call
+`runFullPolicyVsRuleBasedEvaluation`:
+
+```ts
+import {
+  loadNonPlayingPolicyOnnxModel,
+  loadPolicyOnnxModel,
+  runFullPolicyVsRuleBasedEvaluation
+} from "@napoleon/policy-onnx";
+
+const playingPolicy = await loadPolicyOnnxModel({
+  onnxPath: "/models/playing.onnx",
+  metadataPath: "/models/playing.json"
+});
+const biddingPolicy = await loadNonPlayingPolicyOnnxModel({
+  onnxPath: "/models/bidding.onnx",
+  metadataPath: "/models/bidding.json"
+});
+const adjutantPolicy = await loadNonPlayingPolicyOnnxModel({
+  onnxPath: "/models/adjutant.onnx",
+  metadataPath: "/models/adjutant.json"
+});
+const exchangePolicy = await loadNonPlayingPolicyOnnxModel({
+  onnxPath: "/models/exchange.onnx",
+  metadataPath: "/models/exchange.json"
+});
+
+const result = await runFullPolicyVsRuleBasedEvaluation({
+  playingPolicy,
+  biddingPolicy,
+  adjutantPolicy,
+  exchangePolicy,
+  startSeed: 900,
+  gameCount: 10
+});
+```
+
+The full-policy evaluation uses source agent index 0 for one full
+`PolicyOnnxAgent` and source agent indices 1 through 4 for `RuleBasedAgent`.
+The default rotation offsets are `[0, 1, 2, 3, 4]`, so the full-policy agent is
+scheduled once in each seat for every seed. The result has its own
+configuration schema with the four policy metadata objects under
+`configuration.policyMetadata.{playing,bidding,adjutant,exchange}` and keeps the
+existing grouped comparison shape for policy versus rule-based metrics.
+
+The grouped comparison reports scheduled/completed/failed games, illegal-action
+failure count, policy and rule-based sample counts, wins/losses, win rate,
+contract success rate, average point cards, failures, role breakdowns
+(`napoleon`, `adjutant`, `alliance`), seat breakdowns (`0` through `4`), and
+95% confidence intervals for win-rate delta, contract-success-rate delta, and
+average-point-card delta. `diagnostics.policyAgentDecisionCounts` records the
+full-policy agent's phase ONNX decision counts and RuleBased fallback decision
+count for smoke validation.
+
+The non-playing loader rejects artifacts whose metadata `policyType` does not
+match the supplied slot (`bidding`, `adjutant`, or `exchange`). The full-policy
+evaluation also checks the four slots before scheduling games; normal metadata,
+hash, ONNX graph, input, and runtime compatibility checks still come from the
+ONNX loaders and runtime.
