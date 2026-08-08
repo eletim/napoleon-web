@@ -31,16 +31,23 @@ from napoleon_ml.adjutant.model import (
     create_seeded_adjutant_model,
 )
 from napoleon_ml.cli.evaluate_adjutant_mlp import main as evaluate_main
+from napoleon_ml.cli.export_policy_onnx import main as export_main
 from napoleon_ml.cli.train_adjutant_mlp import main as train_main
 from napoleon_ml.dataset.constants import CARD_COUNT, EXPECTED_CARD_IDS
 from napoleon_ml.dataset.pytorch import AdjutantTorchSample, create_adjutant_dataloader
-from napoleon_ml.dataset.reader import load_manifest
+from napoleon_ml.dataset.reader import iter_tensorized_samples, load_manifest
 from napoleon_ml.dataset.split import DatasetSplit, SplitConfig, split_for_seed
 from napoleon_ml.dataset.tensors import (
     ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
     ADJUTANT_MODEL_INPUT_LAYOUT,
+    TensorizedAdjutantSample,
 )
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
+from napoleon_ml.nonplaying_onnx_export import (
+    ONNX_INPUT_NAME,
+    ONNX_OUTPUT_NAME,
+    validate_nonplaying_onnx_metadata,
+)
 
 
 def _empty_bidding_history() -> dict[str, list[int]]:
@@ -548,3 +555,143 @@ def test_adjutant_dataloader_uses_fixed_contract(tmp_path: Path) -> None:
     assert batch["model_input"].shape == (1, ADJUTANT_MODEL_INPUT_FEATURE_COUNT)
     assert batch["legal_adjutant_mask"].shape == (1, CARD_COUNT)
     assert int(batch["actor_target"][0].item()) == 20
+
+
+def test_adjutant_onnx_export_cli_writes_metadata_and_checks_parity(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    onnx = pytest.importorskip("onnx")
+    onnxruntime = pytest.importorskip("onnxruntime")
+    _write_dataset(tmp_path, seeds=(0, 1, 2))
+    checkpoint_path = tmp_path.parent / f"{tmp_path.name}-adjutant.pt"
+    onnx_path = tmp_path.parent / f"{tmp_path.name}-adjutant.onnx"
+    metadata_path = tmp_path.parent / f"{tmp_path.name}-adjutant.json"
+    assert (
+        train_main(
+            [
+                str(tmp_path),
+                "--output",
+                str(checkpoint_path),
+                "--epochs",
+                "1",
+                "--batch-size",
+                "1",
+                "--hidden-dim",
+                "8",
+                "--hidden-layers",
+                "1",
+                "--train-ratio",
+                "1",
+                "--validation-ratio",
+                "1",
+                "--test-ratio",
+                "98",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    exit_code = export_main(
+        [
+            str(tmp_path),
+            "--policy-type",
+            "adjutant",
+            "--checkpoint",
+            str(checkpoint_path),
+            "--output",
+            str(onnx_path),
+            "--metadata-output",
+            str(metadata_path),
+            "--json",
+        ]
+    )
+
+    assert exit_code == 0
+    assert onnx_path.is_file()
+    onnx_model = onnx.load_model(onnx_path, load_external_data=False)
+    assert all(len(initializer.external_data) == 0 for initializer in onnx_model.graph.initializer)
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    validate_nonplaying_onnx_metadata(metadata)
+    assert metadata["artifactType"] == "napoleon-adjutant-policy-onnx"
+    assert metadata["policyType"] == "adjutant"
+    assert metadata["modelInputFeatureCount"] == ADJUTANT_MODEL_INPUT_FEATURE_COUNT
+    assert metadata["outputLogitCount"] == CARD_COUNT
+    assert metadata["inputShape"] == ["batch", ADJUTANT_MODEL_INPUT_FEATURE_COUNT]
+    assert metadata["outputShape"] == ["batch", CARD_COUNT]
+    assert metadata["inputDtype"] == "float32"
+    assert metadata["outputDtype"] == "float32"
+
+    report = json.loads(capsys.readouterr().out)
+    assert report["policyType"] == "adjutant"
+    assert report["paritySample"]["pytorchSelection"] == report["paritySample"][
+        "onnxSelection"
+    ]
+    assert report["paritySample"]["selectionParity"] is True
+    assert report["paritySample"]["maxAbsLogitDiff"] <= 1e-4
+
+    first_sample = next(iter_tensorized_samples(tmp_path, verify_integrity=True))
+    assert isinstance(first_sample, TensorizedAdjutantSample)
+    selected = int(report["paritySample"]["onnxSelection"])
+    assert bool(first_sample.legal_adjutant_mask[selected])
+
+    session = onnxruntime.InferenceSession(
+        str(onnx_path), providers=["CPUExecutionProvider"]
+    )
+    assert session.get_inputs()[0].name == ONNX_INPUT_NAME
+    assert session.get_outputs()[0].name == ONNX_OUTPUT_NAME
+    assert session.get_inputs()[0].shape[1] == ADJUTANT_MODEL_INPUT_FEATURE_COUNT
+    assert session.get_outputs()[0].shape[1] == CARD_COUNT
+    assert session.get_inputs()[0].type == "tensor(float)"
+    assert session.get_outputs()[0].type == "tensor(float)"
+
+
+def test_adjutant_onnx_export_cli_rejects_overlapping_output_paths(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_dataset(tmp_path, seeds=(0, 1, 2))
+    checkpoint_path = tmp_path.parent / f"{tmp_path.name}-adjutant.pt"
+    output_path = tmp_path.parent / f"{tmp_path.name}-adjutant.json"
+    assert (
+        train_main(
+            [
+                str(tmp_path),
+                "--output",
+                str(checkpoint_path),
+                "--epochs",
+                "1",
+                "--batch-size",
+                "1",
+                "--hidden-dim",
+                "8",
+                "--hidden-layers",
+                "1",
+                "--train-ratio",
+                "1",
+                "--validation-ratio",
+                "1",
+                "--test-ratio",
+                "98",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    exit_code = export_main(
+        [
+            str(tmp_path),
+            "--policy-type",
+            "adjutant",
+            "--checkpoint",
+            str(checkpoint_path),
+            "--output",
+            str(output_path),
+        ]
+    )
+
+    assert exit_code == 1
+    assert "must be different paths" in capsys.readouterr().err
+    assert not output_path.exists()

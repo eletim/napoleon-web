@@ -9,7 +9,9 @@ from typing import Any
 import torch
 
 from napoleon_ml.dataset.constants import (
-    DATASET_SCHEMA_VERSION,
+    CARD_COUNT,
+    EXCHANGE_DATASET_SAMPLE_TYPE,
+    EXCHANGE_ENCODER_SCHEMA_VERSION,
     MULTIPHASE_DATASET_SCHEMA_VERSION,
 )
 from napoleon_ml.dataset.manifest import DatasetManifest
@@ -19,7 +21,7 @@ from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 from .metrics import DISCARD_COUNT
 from .model import ExchangeMlpConfig, ExchangeMlpModel
 
-CHECKPOINT_SCHEMA_VERSION = 1
+CHECKPOINT_SCHEMA_VERSION = 2
 
 
 class ExchangeCheckpointCompatibilityError(ValueError):
@@ -40,8 +42,10 @@ def save_exchange_checkpoint(
         "model_config": model.config.to_dict(),
         "training_config": dict(training_config),
         "dataset_schema_version": manifest.dataset_schema_version,
+        "sample_type": manifest.sample_type,
         "encoder_schema_version": manifest.encoder_schema_version,
         "exchange_model_input_schema_version": EXCHANGE_MODEL_INPUT_SCHEMA_VERSION,
+        "action_count": CARD_COUNT,
         "card_ids_sha256": calculate_card_ids_sha256(),
         "discard_count": DISCARD_COUNT,
         "seed": seed,
@@ -103,8 +107,10 @@ def _validate_metadata(raw: dict[Any, Any], *, manifest: DatasetManifest) -> Non
     expected_values = {
         "checkpoint_schema_version": CHECKPOINT_SCHEMA_VERSION,
         "dataset_schema_version": MULTIPHASE_DATASET_SCHEMA_VERSION,
-        "encoder_schema_version": DATASET_SCHEMA_VERSION,
+        "sample_type": EXCHANGE_DATASET_SAMPLE_TYPE,
+        "encoder_schema_version": EXCHANGE_ENCODER_SCHEMA_VERSION,
         "exchange_model_input_schema_version": EXCHANGE_MODEL_INPUT_SCHEMA_VERSION,
+        "action_count": CARD_COUNT,
         "card_ids_sha256": calculate_card_ids_sha256(),
         "discard_count": DISCARD_COUNT,
     }
@@ -121,6 +127,7 @@ def _validate_metadata(raw: dict[Any, Any], *, manifest: DatasetManifest) -> Non
 
     manifest_values = {
         "dataset_schema_version": manifest.dataset_schema_version,
+        "sample_type": manifest.sample_type,
         "encoder_schema_version": manifest.encoder_schema_version,
         "card_ids_sha256": manifest.card_ids_sha256,
     }

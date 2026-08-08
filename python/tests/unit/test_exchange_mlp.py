@@ -12,12 +12,16 @@ import pytest
 import torch
 
 from napoleon_ml.cli.evaluate_exchange_mlp import main as evaluate_main
+from napoleon_ml.cli.export_policy_onnx import main as export_main
 from napoleon_ml.cli.train_exchange_mlp import main as train_main
 from napoleon_ml.dataset.constants import CARD_COUNT, EXPECTED_CARD_IDS
 from napoleon_ml.dataset.pytorch import create_exchange_dataloader
-from napoleon_ml.dataset.reader import load_manifest
+from napoleon_ml.dataset.reader import iter_tensorized_samples, load_manifest
 from napoleon_ml.dataset.split import DatasetSplit, SplitConfig, split_for_seed
-from napoleon_ml.dataset.tensors import EXCHANGE_MODEL_INPUT_FEATURE_COUNT
+from napoleon_ml.dataset.tensors import (
+    EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
+    TensorizedExchangeSample,
+)
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 from napoleon_ml.exchange.checkpoint import (
     ExchangeCheckpointCompatibilityError,
@@ -34,6 +38,11 @@ from napoleon_ml.exchange.model import (
     ExchangeMlpConfig,
     ExchangeMlpModel,
     create_seeded_exchange_model,
+)
+from napoleon_ml.nonplaying_onnx_export import (
+    ONNX_INPUT_NAME,
+    ONNX_OUTPUT_NAME,
+    validate_nonplaying_onnx_metadata,
 )
 
 
@@ -357,8 +366,10 @@ def test_evaluate_cli_loads_checkpoint_in_new_process(tmp_path: Path) -> None:
     (
         ("checkpoint_schema_version", 999),
         ("dataset_schema_version", 999),
+        ("sample_type", "playing-training-sample"),
         ("encoder_schema_version", 999),
         ("exchange_model_input_schema_version", 999),
+        ("action_count", 52),
         ("card_ids_sha256", "0" * 64),
         ("discard_count", 2),
         ("seed", "0"),
@@ -403,3 +414,153 @@ def test_exchange_checkpoint_rejects_incompatible_metadata(
 
     with pytest.raises(ExchangeCheckpointCompatibilityError, match=metadata_key):
         load_exchange_checkpoint(checkpoint_path, manifest=load_manifest(tmp_path))
+
+
+def test_exchange_onnx_export_cli_writes_metadata_and_checks_top3_set_parity(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    onnx = pytest.importorskip("onnx")
+    onnxruntime = pytest.importorskip("onnxruntime")
+    _write_dataset(tmp_path, seeds=(0, 1, 2))
+    checkpoint_path = tmp_path.parent / f"{tmp_path.name}-exchange.pt"
+    onnx_path = tmp_path.parent / f"{tmp_path.name}-exchange.onnx"
+    metadata_path = tmp_path.parent / f"{tmp_path.name}-exchange.json"
+    assert (
+        train_main(
+            [
+                str(tmp_path),
+                "--output",
+                str(checkpoint_path),
+                "--epochs",
+                "1",
+                "--batch-size",
+                "1",
+                "--hidden-dim",
+                "8",
+                "--hidden-layers",
+                "1",
+                "--train-ratio",
+                "1",
+                "--validation-ratio",
+                "1",
+                "--test-ratio",
+                "98",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    exit_code = export_main(
+        [
+            str(tmp_path),
+            "--policy-type",
+            "exchange",
+            "--checkpoint",
+            str(checkpoint_path),
+            "--output",
+            str(onnx_path),
+            "--metadata-output",
+            str(metadata_path),
+            "--json",
+        ]
+    )
+
+    assert exit_code == 0
+    assert onnx_path.is_file()
+    onnx_model = onnx.load_model(onnx_path, load_external_data=False)
+    assert all(len(initializer.external_data) == 0 for initializer in onnx_model.graph.initializer)
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    validate_nonplaying_onnx_metadata(metadata)
+    assert metadata["artifactType"] == "napoleon-exchange-policy-onnx"
+    assert metadata["policyType"] == "exchange"
+    assert metadata["modelInputFeatureCount"] == EXCHANGE_MODEL_INPUT_FEATURE_COUNT
+    assert metadata["outputLogitCount"] == CARD_COUNT
+    assert metadata["discardCount"] == DISCARD_COUNT
+    assert metadata["inputShape"] == ["batch", EXCHANGE_MODEL_INPUT_FEATURE_COUNT]
+    assert metadata["outputShape"] == ["batch", CARD_COUNT]
+    assert metadata["inputDtype"] == "float32"
+    assert metadata["outputDtype"] == "float32"
+
+    report = json.loads(capsys.readouterr().out)
+    pytorch_top3 = [int(index) for index in report["paritySample"]["pytorchSelection"]]
+    onnx_top3 = [int(index) for index in report["paritySample"]["onnxSelection"]]
+    assert set(pytorch_top3) == set(onnx_top3)
+    assert report["paritySample"]["selectionParity"] is True
+    assert report["paritySample"]["maxAbsLogitDiff"] <= 1e-4
+    assert len(onnx_top3) == DISCARD_COUNT
+    assert len(set(onnx_top3)) == DISCARD_COUNT
+
+    first_sample = next(iter_tensorized_samples(tmp_path, verify_integrity=True))
+    assert isinstance(first_sample, TensorizedExchangeSample)
+    assert all(bool(first_sample.legal_discard_card_mask[index]) for index in onnx_top3)
+
+    session = onnxruntime.InferenceSession(
+        str(onnx_path), providers=["CPUExecutionProvider"]
+    )
+    assert session.get_inputs()[0].name == ONNX_INPUT_NAME
+    assert session.get_outputs()[0].name == ONNX_OUTPUT_NAME
+    assert session.get_inputs()[0].shape[1] == EXCHANGE_MODEL_INPUT_FEATURE_COUNT
+    assert session.get_outputs()[0].shape[1] == CARD_COUNT
+    assert session.get_inputs()[0].type == "tensor(float)"
+    assert session.get_outputs()[0].type == "tensor(float)"
+
+
+def test_exchange_onnx_export_rejects_v1_checkpoint_metadata_before_output(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_dataset(tmp_path, seeds=(0, 1, 2))
+    checkpoint_path = tmp_path.parent / f"{tmp_path.name}-old-exchange.pt"
+    onnx_path = tmp_path.parent / f"{tmp_path.name}-exchange.onnx"
+    metadata_path = tmp_path.parent / f"{tmp_path.name}-exchange.json"
+    assert (
+        train_main(
+            [
+                str(tmp_path),
+                "--output",
+                str(checkpoint_path),
+                "--epochs",
+                "1",
+                "--batch-size",
+                "1",
+                "--hidden-dim",
+                "8",
+                "--hidden-layers",
+                "1",
+                "--train-ratio",
+                "1",
+                "--validation-ratio",
+                "1",
+                "--test-ratio",
+                "98",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    raw = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    raw["checkpoint_schema_version"] = 1
+    raw.pop("sample_type")
+    raw.pop("action_count")
+    torch.save(raw, checkpoint_path)
+
+    exit_code = export_main(
+        [
+            str(tmp_path),
+            "--policy-type",
+            "exchange",
+            "--checkpoint",
+            str(checkpoint_path),
+            "--output",
+            str(onnx_path),
+            "--metadata-output",
+            str(metadata_path),
+        ]
+    )
+
+    assert exit_code == 1
+    assert "checkpoint_schema_version" in capsys.readouterr().err
+    assert not onnx_path.exists()
+    assert not metadata_path.exists()
