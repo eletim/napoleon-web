@@ -34,6 +34,7 @@ export {
   calculatePlayingSelfPlayLogProbability,
   createPlayingSelfPlaySamples,
   generatePlayingSelfPlayDataset,
+  runPlayingSelfPlayGame,
   serializePlayingSelfPlaySample,
   validatePlayingSelfPlayDatasetManifest,
   validatePlayingSelfPlaySample
@@ -75,6 +76,8 @@ export type {
   GeneratePlayingSelfPlayDatasetResult,
   CurrentPolicyRolloutRosterSeat,
   FrozenOnnxRolloutRosterSeat,
+  PlayingSelfPlayGameRunner,
+  PlayingSelfPlayGameRunRequest,
   PlayingSelfPlayDatasetManifest,
   PlayingSelfPlayOutcome,
   PlayingSelfPlayPolicy,

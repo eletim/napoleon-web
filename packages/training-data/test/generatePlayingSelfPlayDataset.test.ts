@@ -27,11 +27,13 @@ import {
   assignRolloutRosterForSeed,
   calculatePlayingSelfPlayLogProbability,
   generatePlayingSelfPlayDataset,
+  runPlayingSelfPlayGame,
   validatePlayingSelfPlayDatasetManifest,
   validatePlayingSelfPlaySample
 } from "../src/index.js";
 import type {
   PlayingSelfPlayDatasetManifest,
+  PlayingSelfPlayGameRunner,
   PlayingSelfPlayRolloutRosterOptions,
   PlayingSelfPlaySample
 } from "../src/index.js";
@@ -282,6 +284,119 @@ describe("generatePlayingSelfPlayDataset", () => {
     });
   });
 
+  it("commits rollout results in seed order with bounded in-flight games", async () => {
+    await withTempDir(async (directory) => {
+      const currentArtifact = await createPlayingPolicyFixture(join(directory, "current"));
+      const frozenArtifact = await createPlayingPolicyFixture(join(directory, "frozen"));
+      const currentPolicy = await loadPolicyOnnxModel(currentArtifact);
+      const frozenPolicy = await loadPolicyOnnxModel(frozenArtifact);
+      const serialOutput = join(directory, "serial");
+      const parallelOutput = join(directory, "parallel");
+      const activeOffsets = new Set<number>();
+      let maxInFlight = 0;
+      const roster: PlayingSelfPlayRolloutRosterOptions = {
+        seats: [
+          { source: "current-policy" },
+          { source: "rule-based" },
+          { source: "frozen-onnx", policy: frozenPolicy, artifact: frozenArtifact },
+          { source: "rule-based" },
+          { source: "current-policy" }
+        ]
+      };
+      const runner: PlayingSelfPlayGameRunner = {
+        runGame: async (request) => {
+          activeOffsets.add(request.gameOffset);
+          maxInFlight = Math.max(maxInFlight, activeOffsets.size);
+          if (request.gameOffset === 0) {
+            await sleep(20);
+          }
+          try {
+            return await runPlayingSelfPlayGame({
+              seed: request.seed,
+              currentPolicy: request.currentPolicy,
+              rolloutRoster: request.rolloutRoster,
+              temperature: request.temperature,
+              maxDecisionSteps: request.maxDecisionSteps
+            });
+          } finally {
+            activeOffsets.delete(request.gameOffset);
+          }
+        }
+      };
+
+      await generatePlayingSelfPlayDataset({
+        outputDirectory: serialOutput,
+        playingPolicy: currentPolicy,
+        playingPolicyArtifact: currentArtifact,
+        rolloutRoster: roster,
+        startSeed: 21,
+        gameCount: 4,
+        gamesPerShard: 2,
+        temperature: 0.9
+      });
+      await generatePlayingSelfPlayDataset({
+        outputDirectory: parallelOutput,
+        playingPolicy: currentPolicy,
+        playingPolicyArtifact: currentArtifact,
+        rolloutRoster: roster,
+        startSeed: 21,
+        gameCount: 4,
+        gamesPerShard: 2,
+        rolloutWorkers: 3,
+        temperature: 0.9,
+        gameRunner: runner
+      });
+
+      expect(maxInFlight).toBeGreaterThan(1);
+      expect(maxInFlight).toBeLessThanOrEqual(3);
+      await expectDirectoriesToBeByteIdentical(serialOutput, parallelOutput);
+
+      const manifest = await readManifest(parallelOutput);
+      const samples = (await readAllShardLines(parallelOutput, manifest)).map((line) =>
+        JSON.parse(line) as PlayingSelfPlaySample
+      );
+      expect(new Set(samples.map((sample) => sample.seed))).toEqual(new Set([21, 22, 23, 24]));
+      expect(samples.map((sample) => sample.seed)).toEqual(
+        [...samples.map((sample) => sample.seed)].sort((left, right) => left - right)
+      );
+    });
+  });
+
+  it("propagates worker failures without publishing a completed dataset", async () => {
+    await withTempDir(async (directory) => {
+      const artifact = await createPlayingPolicyFixture(directory);
+      const policy = await loadPolicyOnnxModel(artifact);
+      const output = join(directory, "failed-parallel");
+      const runner: PlayingSelfPlayGameRunner = {
+        runGame: async (request) => {
+          if (request.gameOffset === 1) {
+            throw new Error("worker failed");
+          }
+          return runPlayingSelfPlayGame({
+            seed: request.seed,
+            currentPolicy: request.currentPolicy,
+            rolloutRoster: request.rolloutRoster,
+            temperature: request.temperature,
+            maxDecisionSteps: request.maxDecisionSteps
+          });
+        }
+      };
+
+      await expect(generatePlayingSelfPlayDataset({
+        outputDirectory: output,
+        playingPolicy: policy,
+        playingPolicyArtifact: artifact,
+        startSeed: 30,
+        gameCount: 3,
+        gamesPerShard: 1,
+        rolloutWorkers: 2,
+        gameRunner: runner
+      })).rejects.toThrow("worker failed");
+
+      await expect(stat(output)).rejects.toMatchObject({ code: "ENOENT" });
+    });
+  });
+
   it("assigns rollout roster seats deterministically by seed rotation", () => {
     const roster: PlayingSelfPlayRolloutRosterOptions = {
       seats: [
@@ -482,4 +597,8 @@ function sha256Utf8(value: string): string {
 
 function sum(values: readonly number[]): number {
   return values.reduce((total, value) => total + value, 0);
+}
+
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }

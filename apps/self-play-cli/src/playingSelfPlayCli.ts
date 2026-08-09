@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { loadPolicyOnnxModel } from "@napoleon/policy-onnx";
 import {
   CURRENT_POLICY_ROSTER_SOURCE,
@@ -10,6 +12,8 @@ import {
   type RolloutRosterSeatOptions
 } from "@napoleon/training-data";
 import { createProgressReporter } from "./formatProgress.js";
+import { ChildProcessPlayingSelfPlayGameRunner } from "./playingSelfPlayWorkers.js";
+import type { WorkerRolloutRosterSeat } from "./playingSelfPlayWorkerProtocol.js";
 import {
   optionalValue,
   parseOptionMap,
@@ -26,6 +30,7 @@ interface ParsedArgs {
   startSeed: number;
   games: number;
   gamesPerShard: number;
+  rolloutWorkers: number;
   temperature: number;
   artifactId: string | undefined;
   rolloutRoster: string | undefined;
@@ -39,6 +44,7 @@ const optionNames = new Set([
   "--start-seed",
   "--games",
   "--games-per-shard",
+  "--rollout-workers",
   "--temperature",
   "--artifact-id",
   "--rollout-roster",
@@ -52,6 +58,7 @@ export async function runPlayingSelfPlayCli(
     stderr: { write: (chunk: string) => void };
   }
 ): Promise<number> {
+  let gameRunner: ChildProcessPlayingSelfPlayGameRunner | undefined;
   try {
     const args = parseArgs(argv);
     const policy = await loadPolicyOnnxModel({
@@ -59,6 +66,18 @@ export async function runPlayingSelfPlayCli(
       metadataPath: args.metadata
     });
     const rolloutRoster = await loadRolloutRoster(args.rolloutRoster);
+    gameRunner = args.rolloutWorkers === 1
+      ? undefined
+      : new ChildProcessPlayingSelfPlayGameRunner({
+          workerCount: args.rolloutWorkers,
+          currentPolicy: {
+            onnxPath: args.onnx,
+            metadataPath: args.metadata,
+            ...await createPolicyFingerprint(args.onnx, args.metadata)
+          },
+          rolloutRoster: rolloutRoster.workerSeats,
+          temperature: args.temperature
+        });
     const result = await generatePlayingSelfPlayDataset({
       outputDirectory: args.output,
       playingPolicy: policy,
@@ -70,11 +89,15 @@ export async function runPlayingSelfPlayCli(
       startSeed: args.startSeed,
       gameCount: args.games,
       gamesPerShard: args.gamesPerShard,
+      rolloutWorkers: args.rolloutWorkers,
       temperature: args.temperature,
-      rolloutRoster,
-      onProgress: createProgressReporter(args.games, (text) =>
-        io.stderr.write(`${args.progressPrefix}${text}`)
-      )
+      rolloutRoster: rolloutRoster.options,
+      onProgress: createProgressReporter(
+        args.games,
+        (text) => io.stderr.write(`${args.progressPrefix}${text}`),
+        { rolloutWorkers: args.rolloutWorkers }
+      ),
+      gameRunner
     });
 
     io.stdout.write(`${JSON.stringify({
@@ -84,6 +107,7 @@ export async function runPlayingSelfPlayCli(
       shardCount: result.manifest.shardCount,
       startSeed: result.manifest.startSeed,
       endSeed: result.manifest.endSeed,
+      rolloutWorkers: args.rolloutWorkers,
       behaviorOnnxSha256: result.manifest.behaviorPolicy.onnxSha256,
       behaviorMetadataSha256: result.manifest.behaviorPolicy.metadataSha256,
       rolloutRoster: result.manifest.rolloutRoster
@@ -93,6 +117,8 @@ export async function runPlayingSelfPlayCli(
     const message = error instanceof Error ? error.message : String(error);
     io.stderr.write(`${message}\n`);
     return 1;
+  } finally {
+    await Promise.resolve(gameRunner?.close()).catch(() => undefined);
   }
 }
 
@@ -116,6 +142,10 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
       "--games-per-shard",
       requireValue(values, "--games-per-shard")
     ),
+    rolloutWorkers: parsePositiveInteger(
+      "--rollout-workers",
+      optionalValue(values, "--rollout-workers") ?? "1"
+    ),
     temperature: parsePositiveNumber(
       "--temperature",
       optionalValue(values, "--temperature") ?? "1"
@@ -126,17 +156,28 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
   };
 }
 
+interface LoadedRolloutRoster {
+  options: PlayingSelfPlayRolloutRosterOptions | undefined;
+  workerSeats: readonly WorkerRolloutRosterSeat[] | undefined;
+}
+
 async function loadRolloutRoster(
   value: string | undefined
-): Promise<PlayingSelfPlayRolloutRosterOptions | undefined> {
+): Promise<LoadedRolloutRoster> {
   if (value === undefined) {
-    return undefined;
+    return {
+      options: undefined,
+      workerSeats: undefined
+    };
   }
 
   const rawSeats = parseRolloutRosterValue(value);
   const seats = await Promise.all(rawSeats.map(loadRolloutRosterSeat));
 
-  return { seats };
+  return {
+    options: { seats: seats.map((seat) => seat.option) },
+    workerSeats: seats.map((seat) => seat.workerSeat)
+  };
 }
 
 function parseRolloutRosterValue(value: string): readonly unknown[] {
@@ -163,12 +204,21 @@ function parseRolloutRosterValue(value: string): readonly unknown[] {
   return trimmed.split(",").map((entry) => entry.trim());
 }
 
-async function loadRolloutRosterSeat(raw: unknown): Promise<RolloutRosterSeatOptions> {
+async function loadRolloutRosterSeat(raw: unknown): Promise<{
+  option: RolloutRosterSeatOptions;
+  workerSeat: WorkerRolloutRosterSeat;
+}> {
   if (raw === CURRENT_POLICY_ROSTER_SOURCE) {
-    return { source: CURRENT_POLICY_ROSTER_SOURCE };
+    return {
+      option: { source: CURRENT_POLICY_ROSTER_SOURCE },
+      workerSeat: { source: CURRENT_POLICY_ROSTER_SOURCE }
+    };
   }
   if (raw === RULE_BASED_ROSTER_SOURCE) {
-    return { source: RULE_BASED_ROSTER_SOURCE };
+    return {
+      option: { source: RULE_BASED_ROSTER_SOURCE },
+      workerSeat: { source: RULE_BASED_ROSTER_SOURCE }
+    };
   }
   if (!isRecord(raw)) {
     throw new Error(`Invalid rollout roster seat: ${String(raw)}`);
@@ -176,10 +226,16 @@ async function loadRolloutRosterSeat(raw: unknown): Promise<RolloutRosterSeatOpt
 
   const source = raw.source;
   if (source === CURRENT_POLICY_ROSTER_SOURCE) {
-    return { source: CURRENT_POLICY_ROSTER_SOURCE };
+    return {
+      option: { source: CURRENT_POLICY_ROSTER_SOURCE },
+      workerSeat: { source: CURRENT_POLICY_ROSTER_SOURCE }
+    };
   }
   if (source === RULE_BASED_ROSTER_SOURCE) {
-    return { source: RULE_BASED_ROSTER_SOURCE };
+    return {
+      option: { source: RULE_BASED_ROSTER_SOURCE },
+      workerSeat: { source: RULE_BASED_ROSTER_SOURCE }
+    };
   }
   if (source !== FROZEN_ONNX_ROSTER_SOURCE) {
     throw new Error(`Invalid rollout roster seat source: ${String(source)}`);
@@ -188,15 +244,36 @@ async function loadRolloutRosterSeat(raw: unknown): Promise<RolloutRosterSeatOpt
   const onnxPath = requiredString(raw.onnxPath, "rolloutRoster.seats[].onnxPath");
   const metadataPath = requiredString(raw.metadataPath, "rolloutRoster.seats[].metadataPath");
   const policy: PlayingSelfPlayPolicy = await loadPolicyOnnxModel({ onnxPath, metadataPath });
+  const artifactId = typeof raw.artifactId === "string" ? raw.artifactId : undefined;
+  const fingerprint = await createPolicyFingerprint(onnxPath, metadataPath);
 
   return {
-    source: FROZEN_ONNX_ROSTER_SOURCE,
-    policy,
-    artifact: {
+    option: {
+      source: FROZEN_ONNX_ROSTER_SOURCE,
+      policy,
+      artifact: {
+        onnxPath,
+        metadataPath,
+        artifactId
+      }
+    },
+    workerSeat: {
+      source: FROZEN_ONNX_ROSTER_SOURCE,
       onnxPath,
       metadataPath,
-      artifactId: typeof raw.artifactId === "string" ? raw.artifactId : undefined
+      ...fingerprint,
+      artifactId
     }
+  };
+}
+
+async function createPolicyFingerprint(
+  onnxPath: string,
+  metadataPath: string
+): Promise<{ onnxSha256: string; metadataSha256: string }> {
+  return {
+    onnxSha256: await sha256File(onnxPath),
+    metadataSha256: await sha256File(metadataPath)
   };
 }
 
@@ -210,6 +287,10 @@ function requiredString(value: unknown, name: string): string {
   }
 
   return value;
+}
+
+async function sha256File(path: string): Promise<string> {
+  return createHash("sha256").update(await readFile(path)).digest("hex");
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
