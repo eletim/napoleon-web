@@ -5,7 +5,7 @@ import {
   CURRENT_POLICY_ROSTER_SOURCE,
   FROZEN_ONNX_ROSTER_SOURCE,
   RULE_BASED_ROSTER_SOURCE,
-  runPlayingSelfPlayGame,
+  runPlayingSelfPlayGameWithSamples,
   type PlayingSelfPlayPolicy,
   type PlayingSelfPlayRolloutRosterOptions
 } from "@napoleon/training-data";
@@ -49,9 +49,10 @@ async function handleMessage(message: PlayingSelfPlayWorkerMessage): Promise<voi
         throw new Error("Worker received run-game before init.");
       }
       try {
-        const record = await runPlayingSelfPlayGame({
+        const result = await runPlayingSelfPlayGameWithSamples({
           seed: message.seed,
           currentPolicy,
+          behaviorPolicyArtifactId: message.currentPolicyArtifactId,
           rolloutRoster,
           temperature,
           maxDecisionSteps
@@ -61,7 +62,7 @@ async function handleMessage(message: PlayingSelfPlayWorkerMessage): Promise<voi
           requestId: message.requestId,
           gameOffset: message.gameOffset,
           seed: message.seed,
-          record
+          result
         });
       } catch (error: unknown) {
         sendError(message.requestId, error);

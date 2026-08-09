@@ -1,6 +1,10 @@
 import { fork, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import type { PlayingSelfPlayGameRunner, PlayingSelfPlayGameRunRequest } from "@napoleon/training-data";
+import type {
+  PlayingSelfPlayGameRunner,
+  PlayingSelfPlayGameRunRequest,
+  PlayingSelfPlayGameRunResult
+} from "@napoleon/training-data";
 import type {
   PlayingSelfPlayWorkerMessage,
   PlayingSelfPlayWorkerResponse,
@@ -8,7 +12,7 @@ import type {
   WorkerRolloutRosterSeat
 } from "./playingSelfPlayWorkerProtocol.js";
 
-type AutomatedGameRecord = Awaited<ReturnType<PlayingSelfPlayGameRunner["runGame"]>>;
+type GameRunResult = Awaited<ReturnType<PlayingSelfPlayGameRunner["runGame"]>>;
 
 export interface ChildProcessPlayingSelfPlayGameRunnerOptions {
   workerCount: number;
@@ -33,7 +37,7 @@ interface WorkerSlot {
 interface PendingRequest {
   requestId: number;
   request: PlayingSelfPlayGameRunRequest;
-  resolve: (record: AutomatedGameRecord) => void;
+  resolve: (result: GameRunResult) => void;
   reject: (error: Error) => void;
 }
 
@@ -49,7 +53,7 @@ export class ChildProcessPlayingSelfPlayGameRunner implements PlayingSelfPlayGam
     this.workers = Array.from({ length: options.workerCount }, () => this.spawnWorker());
   }
 
-  runGame(request: PlayingSelfPlayGameRunRequest): Promise<AutomatedGameRecord> {
+  runGame(request: PlayingSelfPlayGameRunRequest): Promise<GameRunResult> {
     if (this.closed) {
       return Promise.reject(new Error("Playing self-play worker pool is closed."));
     }
@@ -145,7 +149,12 @@ export class ChildProcessPlayingSelfPlayGameRunner implements PlayingSelfPlayGam
           this.fail(new Error(`self-play worker returned unknown requestId ${message.requestId}.`));
           return;
         }
-        if (message.gameOffset !== pending.request.gameOffset || message.seed !== pending.request.seed) {
+        const result = message.result as PlayingSelfPlayGameRunResult;
+        if (
+          message.gameOffset !== pending.request.gameOffset ||
+          message.seed !== pending.request.seed ||
+          result.seed !== pending.request.seed
+        ) {
           this.fail(new Error(
             `self-play worker returned mismatched game: ` +
               `offset ${message.gameOffset}/${pending.request.gameOffset}, ` +
@@ -153,7 +162,7 @@ export class ChildProcessPlayingSelfPlayGameRunner implements PlayingSelfPlayGam
           ));
           return;
         }
-        pending.resolve(message.record as AutomatedGameRecord);
+        pending.resolve(result);
         this.dispatch();
         return;
       }
@@ -193,7 +202,8 @@ export class ChildProcessPlayingSelfPlayGameRunner implements PlayingSelfPlayGam
           type: "run-game",
           requestId: pending.requestId,
           gameOffset: pending.request.gameOffset,
-          seed: pending.request.seed
+          seed: pending.request.seed,
+          currentPolicyArtifactId: pending.request.behaviorPolicyArtifactId
         });
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);

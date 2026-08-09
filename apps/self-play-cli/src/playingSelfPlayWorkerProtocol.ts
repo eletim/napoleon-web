@@ -35,6 +35,7 @@ export interface PlayingSelfPlayWorkerRunMessage {
   requestId: number;
   gameOffset: number;
   seed: number;
+  currentPolicyArtifactId: string;
 }
 
 export interface PlayingSelfPlayWorkerShutdownMessage {
@@ -52,5 +53,5 @@ export type PlayingSelfPlayWorkerResponse =
       currentPolicy: WorkerPolicyFingerprint;
       rolloutRoster: WorkerRolloutRosterFingerprint | undefined;
     }
-  | { type: "game-complete"; requestId: number; gameOffset: number; seed: number; record: unknown }
+  | { type: "game-complete"; requestId: number; gameOffset: number; seed: number; result: unknown }
   | { type: "error"; requestId?: number; message: string; stack?: string };
