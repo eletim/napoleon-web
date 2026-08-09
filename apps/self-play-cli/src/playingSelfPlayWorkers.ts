@@ -4,6 +4,7 @@ import type { PlayingSelfPlayGameRunner, PlayingSelfPlayGameRunRequest } from "@
 import type {
   PlayingSelfPlayWorkerMessage,
   PlayingSelfPlayWorkerResponse,
+  WorkerRolloutRosterFingerprint,
   WorkerRolloutRosterSeat
 } from "./playingSelfPlayWorkerProtocol.js";
 
@@ -14,6 +15,8 @@ export interface ChildProcessPlayingSelfPlayGameRunnerOptions {
   currentPolicy: {
     onnxPath: string;
     metadataPath: string;
+    onnxSha256: string;
+    metadataSha256: string;
   };
   rolloutRoster: readonly WorkerRolloutRosterSeat[] | undefined;
   temperature: number;
@@ -123,6 +126,14 @@ export class ChildProcessPlayingSelfPlayGameRunner implements PlayingSelfPlayGam
   ): void {
     switch (message.type) {
       case "ready":
+        if (!workerPolicyFingerprintsMatch(message.currentPolicy, this.options.currentPolicy)) {
+          this.fail(new Error("self-play worker current policy hash mismatch."));
+          return;
+        }
+        if (!rolloutRosterFingerprintsMatch(message.rolloutRoster, this.options.rolloutRoster)) {
+          this.fail(new Error("self-play worker rollout roster policy hash mismatch."));
+          return;
+        }
         worker.ready = true;
         this.dispatch();
         return;
@@ -212,4 +223,34 @@ function sendToWorker(worker: WorkerSlot, message: PlayingSelfPlayWorkerMessage)
   if (!worker.child.connected || !worker.child.send(message)) {
     throw new Error("self-play worker IPC channel is closed.");
   }
+}
+
+function workerPolicyFingerprintsMatch(
+  actual: { onnxSha256: string; metadataSha256: string },
+  expected: { onnxSha256: string; metadataSha256: string }
+): boolean {
+  return actual.onnxSha256 === expected.onnxSha256 &&
+    actual.metadataSha256 === expected.metadataSha256;
+}
+
+function rolloutRosterFingerprintsMatch(
+  actual: WorkerRolloutRosterFingerprint | undefined,
+  expectedSeats: readonly WorkerRolloutRosterSeat[] | undefined
+): boolean {
+  if (expectedSeats === undefined) {
+    return actual === undefined;
+  }
+  if (actual === undefined || actual.seats.length !== expectedSeats.length) {
+    return false;
+  }
+
+  return expectedSeats.every((expected, index) => {
+    const actualSeat = actual.seats[index];
+    if (expected.source !== "frozen-onnx") {
+      return actualSeat === null;
+    }
+    return actualSeat !== null &&
+      actualSeat.onnxSha256 === expected.onnxSha256 &&
+      actualSeat.metadataSha256 === expected.metadataSha256;
+  });
 }

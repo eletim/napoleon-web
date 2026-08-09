@@ -5,6 +5,8 @@ export type WorkerRolloutRosterSeat =
       source: "frozen-onnx";
       onnxPath: string;
       metadataPath: string;
+      onnxSha256: string;
+      metadataSha256: string;
       artifactId?: string;
     };
 
@@ -17,6 +19,15 @@ export interface PlayingSelfPlayWorkerInitMessage {
   rolloutRoster: readonly WorkerRolloutRosterSeat[] | undefined;
   temperature: number;
   maxDecisionSteps: number | undefined;
+}
+
+export interface WorkerPolicyFingerprint {
+  onnxSha256: string;
+  metadataSha256: string;
+}
+
+export interface WorkerRolloutRosterFingerprint {
+  seats: readonly (WorkerPolicyFingerprint | null)[];
 }
 
 export interface PlayingSelfPlayWorkerRunMessage {
@@ -36,6 +47,10 @@ export type PlayingSelfPlayWorkerMessage =
   | PlayingSelfPlayWorkerShutdownMessage;
 
 export type PlayingSelfPlayWorkerResponse =
-  | { type: "ready" }
+  | {
+      type: "ready";
+      currentPolicy: WorkerPolicyFingerprint;
+      rolloutRoster: WorkerRolloutRosterFingerprint | undefined;
+    }
   | { type: "game-complete"; requestId: number; gameOffset: number; seed: number; record: unknown }
   | { type: "error"; requestId?: number; message: string; stack?: string };

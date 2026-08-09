@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { loadPolicyOnnxModel } from "@napoleon/policy-onnx";
 import {
   CURRENT_POLICY_ROSTER_SOURCE,
@@ -10,6 +12,8 @@ import {
 import type {
   PlayingSelfPlayWorkerMessage,
   PlayingSelfPlayWorkerResponse,
+  WorkerPolicyFingerprint,
+  WorkerRolloutRosterFingerprint,
   WorkerRolloutRosterSeat
 } from "./playingSelfPlayWorkerProtocol.js";
 
@@ -31,7 +35,14 @@ async function handleMessage(message: PlayingSelfPlayWorkerMessage): Promise<voi
       rolloutRoster = await loadWorkerRolloutRoster(message.rolloutRoster);
       temperature = message.temperature;
       maxDecisionSteps = message.maxDecisionSteps;
-      send({ type: "ready" });
+      send({
+        type: "ready",
+        currentPolicy: await createPolicyFingerprint(
+          message.currentPolicy.onnxPath,
+          message.currentPolicy.metadataPath
+        ),
+        rolloutRoster: await createRolloutRosterFingerprint(message.rolloutRoster)
+      });
       return;
     case "run-game":
       if (currentPolicy === null) {
@@ -60,6 +71,34 @@ async function handleMessage(message: PlayingSelfPlayWorkerMessage): Promise<voi
       process.disconnect?.();
       return;
   }
+}
+
+async function createPolicyFingerprint(
+  onnxPath: string,
+  metadataPath: string
+): Promise<WorkerPolicyFingerprint> {
+  return {
+    onnxSha256: await sha256File(onnxPath),
+    metadataSha256: await sha256File(metadataPath)
+  };
+}
+
+async function createRolloutRosterFingerprint(
+  seats: readonly WorkerRolloutRosterSeat[] | undefined
+): Promise<WorkerRolloutRosterFingerprint | undefined> {
+  if (seats === undefined) {
+    return undefined;
+  }
+
+  return {
+    seats: await Promise.all(seats.map(async (seat) => {
+      if (seat.source !== FROZEN_ONNX_ROSTER_SOURCE) {
+        return null;
+      }
+
+      return createPolicyFingerprint(seat.onnxPath, seat.metadataPath);
+    }))
+  };
 }
 
 async function loadWorkerRolloutRoster(
@@ -109,4 +148,8 @@ function sendError(requestId: number | undefined, error: unknown): void {
     message,
     stack
   });
+}
+
+async function sha256File(path: string): Promise<string> {
+  return createHash("sha256").update(await readFile(path)).digest("hex");
 }

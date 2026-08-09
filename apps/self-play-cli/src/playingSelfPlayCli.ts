@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { loadPolicyOnnxModel } from "@napoleon/policy-onnx";
 import {
   CURRENT_POLICY_ROSTER_SOURCE,
@@ -70,7 +72,8 @@ export async function runPlayingSelfPlayCli(
           workerCount: args.rolloutWorkers,
           currentPolicy: {
             onnxPath: args.onnx,
-            metadataPath: args.metadata
+            metadataPath: args.metadata,
+            ...await createPolicyFingerprint(args.onnx, args.metadata)
           },
           rolloutRoster: rolloutRoster.workerSeats,
           temperature: args.temperature
@@ -242,6 +245,7 @@ async function loadRolloutRosterSeat(raw: unknown): Promise<{
   const metadataPath = requiredString(raw.metadataPath, "rolloutRoster.seats[].metadataPath");
   const policy: PlayingSelfPlayPolicy = await loadPolicyOnnxModel({ onnxPath, metadataPath });
   const artifactId = typeof raw.artifactId === "string" ? raw.artifactId : undefined;
+  const fingerprint = await createPolicyFingerprint(onnxPath, metadataPath);
 
   return {
     option: {
@@ -257,8 +261,19 @@ async function loadRolloutRosterSeat(raw: unknown): Promise<{
       source: FROZEN_ONNX_ROSTER_SOURCE,
       onnxPath,
       metadataPath,
+      ...fingerprint,
       artifactId
     }
+  };
+}
+
+async function createPolicyFingerprint(
+  onnxPath: string,
+  metadataPath: string
+): Promise<{ onnxSha256: string; metadataSha256: string }> {
+  return {
+    onnxSha256: await sha256File(onnxPath),
+    metadataSha256: await sha256File(metadataPath)
   };
 }
 
@@ -272,6 +287,10 @@ function requiredString(value: unknown, name: string): string {
   }
 
   return value;
+}
+
+async function sha256File(path: string): Promise<string> {
+  return createHash("sha256").update(await readFile(path)).digest("hex");
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
