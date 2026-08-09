@@ -1,4 +1,5 @@
 import type { PublicGameState } from "@napoleon/protocol";
+import { BiddingDeclarationBadge } from "./BiddingDeclarationBadge";
 import { PointCards } from "./PointCards";
 import type { TablePlayer } from "./tableTypes";
 
@@ -37,6 +38,8 @@ export function PlayerSeat({ player, state }: PlayerSeatProps) {
         {isNapoleon ? <span className="role-badge napoleon-badge">ナポレオン</span> : null}
         {isAdjutant ? <span className="role-badge adjutant-badge">副官</span> : null}
       </div>
+
+      <BiddingDeclarationBadge playerLabel={player.label} declaration={player.biddingDeclaration} />
 
       <div className="captured-compact">
         <span>得点札 {player.capturedPointCards.length}</span>

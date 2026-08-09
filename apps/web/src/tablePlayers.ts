@@ -1,8 +1,14 @@
 import type { PublicGameState } from "@napoleon/protocol";
+import {
+  createLatestBiddingDeclarations,
+  emptyBiddingDeclaration
+} from "./biddingDeclarations";
 import type { Seat, TablePlayer } from "./tableTypes";
 
 export function createTablePlayers(state: PublicGameState | undefined): ReadonlyArray<TablePlayer> {
   const opponents = state?.opponents ?? [];
+  const biddingDeclarations =
+    state?.phase === "bidding" ? createLatestBiddingDeclarations(state.bidding) : null;
   const seatDefinitions: ReadonlyArray<{ seat: Seat; label: string }> = [
     { seat: "left", label: "左側AI" },
     { seat: "top-left", label: "奥左AI" },
@@ -18,19 +24,29 @@ export function createTablePlayers(state: PublicGameState | undefined): Readonly
       seat: definition.seat,
       handCount: player?.handCount ?? 0,
       capturedPointCards: player?.capturedPointCards ?? [],
-      isSelf: false
+      isSelf: false,
+      biddingDeclaration:
+        biddingDeclarations === null
+          ? undefined
+          : (biddingDeclarations.get(player?.id ?? `player-${index + 1}`) ??
+            emptyBiddingDeclaration)
     };
   });
+  const selfId = state?.self.id ?? "player-0";
 
   return [
     ...opponentPlayers,
     {
-      id: state?.self.id ?? "player-0",
+      id: selfId,
       label: "自分",
       seat: "self",
       handCount: state?.self.handCount ?? 0,
       capturedPointCards: state?.self.capturedPointCards ?? [],
-      isSelf: true
+      isSelf: true,
+      biddingDeclaration:
+        biddingDeclarations === null
+          ? undefined
+          : (biddingDeclarations.get(selfId) ?? emptyBiddingDeclaration)
     }
   ];
 }
