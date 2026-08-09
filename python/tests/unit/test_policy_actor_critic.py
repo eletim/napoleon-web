@@ -28,7 +28,11 @@ from napoleon_ml.policy.checkpoint import (
 )
 from napoleon_ml.policy.model import PolicyActorCriticModel, PolicyMlpConfig, PolicyMlpModel
 from napoleon_ml.policy.onnx_export import build_policy_onnx_metadata
-from napoleon_ml.policy.reinforce import masked_selected_log_probability
+from napoleon_ml.policy.reinforce import (
+    ReinforceTrainSettings,
+    masked_selected_log_probability,
+    train_policy_reinforce,
+)
 
 _FIXTURE_PATH = Path(__file__).parent / "fixtures" / "valid_sample.json"
 
@@ -110,6 +114,7 @@ def test_actor_critic_training_migrates_policy_logits_and_saves_checkpoint(
     loaded = load_checkpoint_for_actor_critic(
         checkpoint_path,
         manifest=load_manifest(self_play_dataset),
+        value_head_seed=123,
     )
     assert loaded.migrated_from_policy
     assert isinstance(loaded.training_model, PolicyActorCriticModel)
@@ -118,6 +123,15 @@ def test_actor_critic_training_migrates_policy_logits_and_saves_checkpoint(
         source_logits = policy_model(model_input)
         migrated_logits = loaded.training_model(model_input)
     torch.testing.assert_close(migrated_logits, source_logits)
+    other_seed = load_checkpoint_for_actor_critic(
+        checkpoint_path,
+        manifest=load_manifest(self_play_dataset),
+        value_head_seed=456,
+    )
+    assert not torch.equal(
+        loaded.training_model.value_head.weight,
+        other_seed.training_model.value_head.weight,
+    )
 
     report = _run_actor_critic(
         input_checkpoint=checkpoint_path,
@@ -140,6 +154,7 @@ def test_actor_critic_training_migrates_policy_logits_and_saves_checkpoint(
     provenance = cast(dict[str, object], raw["rl_provenance"])
     assert provenance["algorithm"] == ACTOR_CRITIC_ALGORITHM
     assert provenance["migratedFromPolicyCheckpoint"] is True
+    assert provenance["valueHeadInitializationSeed"] == 0
     migration = cast(dict[str, object], raw["actor_critic_migration_provenance"])
     assert migration["policyLogitsPreserved"] is True
 
@@ -149,6 +164,28 @@ def test_actor_critic_training_migrates_policy_logits_and_saves_checkpoint(
     )
     assert not reloaded.migrated_from_policy
     assert isinstance(reloaded.training_model, PolicyActorCriticModel)
+
+    loader = create_playing_self_play_dataloader(
+        self_play_dataset,
+        split=DatasetSplit.TRAIN,
+        split_config=SplitConfig(train=100, validation=0, test=0),
+        batch_size=2,
+    )
+    with pytest.raises(PolicyCheckpointCompatibilityError, match="Actor-Critic"):
+        train_policy_reinforce(
+            input_checkpoint=output_path,
+            self_play_dataset_directory=self_play_dataset,
+            output_checkpoint=tmp_path / "reinforce-should-not-exist.pt",
+            manifest=load_manifest(self_play_dataset),
+            dataloader=loader,
+            settings=ReinforceTrainSettings(
+                seed=0,
+                epochs=1,
+                batch_size=2,
+                learning_rate=0.01,
+                verify_integrity=True,
+            ),
+        )
 
 
 def test_actor_critic_wrong_behavior_checkpoint_fails_before_save(tmp_path: Path) -> None:

@@ -331,7 +331,11 @@ def train_policy_actor_critic(
 
     _validate_settings(settings)
     _validate_self_play_manifest(manifest)
-    loaded = load_checkpoint_for_actor_critic(input_checkpoint, manifest=manifest)
+    loaded = load_checkpoint_for_actor_critic(
+        input_checkpoint,
+        manifest=manifest,
+        value_head_seed=settings.seed,
+    )
     _validate_behavior_metadata(loaded.behavior_model, loaded.checkpoint, manifest=manifest)
 
     temperature = _require_manifest_temperature(manifest)
@@ -559,6 +563,7 @@ def load_checkpoint_for_actor_critic(
     path: Path | str,
     *,
     manifest: DatasetManifest,
+    value_head_seed: int | None = None,
 ) -> _LoadedCheckpoint:
     checkpoint_path = Path(path)
     raw = _load_raw_checkpoint(checkpoint_path)
@@ -576,7 +581,7 @@ def load_checkpoint_for_actor_critic(
         _load_model_state(policy_model, checkpoint)
         training_model = create_actor_critic_from_policy_model(
             policy_model,
-            seed=0,
+            seed=value_head_seed,
         )
         behavior_model: PolicyMlpModel | PolicyActorCriticModel = policy_model
         migrated = True
@@ -757,6 +762,7 @@ def _build_rl_provenance(
         "trainingSeed": settings.seed,
         "sampleCount": sample_count,
         "migratedFromPolicyCheckpoint": migrated_from_policy,
+        "valueHeadInitializationSeed": settings.seed if migrated_from_policy else None,
     }
 
 
