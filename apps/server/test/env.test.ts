@@ -87,10 +87,8 @@ describe("local .env loading", () => {
       {
         id: PLAYING_POLICY_ONNX_AGENT_ID,
         displayName: "RL v740",
-        onnxPath:
-          "/home/eletim/napoleon_runs/rl-v100-to-v1000/evaluations/policy-v740/policy.onnx",
-        metadataPath:
-          "/home/eletim/napoleon_runs/rl-v100-to-v1000/evaluations/policy-v740/policy.json"
+        onnxPath: "benchmarks/playing-policies/rl-v740/policy.onnx",
+        metadataPath: "benchmarks/playing-policies/rl-v740/policy.json"
       }
     ]);
   });

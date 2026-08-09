@@ -173,6 +173,42 @@ from denominators.
 `PolicyOnnxAgent` uses ONNX for playing decisions and keeps bidding,
 adjutant selection, and exchange on the `RuleBasedAgent` fallback path.
 
+For fixed-opponent benchmark evaluation, use
+`runPlayingPolicyRosterEvaluation` or `runStandardPlayingPolicyBenchmarks`.
+The candidate remains source agent index 0 and is rotated through all five
+seats. Mixed opponent rosters use deterministic opponent source-agent orders so
+each opponent type is balanced across candidate-relative seats for the same
+seed set.
+
+```ts
+import {
+  RL_V740_BENCHMARK_POLICY_ID,
+  loadRepoManagedPlayingPolicyBenchmark,
+  runStandardPlayingPolicyBenchmarks
+} from "@napoleon/policy-onnx";
+
+const rlV740 = await loadRepoManagedPlayingPolicyBenchmark(RL_V740_BENCHMARK_POLICY_ID);
+console.log(rlV740.artifact.onnxSha256);
+
+const suite = await runStandardPlayingPolicyBenchmarks({
+  candidatePolicy: policy,
+  startSeed: 900,
+  gameCount: 10
+});
+```
+
+The built-in minimum standard suite evaluates:
+
+- `rule-based-x4`
+- `rl-v740-x4`
+- `rule-based-x2-rl-v740-x2`
+
+The repo-managed RL v740 artifact lives under
+`benchmarks/playing-policies/rl-v740`. Its loader validates the committed ONNX
+and metadata SHA-256 values before runtime loading, and `provenance.json`
+records the source v1 artifact, v1-to-v2 logit-preserving migration, committed
+hashes, and parity results.
+
 For a full-policy comparison, load all four phase artifacts and call
 `runFullPolicyVsRuleBasedEvaluation`:
 

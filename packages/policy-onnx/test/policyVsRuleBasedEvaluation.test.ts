@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { EvaluationGameRecord } from "@napoleon/ai";
 import { describe, expect, it, vi } from "vitest";
 import {
   ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
@@ -15,13 +17,19 @@ import {
   ONNX_OPSET_VERSION,
   ONNX_OUTPUT_NAME,
   PolicyOnnxCompatibilityError,
+  RL_V740_BENCHMARK_POLICY_ID,
   calculateCardIdsSha256,
   loadNonPlayingPolicyOnnxModel,
   loadPolicyOnnxModel,
+  loadRepoManagedPlayingPolicyBenchmark,
   runFullPolicyVsRuleBasedEvaluation,
-  runPolicyVsRuleBasedEvaluation
+  runPlayingPolicyRosterEvaluation,
+  runStandardPlayingPolicyBenchmarks,
+  runPolicyVsRuleBasedEvaluation,
+  validatePlayingPolicyArtifactReference
 } from "../src/index.js";
 import type {
+  PlayingPolicyArtifactReference,
   NonPlayingPolicyOnnxMetadata,
   NonPlayingPolicyOnnxModel,
   NonPlayingPolicyType,
@@ -202,6 +210,156 @@ describe("runPolicyVsRuleBasedEvaluation", () => {
     expect(result.comparison.failedGames.every((game) =>
       game.failureReason.includes("outside legal actions")
     )).toBe(true);
+  });
+});
+
+describe("runPlayingPolicyRosterEvaluation", () => {
+  it("evaluates a candidate against frozen RL v740 in all four opponent seats", async () => {
+    const candidate = await createIncreasingLogitPolicy();
+    const rlV740 = await loadRepoManagedPlayingPolicyBenchmark(RL_V740_BENCHMARK_POLICY_ID);
+    const result = await runPlayingPolicyRosterEvaluation({
+      candidatePolicy: candidate,
+      opponentRoster: [
+        frozenOpponent(rlV740),
+        frozenOpponent(rlV740),
+        frozenOpponent(rlV740),
+        frozenOpponent(rlV740)
+      ],
+      startSeed: 1200,
+      gameCount: 1,
+      playerIds
+    });
+
+    expect(result.run.games).toHaveLength(5);
+    expect(result.run.completedCount).toBe(5);
+    expect(result.run.failedCount).toBe(0);
+    expect(result.comparison.illegalActionCount).toBe(0);
+    expect(result.configuration.opponentRoster.map((entry) => entry.artifact?.id)).toEqual([
+      "rl-v740",
+      "rl-v740",
+      "rl-v740",
+      "rl-v740"
+    ]);
+    expect(result.configuration.agentOrders).toEqual([[0, 1, 2, 3, 4]]);
+    expect(result.run.games.map((game) =>
+      game.seats.find((seat) => seat.sourceAgentIndex === 0)?.seatIndex
+    )).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it("evaluates a mixed RuleBased x2 + frozen RL v740 x2 roster with fair relative seats", async () => {
+    const candidate = await createIncreasingLogitPolicy();
+    const rlV740 = await loadRepoManagedPlayingPolicyBenchmark(RL_V740_BENCHMARK_POLICY_ID);
+    const options = {
+      candidatePolicy: candidate,
+      opponentRoster: [
+        { type: "rule-based", agentName: "RuleBasedAgent" },
+        { type: "rule-based", agentName: "RuleBasedAgent" },
+        frozenOpponent(rlV740),
+        frozenOpponent(rlV740)
+      ],
+      startSeed: 1210,
+      gameCount: 1,
+      playerIds
+    } as const;
+    const first = await runPlayingPolicyRosterEvaluation(options);
+    const second = await runPlayingPolicyRosterEvaluation(options);
+
+    expect(second.run).toEqual(first.run);
+    expect(second.comparison).toEqual(first.comparison);
+    expect(first.run.games).toHaveLength(20);
+    expect(first.run.completedCount).toBe(20);
+    expect(first.run.failedCount).toBe(0);
+    expect(first.comparison.illegalActionCount).toBe(0);
+    expect(first.configuration.agentOrders).toEqual([
+      [0, 1, 2, 3, 4],
+      [0, 2, 3, 4, 1],
+      [0, 3, 4, 1, 2],
+      [0, 4, 1, 2, 3]
+    ]);
+    expect(relativeOpponentCounts(first.run.games)).toEqual([
+      { RuleBasedAgent: 10, "RL v740": 10 },
+      { RuleBasedAgent: 10, "RL v740": 10 },
+      { RuleBasedAgent: 10, "RL v740": 10 },
+      { RuleBasedAgent: 10, "RL v740": 10 }
+    ]);
+    expect(first.comparison.policy.seatResults.map((seat) => [
+      seat.seatIndex,
+      seat.sampleCount
+    ])).toEqual([
+      [0, 4],
+      [1, 4],
+      [2, 4],
+      [3, 4],
+      [4, 4]
+    ]);
+  });
+
+  it("rejects wrong-schema frozen artifacts even when hashes match", async () => {
+    const directory = await temporaryDirectory();
+    const onnxPath = join(directory, "policy.onnx");
+    const metadataPath = join(directory, "policy.json");
+    const metadata = {
+      ...createMetadata(),
+      playingEncoderSchemaVersion: 1,
+      modelInputSchemaVersion: 1,
+      onnx: {
+        ...createMetadata().onnx,
+        inputs: [
+          {
+            name: ONNX_INPUT_NAME,
+            shape: ["batch", MODEL_INPUT_FEATURE_COUNT - 4],
+            dtype: "float32"
+          }
+        ]
+      }
+    };
+    await writeFile(onnxPath, createConstantPolicyOnnx(
+      new Float32Array(CARD_COUNT),
+      ONNX_OUTPUT_NAME,
+      { inputFeatureCount: MODEL_INPUT_FEATURE_COUNT - 4 }
+    ));
+    await writeFile(metadataPath, `${JSON.stringify(metadata)}\n`, "utf8");
+    const artifact: PlayingPolicyArtifactReference = {
+      id: "wrong-schema",
+      displayName: "Wrong schema",
+      onnxPath,
+      metadataPath,
+      onnxSha256: sha256(createConstantPolicyOnnx(
+        new Float32Array(CARD_COUNT),
+        ONNX_OUTPUT_NAME,
+        { inputFeatureCount: MODEL_INPUT_FEATURE_COUNT - 4 }
+      )),
+      metadataSha256: sha256(`${JSON.stringify(metadata)}\n`)
+    };
+
+    await expect(validatePlayingPolicyArtifactReference(artifact)).rejects.toThrow(
+      /playingEncoderSchemaVersion mismatch/
+    );
+  });
+});
+
+describe("runStandardPlayingPolicyBenchmarks", () => {
+  it("runs the standard minimum benchmark suite with the same seed set", async () => {
+    const candidate = await createIncreasingLogitPolicy();
+    const suite = await runStandardPlayingPolicyBenchmarks({
+      candidatePolicy: candidate,
+      startSeed: 1220,
+      gameCount: 1,
+      playerIds
+    });
+
+    expect(suite.benchmarks.map((benchmark) => benchmark.benchmarkId)).toEqual([
+      "rule-based-x4",
+      "rl-v740-x4",
+      "rule-based-x2-rl-v740-x2"
+    ]);
+    expect(suite.benchmarks.map((benchmark) => benchmark.result.run.startSeed)).toEqual([
+      1220,
+      1220,
+      1220
+    ]);
+    expect(suite.benchmarks.map((benchmark) => benchmark.result.comparison.illegalActionCount))
+      .toEqual([0, 0, 0]);
   });
 });
 
@@ -489,6 +647,45 @@ describe("Full policy vs RuleBased external artifact smoke", () => {
   });
 });
 
+function frozenOpponent(loaded: Awaited<ReturnType<typeof loadRepoManagedPlayingPolicyBenchmark>>) {
+  return {
+    type: "playing-onnx" as const,
+    policy: loaded.policy,
+    agentName: loaded.artifact.displayName,
+    artifact: loaded.artifact
+  };
+}
+
+function relativeOpponentCounts(
+  games: readonly EvaluationGameRecord[]
+): readonly Record<string, number>[] {
+  const counts: Record<string, number>[] = [
+    {},
+    {},
+    {},
+    {}
+  ];
+
+  for (const game of games) {
+    const candidateSeatIndex = game.seats.find((seat) => seat.sourceAgentIndex === 0)?.seatIndex;
+    if (candidateSeatIndex === undefined) {
+      throw new Error("Expected candidate seat.");
+    }
+
+    for (const seat of game.seats) {
+      if (seat.sourceAgentIndex === 0) {
+        continue;
+      }
+
+      const relativeIndex = (seat.seatIndex - candidateSeatIndex + playerIds.length) % playerIds.length;
+      const countsByName = counts[relativeIndex - 1];
+      countsByName[seat.agentName] = (countsByName[seat.agentName] ?? 0) + 1;
+    }
+  }
+
+  return counts;
+}
+
 async function createIncreasingLogitPolicy(): Promise<PolicyOnnxModel> {
   const logits = new Float32Array(CARD_COUNT);
   for (let index = 0; index < CARD_COUNT; index += 1) {
@@ -502,6 +699,10 @@ async function createIncreasingLogitPolicy(): Promise<PolicyOnnxModel> {
   await writeFile(metadataPath, JSON.stringify(createMetadata()) + "\n", "utf8");
 
   return loadPolicyOnnxModel({ onnxPath, metadataPath });
+}
+
+function sha256(value: string | Uint8Array): string {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 async function createFullPolicyFixture(): Promise<{

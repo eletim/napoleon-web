@@ -1,0 +1,52 @@
+{
+  "artifactId": "rl-v740",
+  "committedArtifact": {
+    "metadataPath": "policy.json",
+    "metadataSha256": "ae86a8d3949076d352e5caad1e45c6717bbe1785de56462ac988b65639909a91",
+    "modelInputFeatureCount": 6246,
+    "modelInputSchemaVersion": 2,
+    "onnxPath": "policy.onnx",
+    "onnxSha256": "73578d864bfdb2e368754ded8f852c7683409085f991d59251c9c4e8deec10f7",
+    "outputLogitCount": 53,
+    "playingEncoderSchemaVersion": 2
+  },
+  "displayName": "RL v740",
+  "exportParity": {
+    "maxAbsLogitDiff": 9.5367431640625e-07,
+    "onnxSelectedCardIndex": 52,
+    "pytorchSelectedCardIndex": 52,
+    "seed": 0,
+    "step": 12
+  },
+  "historicalPolicyIdentity": "RL v740 behavior policy from rl-v100-to-v1000 iteration 740 / inputGeneration 740.",
+  "migration": {
+    "checkpointLogitParity": {
+      "maxAbsDiff": 0.0,
+      "sampleCount": 8
+    },
+    "method": "playing-input-v1-to-v2-self-role-one-hot",
+    "migratedCheckpointSha256": "30af1cc4fa22b46151f0ea39e64531784de68614c35e43e37411add44af00bd9",
+    "modelInputFeatureCount": 6246,
+    "modelInputSchemaVersion": 2,
+    "oldInputWeights": "copied unchanged into the first 6242 first-linear input columns",
+    "playingEncoderSchemaVersion": 2,
+    "selfRoleOneHotColumns": "zero initialized in the four appended input columns",
+    "sourceOnnxToCommittedOnnxLogitParity": {
+      "maxAbsDiff": 0.0,
+      "sampleCount": 8
+    }
+  },
+  "schemaVersion": 1,
+  "source": {
+    "checkpointSha256": "37e113e80285b87ac37cf1a446297dd30402a4478153cf844f1eade6bd60e40f",
+    "inputGeneration": 740,
+    "iteration": 740,
+    "metadataSha256": "e7de3d1b33d0fd02c9d1f3f09dc56d0e11fe1968762d3276cf6367a070e1aad6",
+    "modelInputFeatureCount": 6242,
+    "modelInputSchemaVersion": 1,
+    "onnxSha256": "511152664208545d03f1c3607a750795286e2ff1acec75ac6d3a2efe683b0c9e",
+    "outputGeneration": 740,
+    "playingEncoderSchemaVersion": 1,
+    "run": "rl-v100-to-v1000"
+  }
+}
