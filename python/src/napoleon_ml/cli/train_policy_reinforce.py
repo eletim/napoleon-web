@@ -1,4 +1,4 @@
-"""Train a playing policy checkpoint with REINFORCE v1 self-play trajectories."""
+"""Train a playing policy checkpoint from self-play trajectories."""
 
 from __future__ import annotations
 
@@ -14,7 +14,18 @@ from napoleon_ml.cli._policy_common import (
 )
 from napoleon_ml.dataset.pytorch import create_playing_self_play_dataloader
 from napoleon_ml.dataset.split import DatasetSplit, SplitConfig
-from napoleon_ml.policy.reinforce import ReinforceTrainSettings, train_policy_reinforce
+from napoleon_ml.policy.actor_critic import (
+    ACTOR_CRITIC_ALGORITHM,
+    ActorCriticTrainReport,
+    ActorCriticTrainSettings,
+    train_policy_actor_critic,
+)
+from napoleon_ml.policy.reinforce import (
+    REINFORCE_ALGORITHM,
+    ReinforceTrainReport,
+    ReinforceTrainSettings,
+    train_policy_reinforce,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -23,6 +34,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--input-checkpoint", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--learning-rate", type=float, default=1e-5)
+    parser.add_argument(
+        "--algorithm",
+        choices=(REINFORCE_ALGORITHM, ACTOR_CRITIC_ALGORITHM),
+        default=REINFORCE_ALGORITHM,
+    )
+    parser.add_argument("--value-loss-coefficient", type=float, default=0.5)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--seed", type=int, default=0)
@@ -42,14 +59,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _run(args: argparse.Namespace) -> int:
-    settings = ReinforceTrainSettings(
-        seed=args.seed,
-        epochs=args.epochs,
-        batch_size=args.batch_size,
-        learning_rate=args.learning_rate,
-        verify_integrity=not args.no_integrity_check,
-    )
-    configure_reproducibility(settings.seed)
+    seed = int(args.seed)
+    configure_reproducibility(seed)
     manifest = load_checked_manifest(
         args.self_play_dataset_directory,
         command_label="train-policy-reinforce",
@@ -58,17 +69,43 @@ def _run(args: argparse.Namespace) -> int:
         args.self_play_dataset_directory,
         split=DatasetSplit.TRAIN,
         split_config=SplitConfig(train=100, validation=0, test=0),
-        batch_size=settings.batch_size,
-        verify_integrity=settings.verify_integrity,
+        batch_size=args.batch_size,
+        verify_integrity=not args.no_integrity_check,
     )
-    report = train_policy_reinforce(
-        input_checkpoint=args.input_checkpoint,
-        self_play_dataset_directory=args.self_play_dataset_directory,
-        output_checkpoint=args.output,
-        manifest=manifest,
-        dataloader=dataloader,
-        settings=settings,
-    )
+    report: ActorCriticTrainReport | ReinforceTrainReport
+    if args.algorithm == ACTOR_CRITIC_ALGORITHM:
+        ac_settings = ActorCriticTrainSettings(
+            seed=seed,
+            epochs=args.epochs,
+            batch_size=args.batch_size,
+            learning_rate=args.learning_rate,
+            verify_integrity=not args.no_integrity_check,
+            value_loss_coefficient=args.value_loss_coefficient,
+        )
+        report = train_policy_actor_critic(
+            input_checkpoint=args.input_checkpoint,
+            self_play_dataset_directory=args.self_play_dataset_directory,
+            output_checkpoint=args.output,
+            manifest=manifest,
+            dataloader=dataloader,
+            settings=ac_settings,
+        )
+    else:
+        reinforce_settings = ReinforceTrainSettings(
+            seed=seed,
+            epochs=args.epochs,
+            batch_size=args.batch_size,
+            learning_rate=args.learning_rate,
+            verify_integrity=not args.no_integrity_check,
+        )
+        report = train_policy_reinforce(
+            input_checkpoint=args.input_checkpoint,
+            self_play_dataset_directory=args.self_play_dataset_directory,
+            output_checkpoint=args.output,
+            manifest=manifest,
+            dataloader=dataloader,
+            settings=reinforce_settings,
+        )
 
     if args.json:
         print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
@@ -77,9 +114,19 @@ def _run(args: argparse.Namespace) -> int:
         print(f"samples: {report.sample_count}")
         print(f"batches: {report.batch_count}")
         print(f"optimizer_steps: {report.optimizer_step_count}")
-        print(f"mean_policy_loss: {report.mean_policy_loss:.8f}")
-        print(f"mean_policy_loss_before: {report.mean_policy_loss_before:.8f}")
-        print(f"mean_policy_loss_after: {report.mean_policy_loss_after:.8f}")
+        report_dict = report.to_dict()
+        if "meanPolicyLoss" in report_dict:
+            print(f"mean_policy_loss: {report_dict['meanPolicyLoss']:.8f}")
+            print(f"mean_policy_loss_before: {report_dict['meanPolicyLossBefore']:.8f}")
+            print(f"mean_policy_loss_after: {report_dict['meanPolicyLossAfter']:.8f}")
+        else:
+            print(f"mean_actor_loss: {report_dict['meanActorLoss']:.8f}")
+            print(f"actor_loss_before: {report_dict['actorLossBefore']:.8f}")
+            print(f"actor_loss_after: {report_dict['actorLossAfter']:.8f}")
+            print(f"value_loss_before: {report_dict['valueLossBefore']:.8f}")
+            print(f"value_loss_after: {report_dict['valueLossAfter']:.8f}")
+            print(f"total_loss_before: {report_dict['totalLossBefore']:.8f}")
+            print(f"total_loss_after: {report_dict['totalLossAfter']:.8f}")
         print(
             "mean_selected_log_probability_before: "
             f"{report.mean_selected_log_probability_before:.8f}"

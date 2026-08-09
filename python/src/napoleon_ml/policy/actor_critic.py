@@ -1,0 +1,831 @@
+"""Actor-Critic v1 training for playing self-play trajectories."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+import pickle
+from collections.abc import Iterable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, NamedTuple, cast
+
+import torch
+from torch import Tensor, optim
+from torch.nn import functional as F
+
+from napoleon_ml.dataset.constants import (
+    DATASET_SCHEMA_VERSION,
+    SELF_ROLE_ORDER,
+)
+from napoleon_ml.dataset.manifest import DatasetManifest
+from napoleon_ml.dataset.pytorch import PlayingSelfPlayTorchSample
+from napoleon_ml.dataset.tensors import MODEL_INPUT_FEATURE_COUNT, MODEL_INPUT_SCHEMA_VERSION
+from napoleon_ml.policy.checkpoint import (
+    ACTOR_CRITIC_MODEL_ARCHITECTURE,
+    CHECKPOINT_SCHEMA_VERSION,
+    POLICY_MODEL_ARCHITECTURE,
+    PolicyCheckpointCompatibilityError,
+)
+from napoleon_ml.policy.model import (
+    PolicyActorCriticModel,
+    PolicyMlpConfig,
+    PolicyMlpModel,
+    create_actor_critic_from_policy_model,
+)
+from napoleon_ml.policy.onnx_export import build_policy_onnx_metadata
+from napoleon_ml.policy.reinforce import (
+    BEHAVIOR_LOG_PROB_PARITY_ATOL,
+    BEHAVIOR_LOG_PROB_PARITY_RTOL,
+    _require_manifest_temperature,
+    _validate_self_play_manifest,
+    masked_selected_log_probability,
+)
+
+ACTOR_CRITIC_ALGORITHM = "actor-critic-v1"
+DEFAULT_VALUE_LOSS_COEFFICIENT = 0.5
+
+
+@dataclass(frozen=True)
+class ActorCriticTrainSettings:
+    seed: int
+    epochs: int
+    batch_size: int
+    learning_rate: float
+    verify_integrity: bool
+    value_loss_coefficient: float = DEFAULT_VALUE_LOSS_COEFFICIENT
+    optimizer: str = "AdamW"
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "seed": self.seed,
+            "epochs": self.epochs,
+            "batchSize": self.batch_size,
+            "learningRate": self.learning_rate,
+            "verifyIntegrity": self.verify_integrity,
+            "valueLossCoefficient": self.value_loss_coefficient,
+            "optimizer": self.optimizer,
+        }
+
+
+@dataclass(frozen=True)
+class ActorCriticTrainReport:
+    sample_count: int
+    batch_count: int
+    optimizer_step_count: int
+    mean_actor_loss: float
+    actor_loss_before: float
+    actor_loss_after: float
+    value_loss_before: float
+    value_loss_after: float
+    total_loss_before: float
+    total_loss_after: float
+    mean_selected_log_probability_before: float
+    mean_selected_log_probability_after: float
+    mean_reward: float
+    mean_value_prediction_before: float
+    mean_value_prediction_after: float
+    mean_advantage_before: float
+    mean_advantage_after: float
+    advantage_std_before: float
+    advantage_std_after: float
+    min_value_prediction_before: float
+    max_value_prediction_before: float
+    min_value_prediction_after: float
+    max_value_prediction_after: float
+    positive_reward_count: int
+    negative_reward_count: int
+    forced_sample_count: int
+    non_forced_sample_count: int
+    max_behavior_log_probability_parity_error: float
+    parameter_delta_norm: float
+    changed_parameter_count: int
+    actor_parameter_delta_norm: float
+    critic_parameter_delta_norm: float
+    changed_actor_parameter_count: int
+    changed_critic_parameter_count: int
+    role_stats_before: dict[str, dict[str, float | int]]
+    role_stats_after: dict[str, dict[str, float | int]]
+    output_checkpoint_path: Path
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "sampleCount": self.sample_count,
+            "batchCount": self.batch_count,
+            "optimizerStepCount": self.optimizer_step_count,
+            "meanActorLoss": self.mean_actor_loss,
+            "actorLossBefore": self.actor_loss_before,
+            "actorLossAfter": self.actor_loss_after,
+            "valueLossBefore": self.value_loss_before,
+            "valueLossAfter": self.value_loss_after,
+            "totalLossBefore": self.total_loss_before,
+            "totalLossAfter": self.total_loss_after,
+            "meanSelectedLogProbabilityBefore": (
+                self.mean_selected_log_probability_before
+            ),
+            "meanSelectedLogProbabilityAfter": self.mean_selected_log_probability_after,
+            "meanReward": self.mean_reward,
+            "meanValuePredictionBefore": self.mean_value_prediction_before,
+            "meanValuePredictionAfter": self.mean_value_prediction_after,
+            "meanAdvantageBefore": self.mean_advantage_before,
+            "meanAdvantageAfter": self.mean_advantage_after,
+            "advantageStdBefore": self.advantage_std_before,
+            "advantageStdAfter": self.advantage_std_after,
+            "minValuePredictionBefore": self.min_value_prediction_before,
+            "maxValuePredictionBefore": self.max_value_prediction_before,
+            "minValuePredictionAfter": self.min_value_prediction_after,
+            "maxValuePredictionAfter": self.max_value_prediction_after,
+            "positiveRewardCount": self.positive_reward_count,
+            "negativeRewardCount": self.negative_reward_count,
+            "forcedSampleCount": self.forced_sample_count,
+            "nonForcedSampleCount": self.non_forced_sample_count,
+            "maxBehaviorLogProbabilityParityError": (
+                self.max_behavior_log_probability_parity_error
+            ),
+            "parameterDeltaNorm": self.parameter_delta_norm,
+            "changedParameterCount": self.changed_parameter_count,
+            "actorParameterDeltaNorm": self.actor_parameter_delta_norm,
+            "criticParameterDeltaNorm": self.critic_parameter_delta_norm,
+            "changedActorParameterCount": self.changed_actor_parameter_count,
+            "changedCriticParameterCount": self.changed_critic_parameter_count,
+            "roleStatsBefore": self.role_stats_before,
+            "roleStatsAfter": self.role_stats_after,
+            "outputCheckpointPath": str(self.output_checkpoint_path),
+        }
+
+
+class _LoadedCheckpoint(NamedTuple):
+    behavior_model: PolicyMlpModel | PolicyActorCriticModel
+    training_model: PolicyActorCriticModel
+    checkpoint: dict[str, object]
+    sha256: str
+    migrated_from_policy: bool
+
+
+@dataclass
+class _RoleAccumulator:
+    sample_count: int = 0
+    reward_sum: float = 0.0
+    value_sum: float = 0.0
+    advantage_sum: float = 0.0
+
+    def update(self, *, reward: Tensor, value: Tensor, advantage: Tensor) -> None:
+        count = int(reward.shape[0])
+        self.sample_count += count
+        self.reward_sum += float(reward.detach().sum().item())
+        self.value_sum += float(value.detach().sum().item())
+        self.advantage_sum += float(advantage.detach().sum().item())
+
+    def to_dict(self) -> dict[str, float | int]:
+        if self.sample_count == 0:
+            return {
+                "sampleCount": 0,
+                "meanReward": 0.0,
+                "meanValue": 0.0,
+                "meanAdvantage": 0.0,
+            }
+        return {
+            "sampleCount": self.sample_count,
+            "meanReward": self.reward_sum / self.sample_count,
+            "meanValue": self.value_sum / self.sample_count,
+            "meanAdvantage": self.advantage_sum / self.sample_count,
+        }
+
+
+@dataclass
+class _EvaluationAccumulator:
+    sample_count: int = 0
+    actor_loss_sum: float = 0.0
+    value_loss_sum: float = 0.0
+    total_loss_sum: float = 0.0
+    selected_log_probability_sum: float = 0.0
+    reward_sum: float = 0.0
+    value_sum: float = 0.0
+    advantage_sum: float = 0.0
+    advantage_squared_sum: float = 0.0
+    min_value: float = math.inf
+    max_value: float = -math.inf
+    positive_reward_count: int = 0
+    negative_reward_count: int = 0
+    forced_sample_count: int = 0
+    non_forced_sample_count: int = 0
+    max_behavior_error: float = 0.0
+    behavior_parity_failed: bool = False
+    role_accumulators: dict[str, _RoleAccumulator] | None = None
+
+    def __post_init__(self) -> None:
+        self.role_accumulators = {role: _RoleAccumulator() for role in SELF_ROLE_ORDER}
+
+    def update(
+        self,
+        *,
+        selected_log_probability: Tensor,
+        reward: Tensor,
+        value_prediction: Tensor,
+        actor_loss: Tensor,
+        value_loss: Tensor,
+        total_loss: Tensor,
+        legal_mask: Tensor,
+        role_index: Tensor,
+        behavior_log_probability: Tensor | None = None,
+    ) -> None:
+        batch_size = int(reward.shape[0])
+        advantage = reward - value_prediction
+        legal_counts = legal_mask.to(dtype=torch.int64).sum(dim=1)
+        forced = legal_counts.eq(1)
+
+        self.sample_count += batch_size
+        self.actor_loss_sum += float(actor_loss.detach().item()) * batch_size
+        self.value_loss_sum += float(value_loss.detach().item()) * batch_size
+        self.total_loss_sum += float(total_loss.detach().item()) * batch_size
+        self.selected_log_probability_sum += float(
+            selected_log_probability.detach().sum().item()
+        )
+        self.reward_sum += float(reward.detach().sum().item())
+        self.value_sum += float(value_prediction.detach().sum().item())
+        self.advantage_sum += float(advantage.detach().sum().item())
+        self.advantage_squared_sum += float((advantage.detach() * advantage.detach()).sum().item())
+        self.min_value = min(self.min_value, float(value_prediction.detach().min().item()))
+        self.max_value = max(self.max_value, float(value_prediction.detach().max().item()))
+        self.positive_reward_count += int(reward.eq(1.0).sum().item())
+        self.negative_reward_count += int(reward.eq(-1.0).sum().item())
+        self.forced_sample_count += int(forced.sum().item())
+        self.non_forced_sample_count += int(legal_counts.gt(1).sum().item())
+
+        if self.role_accumulators is None:
+            raise AssertionError("role_accumulators must be initialized.")
+        for index, role in enumerate(SELF_ROLE_ORDER):
+            mask = role_index.eq(index)
+            if bool(mask.any().item()):
+                self.role_accumulators[role].update(
+                    reward=reward[mask],
+                    value=value_prediction[mask],
+                    advantage=advantage[mask],
+                )
+
+        if behavior_log_probability is not None:
+            batch_error = torch.abs(
+                selected_log_probability.detach() - behavior_log_probability
+            ).max()
+            self.max_behavior_error = max(self.max_behavior_error, float(batch_error.item()))
+            close = torch.isclose(
+                selected_log_probability.detach(),
+                behavior_log_probability,
+                rtol=BEHAVIOR_LOG_PROB_PARITY_RTOL,
+                atol=BEHAVIOR_LOG_PROB_PARITY_ATOL,
+            )
+            if bool((~close).any().item()):
+                self.behavior_parity_failed = True
+
+    def mean_actor_loss(self) -> float:
+        return self.actor_loss_sum / self._nonzero_sample_count()
+
+    def mean_value_loss(self) -> float:
+        return self.value_loss_sum / self._nonzero_sample_count()
+
+    def mean_total_loss(self) -> float:
+        return self.total_loss_sum / self._nonzero_sample_count()
+
+    def mean_selected_log_probability(self) -> float:
+        return self.selected_log_probability_sum / self._nonzero_sample_count()
+
+    def mean_reward(self) -> float:
+        return self.reward_sum / self._nonzero_sample_count()
+
+    def mean_value(self) -> float:
+        return self.value_sum / self._nonzero_sample_count()
+
+    def mean_advantage(self) -> float:
+        return self.advantage_sum / self._nonzero_sample_count()
+
+    def advantage_std(self) -> float:
+        mean = self.mean_advantage()
+        variance = self.advantage_squared_sum / self._nonzero_sample_count() - mean * mean
+        return math.sqrt(max(0.0, variance))
+
+    def role_stats(self) -> dict[str, dict[str, float | int]]:
+        if self.role_accumulators is None:
+            raise AssertionError("role_accumulators must be initialized.")
+        return {
+            role: accumulator.to_dict()
+            for role, accumulator in self.role_accumulators.items()
+        }
+
+    def _nonzero_sample_count(self) -> int:
+        if self.sample_count == 0:
+            raise ValueError("self-play dataset contains no training samples.")
+        return self.sample_count
+
+
+def train_policy_actor_critic(
+    *,
+    input_checkpoint: Path | str,
+    self_play_dataset_directory: Path | str,
+    output_checkpoint: Path | str,
+    manifest: DatasetManifest,
+    dataloader: Iterable[PlayingSelfPlayTorchSample],
+    settings: ActorCriticTrainSettings,
+) -> ActorCriticTrainReport:
+    """Run fail-close behavior parity and Actor-Critic updates on CPU."""
+
+    _validate_settings(settings)
+    _validate_self_play_manifest(manifest)
+    loaded = load_checkpoint_for_actor_critic(input_checkpoint, manifest=manifest)
+    _validate_behavior_metadata(loaded.behavior_model, loaded.checkpoint, manifest=manifest)
+
+    temperature = _require_manifest_temperature(manifest)
+    parity = evaluate_actor_critic_policy(
+        loaded.training_model,
+        dataloader,
+        temperature=temperature,
+        value_loss_coefficient=settings.value_loss_coefficient,
+        require_behavior_parity=True,
+    )
+    _assert_behavior_parity(parity)
+
+    before_parameters = _clone_parameters(loaded.training_model)
+    optimizer = optim.AdamW(loaded.training_model.parameters(), lr=settings.learning_rate)
+    batch_count = 0
+    optimizer_step_count = 0
+    actor_loss_sum = 0.0
+    trained_sample_count = 0
+
+    loaded.training_model.train()
+    for _ in range(settings.epochs):
+        for batch in dataloader:
+            optimizer.zero_grad(set_to_none=True)
+            model_input = batch["model_input"].to(dtype=torch.float32)
+            selected = batch["selected_card_index"].to(dtype=torch.long)
+            legal_mask = batch["legal_play_mask"].to(dtype=torch.bool)
+            reward = batch["terminal_reward"].to(dtype=torch.float32)
+
+            logits, value_prediction = loaded.training_model.forward_actor_critic(model_input)
+            selected_log_probability = masked_selected_log_probability(
+                logits,
+                selected,
+                legal_mask,
+                temperature=temperature,
+            )
+            actor_loss, value_loss, total_loss = actor_critic_losses(
+                selected_log_probability,
+                reward,
+                value_prediction,
+                value_loss_coefficient=settings.value_loss_coefficient,
+            )
+            _assert_finite_tensor(total_loss, label="actor-critic loss")
+            total_loss.backward()  # type: ignore[no-untyped-call]
+            optimizer.step()
+
+            batch_size = int(reward.shape[0])
+            batch_count += 1
+            optimizer_step_count += 1
+            trained_sample_count += batch_size
+            actor_loss_sum += float(actor_loss.detach().item()) * batch_size
+
+    if optimizer_step_count == 0:
+        raise ValueError("optimizer.step() was not executed; self-play dataset may be empty.")
+
+    after = evaluate_actor_critic_policy(
+        loaded.training_model,
+        dataloader,
+        temperature=temperature,
+        value_loss_coefficient=settings.value_loss_coefficient,
+        require_behavior_parity=False,
+    )
+    parameter_delta_norm, changed_parameter_count = _parameter_delta(
+        before_parameters, loaded.training_model
+    )
+    actor_delta_norm, changed_actor_parameter_count = _parameter_delta_for_prefixes(
+        before_parameters,
+        loaded.training_model,
+        prefixes=("trunk.", "policy_head."),
+    )
+    critic_delta_norm, changed_critic_parameter_count = _parameter_delta_for_prefixes(
+        before_parameters,
+        loaded.training_model,
+        prefixes=("value_head.",),
+    )
+
+    output = Path(output_checkpoint)
+    report = ActorCriticTrainReport(
+        sample_count=parity.sample_count,
+        batch_count=batch_count,
+        optimizer_step_count=optimizer_step_count,
+        mean_actor_loss=actor_loss_sum / trained_sample_count,
+        actor_loss_before=parity.mean_actor_loss(),
+        actor_loss_after=after.mean_actor_loss(),
+        value_loss_before=parity.mean_value_loss(),
+        value_loss_after=after.mean_value_loss(),
+        total_loss_before=parity.mean_total_loss(),
+        total_loss_after=after.mean_total_loss(),
+        mean_selected_log_probability_before=parity.mean_selected_log_probability(),
+        mean_selected_log_probability_after=after.mean_selected_log_probability(),
+        mean_reward=parity.mean_reward(),
+        mean_value_prediction_before=parity.mean_value(),
+        mean_value_prediction_after=after.mean_value(),
+        mean_advantage_before=parity.mean_advantage(),
+        mean_advantage_after=after.mean_advantage(),
+        advantage_std_before=parity.advantage_std(),
+        advantage_std_after=after.advantage_std(),
+        min_value_prediction_before=parity.min_value,
+        max_value_prediction_before=parity.max_value,
+        min_value_prediction_after=after.min_value,
+        max_value_prediction_after=after.max_value,
+        positive_reward_count=parity.positive_reward_count,
+        negative_reward_count=parity.negative_reward_count,
+        forced_sample_count=parity.forced_sample_count,
+        non_forced_sample_count=parity.non_forced_sample_count,
+        max_behavior_log_probability_parity_error=parity.max_behavior_error,
+        parameter_delta_norm=parameter_delta_norm,
+        changed_parameter_count=changed_parameter_count,
+        actor_parameter_delta_norm=actor_delta_norm,
+        critic_parameter_delta_norm=critic_delta_norm,
+        changed_actor_parameter_count=changed_actor_parameter_count,
+        changed_critic_parameter_count=changed_critic_parameter_count,
+        role_stats_before=parity.role_stats(),
+        role_stats_after=after.role_stats(),
+        output_checkpoint_path=output,
+    )
+    _assert_report_finite(report)
+
+    provenance = _build_rl_provenance(
+        input_checkpoint_sha256=loaded.sha256,
+        self_play_dataset_directory=Path(self_play_dataset_directory),
+        manifest=manifest,
+        settings=settings,
+        optimizer_step_count=optimizer_step_count,
+        sample_count=parity.sample_count,
+        migrated_from_policy=loaded.migrated_from_policy,
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    _save_actor_critic_checkpoint(
+        output,
+        model=loaded.training_model,
+        parent_checkpoint=loaded.checkpoint,
+        rl_provenance=provenance,
+        source_checkpoint_sha256=loaded.sha256,
+        migrated_from_policy=loaded.migrated_from_policy,
+    )
+    return report
+
+
+@torch.no_grad()
+def evaluate_actor_critic_policy(
+    model: PolicyActorCriticModel,
+    dataloader: Iterable[PlayingSelfPlayTorchSample],
+    *,
+    temperature: float,
+    value_loss_coefficient: float,
+    require_behavior_parity: bool,
+) -> _EvaluationAccumulator:
+    model.eval()
+    accumulator = _EvaluationAccumulator()
+
+    for batch in dataloader:
+        model_input = batch["model_input"].to(dtype=torch.float32)
+        selected = batch["selected_card_index"].to(dtype=torch.long)
+        legal_mask = batch["legal_play_mask"].to(dtype=torch.bool)
+        reward = batch["terminal_reward"].to(dtype=torch.float32)
+        behavior_log_probability = batch["behavior_log_probability"].to(dtype=torch.float32)
+
+        logits, value_prediction = model.forward_actor_critic(model_input)
+        selected_log_probability = masked_selected_log_probability(
+            logits,
+            selected,
+            legal_mask,
+            temperature=temperature,
+        )
+        actor_loss, value_loss, total_loss = actor_critic_losses(
+            selected_log_probability,
+            reward,
+            value_prediction,
+            value_loss_coefficient=value_loss_coefficient,
+        )
+        accumulator.update(
+            selected_log_probability=selected_log_probability,
+            reward=reward,
+            value_prediction=value_prediction,
+            actor_loss=actor_loss,
+            value_loss=value_loss,
+            total_loss=total_loss,
+            legal_mask=legal_mask,
+            role_index=_role_index_from_model_input(model_input),
+            behavior_log_probability=(
+                behavior_log_probability if require_behavior_parity else None
+            ),
+        )
+
+    if accumulator.sample_count == 0:
+        raise ValueError("self-play dataset contains no training samples.")
+
+    return accumulator
+
+
+def actor_critic_losses(
+    selected_log_probability: Tensor,
+    terminal_reward: Tensor,
+    value_prediction: Tensor,
+    *,
+    value_loss_coefficient: float,
+) -> tuple[Tensor, Tensor, Tensor]:
+    if selected_log_probability.shape != terminal_reward.shape:
+        raise ValueError(
+            "terminal_reward must have the same shape as selected_log_probability: "
+            f"{tuple(terminal_reward.shape)} != {tuple(selected_log_probability.shape)}."
+        )
+    if value_prediction.shape != terminal_reward.shape:
+        raise ValueError(
+            "value_prediction must have the same shape as terminal_reward: "
+            f"{tuple(value_prediction.shape)} != {tuple(terminal_reward.shape)}."
+        )
+    if bool((~((terminal_reward == 1.0) | (terminal_reward == -1.0))).any().item()):
+        raise ValueError("terminal_reward must contain only +1 or -1.")
+    if not math.isfinite(value_loss_coefficient) or value_loss_coefficient < 0.0:
+        raise ValueError(
+            "value_loss_coefficient must be finite and non-negative, "
+            f"got {value_loss_coefficient}."
+        )
+
+    reward = terminal_reward.to(dtype=value_prediction.dtype)
+    advantage = reward - value_prediction
+    actor_loss = -torch.mean(advantage.detach() * selected_log_probability)
+    value_loss = F.mse_loss(value_prediction, reward)
+    total_loss = actor_loss + value_loss_coefficient * value_loss
+    return actor_loss, value_loss, total_loss
+
+
+def load_checkpoint_for_actor_critic(
+    path: Path | str,
+    *,
+    manifest: DatasetManifest,
+) -> _LoadedCheckpoint:
+    checkpoint_path = Path(path)
+    raw = _load_raw_checkpoint(checkpoint_path)
+    checkpoint = cast(dict[str, object], raw)
+    _validate_checkpoint_for_actor_critic(checkpoint, manifest=manifest)
+
+    model_config_raw = checkpoint.get("model_config")
+    if not isinstance(model_config_raw, dict):
+        raise PolicyCheckpointCompatibilityError("checkpoint model_config must be a dictionary.")
+    model_config = PolicyMlpConfig.from_dict(cast(dict[str, Any], model_config_raw))
+
+    architecture = checkpoint.get("model_architecture", POLICY_MODEL_ARCHITECTURE)
+    if architecture == POLICY_MODEL_ARCHITECTURE:
+        policy_model = PolicyMlpModel(model_config)
+        _load_model_state(policy_model, checkpoint)
+        training_model = create_actor_critic_from_policy_model(
+            policy_model,
+            seed=0,
+        )
+        behavior_model: PolicyMlpModel | PolicyActorCriticModel = policy_model
+        migrated = True
+    elif architecture == ACTOR_CRITIC_MODEL_ARCHITECTURE:
+        actor_critic_model = PolicyActorCriticModel(model_config)
+        _load_model_state(actor_critic_model, checkpoint)
+        behavior_model = actor_critic_model
+        training_model = actor_critic_model
+        migrated = False
+    else:
+        raise PolicyCheckpointCompatibilityError(
+            f"checkpoint model_architecture is unsupported: {architecture!r}."
+        )
+
+    return _LoadedCheckpoint(
+        behavior_model=behavior_model,
+        training_model=training_model,
+        checkpoint=checkpoint,
+        sha256=_sha256_file(checkpoint_path),
+        migrated_from_policy=migrated,
+    )
+
+
+def _validate_checkpoint_for_actor_critic(
+    checkpoint: dict[str, object],
+    *,
+    manifest: DatasetManifest,
+) -> None:
+    expected = {
+        "checkpoint_schema_version": CHECKPOINT_SCHEMA_VERSION,
+        "dataset_schema_version": DATASET_SCHEMA_VERSION,
+        "playing_encoder_schema_version": manifest.playing_encoder_schema_version,
+        "model_input_schema_version": MODEL_INPUT_SCHEMA_VERSION,
+        "card_ids_sha256": manifest.card_ids_sha256,
+    }
+    for key, expected_value in expected.items():
+        actual = checkpoint.get(key)
+        if actual != expected_value:
+            raise PolicyCheckpointCompatibilityError(
+                f"checkpoint {key} mismatch: expected {expected_value!r}, got {actual!r}."
+            )
+
+    model_config = checkpoint.get("model_config")
+    if not isinstance(model_config, dict):
+        raise PolicyCheckpointCompatibilityError("checkpoint model_config must be a dictionary.")
+    if model_config.get("input_dim") != MODEL_INPUT_FEATURE_COUNT:
+        raise PolicyCheckpointCompatibilityError(
+            "checkpoint model_config.input_dim mismatch: "
+            f"expected {MODEL_INPUT_FEATURE_COUNT}, got {model_config.get('input_dim')!r}."
+        )
+
+
+def _validate_behavior_metadata(
+    model: PolicyMlpModel | PolicyActorCriticModel,
+    checkpoint: dict[str, object],
+    *,
+    manifest: DatasetManifest,
+) -> None:
+    if manifest.behavior_policy is None:
+        raise ValueError("self-play manifest behaviorPolicy metadata is required.")
+
+    expected_metadata = build_policy_onnx_metadata(model=model, checkpoint=checkpoint)
+    if manifest.behavior_policy.metadata != expected_metadata:
+        raise PolicyCheckpointCompatibilityError(
+            "self-play behaviorPolicy.metadata does not match the input checkpoint. "
+            "このtrajectoryは別policyから生成された可能性がある"
+        )
+
+
+def _assert_behavior_parity(parity: _EvaluationAccumulator) -> None:
+    max_error = parity.max_behavior_error
+    if not math.isfinite(max_error):
+        raise ValueError("behavior log probability parity error is not finite.")
+    if parity.behavior_parity_failed:
+        raise PolicyCheckpointCompatibilityError(
+            "behavior log probability parity failed: "
+            f"max abs error {max_error:.8g} exceeds rtol={BEHAVIOR_LOG_PROB_PARITY_RTOL} "
+            f"and atol={BEHAVIOR_LOG_PROB_PARITY_ATOL}. "
+            "このtrajectoryは別policyから生成された可能性がある"
+        )
+
+
+def _role_index_from_model_input(model_input: Tensor) -> Tensor:
+    if model_input.ndim != 2 or model_input.shape[1] < len(SELF_ROLE_ORDER):
+        raise ValueError("model_input must contain the selfRoleOneHot suffix.")
+    return torch.argmax(model_input[:, -len(SELF_ROLE_ORDER) :], dim=1)
+
+
+def _load_raw_checkpoint(path: Path) -> dict[Any, Any]:
+    try:
+        raw = torch.load(path, map_location="cpu", weights_only=True)
+    except OSError as error:
+        raise PolicyCheckpointCompatibilityError(f"checkpoint cannot be read: {error}") from error
+    except RuntimeError as error:
+        raise PolicyCheckpointCompatibilityError(f"checkpoint cannot be loaded: {error}") from error
+    except pickle.UnpicklingError as error:
+        raise PolicyCheckpointCompatibilityError(f"checkpoint cannot be loaded: {error}") from error
+
+    if not isinstance(raw, dict):
+        raise PolicyCheckpointCompatibilityError("checkpoint must be a dictionary.")
+    return raw
+
+
+def _load_model_state(
+    model: PolicyMlpModel | PolicyActorCriticModel,
+    checkpoint: dict[str, object],
+) -> None:
+    model_state = checkpoint.get("model_state")
+    if not isinstance(model_state, dict):
+        raise PolicyCheckpointCompatibilityError(
+            "checkpoint model_state must be a state dictionary."
+        )
+    try:
+        model.load_state_dict(model_state)
+    except RuntimeError as error:
+        raise PolicyCheckpointCompatibilityError(
+            f"checkpoint model_state is incompatible with model_config: {error}"
+        ) from error
+
+
+def _clone_parameters(model: PolicyActorCriticModel) -> dict[str, Tensor]:
+    return {name: parameter.detach().clone() for name, parameter in model.named_parameters()}
+
+
+def _parameter_delta(
+    before: dict[str, Tensor],
+    model: PolicyActorCriticModel,
+) -> tuple[float, int]:
+    return _parameter_delta_for_prefixes(before, model, prefixes=None)
+
+
+def _parameter_delta_for_prefixes(
+    before: dict[str, Tensor],
+    model: PolicyActorCriticModel,
+    *,
+    prefixes: tuple[str, ...] | None,
+) -> tuple[float, int]:
+    squared_sum = 0.0
+    changed = 0
+    for name, parameter in model.named_parameters():
+        if prefixes is not None and not name.startswith(prefixes):
+            continue
+        diff = parameter.detach() - before[name]
+        squared_sum += float(torch.sum(diff * diff).item())
+        changed += int(torch.ne(parameter.detach(), before[name]).sum().item())
+    return math.sqrt(squared_sum), changed
+
+
+def _build_rl_provenance(
+    *,
+    input_checkpoint_sha256: str,
+    self_play_dataset_directory: Path,
+    manifest: DatasetManifest,
+    settings: ActorCriticTrainSettings,
+    optimizer_step_count: int,
+    sample_count: int,
+    migrated_from_policy: bool,
+) -> dict[str, object]:
+    if manifest.behavior_policy is None or manifest.reward is None:
+        raise ValueError("self-play manifest behaviorPolicy and reward metadata are required.")
+
+    return {
+        "algorithm": ACTOR_CRITIC_ALGORITHM,
+        "parentCheckpointSha256": input_checkpoint_sha256,
+        "selfPlayManifestSha256": _sha256_file(self_play_dataset_directory / "manifest.json"),
+        "behaviorOnnxSha256": manifest.behavior_policy.onnx_sha256,
+        "behaviorMetadataSha256": manifest.behavior_policy.metadata_sha256,
+        "temperature": _require_manifest_temperature(manifest),
+        "reward": {
+            "type": manifest.reward.type,
+            "version": manifest.reward.version,
+        },
+        "optimizer": settings.optimizer,
+        "learningRate": settings.learning_rate,
+        "valueLossCoefficient": settings.value_loss_coefficient,
+        "epochs": settings.epochs,
+        "optimizerSteps": optimizer_step_count,
+        "trainingSeed": settings.seed,
+        "sampleCount": sample_count,
+        "migratedFromPolicyCheckpoint": migrated_from_policy,
+    }
+
+
+def _save_actor_critic_checkpoint(
+    path: Path,
+    *,
+    model: PolicyActorCriticModel,
+    parent_checkpoint: dict[str, object],
+    rl_provenance: dict[str, object],
+    source_checkpoint_sha256: str,
+    migrated_from_policy: bool,
+) -> None:
+    checkpoint = dict(parent_checkpoint)
+    checkpoint["model_architecture"] = ACTOR_CRITIC_MODEL_ARCHITECTURE
+    checkpoint["model_state"] = model.state_dict()
+    checkpoint["model_config"] = model.config.to_dict()
+    checkpoint["rl_provenance"] = rl_provenance
+    if migrated_from_policy:
+        checkpoint["actor_critic_migration_provenance"] = {
+            "migration": "policy-mlp-to-playing-actor-critic-v1",
+            "sourceCheckpointSha256": source_checkpoint_sha256,
+            "sourceModelArchitecture": parent_checkpoint.get(
+                "model_architecture", POLICY_MODEL_ARCHITECTURE
+            ),
+            "targetModelArchitecture": ACTOR_CRITIC_MODEL_ARCHITECTURE,
+            "copiedParameters": ["trunk", "policy_head"],
+            "newParameters": ["value_head"],
+            "policyLogitsPreserved": True,
+        }
+    torch.save(checkpoint, path)
+
+
+def _validate_settings(settings: ActorCriticTrainSettings) -> None:
+    if settings.epochs <= 0:
+        raise ValueError(f"epochs must be positive, got {settings.epochs}.")
+    if settings.batch_size <= 0:
+        raise ValueError(f"batch-size must be positive, got {settings.batch_size}.")
+    if settings.learning_rate <= 0.0:
+        raise ValueError(f"learning-rate must be positive, got {settings.learning_rate}.")
+    if (
+        not math.isfinite(settings.value_loss_coefficient)
+        or settings.value_loss_coefficient < 0.0
+    ):
+        raise ValueError(
+            "value-loss-coefficient must be finite and non-negative, "
+            f"got {settings.value_loss_coefficient}."
+        )
+
+
+def _sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _assert_finite_tensor(value: Tensor, *, label: str) -> None:
+    if bool((~torch.isfinite(value)).any().item()):
+        raise ValueError(f"{label} contains NaN or Infinity.")
+
+
+def _assert_report_finite(report: ActorCriticTrainReport) -> None:
+    def check(value: object, *, path: str) -> None:
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ValueError(f"train report {path} contains NaN or Infinity.")
+        if isinstance(value, dict):
+            for key, child in value.items():
+                check(child, path=f"{path}.{key}")
+        if isinstance(value, list):
+            for index, child in enumerate(value):
+                check(child, path=f"{path}[{index}]")
+
+    data = report.to_dict()
+    check(data, path="report")
+    json.dumps(data)

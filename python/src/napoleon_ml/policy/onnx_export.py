@@ -29,10 +29,10 @@ from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 from napoleon_ml.policy.checkpoint import (
     CHECKPOINT_SCHEMA_VERSION,
     PolicyCheckpointCompatibilityError,
-    load_policy_checkpoint,
+    load_policy_logits_checkpoint,
 )
 from napoleon_ml.policy.metrics import select_policy_action
-from napoleon_ml.policy.model import PolicyMlpModel
+from napoleon_ml.policy.model import PolicyActorCriticModel, PolicyMlpModel
 
 ONNX_INPUT_NAME = "model_input"
 ONNX_OUTPUT_NAME = "logits"
@@ -92,7 +92,7 @@ def export_policy_checkpoint_to_onnx(
         metadata_path=metadata_output,
     )
 
-    model, checkpoint = load_policy_checkpoint(checkpoint_file, manifest=manifest)
+    model, checkpoint = load_policy_logits_checkpoint(checkpoint_file, manifest=manifest)
     _validate_model_for_export(model)
 
     samples = iter_tensorized_samples(dataset_directory, verify_integrity=verify_integrity)
@@ -146,13 +146,13 @@ def export_policy_checkpoint_to_onnx(
 
 def build_policy_onnx_metadata(
     *,
-    model: PolicyMlpModel,
+    model: PolicyMlpModel | PolicyActorCriticModel,
     checkpoint: dict[str, object],
 ) -> dict[str, object]:
     _validate_model_for_export(model)
     _validate_checkpoint_metadata_for_export(checkpoint)
 
-    return {
+    metadata: dict[str, object] = {
         "metadataSchemaVersion": POLICY_ONNX_METADATA_SCHEMA_VERSION,
         "checkpointSchemaVersion": CHECKPOINT_SCHEMA_VERSION,
         "datasetSchemaVersion": DATASET_SCHEMA_VERSION,
@@ -178,6 +178,9 @@ def build_policy_onnx_metadata(
         },
         "policyModel": model.config.to_dict(),
     }
+    if "model_architecture" in checkpoint:
+        metadata["modelArchitecture"] = checkpoint["model_architecture"]
+    return metadata
 
 
 def validate_policy_onnx_metadata(metadata: dict[str, Any]) -> None:
@@ -287,7 +290,7 @@ def _validate_checkpoint_metadata_for_export(checkpoint: dict[str, object]) -> N
             )
 
 
-def _validate_model_for_export(model: PolicyMlpModel) -> None:
+def _validate_model_for_export(model: PolicyMlpModel | PolicyActorCriticModel) -> None:
     if model.config.input_dim != MODEL_INPUT_FEATURE_COUNT:
         raise PolicyCheckpointCompatibilityError(
             "checkpoint model_config.input_dim mismatch: "
@@ -308,7 +311,12 @@ def _validate_model_for_export(model: PolicyMlpModel) -> None:
         )
 
 
-def _export_onnx(*, model: PolicyMlpModel, dummy_input: torch.Tensor, output: Path) -> None:
+def _export_onnx(
+    *,
+    model: PolicyMlpModel | PolicyActorCriticModel,
+    dummy_input: torch.Tensor,
+    output: Path,
+) -> None:
     with redirect_stdout(StringIO()):
         torch.onnx.export(
             model,
@@ -325,7 +333,7 @@ def _export_onnx(*, model: PolicyMlpModel, dummy_input: torch.Tensor, output: Pa
 
 def _check_onnx_runtime_parity(
     *,
-    model: PolicyMlpModel,
+    model: PolicyMlpModel | PolicyActorCriticModel,
     onnx_path: Path,
     sample: TensorizedPlayingSample,
 ) -> _OnnxParityResult:

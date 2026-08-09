@@ -7,6 +7,8 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from napoleon_ml.policy.actor_critic import DEFAULT_VALUE_LOSS_COEFFICIENT
+from napoleon_ml.policy.reinforce import REINFORCE_ALGORITHM
 from napoleon_ml.rl_orchestrator import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_EPOCHS,
@@ -20,6 +22,7 @@ from napoleon_ml.rl_orchestrator import (
     DEFAULT_SELF_PLAY_SEED_BASE,
     DEFAULT_TEMPERATURE,
     DEFAULT_TRAINING_SEED_BASE,
+    PLAYING_RL_ALGORITHMS,
     PlayingRlOrchestratorError,
     PlayingRlRunConfig,
     run_playing_rl_experiment,
@@ -31,7 +34,9 @@ _OPTION_TO_CONFIG_KEY = {
     "--games-per-shard": "gamesPerShard",
     "--self-play-seed-base": "selfPlaySeedBase",
     "--temperature": "temperature",
+    "--algorithm": "algorithm",
     "--learning-rate": "learningRate",
+    "--value-loss-coefficient": "valueLossCoefficient",
     "--epochs": "epochs",
     "--batch-size": "batchSize",
     "--training-seed-base": "trainingSeedBase",
@@ -51,7 +56,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--games-per-shard", type=int, default=DEFAULT_GAMES_PER_SHARD)
     parser.add_argument("--self-play-seed-base", type=int, default=DEFAULT_SELF_PLAY_SEED_BASE)
     parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
+    parser.add_argument(
+        "--algorithm",
+        choices=PLAYING_RL_ALGORITHMS,
+        default=REINFORCE_ALGORITHM,
+    )
     parser.add_argument("--learning-rate", type=float, default=DEFAULT_LEARNING_RATE)
+    parser.add_argument(
+        "--value-loss-coefficient",
+        type=float,
+        default=DEFAULT_VALUE_LOSS_COEFFICIENT,
+    )
     parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS)
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     parser.add_argument("--training-seed-base", type=int, default=DEFAULT_TRAINING_SEED_BASE)
@@ -102,7 +117,9 @@ def _config_from_args(
         games_per_shard=args.games_per_shard,
         self_play_seed_base=args.self_play_seed_base,
         temperature=args.temperature,
+        algorithm=args.algorithm,
         learning_rate=args.learning_rate,
+        value_loss_coefficient=args.value_loss_coefficient,
         epochs=args.epochs,
         batch_size=args.batch_size,
         training_seed_base=args.training_seed_base,

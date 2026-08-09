@@ -21,8 +21,20 @@ from napoleon_ml.dataset.manifest import DatasetManifest
 from napoleon_ml.dataset.pytorch import create_playing_self_play_dataloader
 from napoleon_ml.dataset.reader import iter_raw_samples, load_manifest
 from napoleon_ml.dataset.split import DatasetSplit, SplitConfig
+from napoleon_ml.policy.actor_critic import (
+    ACTOR_CRITIC_ALGORITHM,
+    DEFAULT_VALUE_LOSS_COEFFICIENT,
+    ActorCriticTrainReport,
+    ActorCriticTrainSettings,
+    train_policy_actor_critic,
+)
 from napoleon_ml.policy.onnx_export import export_policy_checkpoint_to_onnx
-from napoleon_ml.policy.reinforce import ReinforceTrainSettings, train_policy_reinforce
+from napoleon_ml.policy.reinforce import (
+    REINFORCE_ALGORITHM,
+    ReinforceTrainReport,
+    ReinforceTrainSettings,
+    train_policy_reinforce,
+)
 
 ORCHESTRATOR_SCHEMA_VERSION = 1
 DEFAULT_ITERATIONS = 100
@@ -37,6 +49,7 @@ DEFAULT_TRAINING_SEED_BASE = 2_000_000_000
 DEFAULT_EVALUATION_INTERVAL = 10
 DEFAULT_EVALUATION_START_SEED = 1_000_000_000
 DEFAULT_EVALUATION_SEED_COUNT = 100
+PLAYING_RL_ALGORITHMS = (REINFORCE_ALGORITHM, ACTOR_CRITIC_ALGORITHM)
 
 
 @dataclass(frozen=True)
@@ -49,7 +62,9 @@ class PlayingRlRunConfig:
     games_per_shard: int = DEFAULT_GAMES_PER_SHARD
     self_play_seed_base: int = DEFAULT_SELF_PLAY_SEED_BASE
     temperature: float = DEFAULT_TEMPERATURE
+    algorithm: str = REINFORCE_ALGORITHM
     learning_rate: float = DEFAULT_LEARNING_RATE
+    value_loss_coefficient: float = DEFAULT_VALUE_LOSS_COEFFICIENT
     epochs: int = DEFAULT_EPOCHS
     batch_size: int = DEFAULT_BATCH_SIZE
     training_seed_base: int = DEFAULT_TRAINING_SEED_BASE
@@ -68,7 +83,9 @@ class PlayingRlRunConfig:
             games_per_shard=self.games_per_shard,
             self_play_seed_base=self.self_play_seed_base,
             temperature=self.temperature,
+            algorithm=self.algorithm,
             learning_rate=self.learning_rate,
+            value_loss_coefficient=self.value_loss_coefficient,
             epochs=self.epochs,
             batch_size=self.batch_size,
             training_seed_base=self.training_seed_base,
@@ -91,7 +108,9 @@ class PlayingRlRunConfig:
             "gamesPerShard": self.games_per_shard,
             "selfPlaySeedBase": self.self_play_seed_base,
             "temperature": self.temperature,
+            "algorithm": self.algorithm,
             "learningRate": self.learning_rate,
+            "valueLossCoefficient": self.value_loss_coefficient,
             "epochs": self.epochs,
             "batchSize": self.batch_size,
             "trainingSeedBase": self.training_seed_base,
@@ -249,37 +268,62 @@ def _run_iteration(
         flush=True,
     )
 
-    print(f"[iter {iteration}/{total}] reinforce", flush=True)
+    print(f"[iter {iteration}/{total}] {config.algorithm}", flush=True)
     training_seed = _training_seed(config, iteration)
     configure_reproducibility(training_seed)
-    settings = ReinforceTrainSettings(
-        seed=training_seed,
-        epochs=config.epochs,
-        batch_size=config.batch_size,
-        learning_rate=config.learning_rate,
-        verify_integrity=True,
-    )
     dataloader = create_playing_self_play_dataloader(
         self_play_dir,
         split=DatasetSplit.TRAIN,
         split_config=SplitConfig(train=100, validation=0, test=0),
-        batch_size=settings.batch_size,
+        batch_size=config.batch_size,
         verify_integrity=True,
     )
-    report = train_policy_reinforce(
-        input_checkpoint=input_checkpoint,
-        self_play_dataset_directory=self_play_dir,
-        output_checkpoint=output_checkpoint,
-        manifest=manifest,
-        dataloader=dataloader,
-        settings=settings,
-    )
+    report: ActorCriticTrainReport | ReinforceTrainReport
+    if config.algorithm == ACTOR_CRITIC_ALGORITHM:
+        actor_critic_settings = ActorCriticTrainSettings(
+            seed=training_seed,
+            epochs=config.epochs,
+            batch_size=config.batch_size,
+            learning_rate=config.learning_rate,
+            value_loss_coefficient=config.value_loss_coefficient,
+            verify_integrity=True,
+        )
+        report = train_policy_actor_critic(
+            input_checkpoint=input_checkpoint,
+            self_play_dataset_directory=self_play_dir,
+            output_checkpoint=output_checkpoint,
+            manifest=manifest,
+            dataloader=dataloader,
+            settings=actor_critic_settings,
+        )
+    else:
+        reinforce_settings = ReinforceTrainSettings(
+            seed=training_seed,
+            epochs=config.epochs,
+            batch_size=config.batch_size,
+            learning_rate=config.learning_rate,
+            verify_integrity=True,
+        )
+        report = train_policy_reinforce(
+            input_checkpoint=input_checkpoint,
+            self_play_dataset_directory=self_play_dir,
+            output_checkpoint=output_checkpoint,
+            manifest=manifest,
+            dataloader=dataloader,
+            settings=reinforce_settings,
+        )
     if report.optimizer_step_count <= 0:
         raise PlayingRlOrchestratorError("optimizerStepCount must be > 0.")
     if report.parameter_delta_norm <= 0:
         raise PlayingRlOrchestratorError("parameterDeltaNorm must be > 0.")
     if report.changed_parameter_count <= 0:
         raise PlayingRlOrchestratorError("changedParameterCount must be > 0.")
+    if config.algorithm == ACTOR_CRITIC_ALGORITHM:
+        actor_critic_report = cast(ActorCriticTrainReport, report)
+        if actor_critic_report.critic_parameter_delta_norm <= 0:
+            raise PlayingRlOrchestratorError("criticParameterDeltaNorm must be > 0.")
+        if actor_critic_report.changed_critic_parameter_count <= 0:
+            raise PlayingRlOrchestratorError("changedCriticParameterCount must be > 0.")
 
     output_checkpoint_sha256 = sha256_file(output_checkpoint)
     train_report = report.to_dict()
@@ -289,6 +333,7 @@ def _run_iteration(
         "schemaVersion": ORCHESTRATOR_SCHEMA_VERSION,
         "completionState": "completed",
         "iteration": iteration,
+        "algorithm": config.algorithm,
         "inputGeneration": iteration,
         "outputGeneration": iteration + 1,
         "inputCheckpointPath": str(input_checkpoint),
@@ -304,6 +349,9 @@ def _run_iteration(
         "gameCount": manifest.game_count,
         "sampleCount": manifest.sample_count,
         "trainingSeed": training_seed,
+        "valueLossCoefficient": (
+            config.value_loss_coefficient if config.algorithm == ACTOR_CRITIC_ALGORITHM else None
+        ),
         "optimizerStepCount": report.optimizer_step_count,
         "parameterDeltaNorm": report.parameter_delta_norm,
         "changedParameterCount": report.changed_parameter_count,
@@ -316,6 +364,7 @@ def _run_iteration(
 
     summary = {
         "iteration": iteration,
+        "algorithm": config.algorithm,
         "selfPlayGameCount": manifest.game_count,
         "sampleCount": manifest.sample_count,
         "positiveRewardCount": report.positive_reward_count,
@@ -324,8 +373,6 @@ def _run_iteration(
         "forcedSampleCount": report.forced_sample_count,
         "nonForcedSampleCount": report.non_forced_sample_count,
         "optimizerStepCount": report.optimizer_step_count,
-        "meanPolicyLossBefore": report.mean_policy_loss_before,
-        "meanPolicyLossAfter": report.mean_policy_loss_after,
         "meanSelectedLogProbabilityBefore": report.mean_selected_log_probability_before,
         "meanSelectedLogProbabilityAfter": report.mean_selected_log_probability_after,
         "maxBehaviorLogProbabilityParityError": (
@@ -337,6 +384,42 @@ def _run_iteration(
         "behaviorOnnxSha256": behavior_onnx_sha256,
         "outputCheckpointSha256": output_checkpoint_sha256,
     }
+    if config.algorithm == ACTOR_CRITIC_ALGORITHM:
+        actor_critic_report = cast(ActorCriticTrainReport, report)
+        summary.update(
+            {
+                "actorLossBefore": actor_critic_report.actor_loss_before,
+                "actorLossAfter": actor_critic_report.actor_loss_after,
+                "valueLossBefore": actor_critic_report.value_loss_before,
+                "valueLossAfter": actor_critic_report.value_loss_after,
+                "totalLossBefore": actor_critic_report.total_loss_before,
+                "totalLossAfter": actor_critic_report.total_loss_after,
+                "meanValuePredictionBefore": (
+                    actor_critic_report.mean_value_prediction_before
+                ),
+                "meanValuePredictionAfter": actor_critic_report.mean_value_prediction_after,
+                "meanAdvantageBefore": actor_critic_report.mean_advantage_before,
+                "meanAdvantageAfter": actor_critic_report.mean_advantage_after,
+                "advantageStdBefore": actor_critic_report.advantage_std_before,
+                "advantageStdAfter": actor_critic_report.advantage_std_after,
+                "actorParameterDeltaNorm": actor_critic_report.actor_parameter_delta_norm,
+                "criticParameterDeltaNorm": actor_critic_report.critic_parameter_delta_norm,
+                "changedActorParameterCount": (
+                    actor_critic_report.changed_actor_parameter_count
+                ),
+                "changedCriticParameterCount": (
+                    actor_critic_report.changed_critic_parameter_count
+                ),
+            }
+        )
+    else:
+        reinforce_report = cast(ReinforceTrainReport, report)
+        summary.update(
+            {
+                "meanPolicyLossBefore": reinforce_report.mean_policy_loss_before,
+                "meanPolicyLossAfter": reinforce_report.mean_policy_loss_after,
+            }
+        )
     append_jsonl(config.run_directory / "summary.jsonl", summary)
     state = _write_state(
         config,
@@ -835,12 +918,13 @@ def _validate_resume_config(
     always_check = {
         "initialCheckpointSha256",
         "supervisedManifestSha256",
+        "algorithm",
     }
     for key in always_check | provided_config_keys:
-        if requested_config.get(key) != stored_config.get(key):
+        if requested_config.get(key) != _stored_config_value(stored_config, key):
             raise PlayingRlOrchestratorError(
                 f"resume config mismatch for {key}: "
-                f"{requested_config.get(key)!r} != {stored_config.get(key)!r}"
+                f"{requested_config.get(key)!r} != {_stored_config_value(stored_config, key)!r}"
             )
 
 
@@ -858,7 +942,11 @@ def _config_from_file_dict(
         games_per_shard=_required_int(data["gamesPerShard"]),
         self_play_seed_base=_required_int(data["selfPlaySeedBase"]),
         temperature=_required_float(data["temperature"]),
+        algorithm=_required_str(_stored_config_value(data, "algorithm")),
         learning_rate=_required_float(data["learningRate"]),
+        value_loss_coefficient=_required_float(
+            _stored_config_value(data, "valueLossCoefficient")
+        ),
         epochs=_required_int(data["epochs"]),
         batch_size=_required_int(data["batchSize"]),
         training_seed_base=_required_int(data["trainingSeedBase"]),
@@ -886,8 +974,20 @@ def _validate_config(config: PlayingRlRunConfig) -> None:
         raise PlayingRlOrchestratorError("games_per_shard must be <= games_per_iteration.")
     if config.temperature <= 0 or not math.isfinite(config.temperature):
         raise PlayingRlOrchestratorError("temperature must be finite and positive.")
+    if config.algorithm not in PLAYING_RL_ALGORITHMS:
+        raise PlayingRlOrchestratorError(
+            "algorithm must be one of "
+            f"{', '.join(PLAYING_RL_ALGORITHMS)}, got {config.algorithm!r}."
+        )
     if config.learning_rate <= 0 or not math.isfinite(config.learning_rate):
         raise PlayingRlOrchestratorError("learning_rate must be finite and positive.")
+    if (
+        not math.isfinite(config.value_loss_coefficient)
+        or config.value_loss_coefficient < 0.0
+    ):
+        raise PlayingRlOrchestratorError(
+            "value_loss_coefficient must be finite and non-negative."
+        )
 
     self_play_start = config.self_play_seed_base
     self_play_end = config.self_play_seed_base + config.iterations * config.games_per_iteration - 1
@@ -1040,6 +1140,16 @@ def _load_json_object(path: Path) -> dict[str, object]:
     if not isinstance(parsed, dict):
         raise PlayingRlOrchestratorError(f"JSON file must contain an object: {path}")
     return cast(dict[str, object], parsed)
+
+
+def _stored_config_value(data: Mapping[str, object], key: str) -> object:
+    if key in data:
+        return data[key]
+    if key == "algorithm":
+        return REINFORCE_ALGORITHM
+    if key == "valueLossCoefficient":
+        return DEFAULT_VALUE_LOSS_COEFFICIENT
+    raise KeyError(key)
 
 
 def _object(value: object) -> dict[str, object]:
