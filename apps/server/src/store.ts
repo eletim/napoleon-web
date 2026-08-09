@@ -4,7 +4,7 @@ import type { CreateGameAgentSelection } from "@napoleon/protocol";
 import { randomUUID } from "node:crypto";
 import {
   RULE_BASED_AGENT_ID,
-  createAgentRegistryFromEnvironment,
+  createAgentRegistry,
   type AgentRegistry
 } from "./agentRegistry.js";
 
@@ -34,7 +34,7 @@ export class InvalidAgentSelectionError extends Error {
   }
 }
 
-const defaultAgentRegistry = createAgentRegistryFromEnvironment();
+const defaultAgentRegistry = createAgentRegistry();
 
 export function createAgentConfiguration(
   playerIds: readonly PlayerId[],

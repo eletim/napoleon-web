@@ -413,6 +413,62 @@ describe("server API", () => {
     expect(body.error.code).toBe("UNKNOWN_AGENT_ID");
   });
 
+  it("rejects malformed game creation requests", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games",
+      payload: {
+        aiAgents: "rule-based"
+      }
+    });
+    const body = response.json<ApiError>();
+
+    expect(response.statusCode).toBe(400);
+    expect(body.error.code).toBe("INVALID_CREATE_GAME_REQUEST");
+  });
+
+  it("rejects AI selections for non-AI seats", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games",
+      payload: {
+        aiAgents: [
+          {
+            playerId: "player-0",
+            agentId: RULE_BASED_AGENT_ID
+          }
+        ]
+      }
+    });
+    const body = response.json<ApiError>();
+
+    expect(response.statusCode).toBe(400);
+    expect(body.error.code).toBe("INVALID_AGENT_SELECTION");
+  });
+
+  it("rejects repeated AI seat selections", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games",
+      payload: {
+        aiAgents: [
+          {
+            playerId: "player-1",
+            agentId: RULE_BASED_AGENT_ID
+          },
+          {
+            playerId: "player-1",
+            agentId: RULE_BASED_AGENT_ID
+          }
+        ]
+      }
+    });
+    const body = response.json<ApiError>();
+
+    expect(response.statusCode).toBe(400);
+    expect(body.error.code).toBe("INVALID_AGENT_SELECTION");
+  });
+
   it("rejects unavailable learned agents during game creation", async () => {
     const response = await app.inject({
       method: "POST",
