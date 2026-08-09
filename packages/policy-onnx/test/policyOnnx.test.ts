@@ -38,7 +38,7 @@ describe("policy ONNX metadata", () => {
     expect(parsePolicyOnnxMetadata(JSON.stringify(metadata))).toEqual(metadata);
 
     expect(() =>
-      parsePolicyOnnxMetadata(JSON.stringify({ ...metadata, modelInputSchemaVersion: 2 }))
+      parsePolicyOnnxMetadata(JSON.stringify({ ...metadata, modelInputSchemaVersion: 1 }))
     ).toThrow(/modelInputSchemaVersion/);
     expect(() =>
       parsePolicyOnnxMetadata(
@@ -472,8 +472,8 @@ function createMetadata() {
     metadataSchemaVersion: 1,
     checkpointSchemaVersion: 1,
     datasetSchemaVersion: 1,
-    playingEncoderSchemaVersion: 1,
-    modelInputSchemaVersion: 1,
+    playingEncoderSchemaVersion: 2,
+    modelInputSchemaVersion: 2,
     cardIdsSha256: calculateCardIdsSha256(),
     onnx: {
       opsetVersion: ONNX_OPSET_VERSION,

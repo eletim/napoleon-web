@@ -202,7 +202,7 @@ lengths are:
 
 | Sample type | Tensorized dataclass | `model_input` shape |
 | --- | --- | --- |
-| `playing-training-sample` | `TensorizedPlayingSample` | `(6242,)` |
+| `playing-training-sample` | `TensorizedPlayingSample` | `(6246,)` |
 | `bidding-training-sample` | `TensorizedBiddingSample` | `(2333,)` |
 | `exchange-training-sample` | `TensorizedExchangeSample` | `(2611,)` |
 | `adjutant-training-sample` | `TensorizedAdjutantSample` | `(2553,)` |
@@ -215,7 +215,7 @@ For playing, `tensorize_sample()` returns a `TensorizedPlayingSample`:
 | Field | Shape | dtype |
 | --- | --- | --- |
 | `flat_observation` | `(684,)` | `float32` |
-| `model_input` | `(6242,)` | `float32` |
+| `model_input` | `(6246,)` | `float32` |
 | `legal_play_mask` | `(53,)` | `uint8` |
 | `actor_target` | scalar | `int64` |
 | `belief_target` | `(53,)` | `int64` |
@@ -279,7 +279,7 @@ The appended block, in order, one-hot encodes:
 | `biddingHistorySuitIndicesOneHot` | `(117, 4)` | suit, 0–3 |
 | `biddingHistoryTargetPointCardsOneHot` | `(117, 7)` | target point cards, 13–19 |
 
-684 + (4 + 5 + 50) × 53 + (5 + 50 + 10) × 5 + 117 × (2 + 5 + 4 + 7) = 6242.
+684 + (4 + 5 + 50) * 53 + (5 + 50 + 10) * 5 + 117 * (2 + 5 + 4 + 7) + 4 = 6246.
 
 An empty slot one-hot-encodes to an all-zero region, never to a one-hot at
 some placeholder class — so "no value" can never be mistaken for a real
@@ -307,8 +307,9 @@ hidden-ownership ground truth — including a real player's hand would leak
 information no player can actually observe).
 
 `napoleon_ml.dataset.tensors.MODEL_INPUT_LAYOUT` is
-`FLAT_OBSERVATION_LAYOUT` followed by the ten slices above (also available
-alone as `MODEL_INPUT_ONEHOT_LAYOUT`), covering all 6242 positions of
+`FLAT_OBSERVATION_LAYOUT` followed by the ten slices above and the
+`selfRoleOneHot` role vector (also available alone as
+`MODEL_INPUT_ONEHOT_LAYOUT`), covering all 6246 positions of
 `model_input` with no gap, overlap, or duplicate name (checked at import
 time, same as `FLAT_OBSERVATION_LAYOUT`):
 
@@ -399,7 +400,7 @@ Each batch is a dictionary of PyTorch tensors with fixed shapes and dtypes:
 
 | Field | Batch shape | dtype |
 | --- | --- | --- |
-| `model_input` | `(batch, 6242)` | `torch.float32` |
+| `model_input` | `(batch, 6246)` | `torch.float32` |
 | `actor_target` | `(batch,)` | `torch.int64` |
 | `legal_play_mask` | `(batch, 53)` | `torch.bool` |
 | `belief_target` | `(batch, 53)` | `torch.int64` |
@@ -641,7 +642,7 @@ napoleon-export-policy-onnx ./datasets/rule-based-v1 \
   --metadata-output ./models/policy-mlp.json
 ```
 
-The ONNX model has one input named `model_input` with shape `(batch, 6242)`
+The ONNX model has one input named `model_input` with shape `(batch, 6246)`
 and dtype `float32`, and one output named `logits` with shape `(batch, 53)`
 and dtype `float32`; the batch dimension is dynamic. The JSON metadata records
 the dataset schema version, playing encoder schema version, model input schema

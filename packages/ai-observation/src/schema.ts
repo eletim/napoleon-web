@@ -4,11 +4,11 @@ import {
 } from "@napoleon/game-core";
 import type { Suit } from "@napoleon/game-core";
 
-export const PLAYING_ENCODER_SCHEMA_VERSION = 1 as const;
+export const PLAYING_ENCODER_SCHEMA_VERSION = 2 as const;
 export const BIDDING_ENCODER_SCHEMA_VERSION = 1 as const;
 export const EXCHANGE_ENCODER_SCHEMA_VERSION = 1 as const;
 export const ADJUTANT_ENCODER_SCHEMA_VERSION = 1 as const;
-export const MODEL_INPUT_SCHEMA_VERSION = 1 as const;
+export const MODEL_INPUT_SCHEMA_VERSION = 2 as const;
 export const BIDDING_MODEL_INPUT_SCHEMA_VERSION = 1 as const;
 export const EXCHANGE_MODEL_INPUT_SCHEMA_VERSION = 1 as const;
 export const ADJUTANT_MODEL_INPUT_SCHEMA_VERSION = 1 as const;
@@ -21,6 +21,14 @@ export const CARDS_PER_TRICK = 5;
 export const EMPTY_CARD_INDEX = -1;
 export const EMPTY_PLAYER_INDEX = -1;
 export const NOT_IN_HAND_CLASS_INDEX = 5;
+
+export const SELF_ROLE_ORDER = [
+  "napoleon",
+  "adjutant",
+  "alliance",
+  "napoleon-solo"
+] as const;
+export const SELF_ROLE_COUNT = SELF_ROLE_ORDER.length;
 
 export const BIDDING_HISTORY_SUIT_ORDER: readonly Suit[] = [
   "spades",
@@ -47,7 +55,7 @@ export const MAX_BIDDING_ACTION_COUNT =
   PLAYER_COUNT + BIDDING_BID_ACTION_COUNT * (PLAYER_COUNT - 1);
 
 export const FLAT_OBSERVATION_FEATURE_COUNT = 684 as const;
-export const MODEL_INPUT_FEATURE_COUNT = 6242 as const;
+export const MODEL_INPUT_FEATURE_COUNT = 6246 as const;
 export const BIDDING_MODEL_INPUT_FEATURE_COUNT = 2333 as const;
 export const EXCHANGE_MODEL_INPUT_FEATURE_COUNT = 2611 as const;
 export const ADJUTANT_MODEL_INPUT_FEATURE_COUNT = 2553 as const;

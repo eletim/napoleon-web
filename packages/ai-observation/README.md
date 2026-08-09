@@ -176,11 +176,11 @@ Missing card and player slots use `-1` with a companion slot mask of `0`.
 ## Model Input
 
 `encodePlayingModelInput()` converts an encoded playing observation into the
-existing policy `model_input` vector. The output is a `Float32Array` with 6242
-features: the 684-feature flat observation first, then the card/player/bidding
-index fields one-hot encoded in the same order as the Python
-`napoleon_ml.dataset.tensors.MODEL_INPUT_LAYOUT` schema. Empty index slots encode
-as all-zero rows.
+policy `model_input` vector. The output is a `Float32Array` with 6246 features:
+the 684-feature flat observation first, then the card/player/bidding index
+fields one-hot encoded in the same order as the Python
+`napoleon_ml.dataset.tensors.MODEL_INPUT_LAYOUT` schema, followed by the
+4-feature `selfRoleOneHot` vector. Empty index slots encode as all-zero rows.
 
 The non-playing phases expose the same API shape:
 

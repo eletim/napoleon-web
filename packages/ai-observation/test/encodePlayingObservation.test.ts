@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { RuleBasedAgent, runAutomatedGame } from "@napoleon/ai";
+import { createDeck, createPlayerView, getLegalActions } from "@napoleon/game-core";
+import type { AdjutantState, GameState, PlayerId } from "@napoleon/game-core";
 import {
   BIDDING_ACTION_TYPE_BID,
   BIDDING_ACTION_TYPE_PASS,
@@ -10,6 +12,7 @@ import {
   EMPTY_PLAYER_INDEX,
   PLAYER_COUNT,
   PLAYING_ENCODER_SCHEMA_VERSION,
+  SELF_ROLE_ORDER,
   TRICK_COUNT,
   createEmptyEncodedBiddingHistory,
   createPlayingTrainingSample,
@@ -35,6 +38,7 @@ describe("encodePlayingObservation", () => {
     expect(encoded.trumpSuitOneHot).toHaveLength(4);
     expect(encoded.napoleonPlayerOneHot).toHaveLength(PLAYER_COUNT);
     expect(encoded.revealedAdjutantPlayerOneHot).toHaveLength(PLAYER_COUNT + 1);
+    expect(encoded.selfRoleOneHot).toHaveLength(SELF_ROLE_ORDER.length);
     expect(encoded.calledAdjutantCardMask).toHaveLength(CARD_COUNT);
     expect(encoded.selfHandMask).toHaveLength(CARD_COUNT);
     expect(encoded.legalPlayMask).toHaveLength(CARD_COUNT);
@@ -50,6 +54,68 @@ describe("encodePlayingObservation", () => {
     expect(encoded.completedTrickMask).toHaveLength(TRICK_COUNT);
     expect(encoded.latestBuriedEventPointCardMask).toHaveLength(CARD_COUNT);
     validateEncodedPlayingObservation(encoded);
+  });
+
+  it("encodes exactly one stable self role without exposing opponent hidden ownership", () => {
+    const cases: readonly {
+      name: string;
+      playerId: PlayerId;
+      adjutant: AdjutantState;
+      expectedRole: typeof SELF_ROLE_ORDER[number];
+    }[] = [
+      {
+        name: "Napoleon",
+        playerId: "player-0",
+        adjutant: { calledCardId: "spades-A", playerId: "player-1", revealed: false },
+        expectedRole: "napoleon"
+      },
+      {
+        name: "Adjutant before reveal",
+        playerId: "player-1",
+        adjutant: { calledCardId: "spades-A", playerId: "player-1", revealed: false },
+        expectedRole: "adjutant"
+      },
+      {
+        name: "Adjutant after reveal",
+        playerId: "player-1",
+        adjutant: { calledCardId: "spades-A", playerId: "player-1", revealed: true },
+        expectedRole: "adjutant"
+      },
+      {
+        name: "Alliance",
+        playerId: "player-2",
+        adjutant: { calledCardId: "spades-A", playerId: "player-1", revealed: false },
+        expectedRole: "alliance"
+      },
+      {
+        name: "Napoleon-solo",
+        playerId: "player-0",
+        adjutant: { calledCardId: "spades-A", playerId: null, revealed: false },
+        expectedRole: "napoleon-solo"
+      }
+    ];
+
+    for (const testCase of cases) {
+      const encoded = encodeFixtureObservation(testCase.playerId, testCase.adjutant);
+      const expectedIndex = SELF_ROLE_ORDER.indexOf(testCase.expectedRole);
+
+      expect(encoded.selfRoleOneHot, testCase.name).toEqual(
+        SELF_ROLE_ORDER.map((_, index) => (index === expectedIndex ? 1 : 0))
+      );
+      expect(sum(encoded.selfRoleOneHot), testCase.name).toBe(1);
+    }
+
+    const beforeReveal = encodeFixtureObservation("player-1", {
+      calledCardId: "spades-A",
+      playerId: "player-1",
+      revealed: false
+    });
+    const afterReveal = encodeFixtureObservation("player-1", {
+      calledCardId: "spades-A",
+      playerId: "player-1",
+      revealed: true
+    });
+    expect(afterReveal.selfRoleOneHot).toEqual(beforeReveal.selfRoleOneHot);
   });
 
   it("preserves current trick order and empty slots", async () => {
@@ -317,6 +383,56 @@ describe("encodePlayingObservation", () => {
     }, "targetPointCards");
   });
 });
+
+function encodeFixtureObservation(
+  playerId: PlayerId,
+  adjutant: AdjutantState
+): EncodedPlayingObservation {
+  const state = createPlayingFixtureState(playerId, adjutant);
+  const view = createPlayerView(state, playerId);
+  return encodePlayingObservation(
+    {
+      playerId,
+      view,
+      legalActions: getLegalActions(state, playerId)
+    },
+    state.players.map((player) => player.id),
+    createEmptyEncodedBiddingHistory()
+  );
+}
+
+function createPlayingFixtureState(currentPlayerId: PlayerId, adjutant: AdjutantState): GameState {
+  const deck = createDeck();
+  const playerIds = ["player-0", "player-1", "player-2", "player-3", "player-4"];
+  const players = playerIds.map((id, index) => ({
+    id,
+    hand: deck.slice(index * 10, index * 10 + 10)
+  }));
+
+  return {
+    players,
+    phase: "playing",
+    currentPlayerId,
+    currentTrick: [],
+    completedTricks: [],
+    trumpSuit: "spades",
+    contract: {
+      napoleonPlayerId: "player-0",
+      trumpSuit: "spades",
+      targetPointCards: 12
+    },
+    adjutant,
+    bidding: null,
+    awardedPointCards: [],
+    excludedCards: deck.slice(50, 53),
+    latestEvent: null,
+    result: null,
+    trickNumber: 1,
+    isTrickComplete: false,
+    isGameOver: false,
+    unusedCards: []
+  };
+}
 
 async function getFirstPlayingDecision(seed: number) {
   const record = await runAutomatedGame({

@@ -10,6 +10,7 @@ import {
   MODEL_INPUT_SCHEMA_VERSION,
   PLAYER_COUNT,
   PLAYING_ENCODER_SCHEMA_VERSION,
+  SELF_ROLE_ORDER,
   createPlayingModelInput,
   createRelativePlayerOrder,
   encodeBiddingHistory,
@@ -30,7 +31,7 @@ import { createJsonlShardWriter, type JsonlShardWriter } from "./shardWriter.js"
 import { calculateCardIdsSha256, serializeManifest } from "./serialization.js";
 
 export const PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE = "playing-self-play-sample" as const;
-export const PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION = 1 as const;
+export const PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION = 2 as const;
 export const PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION = 3 as const;
 export const PLAYING_SELF_PLAY_DATASET_GENERATOR_VERSION = 1 as const;
 export const PLAYING_SELF_PLAY_REWARD_TYPE = "terminal-team-win" as const;
@@ -38,7 +39,7 @@ export const PLAYING_SELF_PLAY_REWARD_VERSION = 1 as const;
 export const PLAYING_SELF_PLAY_SAMPLING_ALGORITHM = "masked-categorical" as const;
 export const DEFAULT_PLAYING_SELF_PLAY_TEMPERATURE = 1.0 as const;
 
-export type PlayingSelfPlayRole = "napoleon" | "adjutant" | "alliance";
+export type PlayingSelfPlayRole = typeof SELF_ROLE_ORDER[number];
 
 export interface PlayingSelfPlayOutcome {
   winner: WinningTeam;
@@ -314,6 +315,13 @@ export function validatePlayingSelfPlaySample(
   }
   if (sample.terminalReward !== 1 && sample.terminalReward !== -1) {
     throw new Error("terminalReward must be +1 or -1.");
+  }
+  if (!SELF_ROLE_ORDER.includes(sample.outcome.actingPlayerRole)) {
+    throw new Error("outcome.actingPlayerRole is invalid.");
+  }
+  const roleIndex = sample.observation.selfRoleOneHot.indexOf(1);
+  if (sample.outcome.actingPlayerRole !== SELF_ROLE_ORDER[roleIndex]) {
+    throw new Error("outcome.actingPlayerRole must match observation.selfRoleOneHot.");
   }
   if (sample.outcome.actingPlayerTeam === sample.outcome.winner && sample.terminalReward !== 1) {
     throw new Error("Winning team samples must have terminalReward +1.");
@@ -670,7 +678,7 @@ function getPlayerTeam(playerId: PlayerId, result: AutomatedGameRecord["result"]
 
 function getPlayerRole(playerId: PlayerId, result: AutomatedGameRecord["result"]): PlayingSelfPlayRole {
   if (playerId === result.napoleonPlayerId) {
-    return "napoleon";
+    return result.adjutantPlayerId === null ? "napoleon-solo" : "napoleon";
   }
   if (result.adjutantPlayerId !== null && playerId === result.adjutantPlayerId) {
     return "adjutant";

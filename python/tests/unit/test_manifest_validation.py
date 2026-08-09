@@ -23,7 +23,7 @@ def _valid_manifest_dict() -> dict[str, Any]:
     return {
         "datasetSchemaVersion": 1,
         "generatorVersion": 1,
-        "playingEncoderSchemaVersion": 1,
+        "playingEncoderSchemaVersion": 2,
         "format": "jsonl",
         "sampleType": "playing-training-sample",
         "agent": {"type": "rule-based", "version": 1},
@@ -68,9 +68,9 @@ def _valid_self_play_manifest_dict() -> dict[str, Any]:
             "datasetSchemaVersion": 3,
             "generatorVersion": 1,
             "sampleType": "playing-self-play-sample",
-            "sampleSchemaVersion": 1,
-            "playingEncoderSchemaVersion": 1,
-            "playingModelInputSchemaVersion": 1,
+            "sampleSchemaVersion": 2,
+            "playingEncoderSchemaVersion": 2,
+            "playingModelInputSchemaVersion": 2,
             "behaviorPolicy": {
                 "type": "playing-onnx",
                 "artifactId": "policy-fixture",
@@ -126,9 +126,9 @@ def test_self_play_manifest_v3_passes() -> None:
 
     assert manifest.dataset_schema_version == 3
     assert manifest.sample_type == "playing-self-play-sample"
-    assert manifest.sample_schema_version == 1
-    assert manifest.playing_encoder_schema_version == 1
-    assert manifest.playing_model_input_schema_version == 1
+    assert manifest.sample_schema_version == 2
+    assert manifest.playing_encoder_schema_version == 2
+    assert manifest.playing_model_input_schema_version == 2
     assert manifest.agent is None
     assert manifest.behavior_policy is not None
     assert manifest.behavior_policy.artifact_id == "policy-fixture"
@@ -141,8 +141,8 @@ def test_self_play_manifest_v3_passes() -> None:
 @pytest.mark.parametrize(
     ("mutate", "message"),
     [
-        (lambda raw: raw.update({"sampleSchemaVersion": 2}), "sampleSchemaVersion"),
-        (lambda raw: raw.update({"playingModelInputSchemaVersion": 2}), "ModelInput"),
+        (lambda raw: raw.update({"sampleSchemaVersion": 1}), "sampleSchemaVersion"),
+        (lambda raw: raw.update({"playingModelInputSchemaVersion": 1}), "ModelInput"),
         (lambda raw: raw.update({"samplingAlgorithm": "greedy"}), "samplingAlgorithm"),
         (lambda raw: raw.update({"temperature": 0}), "temperature"),
         (lambda raw: raw["behaviorPolicy"].update({"onnxSha256": "not-a-hash"}), "onnxSha256"),
@@ -178,7 +178,7 @@ def test_generator_version_mismatch_rejected() -> None:
 
 def test_encoder_version_mismatch_rejected() -> None:
     raw = _valid_manifest_dict()
-    raw["playingEncoderSchemaVersion"] = 2
+    raw["playingEncoderSchemaVersion"] = 1
 
     with pytest.raises(ManifestValidationError, match="playingEncoderSchemaVersion"):
         _parse_and_validate(raw)

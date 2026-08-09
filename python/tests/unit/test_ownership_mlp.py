@@ -49,7 +49,7 @@ def _write_dataset(directory: Path, *, seeds: tuple[int, ...]) -> None:
     manifest = {
         "datasetSchemaVersion": 1,
         "generatorVersion": 1,
-        "playingEncoderSchemaVersion": 1,
+        "playingEncoderSchemaVersion": 2,
         "format": "jsonl",
         "sampleType": "playing-training-sample",
         "agent": {"type": "rule-based", "version": 1},

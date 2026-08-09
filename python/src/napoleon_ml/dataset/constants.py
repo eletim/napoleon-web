@@ -1,4 +1,4 @@
-"""Schema-v1 fixed values mirrored from the TypeScript source of truth.
+"""Fixed schema values mirrored from the TypeScript source of truth.
 
 Every value in this module is copied from a specific TypeScript file rather
 than re-derived, so a schema change on the TypeScript side is a merge
@@ -8,9 +8,10 @@ conflict here instead of a silent divergence. The TypeScript sources are:
 - ``packages/ai-observation/src/cardIndex.ts``
 - ``packages/training-data/src/schema.ts``
 
-Do not add a new schema version's values to this module. When schema v2
-ships on the TypeScript side, add a parallel ``constants_v2.py`` (or similar)
-instead of overloading these names.
+Playing samples currently use encoder/model-input schema v2, while non-playing
+phase samples remain on their phase-specific v1 schemas. Keep these names in
+lockstep with TypeScript so version drift fails during validation instead of
+silently tensorizing incompatible artifacts.
 """
 
 from __future__ import annotations
@@ -37,7 +38,7 @@ DATASET_SAMPLE_TYPES = (
 PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION = 3
 PLAYING_SELF_PLAY_DATASET_GENERATOR_VERSION = 1
 PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE = "playing-self-play-sample"
-PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION = 1
+PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION = 2
 PLAYING_SELF_PLAY_SAMPLING_ALGORITHM = "masked-categorical"
 PLAYING_SELF_PLAY_REWARD_TYPE = "terminal-team-win"
 PLAYING_SELF_PLAY_REWARD_VERSION = 1
@@ -48,8 +49,8 @@ UINT32_MAX = 0xFFFFFFFF
 
 # --- packages/ai-observation/src/schema.ts -----------------------------------
 
-PLAYING_ENCODER_SCHEMA_VERSION = 1
-PLAYING_MODEL_INPUT_SCHEMA_VERSION = 1
+PLAYING_ENCODER_SCHEMA_VERSION = 2
+PLAYING_MODEL_INPUT_SCHEMA_VERSION = 2
 BIDDING_ENCODER_SCHEMA_VERSION = 1
 EXCHANGE_ENCODER_SCHEMA_VERSION = 1
 ADJUTANT_ENCODER_SCHEMA_VERSION = 1
@@ -63,6 +64,8 @@ EMPTY_CARD_INDEX = -1
 EMPTY_PLAYER_INDEX = -1
 NOT_IN_HAND_CLASS_INDEX = 5
 BELIEF_OWNER_CLASS_COUNT = NOT_IN_HAND_CLASS_INDEX + 1
+SELF_ROLE_ORDER: tuple[str, ...] = ("napoleon", "adjutant", "alliance", "napoleon-solo")
+SELF_ROLE_COUNT = len(SELF_ROLE_ORDER)
 
 # packages/ai-observation/src/schema.ts: BIDDING_HISTORY_SUIT_ORDER
 BIDDING_HISTORY_SUIT_ORDER: tuple[str, ...] = ("spades", "hearts", "diamonds", "clubs")

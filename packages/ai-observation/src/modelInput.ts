@@ -23,9 +23,9 @@ import {
   MAX_BIDDING_TARGET_POINT_CARDS,
   MIN_BIDDING_TARGET_POINT_CARDS,
   MIN_CONTRACT_TARGET_POINT_CARDS,
-  MODEL_INPUT_SCHEMA_VERSION,
   MODEL_INPUT_FEATURE_COUNT,
   PLAYER_COUNT,
+  SELF_ROLE_COUNT,
   TRICK_COUNT
 } from "./schema.js";
 
@@ -106,7 +106,8 @@ const MODEL_INPUT_ONEHOT_SPEC: readonly (readonly [string, readonly number[]])[]
   ["biddingHistoryActionTypeIndicesOneHot", [MAX_BIDDING_ACTION_COUNT, BIDDING_ACTION_TYPE_CLASS_COUNT]],
   ["biddingHistoryPlayerIndicesOneHot", [MAX_BIDDING_ACTION_COUNT, PLAYER_COUNT]],
   ["biddingHistorySuitIndicesOneHot", [MAX_BIDDING_ACTION_COUNT, BIDDING_HISTORY_SUIT_ORDER.length]],
-  ["biddingHistoryTargetPointCardsOneHot", [MAX_BIDDING_ACTION_COUNT, BIDDING_TARGET_POINT_CARDS_CLASS_COUNT]]
+  ["biddingHistoryTargetPointCardsOneHot", [MAX_BIDDING_ACTION_COUNT, BIDDING_TARGET_POINT_CARDS_CLASS_COUNT]],
+  ["selfRoleOneHot", [SELF_ROLE_COUNT]]
 ];
 
 const BIDDING_HISTORY_ONEHOT_SPEC: readonly (readonly [string, readonly number[]])[] = [
@@ -204,9 +205,9 @@ validateLayout(
 );
 
 if (
-  BIDDING_MODEL_INPUT_SCHEMA_VERSION !== MODEL_INPUT_SCHEMA_VERSION ||
-  EXCHANGE_MODEL_INPUT_SCHEMA_VERSION !== MODEL_INPUT_SCHEMA_VERSION ||
-  ADJUTANT_MODEL_INPUT_SCHEMA_VERSION !== MODEL_INPUT_SCHEMA_VERSION
+  BIDDING_MODEL_INPUT_SCHEMA_VERSION !== 1 ||
+  EXCHANGE_MODEL_INPUT_SCHEMA_VERSION !== 1 ||
+  ADJUTANT_MODEL_INPUT_SCHEMA_VERSION !== 1
 ) {
   throw new Error("Non-playing model_input schema versions must match schema v1.");
 }
@@ -231,6 +232,7 @@ export function encodePlayingModelInput(
   for (const field of createOneHotFields(observation)) {
     appendOneHotIndexField(modelInputParts, field);
   }
+  append(modelInputParts, observation.selfRoleOneHot);
 
   if (modelInputParts.length !== MODEL_INPUT_FEATURE_COUNT) {
     throw new Error(

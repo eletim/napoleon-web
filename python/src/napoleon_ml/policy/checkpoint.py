@@ -1,21 +1,23 @@
-"""Checkpoint save/load with schema and card-id compatibility checks."""
+"""Checkpoint save/load with schema, card-id compatibility, and explicit migrations."""
 
 from __future__ import annotations
 
+import hashlib
 import pickle
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import torch
 
 from napoleon_ml.dataset.constants import DATASET_SCHEMA_VERSION, PLAYING_ENCODER_SCHEMA_VERSION
 from napoleon_ml.dataset.manifest import DatasetManifest
-from napoleon_ml.dataset.tensors import MODEL_INPUT_SCHEMA_VERSION
+from napoleon_ml.dataset.tensors import MODEL_INPUT_FEATURE_COUNT, MODEL_INPUT_SCHEMA_VERSION
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 
 from .model import PolicyMlpConfig, PolicyMlpModel
 
 CHECKPOINT_SCHEMA_VERSION = 1
+LEGACY_V1_MODEL_INPUT_FEATURE_COUNT = 6242
 
 
 class PolicyCheckpointCompatibilityError(ValueError):
@@ -89,6 +91,68 @@ def load_policy_checkpoint(
     return model, raw
 
 
+def migrate_policy_checkpoint_v1_to_v2(
+    source_path: Path | str,
+    output_path: Path | str,
+) -> dict[str, object]:
+    """Create a schema-v2 checkpoint from a schema-v1 playing checkpoint.
+
+    The old first Linear input columns are copied unchanged. The four new
+    self-role input columns, appended at the end of model_input v2, are zeroed
+    so actor logits are exactly preserved immediately after migration.
+    """
+
+    source = Path(source_path)
+    output = Path(output_path)
+    raw = _load_raw_checkpoint(source)
+    _validate_legacy_v1_checkpoint(raw)
+
+    model_config_raw = raw.get("model_config")
+    if not isinstance(model_config_raw, dict):
+        raise PolicyCheckpointCompatibilityError("checkpoint model_config must be a dictionary.")
+
+    legacy_config = PolicyMlpConfig.from_dict(model_config_raw)
+    if legacy_config.input_dim != LEGACY_V1_MODEL_INPUT_FEATURE_COUNT:
+        raise PolicyCheckpointCompatibilityError(
+            "legacy checkpoint model_config.input_dim mismatch: "
+            f"expected {LEGACY_V1_MODEL_INPUT_FEATURE_COUNT}, got {legacy_config.input_dim}."
+        )
+
+    migrated_config = PolicyMlpConfig(
+        input_dim=MODEL_INPUT_FEATURE_COUNT,
+        hidden_dim=legacy_config.hidden_dim,
+        hidden_layers=legacy_config.hidden_layers,
+        dropout=legacy_config.dropout,
+    )
+    migrated = dict(raw)
+    migrated["model_config"] = migrated_config.to_dict()
+    migrated["playing_encoder_schema_version"] = PLAYING_ENCODER_SCHEMA_VERSION
+    migrated["model_input_schema_version"] = MODEL_INPUT_SCHEMA_VERSION
+    migrated["migration_provenance"] = {
+        "migration": "playing-input-v1-to-v2-self-role-one-hot",
+        "sourceCheckpointSha256": _sha256_file(source),
+        "sourceCheckpointSchemaVersion": CHECKPOINT_SCHEMA_VERSION,
+        "sourcePlayingEncoderSchemaVersion": 1,
+        "sourceModelInputSchemaVersion": 1,
+        "sourceModelInputFeatureCount": LEGACY_V1_MODEL_INPUT_FEATURE_COUNT,
+        "targetPlayingEncoderSchemaVersion": PLAYING_ENCODER_SCHEMA_VERSION,
+        "targetModelInputSchemaVersion": MODEL_INPUT_SCHEMA_VERSION,
+        "targetModelInputFeatureCount": MODEL_INPUT_FEATURE_COUNT,
+        "newFeatureInitialization": "first-linear-self-role-columns-zero",
+    }
+
+    model_state = raw.get("model_state")
+    if not isinstance(model_state, dict):
+        raise PolicyCheckpointCompatibilityError(
+            "checkpoint model_state must be a state dictionary."
+        )
+
+    migrated["model_state"] = _migrate_model_state(cast(dict[str, torch.Tensor], model_state))
+    output.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(migrated, output)
+    return cast(dict[str, object], migrated)
+
+
 def _validate_metadata(raw: dict[Any, Any], *, manifest: DatasetManifest) -> None:
     expected_values = {
         "checkpoint_schema_version": CHECKPOINT_SCHEMA_VERSION,
@@ -117,3 +181,68 @@ def _validate_metadata(raw: dict[Any, Any], *, manifest: DatasetManifest) -> Non
             raise PolicyCheckpointCompatibilityError(
                 f"checkpoint {key} does not match dataset: expected {expected!r}, got {actual!r}."
             )
+
+
+def _load_raw_checkpoint(path: Path) -> dict[Any, Any]:
+    try:
+        raw = torch.load(path, map_location="cpu", weights_only=True)
+    except OSError as error:
+        raise PolicyCheckpointCompatibilityError(f"checkpoint cannot be read: {error}") from error
+    except RuntimeError as error:
+        raise PolicyCheckpointCompatibilityError(f"checkpoint cannot be loaded: {error}") from error
+    except pickle.UnpicklingError as error:
+        raise PolicyCheckpointCompatibilityError(f"checkpoint cannot be loaded: {error}") from error
+
+    if not isinstance(raw, dict):
+        raise PolicyCheckpointCompatibilityError("checkpoint must be a dictionary.")
+
+    return raw
+
+
+def _validate_legacy_v1_checkpoint(raw: dict[Any, Any]) -> None:
+    expected_values = {
+        "checkpoint_schema_version": CHECKPOINT_SCHEMA_VERSION,
+        "dataset_schema_version": DATASET_SCHEMA_VERSION,
+        "playing_encoder_schema_version": 1,
+        "model_input_schema_version": 1,
+        "card_ids_sha256": calculate_card_ids_sha256(),
+    }
+
+    for key, expected in expected_values.items():
+        actual = raw.get(key)
+        if actual != expected:
+            raise PolicyCheckpointCompatibilityError(
+                f"legacy checkpoint {key} mismatch: expected {expected!r}, got {actual!r}."
+            )
+
+
+def _migrate_model_state(model_state: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    first_weight_key = "network.0.weight"
+    first_weight = model_state.get(first_weight_key)
+    if not isinstance(first_weight, torch.Tensor):
+        raise PolicyCheckpointCompatibilityError(
+            "checkpoint model_state is missing network.0.weight."
+        )
+    if first_weight.ndim != 2 or first_weight.shape[1] != LEGACY_V1_MODEL_INPUT_FEATURE_COUNT:
+        raise PolicyCheckpointCompatibilityError(
+            "legacy checkpoint network.0.weight shape mismatch: "
+            f"expected (*, {LEGACY_V1_MODEL_INPUT_FEATURE_COUNT}), got {tuple(first_weight.shape)}."
+        )
+
+    migrated = dict(model_state)
+    new_weight = torch.zeros(
+        (first_weight.shape[0], MODEL_INPUT_FEATURE_COUNT),
+        dtype=first_weight.dtype,
+        device=first_weight.device,
+    )
+    new_weight[:, :LEGACY_V1_MODEL_INPUT_FEATURE_COUNT] = first_weight
+    migrated[first_weight_key] = new_weight
+    return migrated
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()

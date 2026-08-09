@@ -65,6 +65,8 @@ from .constants import (
     PLAYING_SELF_PLAY_SAMPLING_ALGORITHM,
     REVEALED_ADJUTANT_CLASS_COUNT,
     RULE_BASED_AGENT_VERSION,
+    SELF_ROLE_COUNT,
+    SELF_ROLE_ORDER,
     SHARD_FILE_DIGITS,
     TRICK_COUNT,
     UINT32_MAX,
@@ -91,7 +93,7 @@ _SHA256_HEX_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _SHARD_FILE_NAME_PATTERN = re.compile(rf"^shard-(\d{{{SHARD_FILE_DIGITS}}})\.jsonl$")
 _TRUMP_SUIT_OPTION_COUNT = 4
 _WINNING_TEAMS = frozenset({"napoleon-team", "alliance"})
-_SELF_PLAY_ROLES = frozenset({"napoleon", "adjutant", "alliance"})
+_SELF_PLAY_ROLES = frozenset(SELF_ROLE_ORDER)
 
 
 def calculate_card_ids_sha256() -> str:
@@ -585,7 +587,7 @@ def validate_sample(sample: TrainingSample) -> None:
 
 
 def validate_playing_training_sample(sample: PlayingTrainingSample) -> None:
-    """Validate a parsed playing sample against every schema-v1 rule."""
+    """Validate a parsed playing sample against every current schema rule."""
 
     if sample.schema_version != PLAYING_ENCODER_SCHEMA_VERSION:
         raise SampleValidationError(
@@ -796,15 +798,20 @@ def validate_playing_self_play_sample(sample: PlayingSelfPlaySample) -> None:
             raise SampleValidationError(
                 "outcome.actingPlayerRole napoleon must match outcome.napoleonPlayerId."
             )
+    elif outcome.acting_player_role == "napoleon-solo":
+        if sample.acting_player_id != outcome.napoleon_player_id:
+            raise SampleValidationError(
+                "outcome.actingPlayerRole napoleon-solo must match outcome.napoleonPlayerId."
+            )
     elif sample.acting_player_id == outcome.napoleon_player_id:
         raise SampleValidationError(
-            "outcome.actingPlayerRole must be napoleon when the acting player is "
+            "outcome.actingPlayerRole must be napoleon or napoleon-solo when the acting player is "
             "outcome.napoleonPlayerId."
         )
 
     expected_team = (
         "napoleon-team"
-        if outcome.acting_player_role in {"napoleon", "adjutant"}
+        if outcome.acting_player_role in {"napoleon", "adjutant", "napoleon-solo"}
         else "alliance"
     )
 
@@ -818,6 +825,12 @@ def validate_playing_self_play_sample(sample: PlayingSelfPlaySample) -> None:
     if sample.terminal_reward != expected_reward:
         raise SampleValidationError(
             "terminalReward is inconsistent with outcome.winner and outcome.actingPlayerTeam."
+        )
+
+    role_index = sample.observation.self_role_one_hot.index(1)
+    if outcome.acting_player_role != SELF_ROLE_ORDER[role_index]:
+        raise SampleValidationError(
+            "outcome.actingPlayerRole must match observation.selfRoleOneHot."
         )
 
 
@@ -895,6 +908,7 @@ def validate_encoded_playing_observation(observation: EncodedPlayingObservation)
         observation.revealed_adjutant_player_one_hot,
         REVEALED_ADJUTANT_CLASS_COUNT,
     )
+    _expect_length("selfRoleOneHot", observation.self_role_one_hot, SELF_ROLE_COUNT)
     _expect_length("calledAdjutantCardMask", observation.called_adjutant_card_mask, CARD_COUNT)
     _expect_length("selfHandMask", observation.self_hand_mask, CARD_COUNT)
     _expect_length("legalPlayMask", observation.legal_play_mask, CARD_COUNT)
@@ -960,6 +974,7 @@ def validate_encoded_playing_observation(observation: EncodedPlayingObservation)
     _validate_one_hot("trumpSuitOneHot", observation.trump_suit_one_hot)
     _validate_one_hot("napoleonPlayerOneHot", observation.napoleon_player_one_hot)
     _validate_one_hot("revealedAdjutantPlayerOneHot", observation.revealed_adjutant_player_one_hot)
+    _validate_one_hot("selfRoleOneHot", observation.self_role_one_hot)
     _validate_mask("calledAdjutantCardMask", observation.called_adjutant_card_mask)
     _expect_sum("calledAdjutantCardMask", observation.called_adjutant_card_mask, 1)
     _validate_mask("selfHandMask", observation.self_hand_mask)
