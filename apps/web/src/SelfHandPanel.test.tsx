@@ -1,7 +1,13 @@
+// @vitest-environment happy-dom
+
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { PublicCard, PublicGameState, PublicRank, PublicSuit } from "@napoleon/protocol";
 import { SelfHandPanel } from "./SelfHandPanel";
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe("SelfHandPanel", () => {
   it("renders the self hand in riipai order without changing card id based state", () => {
@@ -62,6 +68,55 @@ describe("SelfHandPanel", () => {
     expect(html).toContain("aria-pressed=\"true\"");
     expect(indexOfCard(html, "2♣")).toBeLessThan(indexOfCard(html, "A♠"));
     expect(indexOfCard(html, "A♠")).toBeLessThan(indexOfCard(html, "K♥"));
+  });
+
+  it("switches order from the sort controls without sending a card action", () => {
+    const hand = [
+      standardCard("clubs", "2"),
+      jokerCard,
+      standardCard("spades", "2"),
+      standardCard("hearts", "K"),
+      standardCard("spades", "A")
+    ];
+    const state = createState(hand);
+    const onPlay = vi.fn();
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <SelfHandPanel
+          canExchange={false}
+          isBusy={false}
+          legalCardIds={new Set(["spades-2"])}
+          onPlay={onPlay}
+          selectedDiscardCardIds={[]}
+          self={state.self}
+          selfPlayer={undefined}
+          state={state}
+        />
+      );
+    });
+
+    expect(cardLabels(container)).toEqual(["2♣", "JOKER", "2♠", "K♥", "A♠"]);
+
+    act(() => {
+      getButtonByText(container, "理牌").click();
+    });
+
+    expect(onPlay).not.toHaveBeenCalled();
+    expect(cardLabels(container)).toEqual(["A♠", "2♠", "K♥", "2♣", "JOKER"]);
+
+    act(() => {
+      getCardButton(container, "2♠").click();
+    });
+
+    expect(onPlay).toHaveBeenCalledTimes(1);
+    expect(onPlay).toHaveBeenCalledWith(hand[2]);
+
+    act(() => {
+      root.unmount();
+    });
   });
 });
 
@@ -133,4 +188,38 @@ function buttonMarkup(html: string, ariaLabel: string): string {
   }
 
   return html.slice(start, end);
+}
+
+function cardLabels(container: Element): string[] {
+  return Array.from(container.querySelectorAll(".hand .card")).map((button) => {
+    const ariaLabel = button.getAttribute("aria-label");
+
+    if (ariaLabel === null) {
+      throw new Error("Card button did not have an aria-label.");
+    }
+
+    return ariaLabel;
+  });
+}
+
+function getButtonByText(container: Element, text: string): HTMLButtonElement {
+  const button = Array.from(container.querySelectorAll("button")).find(
+    (candidate) => candidate.textContent === text
+  );
+
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new Error(`Button ${text} was not rendered.`);
+  }
+
+  return button;
+}
+
+function getCardButton(container: Element, ariaLabel: string): HTMLButtonElement {
+  const button = container.querySelector(`.hand .card[aria-label="${ariaLabel}"]`);
+
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new Error(`Card button ${ariaLabel} was not rendered.`);
+  }
+
+  return button;
 }
