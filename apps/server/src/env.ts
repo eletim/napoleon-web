@@ -1,15 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { learnedPolicyEnvKeys } from "./agentEnv.js";
 
-// Keep this list in sync with start-dev.sh so dry-run and server startup agree.
+// start-dev.sh mirrors this allowlist for dry-run diagnostics and environment export.
 const supportedLocalEnvKeys = new Set([
   "PORT",
   "HOST",
-  ...[1, 2, 3, 4, 5].flatMap((slotNumber) => [
-    `NAPOLEON_POLICY_${slotNumber}_DISPLAY_NAME`,
-    `NAPOLEON_POLICY_${slotNumber}_ONNX_PATH`,
-    `NAPOLEON_POLICY_${slotNumber}_METADATA_PATH`
-  ])
+  ...learnedPolicyEnvKeys
 ]);
 
 export function loadLocalEnvFile(

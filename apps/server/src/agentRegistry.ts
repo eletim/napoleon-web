@@ -5,6 +5,10 @@ import {
   type PolicyOnnxModel
 } from "@napoleon/policy-onnx";
 import type { PublicAgentDescriptor } from "@napoleon/protocol";
+import {
+  createLearnedPolicyEnvKey,
+  learnedPolicySlotNumbers
+} from "./agentEnv.js";
 
 export const RULE_BASED_AGENT_ID = "rule-based";
 export const PLAYING_POLICY_ONNX_AGENT_ID = "playing-policy-onnx";
@@ -15,8 +19,6 @@ export const PLAYING_POLICY_ONNX_AGENT_IDS = [
   "playing-policy-onnx-4",
   "playing-policy-onnx-5"
 ] as const;
-
-const learnedPolicySlotNumbers = [1, 2, 3, 4, 5] as const;
 
 export class UnknownAgentIdError extends Error {
   constructor(readonly agentId: string) {
@@ -133,9 +135,9 @@ export function readPlayingPolicyOnnxAgentConfigs(
   env: NodeJS.ProcessEnv
 ): readonly PlayingPolicyOnnxAgentConfig[] {
   return learnedPolicySlotNumbers.flatMap((slotNumber, index) => {
-    const displayNameVariable = `NAPOLEON_POLICY_${slotNumber}_DISPLAY_NAME`;
-    const onnxPathVariable = `NAPOLEON_POLICY_${slotNumber}_ONNX_PATH`;
-    const metadataPathVariable = `NAPOLEON_POLICY_${slotNumber}_METADATA_PATH`;
+    const displayNameVariable = createLearnedPolicyEnvKey(slotNumber, "DISPLAY_NAME");
+    const onnxPathVariable = createLearnedPolicyEnvKey(slotNumber, "ONNX_PATH");
+    const metadataPathVariable = createLearnedPolicyEnvKey(slotNumber, "METADATA_PATH");
     const displayName = env[displayNameVariable]?.trim() ?? "";
 
     if (displayName.length === 0) {

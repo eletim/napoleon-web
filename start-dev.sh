@@ -76,7 +76,7 @@ load_root_env_file() {
       value="${value:1:${#value}-2}"
     fi
 
-    # Keep this pattern in sync with apps/server/src/env.ts supportedLocalEnvKeys.
+    # Keep this pattern aligned with apps/server/src/agentEnv.ts learnedPolicyEnvKeys.
     case "$key" in
       PORT|HOST|NAPOLEON_POLICY_[1-5]_DISPLAY_NAME|NAPOLEON_POLICY_[1-5]_ONNX_PATH|NAPOLEON_POLICY_[1-5]_METADATA_PATH)
         if [[ -z "${!key+x}" ]]; then
@@ -87,14 +87,37 @@ load_root_env_file() {
   done < "$file"
 }
 
-count_configured_policy_slots() {
+count_ready_policy_slots() {
   local count=0
   local slot
-  local key
+  local display_name_key
+  local onnx_path_key
+  local metadata_path_key
 
   for slot in 1 2 3 4 5; do
-    key="NAPOLEON_POLICY_${slot}_DISPLAY_NAME"
-    if [[ -n "${!key:-}" ]]; then
+    display_name_key="NAPOLEON_POLICY_${slot}_DISPLAY_NAME"
+    onnx_path_key="NAPOLEON_POLICY_${slot}_ONNX_PATH"
+    metadata_path_key="NAPOLEON_POLICY_${slot}_METADATA_PATH"
+    if [[ -n "${!display_name_key:-}" && -n "${!onnx_path_key:-}" && -n "${!metadata_path_key:-}" ]]; then
+      count=$((count + 1))
+    fi
+  done
+
+  printf '%s' "$count"
+}
+
+count_incomplete_policy_slots() {
+  local count=0
+  local slot
+  local display_name_key
+  local onnx_path_key
+  local metadata_path_key
+
+  for slot in 1 2 3 4 5; do
+    display_name_key="NAPOLEON_POLICY_${slot}_DISPLAY_NAME"
+    onnx_path_key="NAPOLEON_POLICY_${slot}_ONNX_PATH"
+    metadata_path_key="NAPOLEON_POLICY_${slot}_METADATA_PATH"
+    if [[ -n "${!display_name_key:-}" && ( -z "${!onnx_path_key:-}" || -z "${!metadata_path_key:-}" ) ]]; then
       count=$((count + 1))
     fi
   done
@@ -162,7 +185,8 @@ if [[ "${NAPOLEON_DEV_DRY_RUN:-}" == "1" ]]; then
   else
     printf 'root_env_file_exists=false\n'
   fi
-  printf 'learned_policy_slots_configured=%s\n' "$(count_configured_policy_slots)"
+  printf 'learned_policy_slots_configured=%s\n' "$(count_ready_policy_slots)"
+  printf 'learned_policy_slots_incomplete=%s\n' "$(count_incomplete_policy_slots)"
   if [[ -f "$WEB_ENV_FILE" ]]; then
     printf 'env_file_exists=true\n'
   else

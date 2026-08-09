@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { learnedPolicyEnvKeys } from "../src/agentEnv.js";
 import { loadLocalEnvFile } from "../src/env.js";
 
 describe("local .env loading", () => {
@@ -32,6 +33,23 @@ describe("local .env loading", () => {
     expect(env.NAPOLEON_POLICY_5_ONNX_PATH).toBe("/models/v1400.onnx");
     expect(env.NAPOLEON_POLICY_5_METADATA_PATH).toBe("/models/v1400.json");
     expect(env.IGNORED_KEY).toBeUndefined();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("loads every shared learned policy environment key", () => {
+    const root = mkdtempSync(join(tmpdir(), "napoleon-env-"));
+    const env: NodeJS.ProcessEnv = {};
+    writeFileSync(
+      join(root, ".env"),
+      learnedPolicyEnvKeys.map((key) => `${key}=value-for-${key}`).join("\n") + "\n"
+    );
+
+    loadLocalEnvFile(env, root);
+
+    for (const key of learnedPolicyEnvKeys) {
+      expect(env[key]).toBe(`value-for-${key}`);
+    }
+
     rmSync(root, { recursive: true, force: true });
   });
 });

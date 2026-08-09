@@ -44,7 +44,26 @@ describe("start-dev.sh", () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("root_env_file_exists=true");
     expect(result.stdout).toContain("learned_policy_slots_configured=2");
+    expect(result.stdout).toContain("learned_policy_slots_incomplete=0");
     expect(result.stdout).not.toContain("/private/models");
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("reports incomplete learned ONNX slots during dry-run", () => {
+    const root = createTempRoot();
+    writeFileSync(
+      join(root, ".env"),
+      [
+        "NAPOLEON_POLICY_1_DISPLAY_NAME=Broken RL",
+        "NAPOLEON_POLICY_1_ONNX_PATH=/private/models/broken.onnx"
+      ].join("\n") + "\n"
+    );
+
+    const result = runDevScript(root);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("learned_policy_slots_configured=0");
+    expect(result.stdout).toContain("learned_policy_slots_incomplete=1");
     rmSync(root, { recursive: true, force: true });
   });
 
