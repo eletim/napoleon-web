@@ -137,10 +137,26 @@ export interface GeneratePlayingSelfPlayDatasetOptions {
   startSeed: number;
   gameCount: number;
   gamesPerShard: number;
+  rolloutWorkers?: number;
   temperature?: number;
   rolloutRoster?: PlayingSelfPlayRolloutRosterOptions;
   onProgress?: (progress: DatasetGenerationProgress) => void;
   maxDecisionSteps?: number;
+  gameRunner?: PlayingSelfPlayGameRunner;
+}
+
+export interface PlayingSelfPlayGameRunRequest {
+  gameOffset: number;
+  seed: number;
+  currentPolicy: PlayingSelfPlayPolicy;
+  rolloutRoster: PlayingSelfPlayRolloutRosterOptions | undefined;
+  temperature: number;
+  maxDecisionSteps: number | undefined;
+}
+
+export interface PlayingSelfPlayGameRunner {
+  runGame: (request: PlayingSelfPlayGameRunRequest) => Promise<AutomatedGameRecord>;
+  close?: () => Promise<void>;
 }
 
 export interface PlayingSelfPlayDatasetManifest {
@@ -212,14 +228,76 @@ export async function generatePlayingSelfPlayDataset(
     join(dirname(outputDirectory), `.${basenameForTemp(outputDirectory)}.tmp-`)
   );
   let activeShard: JsonlShardWriter<PlayingSelfPlaySample> | null = null;
+  const gameRunner = options.gameRunner ?? defaultPlayingSelfPlayGameRunner;
+  const rolloutWorkers = options.rolloutWorkers ?? 1;
 
   try {
     const shards: DatasetShardManifest[] = [];
     let totalSampleCount = 0;
     let shardGameCount = 0;
+    let nextGameOffsetToStart = 0;
+    let nextGameOffsetToCommit = 0;
+    let pendingError: unknown = null;
+    const inFlight = new Set<Promise<void>>();
+    const completedRecords = new Map<number, AutomatedGameRecord>();
 
-    for (let gameOffset = 0; gameOffset < options.gameCount; gameOffset += 1) {
+    const startGame = (gameOffset: number): void => {
       const seed = options.startSeed + gameOffset;
+      const task = gameRunner.runGame({
+        gameOffset,
+        seed,
+        currentPolicy: options.playingPolicy,
+        rolloutRoster: options.rolloutRoster,
+        temperature,
+        maxDecisionSteps: options.maxDecisionSteps
+      }).then(
+        (record) => {
+          if (record.seed !== seed) {
+            throw new Error(`Worker returned seed ${record.seed} for expected seed ${seed}.`);
+          }
+          if (completedRecords.has(gameOffset)) {
+            throw new Error(`Duplicate completed game offset: ${gameOffset}`);
+          }
+          completedRecords.set(gameOffset, record);
+        },
+        (error: unknown) => {
+          pendingError = error;
+        }
+      ).catch((error: unknown) => {
+        pendingError = error;
+      }).finally(() => {
+        inFlight.delete(task);
+      });
+      inFlight.add(task);
+    };
+
+    while (nextGameOffsetToCommit < options.gameCount) {
+      while (
+        pendingError === null &&
+        nextGameOffsetToStart < options.gameCount &&
+        inFlight.size < rolloutWorkers
+      ) {
+        startGame(nextGameOffsetToStart);
+        nextGameOffsetToStart += 1;
+      }
+
+      if (pendingError !== null) {
+        throw pendingError;
+      }
+
+      const gameOffset = nextGameOffsetToCommit;
+      const seed = options.startSeed + gameOffset;
+      const record = completedRecords.get(gameOffset);
+
+      if (record === undefined) {
+        if (inFlight.size === 0) {
+          throw new Error(`Missing completed game offset: ${gameOffset}`);
+        }
+        await Promise.race(inFlight);
+        continue;
+      }
+
+      completedRecords.delete(gameOffset);
 
       if (activeShard === null) {
         activeShard = createJsonlShardWriter(
@@ -232,13 +310,6 @@ export async function generatePlayingSelfPlayDataset(
       }
 
       const assignedRoster = assignRolloutRosterForSeed(options.rolloutRoster, seed);
-      const record = await runPlayingSelfPlayGame({
-        seed,
-        currentPolicy: options.playingPolicy,
-        rolloutRoster: options.rolloutRoster,
-        temperature,
-        maxDecisionSteps: options.maxDecisionSteps
-      });
       const samples = await createPlayingSelfPlaySamples(record, options.playingPolicy, temperature, {
         behaviorPolicyArtifactId: artifact.artifactId,
         rolloutSeatSources: assignedRoster.map((seat) => seat.source)
@@ -268,6 +339,8 @@ export async function generatePlayingSelfPlayDataset(
         completedShards: shards.length,
         currentSeed: seed
       });
+
+      nextGameOffsetToCommit += 1;
     }
 
     const manifest = createPlayingSelfPlayManifest({
@@ -301,6 +374,8 @@ export async function generatePlayingSelfPlayDataset(
     });
 
     throw error;
+  } finally {
+    await gameRunner.close?.().catch(() => undefined);
   }
 }
 
@@ -563,7 +638,7 @@ export function assignRolloutRosterForSeed(
   );
 }
 
-async function runPlayingSelfPlayGame(options: {
+export async function runPlayingSelfPlayGame(options: {
   seed: number;
   currentPolicy: PlayingSelfPlayPolicy;
   rolloutRoster: PlayingSelfPlayRolloutRosterOptions | undefined;
@@ -597,6 +672,10 @@ async function runPlayingSelfPlayGame(options: {
     }
   });
 }
+
+const defaultPlayingSelfPlayGameRunner: PlayingSelfPlayGameRunner = {
+  runGame: async (request) => runPlayingSelfPlayGame(request)
+};
 
 class PlayingSelfPlayAgent implements Agent {
   private readonly ruleBasedAgent: RuleBasedAgent;
@@ -924,6 +1003,7 @@ function validatePlayingSelfPlayGenerationOptions(
   validateUint32("startSeed", options.startSeed);
   validatePositiveInteger("gameCount", options.gameCount);
   validatePositiveInteger("gamesPerShard", options.gamesPerShard);
+  validatePositiveInteger("rolloutWorkers", options.rolloutWorkers ?? 1);
   validateTemperature(options.temperature);
   validateRolloutRosterOptions(options.rolloutRoster);
 

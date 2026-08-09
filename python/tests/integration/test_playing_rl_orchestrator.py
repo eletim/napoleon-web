@@ -61,6 +61,8 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
     assert iter0["outputCheckpointSha256"] == iter1["inputCheckpointSha256"]
     assert iter0["selfPlayManifestSha256"] != iter1["selfPlayManifestSha256"]
     assert iter0["behaviorOnnxSha256"] != iter1["behaviorOnnxSha256"]
+    assert iter0["rolloutWorkers"] == 2
+    assert iter1["rolloutWorkers"] == 2
     assert _required_int(iter0["optimizerStepCount"]) > 0
     assert _required_int(iter1["optimizerStepCount"]) > 0
 
@@ -134,6 +136,17 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
             roster_mismatch,
             resume=True,
             provided_config_keys=set(),
+        )
+
+    worker_mismatch = replace(config, rollout_workers=config.rollout_workers + 1)
+    with pytest.raises(
+        PlayingRlOrchestratorError,
+        match="resume config mismatch for rolloutWorkers",
+    ):
+        run_playing_rl_experiment(
+            worker_mismatch,
+            resume=True,
+            provided_config_keys={"rolloutWorkers"},
         )
 
     checkpoint = run_directory / "iterations" / "iter-001" / "output-checkpoint.pt"
@@ -265,6 +278,7 @@ def _small_config(
         games_per_shard=1,
         self_play_seed_base=101,
         temperature=1.0,
+        rollout_workers=2,
         algorithm=algorithm,
         learning_rate=0.001,
         epochs=1,

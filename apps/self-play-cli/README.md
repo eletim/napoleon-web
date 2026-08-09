@@ -25,6 +25,27 @@ Arguments:
 - `--games-per-shard <positive integer>`: games per JSONL shard, default `100`.
 - `--help`: print usage.
 
+Playing-policy self-play is exposed through `dist/playingSelfPlayCli.js` after
+building the package:
+
+```bash
+pnpm --filter @napoleon/self-play-cli... build
+node apps/self-play-cli/dist/playingSelfPlayCli.js \
+  --onnx ./policy.onnx \
+  --metadata ./policy.json \
+  --output ./datasets/playing-selfplay \
+  --start-seed 0 \
+  --games 200 \
+  --games-per-shard 20 \
+  --rollout-workers 4
+```
+
+`--rollout-workers` defaults to `1`, which keeps the serial compatibility path.
+Values above `1` start child-process rollout workers. The coordinator still
+assigns seeds as `startSeed + gameOffset` and writes samples in seed order, so
+changing worker count does not change generated dataset bytes for the same
+policy, roster, seed range, and temperature.
+
 Seeds are processed as `startSeed`, `startSeed + 1`, through `startSeed + games - 1`.
 The final seed must fit in uint32. Games are never split across shards.
 

@@ -43,6 +43,7 @@ DEFAULT_GAMES_PER_SHARD = 20
 DEFAULT_SELF_PLAY_SEED_BASE = 0
 DEFAULT_TEMPERATURE = 1.0
 DEFAULT_ROLLOUT_ROSTER = ",".join(["current-policy"] * 5)
+DEFAULT_ROLLOUT_WORKERS = 1
 DEFAULT_LEARNING_RATE = 1e-5
 DEFAULT_EPOCHS = 1
 DEFAULT_BATCH_SIZE = 128
@@ -64,6 +65,7 @@ class PlayingRlRunConfig:
     self_play_seed_base: int = DEFAULT_SELF_PLAY_SEED_BASE
     temperature: float = DEFAULT_TEMPERATURE
     rollout_roster: str = DEFAULT_ROLLOUT_ROSTER
+    rollout_workers: int = DEFAULT_ROLLOUT_WORKERS
     algorithm: str = REINFORCE_ALGORITHM
     learning_rate: float = DEFAULT_LEARNING_RATE
     value_loss_coefficient: float = DEFAULT_VALUE_LOSS_COEFFICIENT
@@ -86,6 +88,7 @@ class PlayingRlRunConfig:
             self_play_seed_base=self.self_play_seed_base,
             temperature=self.temperature,
             rollout_roster=self.rollout_roster,
+            rollout_workers=self.rollout_workers,
             algorithm=self.algorithm,
             learning_rate=self.learning_rate,
             value_loss_coefficient=self.value_loss_coefficient,
@@ -112,6 +115,7 @@ class PlayingRlRunConfig:
             "selfPlaySeedBase": self.self_play_seed_base,
             "temperature": self.temperature,
             "rolloutRoster": self.rollout_roster,
+            "rolloutWorkers": self.rollout_workers,
             "algorithm": self.algorithm,
             "learningRate": self.learning_rate,
             "valueLossCoefficient": self.value_loss_coefficient,
@@ -224,7 +228,8 @@ def _run_iteration(
     start_seed = _self_play_start_seed(config, iteration)
     print(
         f"[iter {iteration}/{total}] self-play "
-        f"{config.games_per_iteration} games start_seed={start_seed}",
+        f"{config.games_per_iteration} games start_seed={start_seed} "
+        f"workers={config.rollout_workers}",
         flush=True,
     )
     _run_node_json(
@@ -247,6 +252,8 @@ def _run_iteration(
             repr(config.temperature),
             "--rollout-roster",
             config.rollout_roster,
+            "--rollout-workers",
+            str(config.rollout_workers),
             "--artifact-id",
             f"policy-v{iteration}",
             "--progress-prefix",
@@ -354,6 +361,7 @@ def _run_iteration(
         "selfPlayEndSeed": manifest.end_seed,
         "gameCount": manifest.game_count,
         "sampleCount": manifest.sample_count,
+        "rolloutWorkers": config.rollout_workers,
         "trainingSeed": training_seed,
         "valueLossCoefficient": (
             config.value_loss_coefficient if config.algorithm == ACTOR_CRITIC_ALGORITHM else None
@@ -950,6 +958,7 @@ def _config_from_file_dict(
         self_play_seed_base=_required_int(data["selfPlaySeedBase"]),
         temperature=_required_float(data["temperature"]),
         rollout_roster=_required_str(_stored_config_value(data, "rolloutRoster")),
+        rollout_workers=_required_int(_stored_config_value(data, "rolloutWorkers")),
         algorithm=_required_str(_stored_config_value(data, "algorithm")),
         learning_rate=_required_float(data["learningRate"]),
         value_loss_coefficient=_required_float(
@@ -974,6 +983,7 @@ def _validate_config(config: PlayingRlRunConfig) -> None:
         "batch_size": config.batch_size,
         "evaluation_interval": config.evaluation_interval,
         "evaluation_seed_count": config.evaluation_seed_count,
+        "rollout_workers": config.rollout_workers,
     }
     for name, value in positive_ints.items():
         if value <= 0:
@@ -1161,6 +1171,8 @@ def _stored_config_value(data: Mapping[str, object], key: str) -> object:
         return DEFAULT_VALUE_LOSS_COEFFICIENT
     if key == "rolloutRoster":
         return DEFAULT_ROLLOUT_ROSTER
+    if key == "rolloutWorkers":
+        return DEFAULT_ROLLOUT_WORKERS
     raise KeyError(key)
 
 
