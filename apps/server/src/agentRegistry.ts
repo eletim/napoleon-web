@@ -8,6 +8,15 @@ import type { PublicAgentDescriptor } from "@napoleon/protocol";
 
 export const RULE_BASED_AGENT_ID = "rule-based";
 export const PLAYING_POLICY_ONNX_AGENT_ID = "playing-policy-onnx";
+export const PLAYING_POLICY_ONNX_AGENT_IDS = [
+  PLAYING_POLICY_ONNX_AGENT_ID,
+  "playing-policy-onnx-2",
+  "playing-policy-onnx-3",
+  "playing-policy-onnx-4",
+  "playing-policy-onnx-5"
+] as const;
+
+const learnedPolicySlotNumbers = [1, 2, 3, 4, 5] as const;
 
 export class UnknownAgentIdError extends Error {
   constructor(readonly agentId: string) {
@@ -28,8 +37,14 @@ export interface PlayingPolicyOnnxPaths {
   metadataPath: string;
 }
 
+export interface PlayingPolicyOnnxAgentConfig extends PlayingPolicyOnnxPaths {
+  id: string;
+  displayName: string;
+}
+
 export interface AgentRegistryOptions {
   playingPolicyOnnx?: PlayingPolicyOnnxPaths;
+  playingPolicyOnnxAgents?: readonly PlayingPolicyOnnxAgentConfig[];
   loadPlayingPolicyOnnxModel?: (paths: PlayingPolicyOnnxPaths) => Promise<PolicyOnnxModel>;
 }
 
@@ -44,25 +59,19 @@ interface AgentDefinition {
 }
 
 export function createAgentRegistry(options: AgentRegistryOptions = {}): AgentRegistry {
-  const learnedPolicyPaths = options.playingPolicyOnnx;
+  const learnedPolicyConfigs =
+    options.playingPolicyOnnxAgents ??
+    (options.playingPolicyOnnx === undefined
+      ? []
+      : [
+          {
+            id: PLAYING_POLICY_ONNX_AGENT_ID,
+            displayName: "Playing Policy ONNX",
+            ...options.playingPolicyOnnx
+          }
+        ]);
   const loadPlayingPolicyOnnxModel =
     options.loadPlayingPolicyOnnxModel ?? loadPolicyOnnxModel;
-  let learnedPolicyPromise: Promise<PolicyOnnxModel> | undefined;
-  const loadLearnedPolicy = () => {
-    if (learnedPolicyPaths === undefined) {
-      throw new AgentUnavailableError(
-        PLAYING_POLICY_ONNX_AGENT_ID,
-        "Playing policy ONNX paths are not configured."
-      );
-    }
-
-    learnedPolicyPromise ??= loadPlayingPolicyOnnxModel(learnedPolicyPaths).catch((error) => {
-      learnedPolicyPromise = undefined;
-      throw error;
-    });
-
-    return learnedPolicyPromise;
-  };
   const definitions = new Map<string, AgentDefinition>([
     [
       RULE_BASED_AGENT_ID,
@@ -74,28 +83,29 @@ export function createAgentRegistry(options: AgentRegistryOptions = {}): AgentRe
         },
         createAgent: () => new RuleBasedAgent()
       }
-    ],
-    [
-      PLAYING_POLICY_ONNX_AGENT_ID,
-      {
-        descriptor: {
-          id: PLAYING_POLICY_ONNX_AGENT_ID,
-          displayName: "Playing Policy ONNX",
-          isAvailable: learnedPolicyPaths !== undefined
-        },
-        createAgent: () => {
-          if (learnedPolicyPaths === undefined) {
-            throw new AgentUnavailableError(
-              PLAYING_POLICY_ONNX_AGENT_ID,
-              "Playing policy ONNX paths are not configured."
-            );
-          }
-
-          return new LazyPolicyOnnxAgent(loadLearnedPolicy);
-        }
-      }
     ]
   ]);
+
+  for (const config of learnedPolicyConfigs) {
+    let learnedPolicyPromise: Promise<PolicyOnnxModel> | undefined;
+    const loadLearnedPolicy = () => {
+      learnedPolicyPromise ??= loadPlayingPolicyOnnxModel(config).catch((error) => {
+        learnedPolicyPromise = undefined;
+        throw error;
+      });
+
+      return learnedPolicyPromise;
+    };
+
+    definitions.set(config.id, {
+      descriptor: {
+        id: config.id,
+        displayName: config.displayName,
+        isAvailable: true
+      },
+      createAgent: () => new LazyPolicyOnnxAgent(config.id, loadLearnedPolicy)
+    });
+  }
 
   return {
     listAgents: () => [...definitions.values()].map((definition) => definition.descriptor),
@@ -115,30 +125,55 @@ export function createAgentRegistryFromEnvironment(
   env: NodeJS.ProcessEnv = process.env
 ): AgentRegistry {
   return createAgentRegistry({
-    playingPolicyOnnx: readPlayingPolicyOnnxPaths(env)
+    playingPolicyOnnxAgents: readPlayingPolicyOnnxAgentConfigs(env)
   });
 }
 
-function readPlayingPolicyOnnxPaths(
+export function readPlayingPolicyOnnxAgentConfigs(
   env: NodeJS.ProcessEnv
-): PlayingPolicyOnnxPaths | undefined {
-  const onnxPath = env.NAPOLEON_POLICY_ONNX_PATH;
-  const metadataPath = env.NAPOLEON_POLICY_METADATA_PATH;
+): readonly PlayingPolicyOnnxAgentConfig[] {
+  return learnedPolicySlotNumbers.flatMap((slotNumber, index) => {
+    const displayNameVariable = `NAPOLEON_POLICY_${slotNumber}_DISPLAY_NAME`;
+    const onnxPathVariable = `NAPOLEON_POLICY_${slotNumber}_ONNX_PATH`;
+    const metadataPathVariable = `NAPOLEON_POLICY_${slotNumber}_METADATA_PATH`;
+    const displayName = env[displayNameVariable]?.trim() ?? "";
 
-  if (onnxPath === undefined || metadataPath === undefined) {
-    return undefined;
-  }
+    if (displayName.length === 0) {
+      return [];
+    }
 
-  return {
-    onnxPath,
-    metadataPath
-  };
+    const onnxPath = env[onnxPathVariable]?.trim() ?? "";
+    const metadataPath = env[metadataPathVariable]?.trim() ?? "";
+    const missingVariables = [
+      onnxPath.length === 0 ? onnxPathVariable : undefined,
+      metadataPath.length === 0 ? metadataPathVariable : undefined
+    ].filter((variable): variable is string => variable !== undefined);
+
+    if (missingVariables.length > 0) {
+      throw new Error(
+        `Incomplete learned ONNX agent configuration for slot ${slotNumber}: ` +
+          `${missingVariables.join(", ")} must be set when ${displayNameVariable} is non-empty.`
+      );
+    }
+
+    return [
+      {
+        id: PLAYING_POLICY_ONNX_AGENT_IDS[index],
+        displayName,
+        onnxPath,
+        metadataPath
+      }
+    ];
+  });
 }
 
 class LazyPolicyOnnxAgent implements Agent {
   private delegate: PolicyOnnxAgent | undefined;
 
-  constructor(private readonly loadPolicy: () => Promise<PolicyOnnxModel>) {}
+  constructor(
+    private readonly agentId: string,
+    private readonly loadPolicy: () => Promise<PolicyOnnxModel>
+  ) {}
 
   async selectAction(input: Parameters<Agent["selectAction"]>[0]) {
     try {
@@ -151,7 +186,7 @@ class LazyPolicyOnnxAgent implements Agent {
       }
 
       throw new AgentUnavailableError(
-        PLAYING_POLICY_ONNX_AGENT_ID,
+        this.agentId,
         `Playing policy ONNX could not be loaded: ${formatErrorMessage(error)}`
       );
     }

@@ -22,6 +22,32 @@ const packageJsonPath = fileURLToPath(new URL("../../package.json", import.meta.
 const viteConfigPath = fileURLToPath(new URL("./vite.config.ts", import.meta.url));
 
 describe("start-dev.sh", () => {
+  it("loads learned ONNX policy slots from the root .env without printing local paths", () => {
+    const root = createTempRoot();
+    writeFileSync(
+      join(root, ".env"),
+      [
+        "NAPOLEON_POLICY_1_DISPLAY_NAME=RL v900",
+        "NAPOLEON_POLICY_1_ONNX_PATH=/private/models/v900.onnx",
+        "NAPOLEON_POLICY_1_METADATA_PATH=/private/models/v900.json",
+        "NAPOLEON_POLICY_2_DISPLAY_NAME=",
+        "NAPOLEON_POLICY_2_ONNX_PATH=/private/models/unused.onnx",
+        "NAPOLEON_POLICY_2_METADATA_PATH=/private/models/unused.json",
+        "NAPOLEON_POLICY_5_DISPLAY_NAME=RL v1400",
+        "NAPOLEON_POLICY_5_ONNX_PATH=/private/models/v1400.onnx",
+        "NAPOLEON_POLICY_5_METADATA_PATH=/private/models/v1400.json"
+      ].join("\n") + "\n"
+    );
+
+    const result = runDevScript(root);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("root_env_file_exists=true");
+    expect(result.stdout).toContain("learned_policy_slots_configured=2");
+    expect(result.stdout).not.toContain("/private/models");
+    rmSync(root, { recursive: true, force: true });
+  });
+
   it("loads VITE_ALLOWED_HOSTS from an existing .env.local", () => {
     const root = createTempRoot();
     const envFile = join(root, "apps/web/.env.local");
@@ -320,6 +346,11 @@ function runDevScript(
 ): SpawnSyncReturns<string> {
   const env = { ...process.env };
   delete env.VITE_ALLOWED_HOSTS;
+  for (let slot = 1; slot <= 5; slot += 1) {
+    delete env[`NAPOLEON_POLICY_${slot}_DISPLAY_NAME`];
+    delete env[`NAPOLEON_POLICY_${slot}_ONNX_PATH`];
+    delete env[`NAPOLEON_POLICY_${slot}_METADATA_PATH`];
+  }
   env.NAPOLEON_DEV_ROOT = root;
   if (options.dryRun !== false) {
     env.NAPOLEON_DEV_DRY_RUN = "1";
