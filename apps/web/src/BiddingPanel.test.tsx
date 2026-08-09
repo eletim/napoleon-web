@@ -23,6 +23,7 @@ describe("BiddingPanel", () => {
     expect(html).not.toContain("履歴はまだありません");
     expect(html).not.toContain("選択中");
     expect(html).not.toContain("スペード</small>");
+    expect(html).toContain("あなたの競り手番です。");
     expect(html).toContain("aria-label=\"スペードを選択\"");
     expect(html).toContain("aria-label=\"ハートを選択\"");
     expect(html).toContain("♠");

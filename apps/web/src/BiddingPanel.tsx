@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import type {
   PublicBidAction,
   PublicBiddingState,
@@ -40,7 +40,11 @@ export function BiddingPanel({
   const [selection, setSelection] = useState<BidSelection | null>(() =>
     normalizeBidSelection(legalBidActions, null)
   );
+  const statusId = useId();
   const isSelfTurn = currentPlayerId === selfPlayerId;
+  const turnStatus = isSelfTurn
+    ? "あなたの競り手番です。"
+    : `${formatPlayerLabel(currentPlayerId)}が競り中です。`;
 
   useEffect(() => {
     setSelection((current) => normalizeBidSelection(legalBidActions, current));
@@ -84,9 +88,12 @@ export function BiddingPanel({
   }
 
   return (
-    <section className="bidding-panel" aria-label="競り">
+    <section className="bidding-panel" aria-describedby={statusId} aria-label="競り">
       <div className="bidding-panel-header">
         <h2>競り</h2>
+        <p className="visually-hidden" id={statusId}>
+          {turnStatus}
+        </p>
         <div className="bidding-pass-count">
           <span>連続パス</span>
           <strong>{bidding?.consecutivePassCount ?? 0}</strong>

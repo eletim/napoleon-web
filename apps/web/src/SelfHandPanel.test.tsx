@@ -41,7 +41,9 @@ describe("SelfHandPanel", () => {
 
     expect(buttonMarkup(html, "2♠")).toContain("card-legal");
     expect(buttonMarkup(html, "2♠")).toContain("card-selected");
+    expect(buttonMarkup(html, "2♠")).toContain("交換対象に選択済み");
     expect(buttonMarkup(html, "K♥")).toContain("card-blocked");
+    expect(buttonMarkup(html, "K♥")).toContain("現在は操作できないカード");
   });
 
   it("keeps original order as the default view", () => {

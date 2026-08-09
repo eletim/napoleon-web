@@ -137,6 +137,18 @@ input:focus-visible {
   outline-offset: 2px;
 }
 
+.visually-hidden {
+  clip: rect(0 0 0 0);
+  border: 0;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
 .mode-switch {
   display: flex;
   gap: 8px;
@@ -750,6 +762,13 @@ input:focus-visible {
   gap: 7px;
 }
 
+.phase-note {
+  color: #4b5563;
+  font-size: 0.84rem;
+  font-weight: 800;
+  margin: -4px 0 0;
+}
+
 .adjutant-shortcuts > span {
   color: #475569;
   font-size: 0.82rem;
@@ -951,6 +970,7 @@ input:focus-visible {
 
 .card-selectable {
   border-color: #facc15;
+  border-style: dashed;
 }
 
 .card-blocked {

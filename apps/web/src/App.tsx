@@ -394,6 +394,7 @@ export function App() {
           {session?.state.phase === "choosing-adjutant" ? (
             <section className="adjutant-panel" aria-label="副官指定">
               <h2>副官指定</h2>
+              <p className="phase-note">埋札前に1枚</p>
               <div className="adjutant-shortcuts" aria-label="特殊札ショートカット">
                 <span>特殊札ショートカット</span>
                 <div className="adjutant-shortcut-buttons">
