@@ -10,19 +10,36 @@ import {
   getLegalActions
 } from "@napoleon/game-core";
 import type { GameAction, GameState, PlayerId } from "@napoleon/game-core";
-import type { Agent } from "@napoleon/ai";
+import type { Agent, PublicActionRecord } from "@napoleon/ai";
 import type {
   CreateGameResponse,
+  GetAgentsResponse,
   GetGameResponse,
   NextTrickResponse,
   PublicGameAction,
   RunAutomatedSimulationResponse,
   SendActionResponse
 } from "@napoleon/protocol";
-import { createAgents, createGameId, games, type InternalGameState } from "./store.js";
+import {
+  AgentUnavailableError,
+  UnknownAgentIdError,
+  createAgentRegistryFromEnvironment,
+  type AgentRegistry
+} from "./agentRegistry.js";
+import {
+  InvalidAgentSelectionError,
+  createAgentConfiguration,
+  createGameId,
+  games,
+  type InternalGameState
+} from "./store.js";
 import { toPublicGameState } from "./publicState.js";
 import { toPublicSimulationResponse } from "./simulationResponse.js";
-import { readActionBody, readRunAutomatedSimulationBody } from "./validation.js";
+import {
+  readActionBody,
+  readCreateGameBody,
+  readRunAutomatedSimulationBody
+} from "./validation.js";
 
 interface GameParams {
   gameId: string;
@@ -31,20 +48,57 @@ interface GameParams {
 const humanPlayerId = "player-0";
 const maxAutomaticAiActions = 100;
 
-export async function registerRoutes(app: FastifyInstance): Promise<void> {
+export interface RegisterRoutesOptions {
+  agentRegistry?: AgentRegistry;
+}
+
+export async function registerRoutes(
+  app: FastifyInstance,
+  options: RegisterRoutesOptions = {}
+): Promise<void> {
+  const agentRegistry = options.agentRegistry ?? createAgentRegistryFromEnvironment();
+
   app.get("/api/health", async () => ({ ok: true }));
 
-  app.post("/api/games", async (_request, reply): Promise<CreateGameResponse> => {
+  app.get("/api/agents", async (): Promise<GetAgentsResponse> => ({
+    agents: agentRegistry.listAgents()
+  }));
+
+  app.post("/api/games", async (request, reply): Promise<CreateGameResponse | FastifyReply> => {
+    const body = readCreateGameBody(request.body);
+
+    if (body === undefined) {
+      return sendError(
+        reply,
+        400,
+        "INVALID_CREATE_GAME_REQUEST",
+        "A valid game creation request is required."
+      );
+    }
+
     const state = createInitialGame();
     const aiPlayerIds = state.players
       .map((player) => player.id)
       .filter((playerId) => playerId !== humanPlayerId);
     const gameId = createGameId();
+    let agentConfiguration;
+
+    try {
+      agentConfiguration = createAgentConfiguration(
+        aiPlayerIds,
+        body.aiAgents ?? [],
+        agentRegistry
+      );
+    } catch (error) {
+      return handleCreateGameError(reply, error);
+    }
 
     games.set(gameId, {
       state,
       humanPlayerId,
-      agents: createAgents(aiPlayerIds)
+      agents: agentConfiguration.agents,
+      agentIds: agentConfiguration.agentIds,
+      publicActionHistory: []
     });
 
     reply.code(201);
@@ -107,12 +161,23 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       }
 
       try {
+        const internalAction = toInternalAction(action, record.humanPlayerId);
+        let publicActionHistory = appendPublicBiddingAction(
+          record.publicActionHistory ?? [],
+          internalAction
+        );
         let nextState = applyAction(
           clearLatestEvent(record.state),
-          toInternalAction(action, record.humanPlayerId)
+          internalAction
         );
-        nextState = await advanceAiTurns(nextState, record.humanPlayerId, record.agents);
-        record.state = nextState;
+        const advanced = await advanceAiTurns(
+          nextState,
+          record.humanPlayerId,
+          record.agents,
+          publicActionHistory
+        );
+        record.state = advanced.state;
+        record.publicActionHistory = advanced.publicActionHistory;
       } catch (error) {
         return handleActionError(reply, error);
       }
@@ -135,9 +200,15 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       }
 
       try {
-        let nextState = advanceToNextTrick(clearLatestEvent(record.state));
-        nextState = await advanceAiTurns(nextState, record.humanPlayerId, record.agents);
-        record.state = nextState;
+        const nextState = advanceToNextTrick(clearLatestEvent(record.state));
+        const advanced = await advanceAiTurns(
+          nextState,
+          record.humanPlayerId,
+          record.agents,
+          record.publicActionHistory ?? []
+        );
+        record.state = advanced.state;
+        record.publicActionHistory = advanced.publicActionHistory;
       } catch (error) {
         return handleActionError(reply, error);
       }
@@ -154,9 +225,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 async function advanceAiTurns(
   initialState: GameState,
   humanPlayerId: PlayerId,
-  agents: ReadonlyMap<PlayerId, Agent>
-): Promise<GameState> {
+  agents: ReadonlyMap<PlayerId, Agent>,
+  initialPublicActionHistory: readonly PublicActionRecord[]
+): Promise<{
+  state: GameState;
+  publicActionHistory: readonly PublicActionRecord[];
+}> {
   let state = initialState;
+  let publicActionHistory = initialPublicActionHistory;
   let guard = 0;
 
   while (
@@ -179,11 +255,20 @@ async function advanceAiTurns(
 
     const legalActions = getLegalActions(state, playerId);
     const view = createPlayerView(state, playerId);
-    const action = await agent.selectAction({ playerId, view, legalActions });
+    const action = await agent.selectAction({
+      playerId,
+      view,
+      legalActions,
+      publicActionHistory
+    });
+    publicActionHistory = appendPublicBiddingAction(publicActionHistory, action);
     state = applyAction(state, action);
   }
 
-  return state;
+  return {
+    state,
+    publicActionHistory
+  };
 }
 
 function toInternalAction(action: PublicGameAction, playerId: PlayerId): GameAction {
@@ -221,6 +306,25 @@ function toInternalAction(action: PublicGameAction, playerId: PlayerId): GameAct
   }
 }
 
+function appendPublicBiddingAction(
+  history: readonly PublicActionRecord[],
+  action: GameAction
+): readonly PublicActionRecord[] {
+  if (action.type !== "bid" && action.type !== "pass") {
+    return history;
+  }
+
+  return [
+    ...history,
+    {
+      step: history.length + 1,
+      playerId: action.playerId,
+      phase: "bidding",
+      action
+    }
+  ];
+}
+
 function createGameResponse(
   gameId: string,
   record: InternalGameState | undefined
@@ -243,6 +347,22 @@ function handleActionError(reply: FastifyReply, error: unknown): FastifyReply {
 
   if (error instanceof NoLegalActionsError) {
     return sendError(reply, 409, "NO_LEGAL_ACTIONS", error.message);
+  }
+
+  throw error;
+}
+
+function handleCreateGameError(reply: FastifyReply, error: unknown): FastifyReply {
+  if (error instanceof UnknownAgentIdError) {
+    return sendError(reply, 400, "UNKNOWN_AGENT_ID", error.message);
+  }
+
+  if (error instanceof InvalidAgentSelectionError) {
+    return sendError(reply, 400, "INVALID_AGENT_SELECTION", error.message);
+  }
+
+  if (error instanceof AgentUnavailableError) {
+    return sendError(reply, 503, "AGENT_UNAVAILABLE", error.message);
   }
 
   throw error;

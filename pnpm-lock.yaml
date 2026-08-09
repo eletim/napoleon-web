@@ -45,6 +45,9 @@ importers:
       '@napoleon/game-core':
         specifier: workspace:*
         version: link:../../packages/game-core
+      '@napoleon/policy-onnx':
+        specifier: workspace:*
+        version: link:../../packages/policy-onnx
       '@napoleon/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol

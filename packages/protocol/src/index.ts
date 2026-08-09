@@ -176,8 +176,6 @@ export interface PublicGameState {
   legalActions: readonly PublicLegalAction[];
 }
 
-export type CreateGameRequest = Record<string, never>;
-
 export interface CreateGameResponse {
   gameId: string;
   playerId: string;
@@ -236,6 +234,25 @@ export interface NextTrickResponse {
   gameId: string;
   playerId: string;
   state: PublicGameState;
+}
+
+export interface PublicAgentDescriptor {
+  id: string;
+  displayName: string;
+  isAvailable: boolean;
+}
+
+export interface GetAgentsResponse {
+  agents: readonly PublicAgentDescriptor[];
+}
+
+export interface CreateGameAgentSelection {
+  playerId: string;
+  agentId: string;
+}
+
+export interface CreateGameRequest {
+  aiAgents?: readonly CreateGameAgentSelection[];
 }
 
 export interface RunAutomatedSimulationRequest {

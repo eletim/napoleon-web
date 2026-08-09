@@ -1,6 +1,8 @@
 import type {
   BidRequest,
   ChooseAdjutantRequest,
+  CreateGameAgentSelection,
+  CreateGameRequest,
   DiscardCardsRequest,
   PassRequest,
   PlayCardRequest,
@@ -104,6 +106,42 @@ export function readActionBody(value: unknown): PublicGameAction | undefined {
   return undefined;
 }
 
+export function readCreateGameBody(value: unknown): CreateGameRequest | undefined {
+  if (value === undefined) {
+    return {};
+  }
+
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const keys = Object.keys(value);
+
+  if (keys.length === 0) {
+    return {};
+  }
+
+  if (keys.length !== 1 || !keys.includes("aiAgents") || !Array.isArray(value.aiAgents)) {
+    return undefined;
+  }
+
+  const aiAgents: CreateGameAgentSelection[] = [];
+
+  for (const selection of value.aiAgents) {
+    const parsed = readCreateGameAgentSelection(selection);
+
+    if (parsed === undefined) {
+      return undefined;
+    }
+
+    aiAgents.push(parsed);
+  }
+
+  return {
+    aiAgents
+  };
+}
+
 export function readRunAutomatedSimulationBody(
   value: unknown
 ): RunAutomatedSimulationRequest | undefined {
@@ -128,6 +166,31 @@ export function readRunAutomatedSimulationBody(
 
   return {
     seed: value.seed
+  };
+}
+
+function readCreateGameAgentSelection(
+  value: unknown
+): CreateGameAgentSelection | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const keys = Object.keys(value);
+
+  if (
+    keys.length !== 2 ||
+    !keys.includes("playerId") ||
+    !keys.includes("agentId") ||
+    typeof value.playerId !== "string" ||
+    typeof value.agentId !== "string"
+  ) {
+    return undefined;
+  }
+
+  return {
+    playerId: value.playerId,
+    agentId: value.agentId
   };
 }
 

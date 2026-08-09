@@ -1,5 +1,7 @@
 import type {
+  CreateGameRequest,
   CreateGameResponse,
+  GetAgentsResponse,
   GetGameResponse,
   NextTrickResponse,
   PublicGameAction,
@@ -7,10 +9,14 @@ import type {
   SendActionResponse
 } from "@napoleon/protocol";
 
-export async function createGame(): Promise<CreateGameResponse> {
+export async function getAgents(): Promise<GetAgentsResponse> {
+  return request<GetAgentsResponse>("/api/agents");
+}
+
+export async function createGame(requestBody: CreateGameRequest = {}): Promise<CreateGameResponse> {
   return request<CreateGameResponse>("/api/games", {
     method: "POST",
-    body: JSON.stringify({})
+    body: JSON.stringify(requestBody)
   });
 }
 

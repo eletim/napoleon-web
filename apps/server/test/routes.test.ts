@@ -1,3 +1,7 @@
+import { randomUUID } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { RuleBasedAgent, type Agent } from "@napoleon/ai";
@@ -20,14 +24,25 @@ import {
 import type {
   ApiError,
   CreateGameResponse,
+  GetAgentsResponse,
   GetGameResponse,
   NextTrickResponse,
+  PublicGameAction,
   PublicSimulationActualState,
   RunAutomatedSimulationResponse,
   SendActionResponse
 } from "@napoleon/protocol";
+import {
+  PLAYING_POLICY_ONNX_AGENT_ID,
+  RULE_BASED_AGENT_ID,
+  createAgentRegistry
+} from "../src/agentRegistry.js";
 import { buildApp } from "../src/app.js";
 import { createAgents, games } from "../src/store.js";
+import {
+  createIncreasingLogitPolicyOnnx,
+  createPlayingPolicyMetadata
+} from "./policyOnnxFixture.js";
 
 let app: FastifyInstance;
 
@@ -234,6 +249,28 @@ describe("server API", () => {
     expect(agents.get("player-1")).toBeInstanceOf(RuleBasedAgent);
   });
 
+  it("lists AI agents available to human games", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/agents"
+    });
+    const body = response.json<GetAgentsResponse>();
+
+    expect(response.statusCode).toBe(200);
+    expect(body.agents).toEqual([
+      {
+        id: RULE_BASED_AGENT_ID,
+        displayName: "Rule-based AI",
+        isAvailable: true
+      },
+      {
+        id: PLAYING_POLICY_ONNX_AGENT_ID,
+        displayName: "Playing Policy ONNX",
+        isAvailable: false
+      }
+    ]);
+  });
+
   it("returns health status", async () => {
     const response = await app.inject({
       method: "GET",
@@ -295,6 +332,161 @@ describe("server API", () => {
       expect(allCards.filter(isStandardCard)).toHaveLength(52);
       expect(allCards.filter(isJokerCard)).toHaveLength(1);
     }
+  });
+
+  it("creates a default rule-based game without a request body", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games"
+    });
+    const body = response.json<CreateGameResponse>();
+    const record = games.get(body.gameId);
+
+    expect(response.statusCode).toBe(201);
+    expect(record?.agentIds).toEqual(
+      new Map([
+        ["player-1", RULE_BASED_AGENT_ID],
+        ["player-2", RULE_BASED_AGENT_ID],
+        ["player-3", RULE_BASED_AGENT_ID],
+        ["player-4", RULE_BASED_AGENT_ID]
+      ])
+    );
+  });
+
+  it("stores selected AI agents per game by seat", async () => {
+    await rebuildAppWithOnnxPolicy();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games",
+      payload: {
+        aiAgents: [
+          {
+            playerId: "player-1",
+            agentId: PLAYING_POLICY_ONNX_AGENT_ID
+          },
+          {
+            playerId: "player-2",
+            agentId: RULE_BASED_AGENT_ID
+          },
+          {
+            playerId: "player-3",
+            agentId: PLAYING_POLICY_ONNX_AGENT_ID
+          },
+          {
+            playerId: "player-4",
+            agentId: RULE_BASED_AGENT_ID
+          }
+        ]
+      }
+    });
+    const body = response.json<CreateGameResponse>();
+    const record = games.get(body.gameId);
+
+    expect(response.statusCode).toBe(201);
+    expect(record?.agentIds).toEqual(
+      new Map([
+        ["player-1", PLAYING_POLICY_ONNX_AGENT_ID],
+        ["player-2", RULE_BASED_AGENT_ID],
+        ["player-3", PLAYING_POLICY_ONNX_AGENT_ID],
+        ["player-4", RULE_BASED_AGENT_ID]
+      ])
+    );
+  });
+
+  it("rejects unknown agent ids during game creation", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games",
+      payload: {
+        aiAgents: [
+          {
+            playerId: "player-1",
+            agentId: "missing-agent"
+          }
+        ]
+      }
+    });
+    const body = response.json<ApiError>();
+
+    expect(response.statusCode).toBe(400);
+    expect(body.error.code).toBe("UNKNOWN_AGENT_ID");
+  });
+
+  it("rejects unavailable learned agents during game creation", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games",
+      payload: {
+        aiAgents: [
+          {
+            playerId: "player-1",
+            agentId: PLAYING_POLICY_ONNX_AGENT_ID
+          }
+        ]
+      }
+    });
+    const body = response.json<ApiError>();
+
+    expect(response.statusCode).toBe(503);
+    expect(body.error.code).toBe("AGENT_UNAVAILABLE");
+  });
+
+  it("runs a human game with learned playing-policy AI seats", async () => {
+    await rebuildAppWithOnnxPolicy();
+
+    const createdResponse = await app.inject({
+      method: "POST",
+      url: "/api/games",
+      payload: {
+        aiAgents: [
+          {
+            playerId: "player-1",
+            agentId: PLAYING_POLICY_ONNX_AGENT_ID
+          },
+          {
+            playerId: "player-2",
+            agentId: PLAYING_POLICY_ONNX_AGENT_ID
+          },
+          {
+            playerId: "player-3",
+            agentId: PLAYING_POLICY_ONNX_AGENT_ID
+          },
+          {
+            playerId: "player-4",
+            agentId: PLAYING_POLICY_ONNX_AGENT_ID
+          }
+        ]
+      }
+    });
+    let session = createdResponse.json<CreateGameResponse>();
+    let playedHumanCard = false;
+
+    expect(createdResponse.statusCode).toBe(201);
+
+    for (let step = 0; step < 80 && !session.state.isTrickComplete; step += 1) {
+      if (session.state.currentPlayerId !== session.playerId) {
+        throw new Error(`Expected automatic AI turns to stop on the human player at step ${step}.`);
+      }
+
+      const action = chooseHumanAction(session.state);
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/games/${session.gameId}/actions`,
+        payload: {
+          action
+        }
+      });
+
+      expect(response.statusCode, response.body).toBe(200);
+      session = response.json<SendActionResponse>();
+      playedHumanCard ||= action.type === "play-card";
+    }
+
+    expect(playedHumanCard).toBe(true);
+    expect(session.state.phase).toBe("playing");
+    expect(session.state.currentTrick).toHaveLength(5);
+    expect(session.state.isTrickComplete).toBe(true);
   });
 
   it("runs a seeded automated simulation to completion", async () => {
@@ -2463,6 +2655,57 @@ async function createGame(): Promise<CreateGameResponse> {
 
   expect(response.statusCode).toBe(201);
   return response.json<CreateGameResponse>();
+}
+
+async function rebuildAppWithOnnxPolicy(): Promise<void> {
+  const modelDir = join(tmpdir(), `napoleon-server-test-${randomUUID()}`);
+  await mkdir(modelDir, {
+    recursive: true
+  });
+  const onnxPath = join(modelDir, "policy.onnx");
+  const metadataPath = join(modelDir, "policy.json");
+
+  await writeFile(onnxPath, createIncreasingLogitPolicyOnnx());
+  await writeFile(metadataPath, JSON.stringify(createPlayingPolicyMetadata()));
+  await app.close();
+  app = await buildApp({
+    agentRegistry: createAgentRegistry({
+      playingPolicyOnnx: {
+        onnxPath,
+        metadataPath
+      }
+    })
+  });
+}
+
+function chooseHumanAction(state: CreateGameResponse["state"]): PublicGameAction {
+  if (state.phase === "exchanging" && state.exchange !== null) {
+    return {
+      type: "discard-cards",
+      cardIds: state.self.hand.slice(0, state.exchange.requiredDiscardCount).map((card) => card.id)
+    };
+  }
+
+  if (state.phase === "choosing-adjutant") {
+    return {
+      type: "choose-adjutant",
+      cardId: "spades-A"
+    };
+  }
+
+  const passAction = state.legalActions.find((action) => action.type === "pass");
+
+  if (passAction !== undefined) {
+    return passAction;
+  }
+
+  const action = state.legalActions[0];
+
+  if (action === undefined) {
+    throw new Error("Expected a legal human action.");
+  }
+
+  return action;
 }
 
 function createCompletedTrickWonByAi(): GameState {
