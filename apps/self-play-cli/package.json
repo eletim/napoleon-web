@@ -12,6 +12,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@napoleon/policy-onnx": "workspace:*",
     "@napoleon/training-data": "workspace:*"
   },
   "devDependencies": {
