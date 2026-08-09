@@ -190,6 +190,26 @@ describe("start-dev.sh", () => {
     rmSync(fakeTailscale.root, { recursive: true, force: true });
   });
 
+  it("falls back to localhost-only when Tailscale is disconnected", () => {
+    const root = createTempRoot();
+    const envFile = join(root, "apps/web/.env.local");
+    const fakeTailscale = createFakeTailscale({ backendState: "NeedsLogin" });
+
+    const result = runDevScript(root, {
+      dryRun: false,
+      testMode: true,
+      path: fakeTailscale.path
+    });
+
+    expect(result.status).toBe(0);
+    expect(existsSync(envFile)).toBe(false);
+    expect(result.stdout).toContain("Tailscale DNS名を取得できないため");
+    expect(result.stdout).toContain("dev_server_started=true");
+    expect(readFakeTailscaleLog(fakeTailscale.logPath)).toEqual(["status --json"]);
+    rmSync(root, { recursive: true, force: true });
+    rmSync(fakeTailscale.root, { recursive: true, force: true });
+  });
+
   it("falls back to localhost-only when Tailscale Self.DNSName is missing", () => {
     const root = createTempRoot();
     const envFile = join(root, "apps/web/.env.local");
@@ -437,7 +457,12 @@ function runDevScript(
 }
 
 function createFakeTailscale(
-  options: { selfDnsName?: string | null; serveExitCode?: number; statusExitCode?: number } = {}
+  options: {
+    backendState?: string;
+    selfDnsName?: string | null;
+    serveExitCode?: number;
+    statusExitCode?: number;
+  } = {}
 ): { logPath: string; path: string; root: string } {
   const root = mkdtempSync(join(tmpdir(), "napoleon-tailscale-"));
   const binDir = join(root, "bin");
@@ -445,8 +470,11 @@ function createFakeTailscale(
   const tailscalePath = join(binDir, "tailscale");
   const statusJson =
     options.selfDnsName === null
-      ? '{"Self":{}}'
-      : JSON.stringify({ Self: { DNSName: options.selfDnsName ?? "host.example.ts.net." } });
+      ? JSON.stringify({ BackendState: options.backendState ?? "Running", Self: {} })
+      : JSON.stringify({
+          BackendState: options.backendState ?? "Running",
+          Self: { DNSName: options.selfDnsName ?? "host.example.ts.net." }
+        });
   mkdirSync(binDir, { recursive: true });
   writeFileSync(
     tailscalePath,

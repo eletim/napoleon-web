@@ -139,7 +139,11 @@ process.stdin.on("data", (chunk) => {
 });
 process.stdin.on("end", () => {
   try {
-    const dnsName = JSON.parse(input)?.Self?.DNSName;
+    const status = JSON.parse(input);
+    if (status?.BackendState !== "Running") {
+      process.exit(1);
+    }
+    const dnsName = status?.Self?.DNSName;
     if (typeof dnsName !== "string") {
       process.exit(1);
     }
