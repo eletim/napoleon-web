@@ -94,14 +94,16 @@ export function BiddingPanel({
         <p className="visually-hidden" id={statusId}>
           {turnStatus}
         </p>
-        <div className="bidding-pass-count">
-          <span>連続パス</span>
+        <div aria-label={`連続パス ${bidding?.consecutivePassCount ?? 0}`} className="bidding-pass-count">
+          <span aria-hidden="true">P</span>
           <strong>{bidding?.consecutivePassCount ?? 0}</strong>
         </div>
       </div>
 
-      <div className="highest-bid-card">
-        <span>現在の最高入札</span>
+      <div
+        aria-label={`現在の最高入札: ${formatHighestBid(bidding?.highestBid ?? null, formatPlayerLabel)}`}
+        className="highest-bid-card"
+      >
         <strong>{formatHighestBid(bidding?.highestBid ?? null, formatPlayerLabel)}</strong>
       </div>
 
@@ -135,7 +137,7 @@ export function BiddingPanel({
       </div>
 
       <div className="bid-control-group">
-        <span className="control-label">宣言枚数</span>
+        <span className="control-label visually-hidden">宣言枚数</span>
         <div className="bid-stepper">
           <button
             aria-label="前の宣言枚数"
@@ -146,8 +148,13 @@ export function BiddingPanel({
           >
             -
           </button>
-          <output className="bid-target-output">
-            {selection === null ? "-" : `${selection.targetPointCards}枚`}
+          <output
+            aria-label={
+              selection === null ? "宣言枚数未選択" : `宣言枚数 ${selection.targetPointCards}枚`
+            }
+            className="bid-target-output"
+          >
+            {selection === null ? "-" : selection.targetPointCards}
           </output>
           <button
             aria-label="次の宣言枚数"
@@ -174,7 +181,7 @@ export function BiddingPanel({
         >
           {selectedAction === undefined
             ? "入札できません"
-            : `${suitSymbols[selectedAction.suit]}${selectedAction.targetPointCards}枚で入札`}
+            : `入札 ${suitSymbols[selectedAction.suit]}${selectedAction.targetPointCards}`}
         </button>
         <button
           className="secondary-button pass-button"

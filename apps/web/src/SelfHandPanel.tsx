@@ -35,13 +35,22 @@ export function SelfHandPanel({
   const isCurrent = state?.currentPlayerId === playerId;
   const isNapoleon = state?.contract?.napoleonPlayerId === playerId;
   const isAdjutant = state?.adjutant?.revealedPlayerId === playerId;
+  const panelAriaParts = [
+    "自分",
+    isCurrent ? "現在の手番" : undefined,
+    isNapoleon ? "ナポレオン" : undefined,
+    isAdjutant ? "副官" : undefined
+  ].filter((part): part is string => part !== undefined);
   const displayedHand = useMemo(
     () => getDisplayedHandCards(self?.hand ?? [], handOrderMode),
     [handOrderMode, self?.hand]
   );
 
   return (
-    <article className={["self-panel", isCurrent ? "current-player" : ""].filter(Boolean).join(" ")}>
+    <article
+      aria-label={panelAriaParts.join("、")}
+      className={["self-panel", isCurrent ? "current-player" : ""].filter(Boolean).join(" ")}
+    >
       <div className="self-heading">
         <div className="self-info">
           <h2>自分</h2>
@@ -52,27 +61,39 @@ export function SelfHandPanel({
         </div>
 
         <div className="role-badges self-role-badges">
-          {isCurrent ? <span className="role-badge turn-badge">手番</span> : null}
-          {isNapoleon ? <span className="role-badge napoleon-badge">ナポレオン</span> : null}
-          {isAdjutant ? <span className="role-badge adjutant-badge">副官</span> : null}
+          {isCurrent ? (
+            <span aria-label="現在の手番" className="turn-dot" role="img" />
+          ) : null}
+          {isNapoleon ? (
+            <span aria-label="ナポレオン" className="role-badge napoleon-badge" role="img">
+              N
+            </span>
+          ) : null}
+          {isAdjutant ? (
+            <span aria-label="副官" className="role-badge adjutant-badge" role="img">
+              A
+            </span>
+          ) : null}
         </div>
 
         <div className="hand-sort-toggle" aria-label="手札表示順">
           <button
+            aria-label="配札順"
             aria-pressed={handOrderMode === "original"}
             className={getHandSortButtonClassName(handOrderMode, "original")}
             onClick={() => setHandOrderMode("original")}
             type="button"
           >
-            配札順
+            配
           </button>
           <button
+            aria-label="理牌"
             aria-pressed={handOrderMode === "riipai"}
             className={getHandSortButtonClassName(handOrderMode, "riipai")}
             onClick={() => setHandOrderMode("riipai")}
             type="button"
           >
-            理牌
+            理
           </button>
         </div>
       </div>
@@ -81,7 +102,7 @@ export function SelfHandPanel({
         className="self-points-row"
         aria-label={`自分の獲得得点札は${capturedPointCards.length}枚`}
       >
-        <span>得点札</span>
+        <span aria-hidden="true">★{capturedPointCards.length}</span>
         <div className="inline-cards compact-points">
           <PointCards cards={capturedPointCards} />
         </div>

@@ -47,6 +47,24 @@ select {
   margin: 0;
 }
 
+.top-bar-compact {
+  margin-bottom: 8px;
+}
+
+.top-bar-compact h1 {
+  font-size: 0.96rem;
+  margin: 0;
+}
+
+.top-bar-compact p {
+  font-size: 0.82rem;
+}
+
+.top-bar-compact .primary-button {
+  min-height: 34px;
+  padding: 0 12px;
+}
+
 .agent-setup {
   background: #ffffff;
   border: 1px solid #cbd5e1;
@@ -156,6 +174,11 @@ input:focus-visible {
   max-width: 1240px;
 }
 
+.mode-switch-compact {
+  justify-content: flex-end;
+  margin-bottom: 6px;
+}
+
 .mode-button {
   background: #ffffff;
   border: 1px solid #cbd5e1;
@@ -164,6 +187,11 @@ input:focus-visible {
   cursor: pointer;
   min-height: 40px;
   padding: 0 14px;
+}
+
+.mode-switch-compact .mode-button {
+  min-height: 30px;
+  padding: 0 10px;
 }
 
 .mode-button-active {
@@ -259,21 +287,31 @@ input:focus-visible {
 .role-badges {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 5px;
   justify-content: flex-end;
+  min-height: 18px;
 }
 
 .role-badge {
-  border-radius: 999px;
-  font-size: 0.68rem;
+  align-items: center;
+  border-radius: 50%;
+  display: inline-grid;
+  font-size: 0.72rem;
   font-weight: 800;
+  height: 20px;
+  justify-items: center;
   line-height: 1;
-  padding: 4px 6px;
+  width: 20px;
 }
 
-.turn-badge {
+.turn-dot {
   background: #fef3c7;
-  color: #92400e;
+  border: 2px solid #facc15;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px rgb(250 204 21 / 22%);
+  display: inline-block;
+  height: 12px;
+  width: 12px;
 }
 
 .napoleon-badge {
@@ -292,17 +330,9 @@ input:focus-visible {
   border: 1px solid #c7d2fe;
   border-radius: 8px;
   display: flex;
-  gap: 6px;
-  justify-content: space-between;
   min-height: 30px;
-  min-width: 92px;
+  min-width: 46px;
   padding: 5px 7px;
-}
-
-.latest-bid-declaration span {
-  color: #64748b;
-  font-size: 0.7rem;
-  font-weight: 900;
 }
 
 .latest-bid-declaration strong {
@@ -419,17 +449,13 @@ input:focus-visible {
 }
 
 .game-status {
-  display: grid;
-  gap: 6px;
-  justify-items: center;
   max-width: 100%;
 }
 
-.primary-status-row,
-.secondary-status-row {
+.compact-status-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 5px;
   justify-content: center;
   max-width: 100%;
 }
@@ -439,25 +465,48 @@ input:focus-visible {
   border: 1px solid rgb(255 255 255 / 22%);
   border-radius: 999px;
   display: inline-flex;
-  gap: 5px;
+  gap: 4px;
   max-width: 100%;
-  min-height: 28px;
-  padding: 5px 9px;
+  min-height: 26px;
+  padding: 4px 8px;
   white-space: nowrap;
 }
 
-.status-chip-primary {
+.status-chip-phase {
   background: rgb(255 255 255 / 18%);
   color: #ffffff;
   font-size: 0.82rem;
   font-weight: 900;
 }
 
-.status-chip-secondary {
+.status-chip-contract {
+  background: #ffffff;
+  color: #172033;
+  font-size: 0.9rem;
+  font-weight: 900;
+}
+
+.status-chip-role {
+  background: #dcfce7;
+  border-color: rgb(220 252 231 / 70%);
+  color: #166534;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.status-chip-special {
   background: rgb(255 255 255 / 10%);
   color: #dbeafe;
   font-size: 0.76rem;
   font-weight: 800;
+}
+
+.status-chip-result {
+  background: #fef3c7;
+  border-color: rgb(254 243 199 / 70%);
+  color: #92400e;
+  font-size: 0.82rem;
+  font-weight: 900;
 }
 
 .status-chip-label {
@@ -518,17 +567,10 @@ input:focus-visible {
   border-radius: 8px;
   color: #ffffff;
   display: grid;
-  gap: 2px;
   grid-area: message;
   justify-items: center;
-  min-height: 94px;
+  min-height: 72px;
   padding: 12px;
-}
-
-.trick-message span {
-  color: #dbeafe;
-  font-size: 0.78rem;
-  font-weight: 800;
 }
 
 .trick-message strong {
@@ -551,9 +593,6 @@ input:focus-visible {
 .empty-played-card {
   background: rgb(255 255 255 / 8%);
   border: 2px dashed rgb(255 255 255 / 28%);
-  color: rgb(226 232 240 / 78%);
-  font-size: 0.68rem;
-  font-weight: 800;
 }
 
 .played-owner {
@@ -608,11 +647,10 @@ input:focus-visible {
   align-items: center;
   background: #f1f5f9;
   border-radius: 8px;
-  display: grid;
-  gap: 2px;
-  justify-items: center;
-  min-width: 74px;
-  padding: 8px 10px;
+  display: inline-flex;
+  gap: 6px;
+  min-width: 54px;
+  padding: 7px 9px;
 }
 
 .bidding-pass-count span,
@@ -632,15 +670,8 @@ input:focus-visible {
   border: 2px solid #93c5fd;
   border-radius: 8px;
   display: grid;
-  gap: 4px;
-  padding: 12px;
+  padding: 10px 12px;
   text-align: center;
-}
-
-.highest-bid-card span {
-  color: #1d4ed8;
-  font-size: 0.82rem;
-  font-weight: 900;
 }
 
 .highest-bid-card strong {
@@ -760,13 +791,6 @@ input:focus-visible {
 .adjutant-shortcuts {
   display: grid;
   gap: 7px;
-}
-
-.phase-note {
-  color: #4b5563;
-  font-size: 0.84rem;
-  font-weight: 800;
-  margin: -4px 0 0;
 }
 
 .adjutant-shortcuts > span {
@@ -1320,31 +1344,27 @@ input:focus-visible {
       "message message";
   }
 
-  .primary-status-row,
-  .secondary-status-row {
+  .compact-status-row {
     justify-content: flex-start;
-    text-align: left;
-    width: 100%;
-  }
-
-  .secondary-status-row {
     flex-wrap: nowrap;
     overflow-x: auto;
     padding-bottom: 2px;
     scrollbar-color: rgb(219 234 254 / 48%) transparent;
     scrollbar-width: thin;
     touch-action: pan-x;
+    text-align: left;
+    width: 100%;
   }
 
-  .secondary-status-row::-webkit-scrollbar {
+  .compact-status-row::-webkit-scrollbar {
     height: 5px;
   }
 
-  .secondary-status-row::-webkit-scrollbar-track {
+  .compact-status-row::-webkit-scrollbar-track {
     background: transparent;
   }
 
-  .secondary-status-row::-webkit-scrollbar-thumb {
+  .compact-status-row::-webkit-scrollbar-thumb {
     background: rgb(219 234 254 / 42%);
     border-radius: 999px;
   }
