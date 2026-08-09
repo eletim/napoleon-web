@@ -14,6 +14,8 @@ import torch
 from napoleon_ml.cli.train_policy_mlp import main as train_supervised_main
 from napoleon_ml.dataset.constants import CARD_COUNT, EXPECTED_CARD_IDS
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
+from napoleon_ml.policy.actor_critic import ACTOR_CRITIC_ALGORITHM
+from napoleon_ml.policy.reinforce import REINFORCE_ALGORITHM
 from napoleon_ml.rl_orchestrator import (
     PlayingRlOrchestratorError,
     PlayingRlRunConfig,
@@ -166,11 +168,74 @@ def test_playing_rl_orchestrator_reproducibility(tmp_path: Path) -> None:
     assert _stable_evaluation_summary(left_eval) == _stable_evaluation_summary(right_eval)
 
 
+@pytest.mark.integration
+def test_playing_rl_orchestrator_actor_critic_two_iteration_resume_and_safety(
+    tmp_path: Path,
+) -> None:
+    supervised_dataset = tmp_path / "supervised"
+    initial_checkpoint = tmp_path / "initial-playing.pt"
+    _create_initial_checkpoint(supervised_dataset, initial_checkpoint)
+
+    run_directory = tmp_path / "actor-critic-run"
+    config = _small_config(
+        run_directory=run_directory,
+        initial_checkpoint=initial_checkpoint,
+        supervised_dataset=supervised_dataset,
+        algorithm=ACTOR_CRITIC_ALGORITHM,
+    )
+    run_playing_rl_experiment(config, resume=False)
+
+    iter0 = _load_json(run_directory / "iterations" / "iter-000" / "iteration.json")
+    iter1 = _load_json(run_directory / "iterations" / "iter-001" / "iteration.json")
+    assert iter0["algorithm"] == ACTOR_CRITIC_ALGORITHM
+    assert iter1["algorithm"] == ACTOR_CRITIC_ALGORITHM
+    assert iter0["outputCheckpointSha256"] == iter1["inputCheckpointSha256"]
+    assert iter0["selfPlayManifestSha256"] != iter1["selfPlayManifestSha256"]
+    assert _required_int(iter0["optimizerStepCount"]) > 0
+    assert _required_int(iter1["optimizerStepCount"]) > 0
+
+    for iteration in (0, 1):
+        report = _load_json(
+            run_directory / "iterations" / f"iter-{iteration:03d}" / "train-report.json"
+        )
+        assert report["actorLossBefore"] is not None
+        assert report["valueLossBefore"] is not None
+        assert report["totalLossAfter"] is not None
+        assert _required_float(report["criticParameterDeltaNorm"]) > 0
+        assert _required_int(report["changedCriticParameterCount"]) > 0
+        checkpoint = torch.load(
+            run_directory / "iterations" / f"iter-{iteration:03d}" / "output-checkpoint.pt",
+            map_location="cpu",
+            weights_only=True,
+        )
+        assert checkpoint["model_architecture"] == "playing-actor-critic-v1"
+        provenance = cast(dict[str, object], checkpoint["rl_provenance"])
+        assert provenance["algorithm"] == ACTOR_CRITIC_ALGORITHM
+
+    final_evaluation = run_directory / "evaluations" / "policy-v002"
+    shutil.rmtree(final_evaluation)
+    run_playing_rl_experiment(
+        config,
+        resume=True,
+        provided_config_keys={"iterations", "gamesPerIteration", "algorithm"},
+    )
+    assert (final_evaluation / "summary.json").is_file()
+
+    mismatch = replace(config, algorithm=REINFORCE_ALGORITHM)
+    with pytest.raises(PlayingRlOrchestratorError, match="resume config mismatch for algorithm"):
+        run_playing_rl_experiment(
+            mismatch,
+            resume=True,
+            provided_config_keys={"algorithm"},
+        )
+
+
 def _small_config(
     *,
     run_directory: Path,
     initial_checkpoint: Path,
     supervised_dataset: Path,
+    algorithm: str = REINFORCE_ALGORITHM,
 ) -> PlayingRlRunConfig:
     return PlayingRlRunConfig(
         run_directory=run_directory,
@@ -181,6 +246,7 @@ def _small_config(
         games_per_shard=1,
         self_play_seed_base=101,
         temperature=1.0,
+        algorithm=algorithm,
         learning_rate=0.001,
         epochs=1,
         batch_size=16,
@@ -305,6 +371,11 @@ def _required_list(value: object) -> list[object]:
 def _required_int(value: object) -> int:
     assert isinstance(value, int)
     return value
+
+
+def _required_float(value: object) -> float:
+    assert isinstance(value, int | float)
+    return float(value)
 
 
 def _sha256_file(path: Path) -> str:

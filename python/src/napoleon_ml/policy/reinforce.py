@@ -29,7 +29,9 @@ from napoleon_ml.dataset.manifest import DatasetManifest
 from napoleon_ml.dataset.pytorch import PlayingSelfPlayTorchSample
 from napoleon_ml.dataset.tensors import MODEL_INPUT_FEATURE_COUNT, MODEL_INPUT_SCHEMA_VERSION
 from napoleon_ml.policy.checkpoint import (
+    ACTOR_CRITIC_MODEL_ARCHITECTURE,
     CHECKPOINT_SCHEMA_VERSION,
+    POLICY_MODEL_ARCHITECTURE,
     PolicyCheckpointCompatibilityError,
 )
 from napoleon_ml.policy.model import PolicyMlpConfig, PolicyMlpModel
@@ -438,6 +440,20 @@ def _validate_checkpoint_for_reinforce(
     model_config = checkpoint.get("model_config")
     if not isinstance(model_config, dict):
         raise PolicyCheckpointCompatibilityError("checkpoint model_config must be a dictionary.")
+    architecture = checkpoint.get("model_architecture", POLICY_MODEL_ARCHITECTURE)
+    if architecture == ACTOR_CRITIC_MODEL_ARCHITECTURE:
+        raise PolicyCheckpointCompatibilityError(
+            "REINFORCE training cannot resume from an Actor-Critic checkpoint."
+        )
+    if architecture != POLICY_MODEL_ARCHITECTURE:
+        raise PolicyCheckpointCompatibilityError(
+            f"checkpoint model_architecture is unsupported: {architecture!r}."
+        )
+    rl_provenance = checkpoint.get("rl_provenance")
+    if isinstance(rl_provenance, dict) and rl_provenance.get("algorithm") == "actor-critic-v1":
+        raise PolicyCheckpointCompatibilityError(
+            "REINFORCE training cannot resume from an Actor-Critic checkpoint."
+        )
     if model_config.get("input_dim") != MODEL_INPUT_FEATURE_COUNT:
         raise PolicyCheckpointCompatibilityError(
             "checkpoint model_config.input_dim mismatch: "

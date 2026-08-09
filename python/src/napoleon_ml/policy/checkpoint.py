@@ -14,10 +14,12 @@ from napoleon_ml.dataset.manifest import DatasetManifest
 from napoleon_ml.dataset.tensors import MODEL_INPUT_FEATURE_COUNT, MODEL_INPUT_SCHEMA_VERSION
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 
-from .model import PolicyMlpConfig, PolicyMlpModel
+from .model import PolicyActorCriticModel, PolicyMlpConfig, PolicyMlpModel
 
 CHECKPOINT_SCHEMA_VERSION = 1
 LEGACY_V1_MODEL_INPUT_FEATURE_COUNT = 6242
+POLICY_MODEL_ARCHITECTURE = "policy-mlp-v1"
+ACTOR_CRITIC_MODEL_ARCHITECTURE = "playing-actor-critic-v1"
 
 
 class PolicyCheckpointCompatibilityError(ValueError):
@@ -89,6 +91,48 @@ def load_policy_checkpoint(
         ) from error
 
     return model, raw
+
+
+def load_policy_logits_checkpoint(
+    path: Path | str,
+    *,
+    manifest: DatasetManifest,
+) -> tuple[PolicyMlpModel | PolicyActorCriticModel, dict[str, object]]:
+    """Load any checkpoint that can emit playing policy logits."""
+
+    checkpoint_path = Path(path)
+    raw = _load_raw_checkpoint(checkpoint_path)
+    _validate_metadata(raw, manifest=manifest)
+
+    model_config_raw = raw.get("model_config")
+    if not isinstance(model_config_raw, dict):
+        raise PolicyCheckpointCompatibilityError("checkpoint model_config must be a dictionary.")
+
+    model_config = PolicyMlpConfig.from_dict(model_config_raw)
+    architecture = raw.get("model_architecture", POLICY_MODEL_ARCHITECTURE)
+    if architecture == POLICY_MODEL_ARCHITECTURE:
+        model: PolicyMlpModel | PolicyActorCriticModel = PolicyMlpModel(model_config)
+    elif architecture == ACTOR_CRITIC_MODEL_ARCHITECTURE:
+        model = PolicyActorCriticModel(model_config)
+    else:
+        raise PolicyCheckpointCompatibilityError(
+            f"checkpoint model_architecture is unsupported: {architecture!r}."
+        )
+
+    model_state = raw.get("model_state")
+    if not isinstance(model_state, dict):
+        raise PolicyCheckpointCompatibilityError(
+            "checkpoint model_state must be a state dictionary."
+        )
+
+    try:
+        model.load_state_dict(model_state)
+    except RuntimeError as error:
+        raise PolicyCheckpointCompatibilityError(
+            f"checkpoint model_state is incompatible with model_config: {error}"
+        ) from error
+
+    return model, cast(dict[str, object], raw)
 
 
 def migrate_policy_checkpoint_v1_to_v2(

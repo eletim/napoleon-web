@@ -2,10 +2,21 @@
 
 from __future__ import annotations
 
+from .actor_critic import (
+    ACTOR_CRITIC_ALGORITHM,
+    DEFAULT_VALUE_LOSS_COEFFICIENT,
+    ActorCriticTrainReport,
+    ActorCriticTrainSettings,
+    actor_critic_losses,
+    train_policy_actor_critic,
+)
 from .checkpoint import (
+    ACTOR_CRITIC_MODEL_ARCHITECTURE,
     CHECKPOINT_SCHEMA_VERSION,
+    POLICY_MODEL_ARCHITECTURE,
     PolicyCheckpointCompatibilityError,
     load_policy_checkpoint,
+    load_policy_logits_checkpoint,
     migrate_policy_checkpoint_v1_to_v2,
     save_policy_checkpoint,
 )
@@ -18,7 +29,14 @@ from .metrics import (
     masked_policy_cross_entropy,
     select_policy_action,
 )
-from .model import PolicyMlpConfig, PolicyMlpModel, create_seeded_policy_model
+from .model import (
+    PolicyActorCriticModel,
+    PolicyMlpConfig,
+    PolicyMlpModel,
+    create_actor_critic_from_policy_model,
+    create_seeded_actor_critic_model,
+    create_seeded_policy_model,
+)
 from .onnx_export import (
     ONNX_INPUT_NAME,
     ONNX_OUTPUT_NAME,
@@ -41,9 +59,16 @@ from .reinforce import (
 
 __all__ = [
     "CHECKPOINT_SCHEMA_VERSION",
+    "ACTOR_CRITIC_ALGORITHM",
+    "ACTOR_CRITIC_MODEL_ARCHITECTURE",
+    "DEFAULT_VALUE_LOSS_COEFFICIENT",
+    "POLICY_MODEL_ARCHITECTURE",
+    "ActorCriticTrainReport",
+    "ActorCriticTrainSettings",
     "PolicyCheckpointCompatibilityError",
     "PolicyEvaluationReport",
     "PolicyMetric",
+    "PolicyActorCriticModel",
     "PolicyMlpConfig",
     "PolicyMlpModel",
     "PolicyOnnxExportReport",
@@ -53,11 +78,15 @@ __all__ = [
     "BEHAVIOR_LOG_PROB_PARITY_ATOL",
     "BEHAVIOR_LOG_PROB_PARITY_RTOL",
     "REINFORCE_ALGORITHM",
+    "actor_critic_losses",
     "build_policy_onnx_metadata",
+    "create_actor_critic_from_policy_model",
+    "create_seeded_actor_critic_model",
     "create_seeded_policy_model",
     "evaluate_policy_model",
     "export_policy_checkpoint_to_onnx",
     "load_policy_checkpoint",
+    "load_policy_logits_checkpoint",
     "mask_illegal_policy_logits",
     "migrate_policy_checkpoint_v1_to_v2",
     "masked_selected_log_probability",
@@ -68,6 +97,7 @@ __all__ = [
     "ReinforceTrainSettings",
     "save_policy_checkpoint",
     "select_policy_action",
+    "train_policy_actor_critic",
     "train_policy_reinforce",
     "validate_policy_onnx_metadata",
 ]
