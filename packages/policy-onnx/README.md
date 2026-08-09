@@ -113,6 +113,12 @@ NAPOLEON_POLICY_METADATA_PATH=/path/to/policy.json \
 pnpm --filter @napoleon/policy-onnx test
 ```
 
+These package-level smoke-test variables are separate from the normal web/server
+AI selection configuration. For local app startup, copy the repository root
+`.env.sample` to `.env` and configure `NAPOLEON_POLICY_1_DISPLAY_NAME`,
+`NAPOLEON_POLICY_1_ONNX_PATH`, and `NAPOLEON_POLICY_1_METADATA_PATH` through slot
+5 as needed.
+
 To smoke-test supplied artifacts for all four phases, also set:
 
 ```sh

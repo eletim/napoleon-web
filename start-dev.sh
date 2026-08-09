@@ -5,7 +5,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_ROOT_DIR="$SCRIPT_DIR"
 ROOT_DIR="${NAPOLEON_DEV_ROOT:-$DEFAULT_ROOT_DIR}"
-ENV_FILE="$ROOT_DIR/apps/web/.env.local"
+ROOT_ENV_FILE="$ROOT_DIR/.env"
+ROOT_ENV_SAMPLE_FILE="$ROOT_DIR/.env.sample"
+WEB_ENV_FILE="$ROOT_DIR/apps/web/.env.local"
 TAILSCALE_SERVE_COMMAND=(tailscale serve --bg --http=5173 http://127.0.0.1:5173)
 
 trim() {
@@ -44,6 +46,95 @@ read_allowed_hosts() {
   fi
 }
 
+create_root_env_file_from_sample() {
+  if [[ -f "$ROOT_ENV_FILE" || ! -f "$ROOT_ENV_SAMPLE_FILE" ]]; then
+    return
+  fi
+
+  cp "$ROOT_ENV_SAMPLE_FILE" "$ROOT_ENV_FILE"
+  printf '.env を .env.sample から生成しました。\n'
+}
+
+load_root_env_file() {
+  local file="$1"
+  local line
+  local key
+  local value
+
+  if [[ ! -f "$file" ]]; then
+    return
+  fi
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="$(trim "$line")"
+    if [[ -z "$line" || "$line" == \#* ]]; then
+      continue
+    fi
+    if [[ "$line" == export\ * ]]; then
+      line="${line#export }"
+      line="$(trim "$line")"
+    fi
+    if [[ "$line" != *=* ]]; then
+      continue
+    fi
+
+    key="$(trim "${line%%=*}")"
+    value="$(trim "${line#*=}")"
+    if [[ "$value" == \"*\" && "$value" == *\" ]]; then
+      value="${value:1:${#value}-2}"
+    elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
+      value="${value:1:${#value}-2}"
+    fi
+
+    # Keep this pattern aligned with apps/server/src/agentEnv.ts learnedPolicyEnvKeys.
+    case "$key" in
+      PORT|HOST|NAPOLEON_POLICY_[1-5]_DISPLAY_NAME|NAPOLEON_POLICY_[1-5]_ONNX_PATH|NAPOLEON_POLICY_[1-5]_METADATA_PATH)
+        if [[ -z "${!key+x}" ]]; then
+          export "$key=$value"
+        fi
+        ;;
+    esac
+  done < "$file"
+}
+
+count_ready_policy_slots() {
+  local count=0
+  local slot
+  local display_name_key
+  local onnx_path_key
+  local metadata_path_key
+
+  for slot in 1 2 3 4 5; do
+    display_name_key="NAPOLEON_POLICY_${slot}_DISPLAY_NAME"
+    onnx_path_key="NAPOLEON_POLICY_${slot}_ONNX_PATH"
+    metadata_path_key="NAPOLEON_POLICY_${slot}_METADATA_PATH"
+    if [[ -n "${!display_name_key:-}" && -n "${!onnx_path_key:-}" && -n "${!metadata_path_key:-}" ]]; then
+      count=$((count + 1))
+    fi
+  done
+
+  printf '%s' "$count"
+}
+
+count_incomplete_policy_slots() {
+  local count=0
+  local slot
+  local display_name_key
+  local onnx_path_key
+  local metadata_path_key
+
+  for slot in 1 2 3 4 5; do
+    display_name_key="NAPOLEON_POLICY_${slot}_DISPLAY_NAME"
+    onnx_path_key="NAPOLEON_POLICY_${slot}_ONNX_PATH"
+    metadata_path_key="NAPOLEON_POLICY_${slot}_METADATA_PATH"
+    if [[ -n "${!display_name_key:-}" && ( -z "${!onnx_path_key:-}" || -z "${!metadata_path_key:-}" ) ]]; then
+      count=$((count + 1))
+    fi
+  done
+
+  printf '%s' "$count"
+}
+
 is_interactive() {
   [[ -t 0 || "${NAPOLEON_DEV_FORCE_INTERACTIVE:-}" == "1" ]]
 }
@@ -72,23 +163,26 @@ create_env_file_interactively() {
     return
   fi
 
-  if [[ -f "$ENV_FILE" ]]; then
+  if [[ -f "$WEB_ENV_FILE" ]]; then
     return
   fi
 
-  mkdir -p "$(dirname "$ENV_FILE")"
-  printf 'VITE_ALLOWED_HOSTS=%s\n' "$allowed_hosts" > "$ENV_FILE"
+  mkdir -p "$(dirname "$WEB_ENV_FILE")"
+  printf 'VITE_ALLOWED_HOSTS=%s\n' "$allowed_hosts" > "$WEB_ENV_FILE"
   printf 'apps/web/.env.local を生成しました。\n'
 }
 
+create_root_env_file_from_sample
+load_root_env_file "$ROOT_ENV_FILE"
+
 unset VITE_ALLOWED_HOSTS
 
-if [[ ! -f "$ENV_FILE" ]] && is_interactive; then
+if [[ ! -f "$WEB_ENV_FILE" ]] && is_interactive; then
   create_env_file_interactively
 fi
 
-if [[ -f "$ENV_FILE" ]]; then
-  VITE_ALLOWED_HOSTS="$(read_allowed_hosts "$ENV_FILE")"
+if [[ -f "$WEB_ENV_FILE" ]]; then
+  VITE_ALLOWED_HOSTS="$(read_allowed_hosts "$WEB_ENV_FILE")"
   if [[ -n "$VITE_ALLOWED_HOSTS" ]]; then
     export VITE_ALLOWED_HOSTS
   else
@@ -97,7 +191,14 @@ if [[ -f "$ENV_FILE" ]]; then
 fi
 
 if [[ "${NAPOLEON_DEV_DRY_RUN:-}" == "1" ]]; then
-  if [[ -f "$ENV_FILE" ]]; then
+  if [[ -f "$ROOT_ENV_FILE" ]]; then
+    printf 'root_env_file_exists=true\n'
+  else
+    printf 'root_env_file_exists=false\n'
+  fi
+  printf 'learned_policy_slots_configured=%s\n' "$(count_ready_policy_slots)"
+  printf 'learned_policy_slots_incomplete=%s\n' "$(count_incomplete_policy_slots)"
+  if [[ -f "$WEB_ENV_FILE" ]]; then
     printf 'env_file_exists=true\n'
   else
     printf 'env_file_exists=false\n'

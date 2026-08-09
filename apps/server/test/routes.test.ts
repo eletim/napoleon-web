@@ -33,6 +33,7 @@ import type {
   SendActionResponse
 } from "@napoleon/protocol";
 import {
+  PLAYING_POLICY_ONNX_AGENT_IDS,
   PLAYING_POLICY_ONNX_AGENT_ID,
   RULE_BASED_AGENT_ID,
   createAgentRegistry
@@ -262,11 +263,53 @@ describe("server API", () => {
         id: RULE_BASED_AGENT_ID,
         displayName: "Rule-based AI",
         isAvailable: true
+      }
+    ]);
+  });
+
+  it("lists configured learned AI agents with their display names", async () => {
+    await app.close();
+    app = await buildApp({
+      agentRegistry: createAgentRegistry({
+        playingPolicyOnnxAgents: [
+          {
+            id: PLAYING_POLICY_ONNX_AGENT_IDS[0],
+            displayName: "RL v900",
+            onnxPath: "/tmp/policy-v900.onnx",
+            metadataPath: "/tmp/policy-v900.json"
+          },
+          {
+            id: PLAYING_POLICY_ONNX_AGENT_IDS[1],
+            displayName: "RL v901",
+            onnxPath: "/tmp/policy-v901.onnx",
+            metadataPath: "/tmp/policy-v901.json"
+          }
+        ]
+      })
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/agents"
+    });
+    const body = response.json<GetAgentsResponse>();
+
+    expect(response.statusCode).toBe(200);
+    expect(body.agents).toEqual([
+      {
+        id: RULE_BASED_AGENT_ID,
+        displayName: "Rule-based AI",
+        isAvailable: true
       },
       {
-        id: PLAYING_POLICY_ONNX_AGENT_ID,
-        displayName: "Playing Policy ONNX",
-        isAvailable: false
+        id: PLAYING_POLICY_ONNX_AGENT_IDS[0],
+        displayName: "RL v900",
+        isAvailable: true
+      },
+      {
+        id: PLAYING_POLICY_ONNX_AGENT_IDS[1],
+        displayName: "RL v901",
+        isAvailable: true
       }
     ]);
   });
@@ -394,6 +437,65 @@ describe("server API", () => {
     );
   });
 
+  it("stores different learned ONNX slot selections per game by seat", async () => {
+    await app.close();
+    app = await buildApp({
+      agentRegistry: createAgentRegistry({
+        playingPolicyOnnxAgents: [
+          {
+            id: PLAYING_POLICY_ONNX_AGENT_IDS[0],
+            displayName: "RL v900",
+            onnxPath: "/tmp/policy-v900.onnx",
+            metadataPath: "/tmp/policy-v900.json"
+          },
+          {
+            id: PLAYING_POLICY_ONNX_AGENT_IDS[1],
+            displayName: "RL v901",
+            onnxPath: "/tmp/policy-v901.onnx",
+            metadataPath: "/tmp/policy-v901.json"
+          }
+        ]
+      })
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games",
+      payload: {
+        aiAgents: [
+          {
+            playerId: "player-1",
+            agentId: PLAYING_POLICY_ONNX_AGENT_IDS[0]
+          },
+          {
+            playerId: "player-2",
+            agentId: PLAYING_POLICY_ONNX_AGENT_IDS[1]
+          },
+          {
+            playerId: "player-3",
+            agentId: RULE_BASED_AGENT_ID
+          },
+          {
+            playerId: "player-4",
+            agentId: PLAYING_POLICY_ONNX_AGENT_IDS[1]
+          }
+        ]
+      }
+    });
+    const body = response.json<CreateGameResponse>();
+    const record = games.get(body.gameId);
+
+    expect(response.statusCode).toBe(201);
+    expect(record?.agentIds).toEqual(
+      new Map([
+        ["player-1", PLAYING_POLICY_ONNX_AGENT_IDS[0]],
+        ["player-2", PLAYING_POLICY_ONNX_AGENT_IDS[1]],
+        ["player-3", RULE_BASED_AGENT_ID],
+        ["player-4", PLAYING_POLICY_ONNX_AGENT_IDS[1]]
+      ])
+    );
+  });
+
   it("rejects unknown agent ids during game creation", async () => {
     const response = await app.inject({
       method: "POST",
@@ -469,7 +571,7 @@ describe("server API", () => {
     expect(body.error.code).toBe("INVALID_AGENT_SELECTION");
   });
 
-  it("rejects unavailable learned agents during game creation", async () => {
+  it("rejects unconfigured learned agents during game creation", async () => {
     const response = await app.inject({
       method: "POST",
       url: "/api/games",
@@ -484,8 +586,8 @@ describe("server API", () => {
     });
     const body = response.json<ApiError>();
 
-    expect(response.statusCode).toBe(503);
-    expect(body.error.code).toBe("AGENT_UNAVAILABLE");
+    expect(response.statusCode).toBe(400);
+    expect(body.error.code).toBe("UNKNOWN_AGENT_ID");
   });
 
   it("returns an API error when a configured learned agent cannot load during play", async () => {

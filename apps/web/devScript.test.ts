@@ -20,8 +20,92 @@ import { describe, expect, it } from "vitest";
 const scriptPath = fileURLToPath(new URL("../../start-dev.sh", import.meta.url));
 const packageJsonPath = fileURLToPath(new URL("../../package.json", import.meta.url));
 const viteConfigPath = fileURLToPath(new URL("./vite.config.ts", import.meta.url));
+const envSamplePath = fileURLToPath(new URL("../../.env.sample", import.meta.url));
 
 describe("start-dev.sh", () => {
+  it("creates .env from .env.sample on first run", () => {
+    const root = createTempRoot();
+    const sample = readFileSync(envSamplePath, "utf8");
+    const envFile = join(root, ".env");
+    writeFileSync(join(root, ".env.sample"), sample);
+
+    const result = runDevScript(root);
+
+    expect(result.status).toBe(0);
+    expect(readFileSync(envFile, "utf8")).toBe(sample);
+    expect(result.stdout).toContain(".env を .env.sample から生成しました。");
+    expect(result.stdout).toContain("root_env_file_exists=true");
+    expect(result.stdout).toContain("learned_policy_slots_configured=1");
+    expect(result.stdout).toContain("learned_policy_slots_incomplete=0");
+    expect(result.stdout).not.toContain("/home/eletim/napoleon_runs");
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("never overwrites an existing .env when .env.sample is present", () => {
+    const root = createTempRoot();
+    const envFile = join(root, ".env");
+    const existingEnv = [
+      "NAPOLEON_POLICY_1_DISPLAY_NAME=Local RL",
+      "NAPOLEON_POLICY_1_ONNX_PATH=/private/local/policy.onnx",
+      "NAPOLEON_POLICY_1_METADATA_PATH=/private/local/policy.json"
+    ].join("\n") + "\n";
+    writeFileSync(join(root, ".env.sample"), readFileSync(envSamplePath, "utf8"));
+    writeFileSync(envFile, existingEnv);
+
+    const result = runDevScript(root);
+
+    expect(result.status).toBe(0);
+    expect(readFileSync(envFile, "utf8")).toBe(existingEnv);
+    expect(result.stdout).not.toContain(".env を .env.sample から生成しました。");
+    expect(result.stdout).toContain("learned_policy_slots_configured=1");
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("loads learned ONNX policy slots from the root .env without printing local paths", () => {
+    const root = createTempRoot();
+    writeFileSync(
+      join(root, ".env"),
+      [
+        "NAPOLEON_POLICY_1_DISPLAY_NAME=RL v900",
+        "NAPOLEON_POLICY_1_ONNX_PATH=/private/models/v900.onnx",
+        "NAPOLEON_POLICY_1_METADATA_PATH=/private/models/v900.json",
+        "NAPOLEON_POLICY_2_DISPLAY_NAME=",
+        "NAPOLEON_POLICY_2_ONNX_PATH=/private/models/unused.onnx",
+        "NAPOLEON_POLICY_2_METADATA_PATH=/private/models/unused.json",
+        "NAPOLEON_POLICY_5_DISPLAY_NAME=RL v1400",
+        "NAPOLEON_POLICY_5_ONNX_PATH=/private/models/v1400.onnx",
+        "NAPOLEON_POLICY_5_METADATA_PATH=/private/models/v1400.json"
+      ].join("\n") + "\n"
+    );
+
+    const result = runDevScript(root);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("root_env_file_exists=true");
+    expect(result.stdout).toContain("learned_policy_slots_configured=2");
+    expect(result.stdout).toContain("learned_policy_slots_incomplete=0");
+    expect(result.stdout).not.toContain("/private/models");
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("reports incomplete learned ONNX slots during dry-run", () => {
+    const root = createTempRoot();
+    writeFileSync(
+      join(root, ".env"),
+      [
+        "NAPOLEON_POLICY_1_DISPLAY_NAME=Broken RL",
+        "NAPOLEON_POLICY_1_ONNX_PATH=/private/models/broken.onnx"
+      ].join("\n") + "\n"
+    );
+
+    const result = runDevScript(root);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("learned_policy_slots_configured=0");
+    expect(result.stdout).toContain("learned_policy_slots_incomplete=1");
+    rmSync(root, { recursive: true, force: true });
+  });
+
   it("loads VITE_ALLOWED_HOSTS from an existing .env.local", () => {
     const root = createTempRoot();
     const envFile = join(root, "apps/web/.env.local");
@@ -320,6 +404,11 @@ function runDevScript(
 ): SpawnSyncReturns<string> {
   const env = { ...process.env };
   delete env.VITE_ALLOWED_HOSTS;
+  for (let slot = 1; slot <= 5; slot += 1) {
+    delete env[`NAPOLEON_POLICY_${slot}_DISPLAY_NAME`];
+    delete env[`NAPOLEON_POLICY_${slot}_ONNX_PATH`];
+    delete env[`NAPOLEON_POLICY_${slot}_METADATA_PATH`];
+  }
   env.NAPOLEON_DEV_ROOT = root;
   if (options.dryRun !== false) {
     env.NAPOLEON_DEV_DRY_RUN = "1";
