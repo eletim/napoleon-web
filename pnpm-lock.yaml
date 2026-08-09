@@ -20,6 +20,9 @@ importers:
 
   apps/self-play-cli:
     dependencies:
+      '@napoleon/policy-onnx':
+        specifier: workspace:*
+        version: link:../../packages/policy-onnx
       '@napoleon/training-data':
         specifier: workspace:*
         version: link:../../packages/training-data
