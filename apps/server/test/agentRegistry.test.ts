@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { RuleBasedAgent } from "@napoleon/ai";
 import {
   createInitialGame,
@@ -16,6 +18,8 @@ import {
   readPlayingPolicyOnnxAgentConfigs
 } from "../src/agentRegistry.js";
 import { createAgentConfiguration } from "../src/store.js";
+
+const workspaceRoot = fileURLToPath(new URL("../../..", import.meta.url));
 
 describe("agent registry", () => {
   it("lists stable agent ids and availability", () => {
@@ -123,6 +127,26 @@ describe("agent registry", () => {
         displayName: "RL v1400",
         onnxPath: "/models/v1400.onnx",
         metadataPath: "/models/v1400.json"
+      }
+    ]);
+  });
+
+  it("resolves relative learned ONNX paths from the workspace root", () => {
+    expect(
+      readPlayingPolicyOnnxAgentConfigs(
+        {
+          NAPOLEON_POLICY_1_DISPLAY_NAME: "RL v740",
+          NAPOLEON_POLICY_1_ONNX_PATH: "benchmarks/playing-policies/rl-v740/policy.onnx",
+          NAPOLEON_POLICY_1_METADATA_PATH: "benchmarks/playing-policies/rl-v740/policy.json"
+        },
+        join(workspaceRoot, "apps/server")
+      )
+    ).toEqual([
+      {
+        id: PLAYING_POLICY_ONNX_AGENT_IDS[0],
+        displayName: "RL v740",
+        onnxPath: join(workspaceRoot, "benchmarks/playing-policies/rl-v740/policy.onnx"),
+        metadataPath: join(workspaceRoot, "benchmarks/playing-policies/rl-v740/policy.json")
       }
     ]);
   });

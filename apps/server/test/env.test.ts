@@ -11,6 +11,7 @@ import {
 import { loadLocalEnvFile } from "../src/env.js";
 
 const envSamplePath = fileURLToPath(new URL("../../../.env.sample", import.meta.url));
+const workspaceRoot = fileURLToPath(new URL("../../..", import.meta.url));
 
 describe("local .env loading", () => {
   it("loads server ONNX policy settings from a root .env file", () => {
@@ -87,8 +88,8 @@ describe("local .env loading", () => {
       {
         id: PLAYING_POLICY_ONNX_AGENT_ID,
         displayName: "RL v740",
-        onnxPath: "benchmarks/playing-policies/rl-v740/policy.onnx",
-        metadataPath: "benchmarks/playing-policies/rl-v740/policy.json"
+        onnxPath: join(workspaceRoot, "benchmarks/playing-policies/rl-v740/policy.onnx"),
+        metadataPath: join(workspaceRoot, "benchmarks/playing-policies/rl-v740/policy.json")
       }
     ]);
   });

@@ -579,7 +579,9 @@ function createDefaultRosterAgentOrders(
   opponentRoster: readonly PlayingPolicyEvaluationOpponent[]
 ): readonly (readonly number[])[] {
   const baseOpponentSourceIndices = [1, 2, 3, 4] as const;
-  const signatures = opponentRoster.map(opponentSignature);
+  const signatures = opponentRoster.map((opponent, index) =>
+    opponentSignature(opponent, index + 1)
+  );
 
   if (new Set(signatures).size === 1) {
     return [[0, ...baseOpponentSourceIndices]];
@@ -592,12 +594,15 @@ function createDefaultRosterAgentOrders(
   ]);
 }
 
-function opponentSignature(opponent: PlayingPolicyEvaluationOpponent): string {
+function opponentSignature(
+  opponent: PlayingPolicyEvaluationOpponent,
+  sourceAgentIndex: number
+): string {
   if (opponent.type === "rule-based") {
     return "rule-based";
   }
 
-  return `playing-onnx:${opponent.artifact?.id ?? opponent.agentName ?? "external"}`;
+  return `playing-onnx:${opponent.artifact?.id ?? opponent.agentName ?? `source-${sourceAgentIndex}`}`;
 }
 
 function validateOpponentRoster(roster: readonly PlayingPolicyEvaluationOpponent[]): void {
