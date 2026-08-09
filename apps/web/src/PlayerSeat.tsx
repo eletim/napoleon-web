@@ -25,7 +25,6 @@ export function PlayerSeat({ player, state }: PlayerSeatProps) {
       <div className="seat-main-row">
         <div className="seat-title">
           <h2>{player.label}</h2>
-          <span className="player-id">{player.id}</span>
         </div>
         <div className="compact-hand" aria-label={`${player.label}の手札は残り${player.handCount}枚`}>
           <span className="small-card-back" aria-hidden="true" />
@@ -41,8 +40,11 @@ export function PlayerSeat({ player, state }: PlayerSeatProps) {
 
       <BiddingDeclarationBadge playerLabel={player.label} declaration={player.biddingDeclaration} />
 
-      <div className="captured-compact">
-        <span>得点札 {player.capturedPointCards.length}</span>
+      <div
+        className="captured-compact"
+        aria-label={`${player.label}の獲得得点札は${player.capturedPointCards.length}枚`}
+      >
+        <span>得点札</span>
         <div className="inline-cards compact-points">
           <PointCards cards={player.capturedPointCards} />
         </div>

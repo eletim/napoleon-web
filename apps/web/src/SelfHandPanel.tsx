@@ -44,12 +44,7 @@ export function SelfHandPanel({
     <article className={["self-panel", isCurrent ? "current-player" : ""].filter(Boolean).join(" ")}>
       <div className="self-heading">
         <div className="self-info">
-          <div>
-            <h2>自分</h2>
-            <span className="player-id">{playerId}</span>
-          </div>
-          <span className="self-hand-count">残り{self?.handCount ?? 0}枚</span>
-          <span className="self-point-count">得点札{capturedPointCards.length}枚</span>
+          <h2>自分</h2>
           <BiddingDeclarationBadge
             playerLabel="自分"
             declaration={selfPlayer?.biddingDeclaration}
@@ -80,16 +75,13 @@ export function SelfHandPanel({
             理牌
           </button>
         </div>
-
-        <div className="hand-legend" aria-label="手札凡例">
-          <span className="legend-item legal">合法</span>
-          <span className="legend-item blocked">不可</span>
-          <span className="legend-item selectable">選択</span>
-        </div>
       </div>
 
-      <div className="self-points-row">
-        <span>獲得得点札</span>
+      <div
+        className="self-points-row"
+        aria-label={`自分の獲得得点札は${capturedPointCards.length}枚`}
+      >
+        <span>得点札</span>
         <div className="inline-cards compact-points">
           <PointCards cards={capturedPointCards} />
         </div>

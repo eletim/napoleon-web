@@ -70,6 +70,32 @@ describe("SelfHandPanel", () => {
     expect(indexOfCard(html, "A♠")).toBeLessThan(indexOfCard(html, "K♥"));
   });
 
+  it("keeps the self hand compact without visible ids or legend text", () => {
+    const hand = [standardCard("clubs", "2"), standardCard("spades", "A")];
+    const state = createState(hand);
+
+    const html = renderToStaticMarkup(
+      <SelfHandPanel
+        canExchange={false}
+        isBusy={false}
+        legalCardIds={new Set(["spades-A"])}
+        onPlay={vi.fn()}
+        selectedDiscardCardIds={[]}
+        self={state.self}
+        selfPlayer={undefined}
+        state={state}
+      />
+    );
+
+    expect(html).not.toContain("player-0");
+    expect(html).not.toContain("合法");
+    expect(html).not.toContain("不可");
+    expect(html).not.toContain("選択");
+    expect(html).not.toContain("残り2枚");
+    expect(html).toContain("aria-label=\"自分の手札\"");
+    expect(html).toContain("aria-label=\"自分の獲得得点札は0枚\"");
+  });
+
   it("switches order from the sort controls without sending a card action", () => {
     const hand = [
       standardCard("clubs", "2"),
