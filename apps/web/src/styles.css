@@ -305,13 +305,19 @@ input:focus-visible {
 }
 
 .turn-dot {
+  align-items: center;
   background: #fef3c7;
   border: 2px solid #facc15;
   border-radius: 50%;
   box-shadow: 0 0 0 3px rgb(250 204 21 / 22%);
-  display: inline-block;
-  height: 12px;
-  width: 12px;
+  color: #92400e;
+  display: inline-grid;
+  font-size: 0.58rem;
+  font-weight: 900;
+  height: 20px;
+  justify-items: center;
+  line-height: 1;
+  width: 20px;
 }
 
 .napoleon-badge {
@@ -786,6 +792,21 @@ input:focus-visible {
 .result-panel h2 {
   font-size: 1rem;
   margin: 0;
+}
+
+.phase-title-row {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.phase-count {
+  background: #e2e8f0;
+  border-radius: 999px;
+  color: #334155;
+  font-size: 0.78rem;
+  font-weight: 900;
+  padding: 4px 8px;
 }
 
 .adjutant-shortcuts {

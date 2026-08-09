@@ -62,7 +62,9 @@ export function SelfHandPanel({
 
         <div className="role-badges self-role-badges">
           {isCurrent ? (
-            <span aria-label="現在の手番" className="turn-dot" role="img" />
+            <span aria-label="現在の手番" className="turn-dot" role="img">
+              ▶
+            </span>
           ) : null}
           {isNapoleon ? (
             <span aria-label="ナポレオン" className="role-badge napoleon-badge" role="img">

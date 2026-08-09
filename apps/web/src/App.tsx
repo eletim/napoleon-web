@@ -69,6 +69,7 @@ export function App() {
   const [selectedDiscardCardIds, setSelectedDiscardCardIds] = useState<readonly string[]>([]);
   const [adjutantSelection, setAdjutantSelection] =
     useState<AdjutantSelection>(defaultAdjutantSelection);
+  const [hasRequestError, setHasRequestError] = useState(false);
 
   const legalCardIds = useMemo(() => {
     const actions = session?.state.legalActions ?? [];
@@ -122,9 +123,7 @@ export function App() {
     session === undefined ||
     isBusy ||
     session.state.latestEvent?.type === "buried-cards-resolved" ||
-    message.includes("できません") ||
-    message.includes("エラー") ||
-    message.includes("失敗");
+    hasRequestError;
 
   useEffect(() => {
     let cancelled = false;
@@ -141,6 +140,7 @@ export function App() {
       .catch((error) => {
         if (!cancelled) {
           setMessage(error instanceof Error ? error.message : "AI一覧を取得できませんでした。");
+          setHasRequestError(true);
         }
       });
 
@@ -249,11 +249,13 @@ export function App() {
 
   async function runRequest(work: () => Promise<void>): Promise<void> {
     setIsBusy(true);
+    setHasRequestError(false);
     setMessage("通信中です。");
 
     try {
       await work();
     } catch (error) {
+      setHasRequestError(true);
       setMessage(error instanceof Error ? error.message : "予期しないエラーが発生しました。");
     } finally {
       setIsBusy(false);
@@ -410,8 +412,20 @@ export function App() {
           ) : null}
 
           {session?.state.phase === "choosing-adjutant" ? (
-            <section className="adjutant-panel" aria-label="副官指定">
-              <h2>副官</h2>
+            <section
+              aria-describedby="adjutant-phase-note"
+              aria-label="副官指定"
+              className="adjutant-panel"
+            >
+              <div className="phase-title-row">
+                <h2>副官</h2>
+                <span aria-label="埋札前に1枚指定します" className="phase-count">
+                  1枚
+                </span>
+              </div>
+              <p className="visually-hidden" id="adjutant-phase-note">
+                埋札前に1枚指定します。
+              </p>
               <div className="adjutant-shortcuts" aria-label="特殊札ショートカット">
                 <span className="visually-hidden">特殊札ショートカット</span>
                 <div className="adjutant-shortcut-buttons">

@@ -166,10 +166,6 @@ export function formatPlayerLabel(
   return player === undefined ? playerId : player.label;
 }
 
-export function formatTrumpSuit(trumpSuit: PublicGameState["trumpSuit"]): string {
-  return trumpSuit === null ? "未定" : suitSymbols[trumpSuit];
-}
-
 export function formatContract(
   state: PublicGameState | null,
   players: readonly TablePlayer[]

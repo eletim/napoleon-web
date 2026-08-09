@@ -154,7 +154,7 @@ export function BiddingPanel({
             }
             className="bid-target-output"
           >
-            {selection === null ? "-" : selection.targetPointCards}
+            {selection === null ? "-" : `${selection.targetPointCards}枚`}
           </output>
           <button
             aria-label="次の宣言枚数"
