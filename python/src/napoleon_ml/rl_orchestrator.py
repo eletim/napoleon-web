@@ -8,11 +8,12 @@ import math
 import os
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import TextIO, cast
 
 from napoleon_ml.cli._policy_common import configure_reproducibility, load_checked_manifest
 from napoleon_ml.dataset.constants import UINT32_MAX
@@ -150,7 +151,7 @@ def run_playing_rl_experiment(
     for iteration in range(_next_iteration(config), config.iterations):
         state = _run_iteration(config, iteration, state)
         generation = iteration + 1
-        if generation % config.evaluation_interval == 0:
+        if generation % config.evaluation_interval == 0 or generation == config.iterations:
             state = _ensure_evaluation(config, state, generation=generation)
 
     _validate_completed_artifacts(config)
@@ -356,7 +357,7 @@ def _ensure_evaluation(
     summary_path = evaluation_dir / "summary.json"
     if summary_path.exists():
         summary = _load_json_object(summary_path)
-        _validate_evaluation_summary(summary)
+        _validate_evaluation_artifacts(config, generation, evaluation_dir, summary)
         return state
 
     if evaluation_dir.exists() and any(evaluation_dir.iterdir()):
@@ -421,7 +422,9 @@ def _ensure_evaluation(
         result=result,
         baseline_summary=baseline_summary,
         baseline_result=baseline_result,
+        result_sha256=sha256_file(result_path),
     )
+    _validate_evaluation_artifacts(config, generation, evaluation_dir, summary)
     atomic_write_json(summary_path, summary)
     append_jsonl(config.run_directory / "evaluations.jsonl", summary)
     state = _write_state(
@@ -456,6 +459,7 @@ def _build_evaluation_summary(
     result: dict[str, object],
     baseline_summary: dict[str, object] | None,
     baseline_result: dict[str, object] | None,
+    result_sha256: str,
 ) -> dict[str, object]:
     comparison = _object(result["comparison"])
     policy = _object(comparison["policy"])
@@ -484,6 +488,7 @@ def _build_evaluation_summary(
         "checkpointSha256": checkpoint_sha256,
         "onnxSha256": onnx_sha256,
         "metadataSha256": metadata_sha256,
+        "evaluationResultSha256": result_sha256,
         "scheduledGames": node_summary["scheduledGames"],
         "completedGames": node_summary["completedGames"],
         "failedGames": node_summary["failedGames"],
@@ -550,9 +555,14 @@ def _policy_win_by_seed_rotation(result: dict[str, object]) -> dict[tuple[int, i
         if game["status"] != "completed":
             continue
         seats = cast(list[object], game["seats"])
-        policy_seat = next(
-            _object(seat) for seat in seats if _object(seat)["sourceAgentIndex"] == 0
-        )
+        policy_seat: dict[str, object] | None = None
+        for seat in seats:
+            seat_object = _object(seat)
+            if seat_object["sourceAgentIndex"] == 0:
+                policy_seat = seat_object
+                break
+        if policy_seat is None:
+            raise PlayingRlOrchestratorError("evaluation game has no policy seat.")
         role = policy_seat["role"]
         winner = game["winner"]
         policy_won = (
@@ -584,6 +594,7 @@ def _load_completed_iteration(iteration_dir: Path) -> dict[str, object] | None:
 
 def _validate_iteration_artifacts(iteration_dir: Path, record: Mapping[str, object]) -> None:
     required_paths = {
+        "inputCheckpointPath": "inputCheckpointSha256",
         "behaviorOnnxPath": "behaviorOnnxSha256",
         "behaviorMetadataPath": "behaviorMetadataSha256",
         "outputCheckpointPath": "outputCheckpointSha256",
@@ -615,13 +626,38 @@ def _validate_iteration_artifacts(iteration_dir: Path, record: Mapping[str, obje
         raise PlayingRlOrchestratorError(f"{iteration_dir}: changedParameterCount must be > 0.")
 
 
-def _validate_evaluation_summary(summary: Mapping[str, object]) -> None:
+def _validate_evaluation_artifacts(
+    config: PlayingRlRunConfig,
+    generation: int,
+    evaluation_dir: Path,
+    summary: Mapping[str, object],
+) -> None:
     if summary.get("schemaVersion") != ORCHESTRATOR_SCHEMA_VERSION:
         raise PlayingRlOrchestratorError("evaluation summary schemaVersion mismatch.")
-    for key in ("checkpointSha256", "onnxSha256", "metadataSha256"):
+    for key in (
+        "checkpointSha256",
+        "onnxSha256",
+        "metadataSha256",
+        "evaluationResultSha256",
+    ):
         value = summary.get(key)
         if not isinstance(value, str) or len(value) != 64:
             raise PlayingRlOrchestratorError(f"evaluation summary {key} is invalid.")
+    checks = {
+        _checkpoint_for_generation(config, generation): summary["checkpointSha256"],
+        evaluation_dir / "policy.onnx": summary["onnxSha256"],
+        evaluation_dir / "policy.json": summary["metadataSha256"],
+        evaluation_dir / "evaluation.json": summary["evaluationResultSha256"],
+    }
+    for path, expected_sha256 in checks.items():
+        if not path.is_file():
+            raise PlayingRlOrchestratorError(f"completed evaluation artifact is missing: {path}")
+        actual_sha256 = sha256_file(path)
+        if actual_sha256 != expected_sha256:
+            raise PlayingRlOrchestratorError(
+                f"completed evaluation artifact SHA mismatch for {path}: "
+                f"{actual_sha256} != {expected_sha256}"
+            )
 
 
 def _next_iteration(config: PlayingRlRunConfig) -> int:
@@ -820,18 +856,35 @@ def _run_subprocess(command: Sequence[str], *, cwd: Path) -> str:
         text=True,
     )
     stderr_lines: list[str] = []
+    stdout_lines: list[str] = []
+    stdout_thread = threading.Thread(
+        target=_read_stdout_lines,
+        args=(process.stdout, stdout_lines),
+    )
+    stdout_thread.start()
     if process.stderr is not None:
         for line in process.stderr:
             stderr_lines.append(line)
             print(line, end="", file=sys.stderr, flush=True)
-    stdout = process.stdout.read() if process.stdout is not None else ""
+    stdout_thread.join()
     return_code = process.wait()
+    stdout = "".join(stdout_lines)
     if return_code != 0:
         raise PlayingRlOrchestratorError(
             f"command failed with exit {return_code}: {command}\n"
             f"stdout:\n{stdout}\nstderr:\n{''.join(stderr_lines)}"
         )
     return stdout.strip()
+
+
+def _read_stdout_lines(
+    stream: TextIO | None,
+    output: list[str],
+) -> None:
+    if stream is None:
+        return
+    for line in stream:
+        output.append(line)
 
 
 def _consume_samples_for_integrity(directory: Path) -> None:
