@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
+// Keep this list in sync with start-dev.sh so dry-run and server startup agree.
 const supportedLocalEnvKeys = new Set([
   "PORT",
   "HOST",

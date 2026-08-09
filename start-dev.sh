@@ -76,6 +76,7 @@ load_root_env_file() {
       value="${value:1:${#value}-2}"
     fi
 
+    # Keep this pattern in sync with apps/server/src/env.ts supportedLocalEnvKeys.
     case "$key" in
       PORT|HOST|NAPOLEON_POLICY_[1-5]_DISPLAY_NAME|NAPOLEON_POLICY_[1-5]_ONNX_PATH|NAPOLEON_POLICY_[1-5]_METADATA_PATH)
         if [[ -z "${!key+x}" ]]; then
