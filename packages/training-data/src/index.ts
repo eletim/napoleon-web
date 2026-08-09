@@ -19,13 +19,18 @@ export {
 } from "./generateRuleBasedDataset.js";
 export {
   DEFAULT_PLAYING_SELF_PLAY_TEMPERATURE,
+  CURRENT_POLICY_ROSTER_SOURCE,
+  FROZEN_ONNX_ROSTER_SOURCE,
   PLAYING_SELF_PLAY_DATASET_GENERATOR_VERSION,
   PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE,
   PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION,
+  PLAYING_SELF_PLAY_ROSTER_ASSIGNMENT,
   PLAYING_SELF_PLAY_REWARD_TYPE,
   PLAYING_SELF_PLAY_REWARD_VERSION,
   PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION,
   PLAYING_SELF_PLAY_SAMPLING_ALGORITHM,
+  RULE_BASED_ROSTER_SOURCE,
+  assignRolloutRosterForSeed,
   calculatePlayingSelfPlayLogProbability,
   createPlayingSelfPlaySamples,
   generatePlayingSelfPlayDataset,
@@ -68,11 +73,19 @@ export type {
 export type {
   GeneratePlayingSelfPlayDatasetOptions,
   GeneratePlayingSelfPlayDatasetResult,
+  CurrentPolicyRolloutRosterSeat,
+  FrozenOnnxRolloutRosterSeat,
   PlayingSelfPlayDatasetManifest,
   PlayingSelfPlayOutcome,
   PlayingSelfPlayPolicy,
   PlayingSelfPlayPolicyArtifactOptions,
   PlayingSelfPlayRole,
+  PlayingSelfPlayRolloutRosterManifest,
+  PlayingSelfPlayRolloutRosterOptions,
+  PlayingSelfPlayRolloutRosterSeatManifest,
+  PlayingSelfPlayRosterSource,
   PlayingSelfPlaySampledAction,
-  PlayingSelfPlaySample
+  PlayingSelfPlaySample,
+  RolloutRosterSeatOptions,
+  RuleBasedRolloutRosterSeat
 } from "./generatePlayingSelfPlayDataset.js";

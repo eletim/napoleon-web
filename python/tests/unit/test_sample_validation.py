@@ -32,6 +32,16 @@ def _load_valid_self_play_sample() -> dict[str, Any]:
     raw.update(
         {
             "sampleType": "playing-self-play-sample",
+            "schemaVersion": 3,
+            "actingSeatSource": "current-policy",
+            "behaviorPolicyArtifactId": "unit-policy",
+            "rolloutSeatSources": [
+                "current-policy",
+                "current-policy",
+                "current-policy",
+                "current-policy",
+                "current-policy",
+            ],
             "selectedCardIndex": selected_card_index,
             "behaviorLogProbability": -0.5,
             "terminalReward": 1,
@@ -105,6 +115,14 @@ def test_self_play_positive_log_probability_rejected() -> None:
     raw["behaviorLogProbability"] = 0.1
 
     with pytest.raises(SampleValidationError, match="behaviorLogProbability"):
+        _parse_and_validate_self_play(raw)
+
+
+def test_self_play_opponent_source_rejected() -> None:
+    raw = _load_valid_self_play_sample()
+    raw["actingSeatSource"] = "rule-based"
+
+    with pytest.raises(SampleValidationError, match="actingSeatSource"):
         _parse_and_validate_self_play(raw)
 
 

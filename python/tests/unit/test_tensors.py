@@ -47,6 +47,16 @@ def _load_valid_self_play_sample() -> dict[str, Any]:
     raw.update(
         {
             "sampleType": "playing-self-play-sample",
+            "schemaVersion": 3,
+            "actingSeatSource": "current-policy",
+            "behaviorPolicyArtifactId": "unit-policy",
+            "rolloutSeatSources": [
+                "current-policy",
+                "current-policy",
+                "current-policy",
+                "current-policy",
+                "current-policy",
+            ],
             "selectedCardIndex": selected_card_index,
             "behaviorLogProbability": -0.5,
             "terminalReward": 1,

@@ -31,15 +31,64 @@ import { createJsonlShardWriter, type JsonlShardWriter } from "./shardWriter.js"
 import { calculateCardIdsSha256, serializeManifest } from "./serialization.js";
 
 export const PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE = "playing-self-play-sample" as const;
-export const PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION = 2 as const;
+export const PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION = 3 as const;
 export const PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION = 3 as const;
 export const PLAYING_SELF_PLAY_DATASET_GENERATOR_VERSION = 1 as const;
 export const PLAYING_SELF_PLAY_REWARD_TYPE = "terminal-team-win" as const;
 export const PLAYING_SELF_PLAY_REWARD_VERSION = 1 as const;
 export const PLAYING_SELF_PLAY_SAMPLING_ALGORITHM = "masked-categorical" as const;
 export const DEFAULT_PLAYING_SELF_PLAY_TEMPERATURE = 1.0 as const;
+export const PLAYING_SELF_PLAY_ROSTER_ASSIGNMENT = "rotate-by-seed" as const;
+export const CURRENT_POLICY_ROSTER_SOURCE = "current-policy" as const;
+export const RULE_BASED_ROSTER_SOURCE = "rule-based" as const;
+export const FROZEN_ONNX_ROSTER_SOURCE = "frozen-onnx" as const;
 
 export type PlayingSelfPlayRole = typeof SELF_ROLE_ORDER[number];
+export type PlayingSelfPlayRosterSource =
+  | typeof CURRENT_POLICY_ROSTER_SOURCE
+  | typeof RULE_BASED_ROSTER_SOURCE
+  | typeof FROZEN_ONNX_ROSTER_SOURCE;
+
+export interface CurrentPolicyRolloutRosterSeat {
+  source: typeof CURRENT_POLICY_ROSTER_SOURCE;
+}
+
+export interface RuleBasedRolloutRosterSeat {
+  source: typeof RULE_BASED_ROSTER_SOURCE;
+}
+
+export interface FrozenOnnxRolloutRosterSeat {
+  source: typeof FROZEN_ONNX_ROSTER_SOURCE;
+  policy: PlayingSelfPlayPolicy;
+  artifact: PlayingSelfPlayPolicyArtifactOptions;
+}
+
+export type RolloutRosterSeatOptions =
+  | CurrentPolicyRolloutRosterSeat
+  | RuleBasedRolloutRosterSeat
+  | FrozenOnnxRolloutRosterSeat;
+
+export interface PlayingSelfPlayRolloutRosterOptions {
+  seats: readonly RolloutRosterSeatOptions[];
+}
+
+export type PlayingSelfPlayRolloutRosterSeatManifest =
+  | { source: typeof CURRENT_POLICY_ROSTER_SOURCE }
+  | { source: typeof RULE_BASED_ROSTER_SOURCE; version: typeof RULE_BASED_AGENT_VERSION }
+  | {
+      source: typeof FROZEN_ONNX_ROSTER_SOURCE;
+      artifactId: string;
+      onnxFileName: string;
+      metadataFileName: string;
+      onnxSha256: string;
+      metadataSha256: string;
+      metadata: unknown;
+    };
+
+export interface PlayingSelfPlayRolloutRosterManifest {
+  assignment: typeof PLAYING_SELF_PLAY_ROSTER_ASSIGNMENT;
+  seats: readonly PlayingSelfPlayRolloutRosterSeatManifest[];
+}
 
 export interface PlayingSelfPlayOutcome {
   winner: WinningTeam;
@@ -54,6 +103,9 @@ export interface PlayingSelfPlaySample {
   seed: number;
   step: number;
   actingPlayerId: PlayerId;
+  actingSeatSource: typeof CURRENT_POLICY_ROSTER_SOURCE;
+  behaviorPolicyArtifactId: string;
+  rolloutSeatSources: readonly PlayingSelfPlayRosterSource[];
   relativePlayerIds: readonly PlayerId[];
   observation: ReturnType<typeof encodePlayingObservation>;
   selectedCardIndex: number;
@@ -86,6 +138,7 @@ export interface GeneratePlayingSelfPlayDatasetOptions {
   gameCount: number;
   gamesPerShard: number;
   temperature?: number;
+  rolloutRoster?: PlayingSelfPlayRolloutRosterOptions;
   onProgress?: (progress: DatasetGenerationProgress) => void;
   maxDecisionSteps?: number;
 }
@@ -128,6 +181,7 @@ export interface PlayingSelfPlayDatasetManifest {
     type: "rule-based";
     version: typeof RULE_BASED_AGENT_VERSION;
   };
+  rolloutRoster: PlayingSelfPlayRolloutRosterManifest;
 }
 
 export interface GeneratePlayingSelfPlayDatasetResult {
@@ -153,6 +207,7 @@ export async function generatePlayingSelfPlayDataset(
     metadataSha256: await sha256File(options.playingPolicyArtifact.metadataPath),
     metadata: options.playingPolicy.metadata
   };
+  const rolloutRoster = await createRolloutRosterManifest(options.rolloutRoster);
   const tempDirectory = await mkdtemp(
     join(dirname(outputDirectory), `.${basenameForTemp(outputDirectory)}.tmp-`)
   );
@@ -176,8 +231,18 @@ export async function generatePlayingSelfPlayDataset(
         shardGameCount = 0;
       }
 
-      const record = await runPlayingSelfPlayGame(seed, options.playingPolicy, temperature, options.maxDecisionSteps);
-      const samples = await createPlayingSelfPlaySamples(record, options.playingPolicy, temperature);
+      const assignedRoster = assignRolloutRosterForSeed(options.rolloutRoster, seed);
+      const record = await runPlayingSelfPlayGame({
+        seed,
+        currentPolicy: options.playingPolicy,
+        rolloutRoster: options.rolloutRoster,
+        temperature,
+        maxDecisionSteps: options.maxDecisionSteps
+      });
+      const samples = await createPlayingSelfPlaySamples(record, options.playingPolicy, temperature, {
+        behaviorPolicyArtifactId: artifact.artifactId,
+        rolloutSeatSources: assignedRoster.map((seat) => seat.source)
+      });
 
       for (const sample of samples) {
         validatePlayingSelfPlaySample(sample, seed);
@@ -210,7 +275,8 @@ export async function generatePlayingSelfPlayDataset(
       temperature,
       sampleCount: totalSampleCount,
       shards,
-      artifact
+      artifact,
+      rolloutRoster
     });
 
     validatePlayingSelfPlayDatasetManifest(manifest);
@@ -241,18 +307,39 @@ export async function generatePlayingSelfPlayDataset(
 export async function createPlayingSelfPlaySamples(
   record: AutomatedGameRecord,
   policy: PlayingSelfPlayPolicy,
-  temperature: number = DEFAULT_PLAYING_SELF_PLAY_TEMPERATURE
+  temperature: number = DEFAULT_PLAYING_SELF_PLAY_TEMPERATURE,
+  metadata?: {
+    behaviorPolicyArtifactId?: string;
+    rolloutSeatSources?: readonly PlayingSelfPlayRosterSource[];
+  }
 ): Promise<readonly PlayingSelfPlaySample[]> {
   validateTemperature(temperature);
 
   const samples: PlayingSelfPlaySample[] = [];
+  const seatSources = metadata?.rolloutSeatSources ?? defaultRolloutSeatSources();
 
   for (const decision of record.decisions) {
     if (decision.phase !== "playing") {
       continue;
     }
 
-    samples.push(await createPlayingSelfPlaySample(record, decision, policy, temperature));
+    const seatIndex = record.playerIds.indexOf(decision.playerId);
+    const source = seatSources[seatIndex];
+
+    if (source !== CURRENT_POLICY_ROSTER_SOURCE) {
+      continue;
+    }
+
+    samples.push(await createPlayingSelfPlaySample(
+      record,
+      decision,
+      policy,
+      temperature,
+      {
+        behaviorPolicyArtifactId: metadata?.behaviorPolicyArtifactId ?? "current-policy",
+        rolloutSeatSources: seatSources
+      }
+    ));
   }
 
   return samples;
@@ -299,6 +386,20 @@ export function validatePlayingSelfPlaySample(
   }
   if (sample.actingPlayerId !== sample.relativePlayerIds[0]) {
     throw new Error("actingPlayerId must match relativePlayerIds[0].");
+  }
+  if (sample.actingSeatSource !== CURRENT_POLICY_ROSTER_SOURCE) {
+    throw new Error("actingSeatSource must be current-policy.");
+  }
+  if (sample.behaviorPolicyArtifactId.length === 0) {
+    throw new Error("behaviorPolicyArtifactId must be non-empty.");
+  }
+  if (sample.rolloutSeatSources.length !== PLAYER_COUNT) {
+    throw new Error(`rolloutSeatSources must contain ${PLAYER_COUNT} seats.`);
+  }
+  for (const source of sample.rolloutSeatSources) {
+    if (!isRolloutRosterSource(source)) {
+      throw new Error(`Invalid rolloutSeatSources entry: ${String(source)}`);
+    }
   }
   if (!sameStringArray(sample.relativePlayerIds, sample.observation.relativePlayerIds)) {
     throw new Error("sample.relativePlayerIds must match observation.relativePlayerIds.");
@@ -404,25 +505,96 @@ export function validatePlayingSelfPlayDatasetManifest(
   ) {
     throw new Error("Self-play manifest non-playing agent metadata mismatch.");
   }
+  validateRolloutRosterManifest(manifest.rolloutRoster);
 
   validateShards(manifest);
 }
 
-async function runPlayingSelfPlayGame(
-  seed: number,
-  policy: PlayingSelfPlayPolicy,
-  temperature: number,
-  maxDecisionSteps: number | undefined
-): Promise<AutomatedGameRecord> {
+function validateRolloutRosterManifest(roster: PlayingSelfPlayRolloutRosterManifest): void {
+  if (roster.assignment !== PLAYING_SELF_PLAY_ROSTER_ASSIGNMENT) {
+    throw new Error("Self-play manifest rolloutRoster.assignment mismatch.");
+  }
+  if (!Array.isArray(roster.seats) || roster.seats.length !== PLAYER_COUNT) {
+    throw new Error(`Self-play manifest rolloutRoster.seats must contain ${PLAYER_COUNT} seats.`);
+  }
+
+  let currentPolicyCount = 0;
+  roster.seats.forEach((seat, index) => {
+    if (!isRolloutRosterSource(seat.source)) {
+      throw new Error(`Self-play manifest rolloutRoster.seats[${index}].source is invalid.`);
+    }
+    if (seat.source === CURRENT_POLICY_ROSTER_SOURCE) {
+      currentPolicyCount += 1;
+    }
+    if (
+      seat.source === RULE_BASED_ROSTER_SOURCE &&
+      seat.version !== RULE_BASED_AGENT_VERSION
+    ) {
+      throw new Error(`Self-play manifest rolloutRoster.seats[${index}] rule-based version mismatch.`);
+    }
+    if (seat.source === FROZEN_ONNX_ROSTER_SOURCE) {
+      if (
+        seat.artifactId.length === 0 ||
+        seat.onnxFileName.length === 0 ||
+        seat.metadataFileName.length === 0 ||
+        !sha256Pattern.test(seat.onnxSha256) ||
+        !sha256Pattern.test(seat.metadataSha256)
+      ) {
+        throw new Error(`Self-play manifest rolloutRoster.seats[${index}] frozen-onnx metadata mismatch.`);
+      }
+    }
+  });
+
+  if (currentPolicyCount === 0) {
+    throw new Error("Self-play manifest rolloutRoster must include current-policy.");
+  }
+}
+
+export function assignRolloutRosterForSeed(
+  roster: PlayingSelfPlayRolloutRosterOptions | undefined,
+  seed: number
+): readonly RolloutRosterSeatOptions[] {
+  validateUint32("seed", seed);
+  const seats = normalizeRolloutRosterOptions(roster).seats;
+  const rotation = seed % PLAYER_COUNT;
+
+  return seats.map((_, seatIndex) =>
+    seats[(seatIndex - rotation + PLAYER_COUNT) % PLAYER_COUNT]
+  );
+}
+
+async function runPlayingSelfPlayGame(options: {
+  seed: number;
+  currentPolicy: PlayingSelfPlayPolicy;
+  rolloutRoster: PlayingSelfPlayRolloutRosterOptions | undefined;
+  temperature: number;
+  maxDecisionSteps: number | undefined;
+}): Promise<AutomatedGameRecord> {
+  const assignedRoster = assignRolloutRosterForSeed(options.rolloutRoster, options.seed);
+
   return runAutomatedGame({
-    seed,
-    maxDecisionSteps,
-    createAgent: ({ rng }) =>
-      new PlayingSelfPlayAgent({
-        policy,
-        rng,
-        temperature
-      })
+    seed: options.seed,
+    maxDecisionSteps: options.maxDecisionSteps,
+    createAgent: ({ rng, playerIndex }) => {
+      const seat = assignedRoster[playerIndex];
+
+      switch (seat.source) {
+        case CURRENT_POLICY_ROSTER_SOURCE:
+          return new PlayingSelfPlayAgent({
+            policy: options.currentPolicy,
+            rng,
+            temperature: options.temperature
+          });
+        case RULE_BASED_ROSTER_SOURCE:
+          return new RuleBasedAgent(rng);
+        case FROZEN_ONNX_ROSTER_SOURCE:
+          return new PlayingSelfPlayAgent({
+            policy: seat.policy,
+            rng,
+            temperature: options.temperature
+          });
+      }
+    }
   });
 }
 
@@ -615,7 +787,11 @@ async function createPlayingSelfPlaySample(
   record: AutomatedGameRecord,
   decision: DecisionRecord,
   policy: PlayingSelfPlayPolicy,
-  temperature: number
+  temperature: number,
+  metadata: {
+    behaviorPolicyArtifactId: string;
+    rolloutSeatSources: readonly PlayingSelfPlayRosterSource[];
+  }
 ): Promise<PlayingSelfPlaySample> {
   if (decision.action.type !== "play-card") {
     throw new Error(`Playing self-play decision action must be play-card, got ${decision.action.type}.`);
@@ -645,6 +821,9 @@ async function createPlayingSelfPlaySample(
     seed: record.seed,
     step: decision.step,
     actingPlayerId: decision.playerId,
+    actingSeatSource: CURRENT_POLICY_ROSTER_SOURCE,
+    behaviorPolicyArtifactId: metadata.behaviorPolicyArtifactId,
+    rolloutSeatSources: metadata.rolloutSeatSources,
     relativePlayerIds: observation.relativePlayerIds,
     observation,
     selectedCardIndex,
@@ -700,6 +879,7 @@ function createPlayingSelfPlayManifest(input: {
     metadataSha256: string;
     metadata: unknown;
   };
+  rolloutRoster: PlayingSelfPlayRolloutRosterManifest;
 }): PlayingSelfPlayDatasetManifest {
   return {
     datasetSchemaVersion: PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION,
@@ -733,7 +913,8 @@ function createPlayingSelfPlayManifest(input: {
     nonPlayingAgent: {
       type: "rule-based",
       version: RULE_BASED_AGENT_VERSION
-    }
+    },
+    rolloutRoster: input.rolloutRoster
   };
 }
 
@@ -744,6 +925,7 @@ function validatePlayingSelfPlayGenerationOptions(
   validatePositiveInteger("gameCount", options.gameCount);
   validatePositiveInteger("gamesPerShard", options.gamesPerShard);
   validateTemperature(options.temperature);
+  validateRolloutRosterOptions(options.rolloutRoster);
 
   if (options.outputDirectory.length === 0) {
     throw new Error("outputDirectory must be a non-empty path.");
@@ -759,6 +941,88 @@ function validatePlayingSelfPlayGenerationOptions(
     throw new Error(
       `Dataset would require ${expectedShardCount} shards, exceeding the maximum ${MAX_SHARD_COUNT}.`
     );
+  }
+}
+
+async function createRolloutRosterManifest(
+  roster: PlayingSelfPlayRolloutRosterOptions | undefined
+): Promise<PlayingSelfPlayRolloutRosterManifest> {
+  const normalized = normalizeRolloutRosterOptions(roster);
+
+  return {
+    assignment: PLAYING_SELF_PLAY_ROSTER_ASSIGNMENT,
+    seats: await Promise.all(normalized.seats.map(async (seat) => {
+      switch (seat.source) {
+        case CURRENT_POLICY_ROSTER_SOURCE:
+          return { source: CURRENT_POLICY_ROSTER_SOURCE };
+        case RULE_BASED_ROSTER_SOURCE:
+          return { source: RULE_BASED_ROSTER_SOURCE, version: RULE_BASED_AGENT_VERSION };
+        case FROZEN_ONNX_ROSTER_SOURCE:
+          return {
+            source: FROZEN_ONNX_ROSTER_SOURCE,
+            artifactId: seat.artifact.artifactId ?? basename(seat.artifact.metadataPath),
+            onnxFileName: basename(seat.artifact.onnxPath),
+            metadataFileName: basename(seat.artifact.metadataPath),
+            onnxSha256: await sha256File(seat.artifact.onnxPath),
+            metadataSha256: await sha256File(seat.artifact.metadataPath),
+            metadata: seat.policy.metadata
+          };
+      }
+    }))
+  };
+}
+
+function normalizeRolloutRosterOptions(
+  roster: PlayingSelfPlayRolloutRosterOptions | undefined
+): PlayingSelfPlayRolloutRosterOptions {
+  return roster ?? {
+    seats: Array.from({ length: PLAYER_COUNT }, () => ({ source: CURRENT_POLICY_ROSTER_SOURCE }))
+  };
+}
+
+function defaultRolloutSeatSources(): readonly PlayingSelfPlayRosterSource[] {
+  return normalizeRolloutRosterOptions(undefined).seats.map((seat) => seat.source);
+}
+
+function validateRolloutRosterOptions(
+  roster: PlayingSelfPlayRolloutRosterOptions | undefined
+): void {
+  const normalized = normalizeRolloutRosterOptions(roster);
+
+  if (!Array.isArray(normalized.seats) || normalized.seats.length !== PLAYER_COUNT) {
+    throw new Error(`rolloutRoster.seats must contain exactly ${PLAYER_COUNT} seats.`);
+  }
+
+  let currentPolicyCount = 0;
+
+  normalized.seats.forEach((seat, index) => {
+    if (
+      seat.source !== CURRENT_POLICY_ROSTER_SOURCE &&
+      seat.source !== RULE_BASED_ROSTER_SOURCE &&
+      seat.source !== FROZEN_ONNX_ROSTER_SOURCE
+    ) {
+      throw new Error(`rolloutRoster.seats[${index}].source is invalid.`);
+    }
+
+    if (seat.source === CURRENT_POLICY_ROSTER_SOURCE) {
+      currentPolicyCount += 1;
+    }
+
+    if (seat.source === FROZEN_ONNX_ROSTER_SOURCE) {
+      if (seat.policy === undefined) {
+        throw new Error(`rolloutRoster.seats[${index}].policy is required for frozen-onnx.`);
+      }
+      if (seat.artifact === undefined) {
+        throw new Error(`rolloutRoster.seats[${index}].artifact is required for frozen-onnx.`);
+      }
+      if (seat.artifact.onnxPath.length === 0 || seat.artifact.metadataPath.length === 0) {
+        throw new Error(`rolloutRoster.seats[${index}] frozen-onnx artifact paths are required.`);
+      }
+    }
+  });
+
+  if (currentPolicyCount === 0) {
+    throw new Error("rolloutRoster must include at least one current-policy seat.");
   }
 }
 
@@ -879,6 +1143,12 @@ function validateLegalPlayMask(mask: ArrayLike<number | boolean>): void {
 
 function isLegalMaskValue(value: number | boolean): boolean {
   return value === 1 || value === true;
+}
+
+function isRolloutRosterSource(value: unknown): value is PlayingSelfPlayRosterSource {
+  return value === CURRENT_POLICY_ROSTER_SOURCE ||
+    value === RULE_BASED_ROSTER_SOURCE ||
+    value === FROZEN_ONNX_ROSTER_SOURCE;
 }
 
 function validateJsonSafeValue(name: string, value: unknown, seen = new WeakSet<object>()): void {

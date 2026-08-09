@@ -68,7 +68,7 @@ def _valid_self_play_manifest_dict() -> dict[str, Any]:
             "datasetSchemaVersion": 3,
             "generatorVersion": 1,
             "sampleType": "playing-self-play-sample",
-            "sampleSchemaVersion": 2,
+            "sampleSchemaVersion": 3,
             "playingEncoderSchemaVersion": 2,
             "playingModelInputSchemaVersion": 2,
             "behaviorPolicy": {
@@ -84,6 +84,10 @@ def _valid_self_play_manifest_dict() -> dict[str, Any]:
             "temperature": 1.25,
             "reward": {"type": "terminal-team-win", "version": 1},
             "nonPlayingAgent": {"type": "rule-based", "version": 1},
+            "rolloutRoster": {
+                "assignment": "rotate-by-seed",
+                "seats": [{"source": "current-policy"} for _ in range(5)],
+            },
         }
     )
     return raw
@@ -126,7 +130,7 @@ def test_self_play_manifest_v3_passes() -> None:
 
     assert manifest.dataset_schema_version == 3
     assert manifest.sample_type == "playing-self-play-sample"
-    assert manifest.sample_schema_version == 2
+    assert manifest.sample_schema_version == 3
     assert manifest.playing_encoder_schema_version == 2
     assert manifest.playing_model_input_schema_version == 2
     assert manifest.agent is None
@@ -136,6 +140,8 @@ def test_self_play_manifest_v3_passes() -> None:
     assert manifest.reward.type == "terminal-team-win"
     assert manifest.non_playing_agent is not None
     assert manifest.non_playing_agent.type == "rule-based"
+    assert manifest.rollout_roster is not None
+    assert [seat.source for seat in manifest.rollout_roster.seats] == ["current-policy"] * 5
 
 
 @pytest.mark.parametrize(
@@ -148,6 +154,13 @@ def test_self_play_manifest_v3_passes() -> None:
         (lambda raw: raw["behaviorPolicy"].update({"onnxSha256": "not-a-hash"}), "onnxSha256"),
         (lambda raw: raw["reward"].update({"type": "dense"}), "reward"),
         (lambda raw: raw["nonPlayingAgent"].update({"version": 2}), "nonPlayingAgent"),
+        (lambda raw: raw["rolloutRoster"].update({"assignment": "fixed"}), "rolloutRoster"),
+        (
+            lambda raw: raw["rolloutRoster"].update(
+                {"seats": [{"source": "rule-based", "version": 1} for _ in range(5)]}
+            ),
+            "current-policy",
+        ),
     ],
 )
 def test_invalid_self_play_manifest_v3_rejected(

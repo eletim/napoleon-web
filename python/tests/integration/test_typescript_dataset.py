@@ -280,7 +280,7 @@ def test_typescript_generated_playing_self_play_dataset_loads_rl_batch() -> None
         assert manifest.dataset_schema_version == 3
         assert manifest.generator_version == 1
         assert manifest.sample_type == "playing-self-play-sample"
-        assert manifest.sample_schema_version == 2
+        assert manifest.sample_schema_version == 3
         assert manifest.playing_encoder_schema_version == 2
         assert manifest.playing_model_input_schema_version == 2
         assert manifest.sampling_algorithm == "masked-categorical"

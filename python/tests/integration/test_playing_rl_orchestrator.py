@@ -80,6 +80,11 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
         _required_object(manifest1["behaviorPolicy"])["onnxSha256"]
         == iter1["behaviorOnnxSha256"]
     )
+    assert _required_object(manifest0["rolloutRoster"])["assignment"] == "rotate-by-seed"
+    assert [
+        _required_object(seat)["source"]
+        for seat in _required_list(_required_object(manifest0["rolloutRoster"])["seats"])
+    ] == ["current-policy"] * 5
 
     evaluations = [
         _load_json(run_directory / "evaluations" / f"policy-v{generation:03d}" / "summary.json")
@@ -115,6 +120,20 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
             mismatch,
             resume=True,
             provided_config_keys={"gamesPerIteration"},
+        )
+
+    roster_mismatch = replace(
+        config,
+        rollout_roster="current-policy,rule-based,rule-based,rule-based,rule-based",
+    )
+    with pytest.raises(
+        PlayingRlOrchestratorError,
+        match="resume config mismatch for rolloutRoster",
+    ):
+        run_playing_rl_experiment(
+            roster_mismatch,
+            resume=True,
+            provided_config_keys=set(),
         )
 
     checkpoint = run_directory / "iterations" / "iter-001" / "output-checkpoint.pt"

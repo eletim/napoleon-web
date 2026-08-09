@@ -19,6 +19,7 @@ from napoleon_ml.rl_orchestrator import (
     DEFAULT_GAMES_PER_SHARD,
     DEFAULT_ITERATIONS,
     DEFAULT_LEARNING_RATE,
+    DEFAULT_ROLLOUT_ROSTER,
     DEFAULT_SELF_PLAY_SEED_BASE,
     DEFAULT_TEMPERATURE,
     DEFAULT_TRAINING_SEED_BASE,
@@ -34,6 +35,7 @@ _OPTION_TO_CONFIG_KEY = {
     "--games-per-shard": "gamesPerShard",
     "--self-play-seed-base": "selfPlaySeedBase",
     "--temperature": "temperature",
+    "--rollout-roster": "rolloutRoster",
     "--algorithm": "algorithm",
     "--learning-rate": "learningRate",
     "--value-loss-coefficient": "valueLossCoefficient",
@@ -56,6 +58,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--games-per-shard", type=int, default=DEFAULT_GAMES_PER_SHARD)
     parser.add_argument("--self-play-seed-base", type=int, default=DEFAULT_SELF_PLAY_SEED_BASE)
     parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
+    parser.add_argument("--rollout-roster", default=DEFAULT_ROLLOUT_ROSTER)
     parser.add_argument(
         "--algorithm",
         choices=PLAYING_RL_ALGORITHMS,
@@ -117,6 +120,7 @@ def _config_from_args(
         games_per_shard=args.games_per_shard,
         self_play_seed_base=args.self_play_seed_base,
         temperature=args.temperature,
+        rollout_roster=args.rollout_roster,
         algorithm=args.algorithm,
         learning_rate=args.learning_rate,
         value_loss_coefficient=args.value_loss_coefficient,
