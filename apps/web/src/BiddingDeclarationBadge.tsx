@@ -26,7 +26,6 @@ export function BiddingDeclarationBadge({
       aria-label={`${playerLabel}の最新競り宣言: ${declaration.label}`}
       className={className}
     >
-      <span>競り</span>
       <strong>{declaration.label}</strong>
     </div>
   );

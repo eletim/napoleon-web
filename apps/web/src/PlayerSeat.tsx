@@ -21,21 +21,33 @@ export function PlayerSeat({ player, state }: PlayerSeatProps) {
     .join(" ");
 
   return (
-    <article className={seatClassName}>
+    <article aria-label={player.label} className={seatClassName}>
       <div className="seat-main-row">
         <div className="seat-title">
           <h2>{player.label}</h2>
         </div>
         <div className="compact-hand" aria-label={`${player.label}の手札は残り${player.handCount}枚`}>
           <span className="small-card-back" aria-hidden="true" />
-          <strong>{player.handCount}枚</strong>
+          <strong>{player.handCount}</strong>
         </div>
       </div>
 
       <div className="role-badges">
-        {isCurrent ? <span className="role-badge turn-badge">手番</span> : null}
-        {isNapoleon ? <span className="role-badge napoleon-badge">ナポレオン</span> : null}
-        {isAdjutant ? <span className="role-badge adjutant-badge">副官</span> : null}
+        {isCurrent ? (
+          <span aria-label="現在の手番" className="turn-dot" role="img">
+            ▶
+          </span>
+        ) : null}
+        {isNapoleon ? (
+          <span aria-label="ナポレオン" className="role-badge napoleon-badge" role="img">
+            N
+          </span>
+        ) : null}
+        {isAdjutant ? (
+          <span aria-label="副官" className="role-badge adjutant-badge" role="img">
+            A
+          </span>
+        ) : null}
       </div>
 
       <BiddingDeclarationBadge playerLabel={player.label} declaration={player.biddingDeclaration} />
@@ -44,7 +56,7 @@ export function PlayerSeat({ player, state }: PlayerSeatProps) {
         className="captured-compact"
         aria-label={`${player.label}の獲得得点札は${player.capturedPointCards.length}枚`}
       >
-        <span>得点札</span>
+        <span aria-hidden="true">★{player.capturedPointCards.length}</span>
         <div className="inline-cards compact-points">
           <PointCards cards={player.capturedPointCards} />
         </div>

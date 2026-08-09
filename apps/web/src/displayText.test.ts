@@ -18,7 +18,7 @@ describe("display text", () => {
     });
   });
 
-  it("shows only bidding phase and current turn during bidding", () => {
+  it("shows only compact bidding phase with current turn in the accessible name", () => {
     const state = createPublicState({
       phase: "bidding",
       currentPlayerId: "player-2",
@@ -35,8 +35,11 @@ describe("display text", () => {
     const display = createGameStatusDisplay(state, createTablePlayers(state));
 
     expect(display.primary).toEqual([
-      { label: "競り" },
-      { label: "手番", value: "奥左AI" }
+      {
+        label: "競り",
+        ariaLabel: "競り。現在の手番は奥左AIです。",
+        tone: "phase"
+      }
     ]);
     expect(display.secondary).toEqual([]);
     expect(display.primary.some((chip) => chip.label === "契約")).toBe(false);
@@ -57,18 +60,21 @@ describe("display text", () => {
     const display = createGameStatusDisplay(state, createTablePlayers(state));
 
     expect(display.primary).toEqual([
-      { label: "埋札交換" },
-      { label: "ナポレオン", value: "右側AI" },
-      { label: "切り札", value: "♦" },
-      { label: "契約", value: "14枚" }
+      { label: "交換", ariaLabel: "埋札交換", tone: "phase" },
+      {
+        label: "♦",
+        value: "14",
+        ariaLabel: "契約: ナポレオンは右側AI、切り札は♦、契約は14枚です。",
+        tone: "contract"
+      }
     ]);
     expect(display.secondary.map((chip) => chip.label)).toEqual([
-      "オルマ",
-      "よろめき",
-      "正J",
-      "裏J"
+      "オ",
+      "よ",
+      "正",
+      "裏"
     ]);
-    expect(display.secondary.some((chip) => chip.label === "副官札")).toBe(false);
+    expect(display.secondary.some((chip) => chip.label === "副")).toBe(false);
   });
 
   it("shows the chosen adjutant card during exchange without revealing its owner", () => {
@@ -89,14 +95,19 @@ describe("display text", () => {
     const display = createGameStatusDisplay(state, createTablePlayers(state));
 
     expect(display.primary).toEqual([
-      { label: "埋札交換" },
-      { label: "ナポレオン", value: "右側AI" },
-      { label: "切り札", value: "♦" },
-      { label: "契約", value: "14枚" }
+      { label: "交換", ariaLabel: "埋札交換", tone: "phase" },
+      {
+        label: "♦",
+        value: "14",
+        ariaLabel: "契約: ナポレオンは右側AI、切り札は♦、契約は14枚です。",
+        tone: "contract"
+      }
     ]);
     expect(display.secondary).toContainEqual({
-      label: "副官札",
-      value: "ジョーカー・未判明"
+      label: "副",
+      value: "ジョーカー・?",
+      ariaLabel: "副官札: ジョーカー / 未判明",
+      tone: "role"
     });
   });
 
@@ -114,15 +125,18 @@ describe("display text", () => {
     const display = createGameStatusDisplay(state, createTablePlayers(state));
 
     expect(display.primary).toEqual([
-      { label: "副官指定" },
-      { label: "ナポレオン", value: "右側AI" },
-      { label: "切り札", value: "♦" },
-      { label: "契約", value: "14枚" }
+      { label: "副官", ariaLabel: "副官指定", tone: "phase" },
+      {
+        label: "♦",
+        value: "14",
+        ariaLabel: "契約: ナポレオンは右側AI、切り札は♦、契約は14枚です。",
+        tone: "contract"
+      }
     ]);
-    expect(display.secondary.some((chip) => chip.label === "副官札")).toBe(false);
+    expect(display.secondary.some((chip) => chip.label === "副")).toBe(false);
   });
 
-  it("shows play status with trick, turn, trump, contract, adjutant, and special cards", () => {
+  it("shows play status as compact trick, contract, adjutant, and special-card marks", () => {
     const state = createPublicState({
       phase: "playing",
       trickNumber: 4,
@@ -147,17 +161,29 @@ describe("display text", () => {
     const display = createGameStatusDisplay(state, createTablePlayers(state));
 
     expect(display.primary).toEqual([
-      { label: "第4トリック" },
-      { label: "手番", value: "自分" },
-      { label: "切り札", value: "♦" },
-      { label: "契約", value: "右側AI・14枚" }
+      {
+        label: "T4",
+        ariaLabel: "第4トリック。現在の手番は自分です。",
+        tone: "phase"
+      },
+      {
+        label: "♦",
+        value: "14",
+        ariaLabel: "契約: ナポレオンは右側AI、切り札は♦、契約は14枚です。",
+        tone: "contract"
+      }
     ]);
     expect(display.secondary).toEqual([
-      { label: "副官札", value: "A♥・未判明" },
-      { label: "オルマ", value: "A♠" },
-      { label: "よろめき", value: "Q♥" },
-      { label: "正J", value: "J♦" },
-      { label: "裏J", value: "J♥" }
+      {
+        label: "副",
+        value: "A♥・?",
+        ariaLabel: "副官札: A♥ / 未判明",
+        tone: "role"
+      },
+      { label: "オ", value: "A♠", ariaLabel: "オルマ: A♠", tone: "special" },
+      { label: "よ", value: "Q♥", ariaLabel: "よろめき: Q♥", tone: "special" },
+      { label: "正", value: "J♦", ariaLabel: "正ジャック: J♦", tone: "special" },
+      { label: "裏", value: "J♥", ariaLabel: "裏ジャック: J♥", tone: "special" }
     ]);
   });
 
@@ -177,9 +203,14 @@ describe("display text", () => {
     });
     const display = createGameStatusDisplay(state, createTablePlayers(state));
 
-    expect(display.secondary).toContainEqual({ label: "副官札", value: "A♥・奥左AI" });
-    expect(display.secondary.some((chip) => chip.label === "正J")).toBe(false);
-    expect(display.secondary.some((chip) => chip.label === "裏J")).toBe(false);
+    expect(display.secondary).toContainEqual({
+      label: "副",
+      value: "A♥・奥左AI",
+      ariaLabel: "副官札: A♥ / 奥左AI",
+      tone: "role"
+    });
+    expect(display.secondary.some((chip) => chip.label === "正")).toBe(false);
+    expect(display.secondary.some((chip) => chip.label === "裏")).toBe(false);
   });
 
   it("shows concise finished status without duplicating score details", () => {
@@ -204,9 +235,14 @@ describe("display text", () => {
     const display = createGameStatusDisplay(state, createTablePlayers(state));
 
     expect(display.primary).toEqual([
-      { label: "ゲーム終了" },
-      { label: "勝者", value: "ナポレオン陣営" },
-      { label: "契約", value: "右側AI・14枚" }
+      { label: "終了", ariaLabel: "ゲーム終了", tone: "phase" },
+      { label: "N勝", ariaLabel: "勝者: ナポレオン陣営", tone: "result" },
+      {
+        label: "♦",
+        value: "14",
+        ariaLabel: "契約: ナポレオンは右側AI、切り札は♦、契約は14枚です。",
+        tone: "contract"
+      }
     ]);
     expect(display.primary.some((chip) => chip.label === "ナポレオン陣営")).toBe(false);
     expect(display.primary.some((chip) => chip.label === "連合軍")).toBe(false);

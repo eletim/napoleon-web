@@ -69,6 +69,7 @@ export function App() {
   const [selectedDiscardCardIds, setSelectedDiscardCardIds] = useState<readonly string[]>([]);
   const [adjutantSelection, setAdjutantSelection] =
     useState<AdjutantSelection>(defaultAdjutantSelection);
+  const [hasRequestError, setHasRequestError] = useState(false);
 
   const legalCardIds = useMemo(() => {
     const actions = session?.state.legalActions ?? [];
@@ -118,6 +119,18 @@ export function App() {
 
     return agent?.isAvailable !== true;
   });
+  const hasActionPrompt =
+    session !== undefined &&
+    (session.state.currentPlayerId === session.playerId ||
+      session.state.isTrickComplete ||
+      canExchange ||
+      canChooseAdjutant);
+  const showVisibleMessage =
+    session === undefined ||
+    isBusy ||
+    hasActionPrompt ||
+    session.state.latestEvent?.type === "buried-cards-resolved" ||
+    hasRequestError;
 
   useEffect(() => {
     let cancelled = false;
@@ -134,6 +147,7 @@ export function App() {
       .catch((error) => {
         if (!cancelled) {
           setMessage(error instanceof Error ? error.message : "AI一覧を取得できませんでした。");
+          setHasRequestError(true);
         }
       });
 
@@ -242,11 +256,13 @@ export function App() {
 
   async function runRequest(work: () => Promise<void>): Promise<void> {
     setIsBusy(true);
+    setHasRequestError(false);
     setMessage("通信中です。");
 
     try {
       await work();
     } catch (error) {
+      setHasRequestError(true);
       setMessage(error instanceof Error ? error.message : "予期しないエラーが発生しました。");
     } finally {
       setIsBusy(false);
@@ -255,31 +271,44 @@ export function App() {
 
   return (
     <main className="app-shell">
-      <nav className="mode-switch" aria-label="画面切り替え">
+      <nav
+        className={
+          session !== undefined && mode === "game"
+            ? "mode-switch mode-switch-compact"
+            : "mode-switch"
+        }
+        aria-label="画面切り替え"
+      >
         <button
+          aria-label={
+            session !== undefined && mode === "game" ? "卓（通常プレイ）" : "通常プレイ"
+          }
           aria-pressed={mode === "game"}
           className={mode === "game" ? "mode-button mode-button-active" : "mode-button"}
           onClick={() => setMode("game")}
           type="button"
         >
-          通常プレイ
+          {session !== undefined && mode === "game" ? "卓" : "通常プレイ"}
         </button>
         <button
+          aria-label={session !== undefined && mode === "game" ? "ログ（AI対戦ログ）" : "AI対戦ログ"}
           aria-pressed={mode === "simulation"}
           className={mode === "simulation" ? "mode-button mode-button-active" : "mode-button"}
           onClick={() => setMode("simulation")}
           type="button"
         >
-          AI対戦ログ
+          {session !== undefined && mode === "game" ? "ログ" : "AI対戦ログ"}
         </button>
       </nav>
 
       {mode === "game" ? (
         <>
-          <section className="top-bar">
+          <section className={session === undefined ? "top-bar" : "top-bar top-bar-compact"}>
             <div>
-              <h1>Napoleon Web</h1>
-              <p aria-live="polite">{message}</p>
+              <h1 aria-label="Napoleon Web">{session === undefined ? "Napoleon Web" : "NW"}</h1>
+              <p aria-live="polite" className={showVisibleMessage ? undefined : "visually-hidden"}>
+                {message}
+              </p>
             </div>
             <button
               className="primary-button"
@@ -287,7 +316,7 @@ export function App() {
               onClick={handleCreateGame}
               type="button"
             >
-              ゲーム開始
+              {session === undefined ? "ゲーム開始" : "新規"}
             </button>
           </section>
 
@@ -367,11 +396,12 @@ export function App() {
             <div className="action-area">
           {session?.state.phase === "exchanging" ? (
             <section className="exchange-panel" aria-label="埋札交換">
-              <h2>埋札交換</h2>
+              <h2>交換</h2>
               <span aria-label={`選択中 ${selectedDiscardCardIds.length}枚、必要 ${requiredDiscardCount}枚`}>
                 {selectedDiscardCardIds.length} / {requiredDiscardCount}
               </span>
               <button
+                aria-label={`${requiredDiscardCount}枚を捨てる`}
                 className="secondary-button"
                 disabled={
                   !canExchange ||
@@ -386,17 +416,28 @@ export function App() {
                 }
                 type="button"
               >
-                3枚を捨てる
+                捨てる
               </button>
             </section>
           ) : null}
 
           {session?.state.phase === "choosing-adjutant" ? (
-            <section className="adjutant-panel" aria-label="副官指定">
-              <h2>副官指定</h2>
-              <p className="phase-note">埋札前に1枚</p>
+            <section
+              aria-describedby="adjutant-phase-note"
+              aria-label="副官指定"
+              className="adjutant-panel"
+            >
+              <div className="phase-title-row">
+                <h2>副官</h2>
+                <span aria-label="埋札前に1枚指定します" className="phase-count">
+                  1枚
+                </span>
+              </div>
+              <p className="visually-hidden" id="adjutant-phase-note">
+                埋札前に1枚指定します。
+              </p>
               <div className="adjutant-shortcuts" aria-label="特殊札ショートカット">
-                <span>特殊札ショートカット</span>
+                <span className="visually-hidden">特殊札ショートカット</span>
                 <div className="adjutant-shortcut-buttons">
                   {adjutantShortcutOptions.map((shortcut) => (
                     <button
@@ -427,8 +468,9 @@ export function App() {
               </div>
               <div className="adjutant-controls">
                 <label>
-                  カード
+                  札
                   <select
+                    aria-label="副官に指定するカード種別"
                     disabled={!canChooseAdjutant || isBusy}
                     onChange={(event) =>
                       setAdjutantSelection((current) =>
@@ -449,8 +491,9 @@ export function App() {
                   </select>
                 </label>
                 <label>
-                  ランク
+                  位
                   <select
+                    aria-label="副官に指定するランク"
                     disabled={
                       !canChooseAdjutant ||
                       isBusy ||
@@ -471,6 +514,7 @@ export function App() {
                   </select>
                 </label>
                 <button
+                  aria-label="副官を指定"
                   className="secondary-button"
                   disabled={!canChooseAdjutant || isBusy}
                   onClick={() =>
@@ -481,10 +525,10 @@ export function App() {
                   }
                   type="button"
                 >
-                  副官を指定
+                  指定
                 </button>
-                <span className="selected-adjutant">
-                  選択中: <strong>{selectedAdjutantLabel}</strong>
+                <span aria-label={`選択中の副官札: ${selectedAdjutantLabel}`} className="selected-adjutant">
+                  <strong>{selectedAdjutantLabel}</strong>
                 </span>
               </div>
             </section>

@@ -21,8 +21,7 @@ export function TrickBoard({ players, currentTrick }: TrickBoardProps) {
           played={playedCardsByPlayerId.get(player.id)}
         />
       ))}
-      <div className="trick-message">
-        <span>現在のトリック</span>
+      <div className="trick-message" aria-label={`現在のトリックは${currentTrick.length}枚出ています`}>
         <strong>{currentTrick.length} / 5</strong>
       </div>
     </div>
@@ -39,9 +38,7 @@ function TrickSlot({ player, played }: TrickSlotProps) {
     <div className={`trick-slot trick-${player.seat}`}>
       <span className="played-owner">{player.label}</span>
       {played === undefined ? (
-        <div aria-label={`${player.label}は未プレイ`} className="empty-played-card">
-          未プレイ
-        </div>
+        <div aria-label={`${player.label}は未プレイ`} className="empty-played-card" />
       ) : (
         <div
           aria-label={`${player.label}が${formatCardForAria(played.card)}を出しました`}

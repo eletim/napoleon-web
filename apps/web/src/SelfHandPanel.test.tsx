@@ -129,7 +129,7 @@ describe("SelfHandPanel", () => {
     expect(cardLabels(container)).toEqual(["2♣", "JOKER", "2♠", "K♥", "A♠"]);
 
     act(() => {
-      getButtonByText(container, "理牌").click();
+      getButtonByAriaLabel(container, "理牌").click();
     });
 
     expect(onPlay).not.toHaveBeenCalled();
@@ -230,13 +230,13 @@ function cardLabels(container: Element): string[] {
   });
 }
 
-function getButtonByText(container: Element, text: string): HTMLButtonElement {
+function getButtonByAriaLabel(container: Element, label: string): HTMLButtonElement {
   const button = Array.from(container.querySelectorAll("button")).find(
-    (candidate) => candidate.textContent === text
+    (candidate) => candidate.getAttribute("aria-label") === label
   );
 
   if (!(button instanceof HTMLButtonElement)) {
-    throw new Error(`Button ${text} was not rendered.`);
+    throw new Error(`Button ${label} was not rendered.`);
   }
 
   return button;
