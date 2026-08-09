@@ -27,6 +27,16 @@ from .onnx_export import (
     export_policy_checkpoint_to_onnx,
     validate_policy_onnx_metadata,
 )
+from .reinforce import (
+    BEHAVIOR_LOG_PROB_PARITY_ATOL,
+    BEHAVIOR_LOG_PROB_PARITY_RTOL,
+    REINFORCE_ALGORITHM,
+    ReinforceTrainReport,
+    ReinforceTrainSettings,
+    masked_selected_log_probability,
+    reinforce_policy_loss,
+    train_policy_reinforce,
+)
 
 __all__ = [
     "CHECKPOINT_SCHEMA_VERSION",
@@ -39,15 +49,23 @@ __all__ = [
     "ONNX_INPUT_NAME",
     "ONNX_OUTPUT_NAME",
     "POLICY_ONNX_METADATA_SCHEMA_VERSION",
+    "BEHAVIOR_LOG_PROB_PARITY_ATOL",
+    "BEHAVIOR_LOG_PROB_PARITY_RTOL",
+    "REINFORCE_ALGORITHM",
     "build_policy_onnx_metadata",
     "create_seeded_policy_model",
     "evaluate_policy_model",
     "export_policy_checkpoint_to_onnx",
     "load_policy_checkpoint",
     "mask_illegal_policy_logits",
+    "masked_selected_log_probability",
     "masked_policy_accuracy",
     "masked_policy_cross_entropy",
+    "reinforce_policy_loss",
+    "ReinforceTrainReport",
+    "ReinforceTrainSettings",
     "save_policy_checkpoint",
     "select_policy_action",
+    "train_policy_reinforce",
     "validate_policy_onnx_metadata",
 ]

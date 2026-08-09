@@ -28,6 +28,7 @@ def save_policy_checkpoint(
     model: PolicyMlpModel,
     training_config: dict[str, object],
     manifest: DatasetManifest,
+    extra_metadata: dict[str, object] | None = None,
 ) -> None:
     checkpoint = {
         "checkpoint_schema_version": CHECKPOINT_SCHEMA_VERSION,
@@ -39,6 +40,8 @@ def save_policy_checkpoint(
         "model_input_schema_version": MODEL_INPUT_SCHEMA_VERSION,
         "card_ids_sha256": calculate_card_ids_sha256(),
     }
+    if extra_metadata is not None:
+        checkpoint.update(extra_metadata)
     torch.save(checkpoint, Path(path))
 
 
