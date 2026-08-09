@@ -34,6 +34,14 @@ import type {
   NonPlayingPolicyType,
   PolicyOnnxMetadata
 } from "./types.js";
+import {
+  RL_V740_BENCHMARK_POLICY_ID,
+  loadRepoManagedPlayingPolicyBenchmark,
+  validatePlayingPolicyArtifactReference
+} from "./benchmarkArtifacts.js";
+import type {
+  PlayingPolicyArtifactReference
+} from "./benchmarkArtifacts.js";
 
 type CompletedRole = Exclude<EvaluationSeatRole, "unknown">;
 type AgentGroup = "policy" | "rule-based";
@@ -61,6 +69,50 @@ export interface RunPolicyVsRuleBasedEvaluationOptions {
   ruleBasedAgentName?: string;
 }
 
+export interface PlayingPolicyRuleBasedOpponent {
+  type: "rule-based";
+  agentName?: string;
+}
+
+export interface PlayingPolicyOnnxOpponent {
+  type: "playing-onnx";
+  policy: PolicyOnnxModel;
+  agentName?: string;
+  artifact?: PlayingPolicyArtifactReference;
+}
+
+export type PlayingPolicyEvaluationOpponent =
+  | PlayingPolicyRuleBasedOpponent
+  | PlayingPolicyOnnxOpponent;
+
+export type StandardPlayingPolicyBenchmarkId =
+  | "rule-based-x4"
+  | "rl-v740-x4"
+  | "rule-based-x2-rl-v740-x2";
+
+export interface RunPlayingPolicyRosterEvaluationOptions {
+  candidatePolicy: PolicyOnnxModel;
+  opponentRoster: readonly PlayingPolicyEvaluationOpponent[];
+  startSeed: number;
+  gameCount: number;
+  playerIds?: readonly PlayerId[];
+  rotationOffsets?: readonly number[];
+  opponentAgentOrders?: readonly (readonly number[])[];
+  maxDecisionSteps?: number;
+  candidateAgentName?: string;
+}
+
+export interface RunStandardPlayingPolicyBenchmarksOptions {
+  candidatePolicy: PolicyOnnxModel;
+  benchmarks?: readonly StandardPlayingPolicyBenchmarkId[];
+  startSeed: number;
+  gameCount: number;
+  playerIds?: readonly PlayerId[];
+  rotationOffsets?: readonly number[];
+  maxDecisionSteps?: number;
+  candidateAgentName?: string;
+}
+
 export interface RunFullPolicyVsRuleBasedEvaluationOptions {
   playingPolicy: PolicyOnnxModel;
   biddingPolicy: NonPlayingPolicyOnnxModel;
@@ -84,6 +136,25 @@ export interface PolicyVsRuleBasedEvaluationConfiguration {
   policyAgentName: string;
   ruleBasedAgentName: string;
   policyMetadata: PolicyOnnxMetadata;
+}
+
+export interface PlayingPolicyOpponentRosterEntry {
+  sourceAgentIndex: number;
+  type: PlayingPolicyEvaluationOpponent["type"];
+  agentName: string;
+  artifact?: PlayingPolicyArtifactReference;
+}
+
+export interface PlayingPolicyRosterEvaluationConfiguration {
+  startSeed: number;
+  endSeed: number;
+  gameCount: number;
+  rotationOffsets: readonly number[];
+  playerIds: readonly PlayerId[];
+  candidateAgentName: string;
+  candidateMetadata: PolicyOnnxMetadata;
+  opponentRoster: readonly PlayingPolicyOpponentRosterEntry[];
+  agentOrders: readonly (readonly number[])[];
 }
 
 export interface FullPolicyVsRuleBasedEvaluationConfiguration {
@@ -124,6 +195,25 @@ export interface PolicyVsRuleBasedComparisonReport {
   failedGames: readonly FailedPolicyVsRuleBasedGame[];
   policy: PolicyVsRuleBasedAgentSummary;
   ruleBased: PolicyVsRuleBasedAgentSummary;
+}
+
+export interface PlayingPolicyRosterEvaluationResult {
+  schemaVersion: 1;
+  configuration: PlayingPolicyRosterEvaluationConfiguration;
+  run: EvaluationRunRecord;
+  report: EvaluationReport;
+  comparison: PolicyVsRuleBasedComparisonReport;
+}
+
+export interface StandardPlayingPolicyBenchmarkResult {
+  benchmarkId: StandardPlayingPolicyBenchmarkId;
+  result: PlayingPolicyRosterEvaluationResult | PolicyVsRuleBasedEvaluationResult;
+}
+
+export interface StandardPlayingPolicyBenchmarkSuiteResult {
+  schemaVersion: 1;
+  candidateMetadata: PolicyOnnxMetadata;
+  benchmarks: readonly StandardPlayingPolicyBenchmarkResult[];
 }
 
 export interface PolicyVsRuleBasedEvaluationResult {
@@ -212,6 +302,117 @@ export async function runPolicyVsRuleBasedEvaluation(
   };
 }
 
+export async function runPlayingPolicyRosterEvaluation(
+  options: RunPlayingPolicyRosterEvaluationOptions
+): Promise<PlayingPolicyRosterEvaluationResult> {
+  assertPlayingPolicyType("candidatePolicy", options.candidatePolicy);
+  validateOpponentRoster(options.opponentRoster);
+  await validateOpponentRosterArtifacts(options.opponentRoster);
+
+  const playerIds = options.playerIds ?? defaultPlayerIds;
+  const rotationOffsets = options.rotationOffsets ?? defaultRotationOffsets;
+  const candidateAgentName = options.candidateAgentName ?? "PolicyOnnxAgent";
+  const agents = createPlayingPolicyRosterAgents({
+    candidatePolicy: options.candidatePolicy,
+    opponentRoster: options.opponentRoster,
+    playerIds,
+    candidateAgentName
+  });
+  const agentOrders = options.opponentAgentOrders ?? createDefaultRosterAgentOrders(
+    options.opponentRoster
+  );
+  assertCandidateFirstAgentOrders(agentOrders);
+  const run = await runEvaluation({
+    startSeed: options.startSeed,
+    gameCount: options.gameCount,
+    playerIds,
+    rotationOffsets,
+    agentOrders,
+    maxDecisionSteps: options.maxDecisionSteps,
+    agents
+  });
+  const report = createEvaluationReport(run);
+
+  return {
+    schemaVersion: 1,
+    configuration: {
+      startSeed: run.startSeed,
+      endSeed: run.endSeed,
+      gameCount: run.gameCount,
+      rotationOffsets: run.rotationOffsets,
+      playerIds: run.playerIds,
+      candidateAgentName,
+      candidateMetadata: options.candidatePolicy.metadata,
+      opponentRoster: options.opponentRoster.map((opponent, index) =>
+        toOpponentRosterEntry(opponent, index + 1)
+      ),
+      agentOrders
+    },
+    run,
+    report,
+    comparison: createPolicyVsRuleBasedComparison(run, {
+      policyAgentName: candidateAgentName,
+      ruleBasedAgentName: "OpponentRoster"
+    })
+  };
+}
+
+export async function runStandardPlayingPolicyBenchmarks(
+  options: RunStandardPlayingPolicyBenchmarksOptions
+): Promise<StandardPlayingPolicyBenchmarkSuiteResult> {
+  const benchmarkIds = options.benchmarks ?? [
+    "rule-based-x4",
+    "rl-v740-x4",
+    "rule-based-x2-rl-v740-x2"
+  ];
+  const rlV740 = benchmarkIds.some((benchmarkId) => benchmarkId.includes("rl-v740"))
+    ? await loadRepoManagedPlayingPolicyBenchmark(RL_V740_BENCHMARK_POLICY_ID)
+    : null;
+  const benchmarks: StandardPlayingPolicyBenchmarkResult[] = [];
+
+  for (const benchmarkId of benchmarkIds) {
+    if (benchmarkId === "rule-based-x4") {
+      benchmarks.push({
+        benchmarkId,
+        result: await runPolicyVsRuleBasedEvaluation({
+          policy: options.candidatePolicy,
+          startSeed: options.startSeed,
+          gameCount: options.gameCount,
+          playerIds: options.playerIds,
+          rotationOffsets: options.rotationOffsets,
+          maxDecisionSteps: options.maxDecisionSteps,
+          policyAgentName: options.candidateAgentName
+        })
+      });
+      continue;
+    }
+
+    if (rlV740 === null) {
+      throw new Error("RL v740 benchmark artifact was not loaded.");
+    }
+
+    benchmarks.push({
+      benchmarkId,
+      result: await runPlayingPolicyRosterEvaluation({
+        candidatePolicy: options.candidatePolicy,
+        opponentRoster: createStandardOpponentRoster(benchmarkId, rlV740),
+        startSeed: options.startSeed,
+        gameCount: options.gameCount,
+        playerIds: options.playerIds,
+        rotationOffsets: options.rotationOffsets,
+        maxDecisionSteps: options.maxDecisionSteps,
+        candidateAgentName: options.candidateAgentName
+      })
+    });
+  }
+
+  return {
+    schemaVersion: 1,
+    candidateMetadata: options.candidatePolicy.metadata,
+    benchmarks
+  };
+}
+
 export async function runFullPolicyVsRuleBasedEvaluation(
   options: RunFullPolicyVsRuleBasedEvaluationOptions
 ): Promise<FullPolicyVsRuleBasedEvaluationResult> {
@@ -291,6 +492,147 @@ function createPolicyVsRuleBasedAgents(args: {
       createAgent: ({ rng }) => new RuleBasedAgent(rng)
     }))
   ];
+}
+
+function createPlayingPolicyRosterAgents(args: {
+  candidatePolicy: PolicyOnnxModel;
+  opponentRoster: readonly PlayingPolicyEvaluationOpponent[];
+  playerIds: readonly PlayerId[];
+  candidateAgentName: string;
+}): readonly EvaluationAgentDefinition[] {
+  return [
+    {
+      name: args.candidateAgentName,
+      createAgent: ({ rng }) => new PolicyOnnxAgent({
+        policy: args.candidatePolicy,
+        rng,
+        playerIds: args.playerIds
+      })
+    },
+    ...args.opponentRoster.map((opponent): EvaluationAgentDefinition => {
+      if (opponent.type === "rule-based") {
+        return {
+          name: opponent.agentName ?? "RuleBasedAgent",
+          createAgent: ({ rng }) => new RuleBasedAgent(rng)
+        };
+      }
+
+      return {
+        name: opponent.agentName ?? opponent.artifact?.displayName ?? "FrozenPolicyOnnxAgent",
+        createAgent: ({ rng }) => new PolicyOnnxAgent({
+          policy: opponent.policy,
+          rng,
+          playerIds: args.playerIds
+        })
+      };
+    })
+  ];
+}
+
+function createStandardOpponentRoster(
+  benchmarkId: Exclude<StandardPlayingPolicyBenchmarkId, "rule-based-x4">,
+  rlV740: {
+    artifact: PlayingPolicyArtifactReference;
+    policy: PolicyOnnxModel;
+  }
+): readonly PlayingPolicyEvaluationOpponent[] {
+  const rlOpponent = (): PlayingPolicyOnnxOpponent => ({
+    type: "playing-onnx",
+    policy: rlV740.policy,
+    agentName: rlV740.artifact.displayName,
+    artifact: rlV740.artifact
+  });
+  const ruleBasedOpponent = (): PlayingPolicyRuleBasedOpponent => ({
+    type: "rule-based",
+    agentName: "RuleBasedAgent"
+  });
+
+  switch (benchmarkId) {
+    case "rl-v740-x4":
+      return [rlOpponent(), rlOpponent(), rlOpponent(), rlOpponent()];
+    case "rule-based-x2-rl-v740-x2":
+      return [ruleBasedOpponent(), ruleBasedOpponent(), rlOpponent(), rlOpponent()];
+  }
+}
+
+function toOpponentRosterEntry(
+  opponent: PlayingPolicyEvaluationOpponent,
+  sourceAgentIndex: number
+): PlayingPolicyOpponentRosterEntry {
+  if (opponent.type === "rule-based") {
+    return {
+      sourceAgentIndex,
+      type: opponent.type,
+      agentName: opponent.agentName ?? "RuleBasedAgent"
+    };
+  }
+
+  return {
+    sourceAgentIndex,
+    type: opponent.type,
+    agentName: opponent.agentName ?? opponent.artifact?.displayName ?? "FrozenPolicyOnnxAgent",
+    artifact: opponent.artifact
+  };
+}
+
+function createDefaultRosterAgentOrders(
+  opponentRoster: readonly PlayingPolicyEvaluationOpponent[]
+): readonly (readonly number[])[] {
+  const baseOpponentSourceIndices = [1, 2, 3, 4] as const;
+  const signatures = opponentRoster.map((opponent, index) =>
+    opponentSignature(opponent, index + 1)
+  );
+
+  if (new Set(signatures).size === 1) {
+    return [[0, ...baseOpponentSourceIndices]];
+  }
+
+  return baseOpponentSourceIndices.map((_, offset) => [
+    0,
+    ...baseOpponentSourceIndices.slice(offset),
+    ...baseOpponentSourceIndices.slice(0, offset)
+  ]);
+}
+
+function opponentSignature(
+  opponent: PlayingPolicyEvaluationOpponent,
+  sourceAgentIndex: number
+): string {
+  if (opponent.type === "rule-based") {
+    return "rule-based";
+  }
+
+  return `playing-onnx:${opponent.artifact?.id ?? opponent.agentName ?? `source-${sourceAgentIndex}`}`;
+}
+
+function validateOpponentRoster(roster: readonly PlayingPolicyEvaluationOpponent[]): void {
+  if (roster.length !== 4) {
+    throw new Error(`opponentRoster must contain exactly 4 entries, got ${roster.length}.`);
+  }
+
+  for (const [index, opponent] of roster.entries()) {
+    if (opponent.type === "playing-onnx") {
+      assertPlayingPolicyType(`opponentRoster[${index}].policy`, opponent.policy);
+    }
+  }
+}
+
+async function validateOpponentRosterArtifacts(
+  roster: readonly PlayingPolicyEvaluationOpponent[]
+): Promise<void> {
+  await Promise.all(roster.map(async (opponent) => {
+    if (opponent.type === "playing-onnx" && opponent.artifact !== undefined) {
+      await validatePlayingPolicyArtifactReference(opponent.artifact);
+    }
+  }));
+}
+
+function assertCandidateFirstAgentOrders(agentOrders: readonly (readonly number[])[]): void {
+  for (const [index, agentOrder] of agentOrders.entries()) {
+    if (agentOrder[0] !== 0) {
+      throw new Error(`agentOrders[${index}] must keep candidate source agent index 0 first.`);
+    }
+  }
 }
 
 function createFullPolicyVsRuleBasedAgents(args: {

@@ -58,7 +58,20 @@ export type {
   PolicyOnnxPlayInput
 } from "./policyOnnxAgent.js";
 export {
+  RL_V740_BENCHMARK_POLICY_ID,
+  getRepoManagedPlayingPolicyBenchmark,
+  loadRepoManagedPlayingPolicyBenchmark,
+  validatePlayingPolicyArtifactReference
+} from "./benchmarkArtifacts.js";
+export type {
+  LoadedPlayingPolicyBenchmark,
+  PlayingPolicyArtifactReference,
+  RepoManagedPlayingPolicyBenchmarkId
+} from "./benchmarkArtifacts.js";
+export {
   runFullPolicyVsRuleBasedEvaluation,
+  runPlayingPolicyRosterEvaluation,
+  runStandardPlayingPolicyBenchmarks,
   runPolicyVsRuleBasedEvaluation
 } from "./policyVsRuleBasedEvaluation.js";
 export type {
@@ -66,12 +79,23 @@ export type {
   FullPolicyVsRuleBasedDiagnostics,
   FullPolicyVsRuleBasedEvaluationConfiguration,
   FullPolicyVsRuleBasedEvaluationResult,
+  PlayingPolicyEvaluationOpponent,
+  PlayingPolicyOnnxOpponent,
+  PlayingPolicyOpponentRosterEntry,
+  PlayingPolicyRosterEvaluationConfiguration,
+  PlayingPolicyRosterEvaluationResult,
+  PlayingPolicyRuleBasedOpponent,
   PolicyVsRuleBasedAgentSummary,
   PolicyVsRuleBasedComparisonReport,
   PolicyVsRuleBasedEvaluationConfiguration,
   PolicyVsRuleBasedEvaluationResult,
   RunFullPolicyVsRuleBasedEvaluationOptions,
-  RunPolicyVsRuleBasedEvaluationOptions
+  RunPlayingPolicyRosterEvaluationOptions,
+  RunPolicyVsRuleBasedEvaluationOptions,
+  RunStandardPlayingPolicyBenchmarksOptions,
+  StandardPlayingPolicyBenchmarkId,
+  StandardPlayingPolicyBenchmarkResult,
+  StandardPlayingPolicyBenchmarkSuiteResult
 } from "./policyVsRuleBasedEvaluation.js";
 export type {
   NonPlayingPolicyOnnxExchangeSelection,

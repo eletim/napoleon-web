@@ -129,6 +129,30 @@ describe("runEvaluation", () => {
     expect(record.games.map((game) => game.status)).toEqual(["completed", "failed"]);
   });
 
+  it("applies deterministic source agent orders without changing source indices", async () => {
+    const record = await runEvaluation({
+      startSeed: 3,
+      gameCount: 1,
+      playerIds,
+      rotationOffsets: [0, 1],
+      agentOrders: [
+        [0, 1, 2, 3, 4],
+        [0, 3, 4, 1, 2]
+      ],
+      agents: createRuleBasedDefinitions()
+    });
+
+    expect(record.games.map((game) =>
+      game.seats.map((seat) => seat.sourceAgentIndex)
+    )).toEqual([
+      [0, 1, 2, 3, 4],
+      [0, 3, 4, 1, 2],
+      [4, 0, 1, 2, 3],
+      [2, 0, 3, 4, 1]
+    ]);
+    expect(record.games.map((game) => game.rotationOffset)).toEqual([0, 0, 1, 1]);
+  });
+
   it("rejects invalid evaluation runner configuration before creating agents", async () => {
     let createAgentCount = 0;
     const agents = playerIds.map((_, index) => ({
@@ -165,6 +189,14 @@ describe("runEvaluation", () => {
       .rejects.toThrow("rotationOffsets must not be empty.");
     await expect(runEvaluation({ ...baseOptions, rotationOffsets: [0, 1.5] }))
       .rejects.toThrow("rotationOffsets must contain only integers.");
+    await expect(runEvaluation({ ...baseOptions, agentOrders: [] }))
+      .rejects.toThrow("agentOrders must not be empty.");
+    await expect(runEvaluation({ ...baseOptions, agentOrders: [[0, 1, 2, 3]] }))
+      .rejects.toThrow("agentOrders entries must match agents length.");
+    await expect(runEvaluation({ ...baseOptions, agentOrders: [[0, 1, 2, 3, 3]] }))
+      .rejects.toThrow("agentOrders entries must contain unique source agent indices.");
+    await expect(runEvaluation({ ...baseOptions, agentOrders: [[0, 1, 2, 3, 5]] }))
+      .rejects.toThrow("agentOrders entries must contain valid source agent indices.");
     expect(createAgentCount).toBe(0);
   });
 

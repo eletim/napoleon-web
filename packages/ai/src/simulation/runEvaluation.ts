@@ -27,8 +27,9 @@ export async function runEvaluation(
 ): Promise<EvaluationRunRecord> {
   const playerIds = options.playerIds ?? defaultPlayerIds;
   const rotationOffsets = options.rotationOffsets ?? defaultRotationOffsets;
+  const agentOrders = options.agentOrders ?? [options.agents.map((_, index) => index)];
 
-  validateOptions(options, playerIds, rotationOffsets);
+  validateOptions(options, playerIds, rotationOffsets, agentOrders);
 
   const startSeed = normalizeSeed(options.startSeed);
   const endSeed = normalizeSeed(startSeed + options.gameCount - 1);
@@ -40,54 +41,58 @@ export async function runEvaluation(
 
     for (const rotationOffset of rotationOffsets) {
       const normalizedRotationOffset = normalizeRotationOffset(rotationOffset, playerIds.length);
-      const assignments = createSeatAssignments(
-        playerIds,
-        options.agents,
-        normalizedRotationOffset,
-        "unknown"
-      );
 
-      try {
-        const record = await runAutomatedGame({
-          seed,
+      for (const agentOrder of agentOrders) {
+        const assignments = createSeatAssignments(
           playerIds,
-          maxDecisionSteps: options.maxDecisionSteps,
-          createAgent: (context) => {
-            const assignment = assignments[context.playerIndex];
-            const definition = options.agents[assignment.sourceAgentIndex];
+          options.agents,
+          normalizedRotationOffset,
+          "unknown",
+          agentOrder
+        );
 
-            return definition.createAgent({
-              ...context,
-              agentName: definition.name,
-              sourceAgentIndex: assignment.sourceAgentIndex,
-              seatIndex: assignment.seatIndex,
-              rotationOffset: normalizedRotationOffset,
-              evaluationSeed: seed,
-              evaluationGameIndex
-            });
-          }
-        });
+        try {
+          const record = await runAutomatedGame({
+            seed,
+            playerIds,
+            maxDecisionSteps: options.maxDecisionSteps,
+            createAgent: (context) => {
+              const assignment = assignments[context.playerIndex];
+              const definition = options.agents[assignment.sourceAgentIndex];
 
-        games.push(createCompletedGameRecord({
-          gameIndex: evaluationGameIndex,
-          seed,
-          rotationOffset: normalizedRotationOffset,
-          playerIds,
-          assignments,
-          result: record.result
-        }));
-      } catch (error) {
-        games.push(createFailedGameRecord({
-          gameIndex: evaluationGameIndex,
-          seed,
-          rotationOffset: normalizedRotationOffset,
-          playerIds,
-          assignments,
-          failureReason: formatFailureReason(error)
-        }));
+              return definition.createAgent({
+                ...context,
+                agentName: definition.name,
+                sourceAgentIndex: assignment.sourceAgentIndex,
+                seatIndex: assignment.seatIndex,
+                rotationOffset: normalizedRotationOffset,
+                evaluationSeed: seed,
+                evaluationGameIndex
+              });
+            }
+          });
+
+          games.push(createCompletedGameRecord({
+            gameIndex: evaluationGameIndex,
+            seed,
+            rotationOffset: normalizedRotationOffset,
+            playerIds,
+            assignments,
+            result: record.result
+          }));
+        } catch (error) {
+          games.push(createFailedGameRecord({
+            gameIndex: evaluationGameIndex,
+            seed,
+            rotationOffset: normalizedRotationOffset,
+            playerIds,
+            assignments,
+            failureReason: formatFailureReason(error)
+          }));
+        }
+
+        evaluationGameIndex += 1;
       }
-
-      evaluationGameIndex += 1;
     }
   }
 
@@ -111,7 +116,8 @@ export async function runEvaluation(
 function validateOptions(
   options: RunEvaluationOptions,
   playerIds: readonly PlayerId[],
-  rotationOffsets: readonly number[]
+  rotationOffsets: readonly number[],
+  agentOrders: readonly (readonly number[])[]
 ): void {
   normalizeSeed(options.startSeed);
 
@@ -140,6 +146,29 @@ function validateOptions(
   for (const offset of rotationOffsets) {
     if (!Number.isSafeInteger(offset)) {
       throw new Error("rotationOffsets must contain only integers.");
+    }
+  }
+
+  if (agentOrders.length === 0) {
+    throw new Error("agentOrders must not be empty.");
+  }
+
+  for (const order of agentOrders) {
+    if (order.length !== options.agents.length) {
+      throw new Error("agentOrders entries must match agents length.");
+    }
+    if (new Set(order).size !== order.length) {
+      throw new Error("agentOrders entries must contain unique source agent indices.");
+    }
+
+    for (const sourceAgentIndex of order) {
+      if (
+        !Number.isSafeInteger(sourceAgentIndex)
+        || sourceAgentIndex < 0
+        || sourceAgentIndex >= options.agents.length
+      ) {
+        throw new Error("agentOrders entries must contain valid source agent indices.");
+      }
     }
   }
 }
@@ -204,10 +233,12 @@ function createSeatAssignments(
   playerIds: readonly PlayerId[],
   agents: readonly EvaluationAgentDefinition[],
   rotationOffset: number,
-  role: EvaluationSeatRole
+  role: EvaluationSeatRole,
+  agentOrder: readonly number[]
 ): readonly EvaluationSeatAssignment[] {
   return playerIds.map((playerId, seatIndex) => {
-    const sourceAgentIndex = modulo(seatIndex - rotationOffset, agents.length);
+    const orderIndex = modulo(seatIndex - rotationOffset, agentOrder.length);
+    const sourceAgentIndex = agentOrder[orderIndex];
 
     return {
       playerId,

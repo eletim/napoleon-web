@@ -1,7 +1,12 @@
 import { writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { mkdtemp, rename, rm } from "node:fs/promises";
-import { loadPolicyOnnxModel, runPolicyVsRuleBasedEvaluation } from "@napoleon/policy-onnx";
+import {
+  loadPolicyOnnxModel,
+  runPolicyVsRuleBasedEvaluation,
+  runStandardPlayingPolicyBenchmarks
+} from "@napoleon/policy-onnx";
+import type { StandardPlayingPolicyBenchmarkId } from "@napoleon/policy-onnx";
 import {
   optionalValue,
   parseOptionMap,
@@ -16,8 +21,11 @@ interface ParsedArgs {
   output: string;
   startSeed: number;
   seedCount: number;
+  benchmark: PolicyEvaluationBenchmarkArgument;
   progressPrefix: string;
 }
+
+type PolicyEvaluationBenchmarkArgument = StandardPlayingPolicyBenchmarkId | "standard";
 
 const optionNames = new Set([
   "--onnx",
@@ -25,6 +33,7 @@ const optionNames = new Set([
   "--output",
   "--start-seed",
   "--seed-count",
+  "--benchmark",
   "--progress-prefix"
 ]);
 
@@ -41,23 +50,45 @@ export async function runPolicyEvaluationCli(
       onnxPath: args.onnx,
       metadataPath: args.metadata
     });
-    const result = await runPolicyVsRuleBasedEvaluation({
-      policy,
+    if (args.benchmark === "rule-based-x4") {
+      const result = await runPolicyVsRuleBasedEvaluation({
+        policy,
+        startSeed: args.startSeed,
+        gameCount: args.seedCount
+      });
+      await writeJsonAtomic(args.output, result);
+      const scheduledGames = result.run.gameCount * result.run.rotationOffsets.length;
+      io.stderr.write(`${args.progressPrefix}completed ${result.run.completedCount}/${scheduledGames}\n`);
+      io.stdout.write(`${JSON.stringify({
+        scheduledGames,
+        completedGames: result.run.completedCount,
+        failedGames: result.run.failedCount,
+        illegalActionCount: result.comparison.illegalActionCount,
+        policy: result.comparison.policy,
+        ruleBased: result.comparison.ruleBased
+      })}\n`);
+      return 0;
+    }
+
+    const suite = await runStandardPlayingPolicyBenchmarks({
+      candidatePolicy: policy,
+      benchmarks: args.benchmark === "standard" ? undefined : [args.benchmark],
       startSeed: args.startSeed,
       gameCount: args.seedCount
     });
-    await writeJsonAtomic(args.output, result);
-
-    const scheduledGames = result.run.gameCount * result.run.rotationOffsets.length;
-    io.stderr.write(`${args.progressPrefix}completed ${result.run.completedCount}/${scheduledGames}\n`);
-    io.stdout.write(`${JSON.stringify({
-      scheduledGames,
-      completedGames: result.run.completedCount,
-      failedGames: result.run.failedCount,
-      illegalActionCount: result.comparison.illegalActionCount,
-      policy: result.comparison.policy,
-      ruleBased: result.comparison.ruleBased
-    })}\n`);
+    await writeJsonAtomic(args.output, suite);
+    const summaries = suite.benchmarks.map((benchmark) => ({
+      benchmarkId: benchmark.benchmarkId,
+      scheduledGames: benchmark.result.run.games.length,
+      completedGames: benchmark.result.run.completedCount,
+      failedGames: benchmark.result.run.failedCount,
+      illegalActionCount: benchmark.result.comparison.illegalActionCount
+    }));
+    io.stderr.write(`${args.progressPrefix}completed ${summaries.reduce(
+      (sum, summary) => sum + summary.completedGames,
+      0
+    )}/${summaries.reduce((sum, summary) => sum + summary.scheduledGames, 0)}\n`);
+    io.stdout.write(`${JSON.stringify({ benchmarks: summaries })}\n`);
     return 0;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -75,8 +106,24 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
     output: requireValue(values, "--output"),
     startSeed: parseUnsignedInteger("--start-seed", requireValue(values, "--start-seed")),
     seedCount: parsePositiveInteger("--seed-count", requireValue(values, "--seed-count")),
+    benchmark: parseBenchmark(optionalValue(values, "--benchmark") ?? "rule-based-x4"),
     progressPrefix: optionalValue(values, "--progress-prefix") ?? ""
   };
+}
+
+function parseBenchmark(value: string): PolicyEvaluationBenchmarkArgument {
+  if (
+    value === "rule-based-x4" ||
+    value === "rl-v740-x4" ||
+    value === "rule-based-x2-rl-v740-x2" ||
+    value === "standard"
+  ) {
+    return value;
+  }
+
+  throw new Error(
+    "--benchmark must be one of rule-based-x4, rl-v740-x4, rule-based-x2-rl-v740-x2, standard."
+  );
 }
 
 async function writeJsonAtomic(path: string, value: unknown): Promise<void> {

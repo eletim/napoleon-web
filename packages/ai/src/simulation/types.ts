@@ -74,6 +74,7 @@ export interface RunEvaluationOptions {
   agents: readonly EvaluationAgentDefinition[];
   playerIds?: readonly PlayerId[];
   rotationOffsets?: readonly number[];
+  agentOrders?: readonly (readonly number[])[];
   maxDecisionSteps?: number;
 }
 

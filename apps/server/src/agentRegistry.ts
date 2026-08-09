@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { RuleBasedAgent, type Agent } from "@napoleon/ai";
 import {
   PolicyOnnxAgent,
@@ -129,8 +131,11 @@ export function createAgentRegistryFromEnvironment(
 }
 
 export function readPlayingPolicyOnnxAgentConfigs(
-  env: NodeJS.ProcessEnv
+  env: NodeJS.ProcessEnv,
+  cwd = process.cwd()
 ): readonly PlayingPolicyOnnxAgentConfig[] {
+  const workspaceRoot = findWorkspaceRoot(cwd);
+
   return learnedPolicySlotNumbers.flatMap((slotNumber) => {
     const displayNameVariable = createLearnedPolicyEnvKey(slotNumber, "DISPLAY_NAME");
     const onnxPathVariable = createLearnedPolicyEnvKey(slotNumber, "ONNX_PATH");
@@ -159,8 +164,8 @@ export function readPlayingPolicyOnnxAgentConfigs(
       {
         id: createPlayingPolicyOnnxAgentId(slotNumber),
         displayName,
-        onnxPath,
-        metadataPath
+        onnxPath: resolveConfiguredPath(onnxPath, workspaceRoot),
+        metadataPath: resolveConfiguredPath(metadataPath, workspaceRoot)
       }
     ];
   });
@@ -168,6 +173,28 @@ export function readPlayingPolicyOnnxAgentConfigs(
 
 function createPlayingPolicyOnnxAgentId(slotNumber: LearnedPolicySlotNumber): string {
   return slotNumber === 1 ? PLAYING_POLICY_ONNX_AGENT_ID : `playing-policy-onnx-${slotNumber}`;
+}
+
+function resolveConfiguredPath(path: string, workspaceRoot: string): string {
+  return isAbsolute(path) ? path : resolve(workspaceRoot, path);
+}
+
+function findWorkspaceRoot(cwd: string): string {
+  let current = cwd;
+
+  for (;;) {
+    if (existsSync(join(current, "pnpm-workspace.yaml"))) {
+      return current;
+    }
+
+    const parent = dirname(current);
+
+    if (parent === current) {
+      return cwd;
+    }
+
+    current = parent;
+  }
 }
 
 class LazyPolicyOnnxAgent implements Agent {
