@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_ROOT_DIR="$SCRIPT_DIR"
 ROOT_DIR="${NAPOLEON_DEV_ROOT:-$DEFAULT_ROOT_DIR}"
 ROOT_ENV_FILE="$ROOT_DIR/.env"
+ROOT_ENV_SAMPLE_FILE="$ROOT_DIR/.env.sample"
 WEB_ENV_FILE="$ROOT_DIR/apps/web/.env.local"
 TAILSCALE_SERVE_COMMAND=(tailscale serve --bg --http=5173 http://127.0.0.1:5173)
 
@@ -43,6 +44,15 @@ read_allowed_hosts() {
   if [[ -n "$line" ]]; then
     printf '%s' "${line#VITE_ALLOWED_HOSTS=}"
   fi
+}
+
+create_root_env_file_from_sample() {
+  if [[ -f "$ROOT_ENV_FILE" || ! -f "$ROOT_ENV_SAMPLE_FILE" ]]; then
+    return
+  fi
+
+  cp "$ROOT_ENV_SAMPLE_FILE" "$ROOT_ENV_FILE"
+  printf '.env を .env.sample から生成しました。\n'
 }
 
 load_root_env_file() {
@@ -162,6 +172,7 @@ create_env_file_interactively() {
   printf 'apps/web/.env.local を生成しました。\n'
 }
 
+create_root_env_file_from_sample
 load_root_env_file "$ROOT_ENV_FILE"
 
 unset VITE_ALLOWED_HOSTS

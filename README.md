@@ -191,9 +191,9 @@ pnpm dev
 
 ### Tailscale Serve経由のWeb開発アクセス
 
-`./start-dev.sh`と`pnpm dev`は同じ処理です。`apps/web/.env.local`を確認し、必要なら対話式で生成し、`VITE_ALLOWED_HOSTS`を読んで、外部アクセス設定がある場合だけTailscale Serveを設定してからVite/Fastifyを起動します。
+`./start-dev.sh`と`pnpm dev`は同じ処理です。初回起動時にルートの`.env`がなければ`.env.sample`から生成し、その後`apps/web/.env.local`を確認し、必要なら対話式で生成します。`VITE_ALLOWED_HOSTS`を読んで、外部アクセス設定がある場合だけTailscale Serveを設定してからVite/Fastifyを起動します。
 
-外部アクセス設定がない場合、Tailscale Serveは設定せずlocalhost限定で起動します。設定する場合はGit管理外の`apps/web/.env.local`に端末固有のホスト名だけを書きます。実ホスト名や実IPをリポジトリへ書かないでください。
+既存の`.env`は上書きしません。ローカルのONNX PolicyパスはGit管理外の`.env`で調整してください。外部アクセス設定がない場合、Tailscale Serveは設定せずlocalhost限定で起動します。設定する場合はGit管理外の`apps/web/.env.local`に端末固有のホスト名だけを書きます。実ホスト名や実IPをリポジトリへ書かないでください。
 
 ```env
 VITE_ALLOWED_HOSTS=my-machine.example.ts.net

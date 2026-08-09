@@ -4,9 +4,13 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { learnedPolicyEnvKeys } from "../src/agentEnv.js";
+import {
+  PLAYING_POLICY_ONNX_AGENT_ID,
+  readPlayingPolicyOnnxAgentConfigs
+} from "../src/agentRegistry.js";
 import { loadLocalEnvFile } from "../src/env.js";
 
-const envExamplePath = fileURLToPath(new URL("../../../.env.example", import.meta.url));
+const envSamplePath = fileURLToPath(new URL("../../../.env.sample", import.meta.url));
 
 describe("local .env loading", () => {
   it("loads server ONNX policy settings from a root .env file", () => {
@@ -56,13 +60,38 @@ describe("local .env loading", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("keeps the committed .env.example in sync with supported learned policy keys", () => {
-    const keys = readFileSync(envExamplePath, "utf8")
+  it("keeps the committed .env.sample in sync with supported learned policy keys", () => {
+    const keys = readFileSync(envSamplePath, "utf8")
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter((line) => line.length > 0 && !line.startsWith("#"))
       .map((line) => line.split("=")[0]);
 
     expect(keys).toEqual(learnedPolicyEnvKeys);
+  });
+
+  it("uses the committed .env.sample to enable only RL v740 by default", () => {
+    const env = Object.fromEntries(
+      readFileSync(envSamplePath, "utf8")
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0 && !line.startsWith("#"))
+        .map((line) => {
+          const separatorIndex = line.indexOf("=");
+
+          return [line.slice(0, separatorIndex), line.slice(separatorIndex + 1)];
+        })
+    );
+
+    expect(readPlayingPolicyOnnxAgentConfigs(env)).toEqual([
+      {
+        id: PLAYING_POLICY_ONNX_AGENT_ID,
+        displayName: "RL v740",
+        onnxPath:
+          "/home/eletim/napoleon_runs/rl-v100-to-v1000/evaluations/policy-v740/policy.onnx",
+        metadataPath:
+          "/home/eletim/napoleon_runs/rl-v100-to-v1000/evaluations/policy-v740/policy.json"
+      }
+    ]);
   });
 });
