@@ -119,9 +119,16 @@ export function App() {
 
     return agent?.isAvailable !== true;
   });
+  const hasActionPrompt =
+    session !== undefined &&
+    (session.state.currentPlayerId === session.playerId ||
+      session.state.isTrickComplete ||
+      canExchange ||
+      canChooseAdjutant);
   const showVisibleMessage =
     session === undefined ||
     isBusy ||
+    hasActionPrompt ||
     session.state.latestEvent?.type === "buried-cards-resolved" ||
     hasRequestError;
 

@@ -12,13 +12,6 @@ export function PlayerSeat({ player, state }: PlayerSeatProps) {
   const isCurrent = state?.currentPlayerId === player.id;
   const isNapoleon = state?.contract?.napoleonPlayerId === player.id;
   const isAdjutant = state?.adjutant?.revealedPlayerId === player.id;
-  const seatAriaParts = [
-    player.label,
-    isCurrent ? "現在の手番" : undefined,
-    isNapoleon ? "ナポレオン" : undefined,
-    isAdjutant ? "副官" : undefined,
-    `手札は残り${player.handCount}枚`
-  ].filter((part): part is string => part !== undefined);
   const seatClassName = [
     "player-seat",
     `seat-${player.seat}`,
@@ -28,7 +21,7 @@ export function PlayerSeat({ player, state }: PlayerSeatProps) {
     .join(" ");
 
   return (
-    <article aria-label={seatAriaParts.join("、")} className={seatClassName}>
+    <article aria-label={player.label} className={seatClassName}>
       <div className="seat-main-row">
         <div className="seat-title">
           <h2>{player.label}</h2>

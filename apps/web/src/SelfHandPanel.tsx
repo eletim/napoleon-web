@@ -35,12 +35,6 @@ export function SelfHandPanel({
   const isCurrent = state?.currentPlayerId === playerId;
   const isNapoleon = state?.contract?.napoleonPlayerId === playerId;
   const isAdjutant = state?.adjutant?.revealedPlayerId === playerId;
-  const panelAriaParts = [
-    "自分",
-    isCurrent ? "現在の手番" : undefined,
-    isNapoleon ? "ナポレオン" : undefined,
-    isAdjutant ? "副官" : undefined
-  ].filter((part): part is string => part !== undefined);
   const displayedHand = useMemo(
     () => getDisplayedHandCards(self?.hand ?? [], handOrderMode),
     [handOrderMode, self?.hand]
@@ -48,7 +42,7 @@ export function SelfHandPanel({
 
   return (
     <article
-      aria-label={panelAriaParts.join("、")}
+      aria-label="自分"
       className={["self-panel", isCurrent ? "current-player" : ""].filter(Boolean).join(" ")}
     >
       <div className="self-heading">
