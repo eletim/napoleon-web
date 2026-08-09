@@ -17,6 +17,7 @@ from typing import TextIO, cast
 
 from napoleon_ml.cli._policy_common import configure_reproducibility, load_checked_manifest
 from napoleon_ml.dataset.constants import UINT32_MAX
+from napoleon_ml.dataset.manifest import DatasetManifest
 from napoleon_ml.dataset.pytorch import create_playing_self_play_dataloader
 from napoleon_ml.dataset.reader import iter_raw_samples, load_manifest
 from napoleon_ml.dataset.split import DatasetSplit, SplitConfig
@@ -232,6 +233,11 @@ def _run_iteration(
         raise PlayingRlOrchestratorError("self-play behavior ONNX SHA mismatch.")
     if manifest.behavior_policy.metadata_sha256 != behavior_metadata_sha256:
         raise PlayingRlOrchestratorError("self-play behavior metadata SHA mismatch.")
+    _validate_self_play_manifest_matches_request(
+        manifest=manifest,
+        start_seed=start_seed,
+        game_count=config.games_per_iteration,
+    )
     self_play_manifest_sha256 = sha256_file(self_play_dir / "manifest.json")
     print(
         f"[iter {iteration}/{total}] self-play complete: {manifest.sample_count} samples",
@@ -288,8 +294,8 @@ def _run_iteration(
         "behaviorMetadataSha256": behavior_metadata_sha256,
         "selfPlayDirectory": str(self_play_dir),
         "selfPlayManifestSha256": self_play_manifest_sha256,
-        "selfPlayStartSeed": start_seed,
-        "selfPlayEndSeed": start_seed + config.games_per_iteration - 1,
+        "selfPlayStartSeed": manifest.start_seed,
+        "selfPlayEndSeed": manifest.end_seed,
         "gameCount": manifest.game_count,
         "sampleCount": manifest.sample_count,
         "trainingSeed": training_seed,
@@ -404,6 +410,7 @@ def _ensure_evaluation(
         cwd=_repo_root(),
     )
     result = _load_json_object(result_path)
+    _validate_evaluation_run(config, result)
     baseline_summary = None
     baseline_result = None
     if generation != 0:
@@ -465,6 +472,7 @@ def _build_evaluation_summary(
     policy = _object(comparison["policy"])
     rule_based = _object(comparison["ruleBased"])
     policy_comparison = _object(policy["comparison"])
+    run = _object(result["run"])
     win_rate = _rate_value(_object(policy["winRate"]))
     contract_success_rate = _rate_value(_object(policy["contractSuccessRate"]))
     average_point_cards = _optional_float(policy["averagePointCards"])
@@ -489,6 +497,9 @@ def _build_evaluation_summary(
         "onnxSha256": onnx_sha256,
         "metadataSha256": metadata_sha256,
         "evaluationResultSha256": result_sha256,
+        "evaluationStartSeed": run["startSeed"],
+        "evaluationEndSeed": run["endSeed"],
+        "evaluationSeedCount": run["gameCount"],
         "scheduledGames": node_summary["scheduledGames"],
         "completedGames": node_summary["completedGames"],
         "failedGames": node_summary["failedGames"],
@@ -517,6 +528,56 @@ def _build_evaluation_summary(
             _paired_comparison(baseline_result, result) if baseline_result is not None else None
         ),
     }
+
+
+def _validate_self_play_manifest_matches_request(
+    *,
+    manifest: DatasetManifest,
+    start_seed: int,
+    game_count: int,
+) -> None:
+    end_seed = start_seed + game_count - 1
+    if manifest.start_seed != start_seed:
+        raise PlayingRlOrchestratorError(
+            f"self-play manifest startSeed mismatch: {manifest.start_seed} != {start_seed}"
+        )
+    if manifest.end_seed != end_seed:
+        raise PlayingRlOrchestratorError(
+            f"self-play manifest endSeed mismatch: {manifest.end_seed} != {end_seed}"
+        )
+    if manifest.game_count != game_count:
+        raise PlayingRlOrchestratorError(
+            f"self-play manifest gameCount mismatch: {manifest.game_count} != {game_count}"
+        )
+
+
+def _validate_evaluation_run(
+    config: PlayingRlRunConfig,
+    result: dict[str, object],
+) -> None:
+    run = _object(result["run"])
+    start_seed = _required_int(run["startSeed"])
+    game_count = _required_int(run["gameCount"])
+    end_seed = _required_int(run["endSeed"])
+    rotation_offsets = cast(list[object], run["rotationOffsets"])
+    scheduled_games = game_count * len(rotation_offsets)
+    completed_count = _required_int(run["completedCount"])
+    failed_count = _required_int(run["failedCount"])
+
+    if start_seed != config.evaluation_start_seed:
+        raise PlayingRlOrchestratorError(
+            f"evaluation startSeed mismatch: {start_seed} != {config.evaluation_start_seed}"
+        )
+    if game_count != config.evaluation_seed_count:
+        raise PlayingRlOrchestratorError(
+            f"evaluation gameCount mismatch: {game_count} != {config.evaluation_seed_count}"
+        )
+    if end_seed != config.evaluation_start_seed + config.evaluation_seed_count - 1:
+        raise PlayingRlOrchestratorError(f"evaluation endSeed mismatch: {end_seed}")
+    if completed_count + failed_count != scheduled_games:
+        raise PlayingRlOrchestratorError(
+            "evaluation completedCount + failedCount must equal scheduled games."
+        )
 
 
 def _paired_comparison(
@@ -574,12 +635,19 @@ def _policy_win_by_seed_rotation(result: dict[str, object]) -> dict[tuple[int, i
 
 
 def _validate_completed_artifacts(config: PlayingRlRunConfig) -> None:
+    expected_input_sha256 = sha256_file(config.initial_checkpoint)
     for iteration in range(config.iterations):
         iteration_dir = _iteration_dir(config, iteration)
         record = _load_completed_iteration(iteration_dir)
         if record is None:
             break
         _validate_iteration_artifacts(iteration_dir, record)
+        if record["inputCheckpointSha256"] != expected_input_sha256:
+            raise PlayingRlOrchestratorError(
+                f"{iteration_dir}: input checkpoint chain mismatch: "
+                f"{record['inputCheckpointSha256']} != {expected_input_sha256}"
+            )
+        expected_input_sha256 = _required_str(record["outputCheckpointSha256"])
 
 
 def _load_completed_iteration(iteration_dir: Path) -> dict[str, object] | None:
@@ -615,6 +683,10 @@ def _validate_iteration_artifacts(iteration_dir: Path, record: Mapping[str, obje
         raise PlayingRlOrchestratorError(f"{iteration_dir}: gameCount mismatch.")
     if manifest.sample_count != record["sampleCount"]:
         raise PlayingRlOrchestratorError(f"{iteration_dir}: sampleCount mismatch.")
+    if manifest.start_seed != record["selfPlayStartSeed"]:
+        raise PlayingRlOrchestratorError(f"{iteration_dir}: self-play start seed mismatch.")
+    if manifest.end_seed != record["selfPlayEndSeed"]:
+        raise PlayingRlOrchestratorError(f"{iteration_dir}: self-play end seed mismatch.")
     manifest_sha = sha256_file(self_play_dir / "manifest.json")
     if manifest_sha != record["selfPlayManifestSha256"]:
         raise PlayingRlOrchestratorError(f"{iteration_dir}: self-play manifest SHA mismatch.")
@@ -658,15 +730,25 @@ def _validate_evaluation_artifacts(
                 f"completed evaluation artifact SHA mismatch for {path}: "
                 f"{actual_sha256} != {expected_sha256}"
             )
+    result = _load_json_object(evaluation_dir / "evaluation.json")
+    _validate_evaluation_run(config, result)
 
 
 def _next_iteration(config: PlayingRlRunConfig) -> int:
     next_index = 0
+    expected_input_sha256 = sha256_file(config.initial_checkpoint)
     for iteration in range(config.iterations):
-        record = _load_completed_iteration(_iteration_dir(config, iteration))
+        iteration_dir = _iteration_dir(config, iteration)
+        record = _load_completed_iteration(iteration_dir)
         if record is None:
             break
-        _validate_iteration_artifacts(_iteration_dir(config, iteration), record)
+        _validate_iteration_artifacts(iteration_dir, record)
+        if record["inputCheckpointSha256"] != expected_input_sha256:
+            raise PlayingRlOrchestratorError(
+                f"{iteration_dir}: input checkpoint chain mismatch: "
+                f"{record['inputCheckpointSha256']} != {expected_input_sha256}"
+            )
+        expected_input_sha256 = _required_str(record["outputCheckpointSha256"])
         next_index = iteration + 1
     return next_index
 
@@ -802,6 +884,10 @@ def _validate_config(config: PlayingRlRunConfig) -> None:
             raise PlayingRlOrchestratorError(f"{name} seed range exceeds uint32: {start}..{end}")
     if _ranges_overlap((self_play_start, self_play_end), (evaluation_start, evaluation_end)):
         raise PlayingRlOrchestratorError("self-play and evaluation seed ranges must not overlap.")
+    if _ranges_overlap((self_play_start, self_play_end), (training_start, training_end)):
+        raise PlayingRlOrchestratorError("self-play and training seed ranges must not overlap.")
+    if _ranges_overlap((evaluation_start, evaluation_end), (training_start, training_end)):
+        raise PlayingRlOrchestratorError("evaluation and training seed ranges must not overlap.")
 
 
 def _ensure_inputs(config: PlayingRlRunConfig) -> None:
