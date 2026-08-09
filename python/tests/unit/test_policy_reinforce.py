@@ -8,6 +8,7 @@ from typing import Any, cast
 import pytest
 import torch
 
+import napoleon_ml.policy.reinforce as reinforce_module
 from napoleon_ml.cli.train_policy_reinforce import main as reinforce_main
 from napoleon_ml.dataset.constants import CARD_COUNT, EXPECTED_CARD_IDS
 from napoleon_ml.dataset.pytorch import create_playing_self_play_dataloader
@@ -204,6 +205,62 @@ def test_reinforce_wrong_checkpoint_fails_before_optimizer_step(tmp_path: Path) 
         )
 
     assert not (tmp_path / "should-not-exist.pt").exists()
+
+
+def test_reinforce_does_not_save_when_report_validation_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    self_play_dataset = tmp_path / "self-play"
+    self_play_dataset.mkdir()
+    model = PolicyMlpModel(PolicyMlpConfig(hidden_dim=8, hidden_layers=1))
+    checkpoint_path = tmp_path / "input.pt"
+    output_path = tmp_path / "should-not-exist.pt"
+    checkpoint = _write_checkpoint(checkpoint_path, model)
+    _write_self_play_dataset(
+        self_play_dataset,
+        model=model,
+        checkpoint=checkpoint,
+        rewards=(1, -1),
+    )
+    save_called = False
+
+    def fail_report_validation(report: object) -> None:
+        del report
+        raise ValueError("synthetic nonfinite report")
+
+    def record_save(*args: object, **kwargs: object) -> None:
+        nonlocal save_called
+        del args, kwargs
+        save_called = True
+
+    monkeypatch.setattr(reinforce_module, "_assert_report_finite", fail_report_validation)
+    monkeypatch.setattr(reinforce_module, "_save_reinforce_checkpoint", record_save)
+
+    loader = create_playing_self_play_dataloader(
+        self_play_dataset,
+        split=DatasetSplit.TRAIN,
+        split_config=SplitConfig(train=100, validation=0, test=0),
+        batch_size=2,
+    )
+    with pytest.raises(ValueError, match="synthetic nonfinite report"):
+        train_policy_reinforce(
+            input_checkpoint=checkpoint_path,
+            self_play_dataset_directory=self_play_dataset,
+            output_checkpoint=output_path,
+            manifest=load_manifest(self_play_dataset),
+            dataloader=loader,
+            settings=ReinforceTrainSettings(
+                seed=0,
+                epochs=1,
+                batch_size=2,
+                learning_rate=0.01,
+                verify_integrity=True,
+            ),
+        )
+
+    assert not save_called
+    assert not output_path.exists()
 
 
 def _write_checkpoint(path: Path, model: PolicyMlpModel) -> dict[str, object]:

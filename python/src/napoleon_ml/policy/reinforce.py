@@ -248,22 +248,6 @@ def train_policy_reinforce(
     )
 
     output = Path(output_checkpoint)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    provenance = _build_rl_provenance(
-        input_checkpoint_sha256=loaded.sha256,
-        self_play_dataset_directory=Path(self_play_dataset_directory),
-        manifest=manifest,
-        settings=settings,
-        optimizer_step_count=optimizer_step_count,
-        sample_count=parity.sample_count,
-    )
-    _save_reinforce_checkpoint(
-        output,
-        model=loaded.model,
-        parent_checkpoint=loaded.checkpoint,
-        rl_provenance=provenance,
-    )
-
     report = ReinforceTrainReport(
         sample_count=parity.sample_count,
         batch_count=batch_count,
@@ -284,6 +268,22 @@ def train_policy_reinforce(
         output_checkpoint_path=output,
     )
     _assert_report_finite(report)
+
+    provenance = _build_rl_provenance(
+        input_checkpoint_sha256=loaded.sha256,
+        self_play_dataset_directory=Path(self_play_dataset_directory),
+        manifest=manifest,
+        settings=settings,
+        optimizer_step_count=optimizer_step_count,
+        sample_count=parity.sample_count,
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    _save_reinforce_checkpoint(
+        output,
+        model=loaded.model,
+        parent_checkpoint=loaded.checkpoint,
+        rl_provenance=provenance,
+    )
     return report
 
 
