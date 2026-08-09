@@ -273,7 +273,9 @@ export function App() {
         aria-label="画面切り替え"
       >
         <button
-          aria-label="通常プレイ"
+          aria-label={
+            session !== undefined && mode === "game" ? "卓（通常プレイ）" : "通常プレイ"
+          }
           aria-pressed={mode === "game"}
           className={mode === "game" ? "mode-button mode-button-active" : "mode-button"}
           onClick={() => setMode("game")}
@@ -282,7 +284,7 @@ export function App() {
           {session !== undefined && mode === "game" ? "卓" : "通常プレイ"}
         </button>
         <button
-          aria-label="AI対戦ログ"
+          aria-label={session !== undefined && mode === "game" ? "ログ（AI対戦ログ）" : "AI対戦ログ"}
           aria-pressed={mode === "simulation"}
           className={mode === "simulation" ? "mode-button mode-button-active" : "mode-button"}
           onClick={() => setMode("simulation")}
@@ -392,6 +394,7 @@ export function App() {
                 {selectedDiscardCardIds.length} / {requiredDiscardCount}
               </span>
               <button
+                aria-label={`${requiredDiscardCount}枚を捨てる`}
                 className="secondary-button"
                 disabled={
                   !canExchange ||
@@ -504,6 +507,7 @@ export function App() {
                   </select>
                 </label>
                 <button
+                  aria-label="副官を指定"
                   className="secondary-button"
                   disabled={!canChooseAdjutant || isBusy}
                   onClick={() =>

@@ -13,7 +13,7 @@ export function GameStatus({ display }: GameStatusProps) {
 
   return (
     <section className="game-status" aria-label="ゲーム状態">
-      <div className="compact-status-row" aria-label="ゲーム状況">
+      <div className="compact-status-row">
         {chips.map((chip) => (
           <span
             aria-label={chip.ariaLabel}
