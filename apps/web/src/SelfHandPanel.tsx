@@ -1,6 +1,8 @@
+import { useMemo, useState } from "react";
 import type { PublicCard, PublicGameState } from "@napoleon/protocol";
 import { CardButton } from "./CardButton";
 import { PointCards } from "./PointCards";
+import { getDisplayedHandCards, type HandOrderMode } from "./handSorting";
 import type { TablePlayer } from "./tableTypes";
 
 interface SelfHandPanelProps {
@@ -11,6 +13,7 @@ interface SelfHandPanelProps {
   legalCardIds: ReadonlySet<string>;
   selectedDiscardCardIds: readonly string[];
   canExchange: boolean;
+  defaultHandOrderMode?: HandOrderMode;
   onPlay: (card: PublicCard) => void;
 }
 
@@ -22,13 +25,19 @@ export function SelfHandPanel({
   legalCardIds,
   selectedDiscardCardIds,
   canExchange,
+  defaultHandOrderMode = "original",
   onPlay
 }: SelfHandPanelProps) {
+  const [handOrderMode, setHandOrderMode] = useState<HandOrderMode>(defaultHandOrderMode);
   const playerId = self?.id ?? selfPlayer?.id ?? "player-0";
   const capturedPointCards = self?.capturedPointCards ?? selfPlayer?.capturedPointCards ?? [];
   const isCurrent = state?.currentPlayerId === playerId;
   const isNapoleon = state?.contract?.napoleonPlayerId === playerId;
   const isAdjutant = state?.adjutant?.revealedPlayerId === playerId;
+  const displayedHand = useMemo(
+    () => getDisplayedHandCards(self?.hand ?? [], handOrderMode),
+    [handOrderMode, self?.hand]
+  );
 
   return (
     <article className={["self-panel", isCurrent ? "current-player" : ""].filter(Boolean).join(" ")}>
@@ -48,6 +57,25 @@ export function SelfHandPanel({
           {isAdjutant ? <span className="role-badge adjutant-badge">副官</span> : null}
         </div>
 
+        <div className="hand-sort-toggle" aria-label="手札表示順">
+          <button
+            aria-pressed={handOrderMode === "original"}
+            className={getHandSortButtonClassName(handOrderMode, "original")}
+            onClick={() => setHandOrderMode("original")}
+            type="button"
+          >
+            配札順
+          </button>
+          <button
+            aria-pressed={handOrderMode === "riipai"}
+            className={getHandSortButtonClassName(handOrderMode, "riipai")}
+            onClick={() => setHandOrderMode("riipai")}
+            type="button"
+          >
+            理牌
+          </button>
+        </div>
+
         <div className="hand-legend" aria-label="手札凡例">
           <span className="legend-item legal">合法</span>
           <span className="legend-item blocked">不可</span>
@@ -63,7 +91,7 @@ export function SelfHandPanel({
       </div>
 
       <div className="hand" aria-label="自分の手札">
-        {self?.hand?.map((card) => {
+        {displayedHand.map((card) => {
           const interactionState = getCardInteractionState(card, state, legalCardIds, canExchange);
 
           return (
@@ -104,4 +132,13 @@ function getCardInteractionState(
   }
 
   return "blocked";
+}
+
+function getHandSortButtonClassName(
+  currentMode: HandOrderMode,
+  buttonMode: HandOrderMode
+): string {
+  return currentMode === buttonMode
+    ? "hand-sort-button hand-sort-button-active"
+    : "hand-sort-button";
 }
