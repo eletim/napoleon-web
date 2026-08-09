@@ -147,6 +147,60 @@ describe("runPolicyEvaluationCli", () => {
     await rm(directory, { recursive: true, force: true });
   });
 
+  it("runs a single named standard benchmark when requested", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "policy-eval-cli-"));
+    const output = join(directory, "evaluation.json");
+    const io = createIo();
+    const policy = {};
+    const suite = {
+      schemaVersion: 1,
+      candidateMetadata: {},
+      benchmarks: [
+        {
+          benchmarkId: "rl-v740-x4",
+          result: {
+            run: {
+              games: [{ gameIndex: 0 }],
+              completedCount: 1,
+              failedCount: 0
+            },
+            comparison: {
+              illegalActionCount: 0
+            }
+          }
+        }
+      ]
+    };
+    loadPolicyOnnxModel.mockResolvedValueOnce(policy);
+    runStandardPlayingPolicyBenchmarks.mockResolvedValueOnce(suite);
+
+    const code = await runPolicyEvaluationCli([
+      "--onnx",
+      "/models/candidate.onnx",
+      "--metadata",
+      "/models/candidate.json",
+      "--output",
+      output,
+      "--start-seed",
+      "10",
+      "--seed-count",
+      "1",
+      "--benchmark",
+      "rl-v740-x4"
+    ], io);
+
+    expect(code).toBe(0);
+    expect(runStandardPlayingPolicyBenchmarks).toHaveBeenCalledWith({
+      candidatePolicy: policy,
+      benchmarks: ["rl-v740-x4"],
+      startSeed: 10,
+      gameCount: 1
+    });
+    expect(JSON.parse(await readFile(output, "utf8"))).toEqual(suite);
+
+    await rm(directory, { recursive: true, force: true });
+  });
+
   it("rejects unknown benchmark names before loading a policy", async () => {
     const io = createIo();
     const code = await runPolicyEvaluationCli([
