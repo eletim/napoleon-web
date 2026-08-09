@@ -1,4 +1,5 @@
 import type { PublicCard, PublicGameState } from "@napoleon/protocol";
+import { BiddingDeclarationBadge } from "./BiddingDeclarationBadge";
 import { CardButton } from "./CardButton";
 import { PointCards } from "./PointCards";
 import type { TablePlayer } from "./tableTypes";
@@ -40,6 +41,10 @@ export function SelfHandPanel({
           </div>
           <span className="self-hand-count">残り{self?.handCount ?? 0}枚</span>
           <span className="self-point-count">得点札{capturedPointCards.length}枚</span>
+          <BiddingDeclarationBadge
+            playerLabel="自分"
+            declaration={selfPlayer?.biddingDeclaration}
+          />
         </div>
 
         <div className="role-badges self-role-badges">

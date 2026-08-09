@@ -15,9 +15,51 @@ describe("createTablePlayers", () => {
     ]);
     expect(players.filter((player) => player.isSelf)).toHaveLength(1);
   });
+
+  it("adds latest bidding declarations only during bidding", () => {
+    const biddingPlayers = createTablePlayers(
+      createPublicState({
+        phase: "bidding",
+        trumpSuit: null,
+        contract: null,
+        bidding: {
+          starterPlayerId: "player-0",
+          highestBid: {
+            playerId: "player-0",
+            suit: "clubs",
+            targetPointCards: 13
+          },
+          consecutivePassCount: 1,
+          history: [
+            { type: "bid", playerId: "player-0", suit: "clubs", targetPointCards: 13 },
+            { type: "pass", playerId: "player-1" },
+            { type: "bid", playerId: "player-0", suit: "hearts", targetPointCards: 14 }
+          ]
+        }
+      })
+    );
+
+    expect(biddingPlayers.map((player) => [player.id, player.biddingDeclaration])).toEqual([
+      ["player-1", { type: "pass", label: "パス" }],
+      ["player-2", { type: "none", label: "未宣言" }],
+      ["player-3", { type: "none", label: "未宣言" }],
+      ["player-4", { type: "none", label: "未宣言" }],
+      [
+        "player-0",
+        {
+          type: "bid",
+          label: "♥ 14",
+          suit: "hearts",
+          color: "red"
+        }
+      ]
+    ]);
+
+    expect(createTablePlayers(createPublicState())[0].biddingDeclaration).toBeUndefined();
+  });
 });
 
-function createPublicState(): PublicGameState {
+function createPublicState(overrides: Partial<PublicGameState> = {}): PublicGameState {
   return {
     self: {
       id: "player-0",
@@ -56,6 +98,7 @@ function createPublicState(): PublicGameState {
     trickNumber: 1,
     isTrickComplete: false,
     isGameOver: false,
-    legalActions: []
+    legalActions: [],
+    ...overrides
   };
 }
