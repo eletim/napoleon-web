@@ -367,12 +367,9 @@ export function App() {
             <div className="action-area">
           {session?.state.phase === "exchanging" ? (
             <section className="exchange-panel" aria-label="埋札交換">
-              <div>
-                <h2>埋札交換</h2>
-                <p>埋札3枚を受け取りました。捨てるカードを3枚選んでください。</p>
-              </div>
-              <span>
-                選択中: {selectedDiscardCardIds.length} / {requiredDiscardCount}
+              <h2>埋札交換</h2>
+              <span aria-label={`選択中 ${selectedDiscardCardIds.length}枚、必要 ${requiredDiscardCount}枚`}>
+                {selectedDiscardCardIds.length} / {requiredDiscardCount}
               </span>
               <button
                 className="secondary-button"
@@ -396,10 +393,8 @@ export function App() {
 
           {session?.state.phase === "choosing-adjutant" ? (
             <section className="adjutant-panel" aria-label="副官指定">
-              <div>
-                <h2>副官指定</h2>
-                <p>副官として呼ぶカードを、埋札を見る前に1枚指定してください。</p>
-              </div>
+              <h2>副官指定</h2>
+              <p className="phase-note">埋札前に1枚</p>
               <div className="adjutant-shortcuts" aria-label="特殊札ショートカット">
                 <span>特殊札ショートカット</span>
                 <div className="adjutant-shortcut-buttons">

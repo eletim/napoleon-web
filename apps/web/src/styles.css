@@ -137,6 +137,18 @@ input:focus-visible {
   outline-offset: 2px;
 }
 
+.visually-hidden {
+  clip: rect(0 0 0 0);
+  border: 0;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
 .mode-switch {
   display: flex;
   gap: 8px;
@@ -239,7 +251,6 @@ input:focus-visible {
   margin: 0;
 }
 
-.player-id,
 .muted-text {
   color: #64748b;
   font-size: 0.82rem;
@@ -582,7 +593,7 @@ input:focus-visible {
 }
 
 .bidding-panel-header {
-  align-items: start;
+  align-items: center;
   display: flex;
   gap: 12px;
   justify-content: space-between;
@@ -590,12 +601,6 @@ input:focus-visible {
 
 .bidding-panel-header h2 {
   font-size: 1.1rem;
-  margin: 0 0 4px;
-}
-
-.bidding-panel-header p {
-  color: #475569;
-  font-weight: 800;
   margin: 0;
 }
 
@@ -661,8 +666,7 @@ input:focus-visible {
   border-radius: 8px;
   cursor: pointer;
   display: grid;
-  gap: 4px;
-  min-height: 70px;
+  min-height: 58px;
   padding: 8px;
 }
 
@@ -670,12 +674,6 @@ input:focus-visible {
   font-size: 1.8rem;
   font-weight: 900;
   line-height: 1;
-}
-
-.bid-suit-button small {
-  color: #64748b;
-  font-size: 0.72rem;
-  font-weight: 900;
 }
 
 .bid-suit-black {
@@ -739,31 +737,6 @@ input:focus-visible {
   color: #334155;
 }
 
-.compact-bidding-history {
-  border-top: 1px solid #e2e8f0;
-  display: grid;
-  gap: 8px;
-  padding-top: 10px;
-}
-
-.history-strip {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  padding-bottom: 2px;
-}
-
-.history-chip,
-.history-empty {
-  background: #f1f5f9;
-  border-radius: 999px;
-  color: #334155;
-  flex: 0 0 auto;
-  font-size: 0.82rem;
-  font-weight: 800;
-  padding: 6px 9px;
-}
-
 .exchange-panel {
   align-items: center;
   display: flex;
@@ -781,18 +754,19 @@ input:focus-visible {
 .adjutant-panel h2,
 .result-panel h2 {
   font-size: 1rem;
-  margin: 0 0 4px;
-}
-
-.exchange-panel p,
-.adjutant-panel p {
-  color: #4b5563;
   margin: 0;
 }
 
 .adjutant-shortcuts {
   display: grid;
   gap: 7px;
+}
+
+.phase-note {
+  color: #4b5563;
+  font-size: 0.84rem;
+  font-weight: 800;
+  margin: -4px 0 0;
 }
 
 .adjutant-shortcuts > span {
@@ -898,7 +872,7 @@ input:focus-visible {
   align-items: center;
   display: grid;
   gap: 8px 12px;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   margin-bottom: 8px;
 }
 
@@ -913,13 +887,6 @@ input:focus-visible {
   flex-wrap: wrap;
   gap: 8px 12px;
   min-width: 0;
-}
-
-.self-hand-count,
-.self-point-count {
-  background: #f1f5f9;
-  border-radius: 999px;
-  padding: 5px 8px;
 }
 
 .self-role-badges {
@@ -967,35 +934,6 @@ input:focus-visible {
   font-weight: 900;
 }
 
-.hand-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  justify-content: flex-end;
-}
-
-.legend-item {
-  border-radius: 999px;
-  font-size: 0.72rem;
-  font-weight: 800;
-  padding: 5px 8px;
-}
-
-.legend-item.legal {
-  background: #dcfce7;
-  color: #166534;
-}
-
-.legend-item.blocked {
-  background: #e2e8f0;
-  color: #475569;
-}
-
-.legend-item.selectable {
-  background: #fef3c7;
-  color: #92400e;
-}
-
 .hand {
   display: flex;
   flex-wrap: wrap;
@@ -1032,6 +970,7 @@ input:focus-visible {
 
 .card-selectable {
   border-color: #facc15;
+  border-style: dashed;
 }
 
 .card-blocked {
@@ -1447,7 +1386,7 @@ input:focus-visible {
   }
 
   .bid-suit-button {
-    min-height: 64px;
+    min-height: 56px;
   }
 
   .bid-stepper {
