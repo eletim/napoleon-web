@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { RuleBasedAgent, runAutomatedGame } from "@napoleon/ai";
-import { CARD_IDS, createPlayingTrainingSamples } from "@napoleon/ai-observation";
+import {
+  CARD_IDS,
+  PLAYING_ENCODER_SCHEMA_VERSION,
+  createPlayingTrainingSamples
+} from "@napoleon/ai-observation";
 import {
   BIDDING_DATASET_SAMPLE_TYPE,
   calculateCardIdsSha256,
@@ -175,7 +179,7 @@ function validManifest(): DatasetManifest {
   return {
     datasetSchemaVersion: DATASET_SCHEMA_VERSION,
     generatorVersion: DATASET_GENERATOR_VERSION,
-    playingEncoderSchemaVersion: 1,
+    playingEncoderSchemaVersion: PLAYING_ENCODER_SCHEMA_VERSION,
     format: DATASET_FORMAT,
     sampleType: DATASET_SAMPLE_TYPE,
     agent: {

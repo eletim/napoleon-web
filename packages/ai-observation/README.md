@@ -12,7 +12,7 @@ included.
 
 ## Schema
 
-- Schema version: `1`
+- Schema version: `2`
 - Card order: 53 fixed ids
   - spades `A, K, Q, J, 10, 9, 8, 7, 6, 5, 4, 3, 2`
   - hearts `A, K, Q, J, 10, 9, 8, 7, 6, 5, 4, 3, 2`
@@ -146,6 +146,7 @@ adjutant ownership, buried-card provenance, or the teacher discard mask.
 | `trumpSuitOneHot` | `[4]` |
 | `napoleonPlayerOneHot` | `[5]` |
 | `revealedAdjutantPlayerOneHot` | `[6]` |
+| `selfRoleOneHot` | `[4]` |
 | `calledAdjutantCardMask` | `[53]` |
 | `selfHandMask` | `[53]` |
 | `legalAdjutantMask` | `[53]` |
