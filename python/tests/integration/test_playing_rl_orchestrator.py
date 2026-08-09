@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import subprocess
 from dataclasses import replace
 from pathlib import Path
@@ -85,6 +86,15 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
     assert [evaluation["scheduledGames"] for evaluation in evaluations] == [5, 5, 5]
     assert evaluations[1]["pairedComparisonVsV0"] is not None
     assert evaluations[2]["winRateDeltaVsV0"] is not None
+
+    final_evaluation = run_directory / "evaluations" / "policy-v002"
+    shutil.rmtree(final_evaluation)
+    run_playing_rl_experiment(
+        config,
+        resume=True,
+        provided_config_keys={"iterations", "gamesPerIteration"},
+    )
+    assert (final_evaluation / "summary.json").is_file()
 
     before_resume = _sha256_file(run_directory / "iterations" / "iter-000" / "iteration.json")
     run_playing_rl_experiment(

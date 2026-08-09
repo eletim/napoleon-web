@@ -148,12 +148,17 @@ def run_playing_rl_experiment(
     _validate_completed_artifacts(config)
     state = _load_state(run_directory)
     state = _ensure_evaluation(config, state, generation=0)
+    completed_generation = _next_iteration(config)
+    state = _ensure_due_evaluations(
+        config,
+        state,
+        completed_generation=completed_generation,
+    )
 
-    for iteration in range(_next_iteration(config), config.iterations):
+    for iteration in range(completed_generation, config.iterations):
         state = _run_iteration(config, iteration, state)
         generation = iteration + 1
-        if generation % config.evaluation_interval == 0 or generation == config.iterations:
-            state = _ensure_evaluation(config, state, generation=generation)
+        state = _ensure_due_evaluations(config, state, completed_generation=generation)
 
     _validate_completed_artifacts(config)
 
@@ -351,6 +356,22 @@ def _run_iteration(
         flush=True,
     )
     return state
+
+
+def _ensure_due_evaluations(
+    config: PlayingRlRunConfig,
+    state: dict[str, object],
+    *,
+    completed_generation: int,
+) -> dict[str, object]:
+    for generation in range(1, completed_generation + 1):
+        if _evaluation_is_due(config, generation):
+            state = _ensure_evaluation(config, state, generation=generation)
+    return state
+
+
+def _evaluation_is_due(config: PlayingRlRunConfig, generation: int) -> bool:
+    return generation % config.evaluation_interval == 0 or generation == config.iterations
 
 
 def _ensure_evaluation(
