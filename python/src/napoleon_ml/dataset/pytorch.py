@@ -17,6 +17,7 @@ from .constants import (
     CARD_COUNT,
     EXCHANGE_DATASET_SAMPLE_TYPE,
     PLAYING_DATASET_SAMPLE_TYPE,
+    PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE,
 )
 from .errors import DatasetError
 from .manifest import DatasetManifest
@@ -27,6 +28,7 @@ from .tensors import (
     TensorizedBiddingSample,
     TensorizedExchangeSample,
     TensorizedPlayingSample,
+    TensorizedPlayingSelfPlaySample,
     TensorizedTrainingSample,
 )
 
@@ -65,8 +67,23 @@ class AdjutantTorchSample(TypedDict):
     step: Tensor
 
 
+class PlayingSelfPlayTorchSample(TypedDict):
+    model_input: Tensor
+    legal_play_mask: Tensor
+    selected_card_index: Tensor
+    behavior_log_probability: Tensor
+    terminal_reward: Tensor
+    seed: Tensor
+    step: Tensor
+    acting_player_index: Tensor
+
+
 TrainingTorchSample = (
-    PlayingTorchSample | BiddingTorchSample | ExchangeTorchSample | AdjutantTorchSample
+    PlayingTorchSample
+    | BiddingTorchSample
+    | ExchangeTorchSample
+    | AdjutantTorchSample
+    | PlayingSelfPlayTorchSample
 )
 _MASK_DTYPES = {torch.bool, torch.uint8}
 _TorchSample = TypeVar("_TorchSample", bound=TrainingTorchSample)
@@ -229,6 +246,34 @@ class AdjutantIterableDataset(_TensorizedIterableDataset[AdjutantTorchSample]):
         return _torch_adjutant_sample(sample)
 
 
+class PlayingSelfPlayIterableDataset(_TensorizedIterableDataset[PlayingSelfPlayTorchSample]):
+    """Stream split-filtered playing self-play samples as PyTorch tensors."""
+
+    def __init__(
+        self,
+        dataset_directory: Path | str,
+        *,
+        split: DatasetSplit | str,
+        split_config: SplitConfig | None = None,
+        verify_integrity: bool = True,
+    ) -> None:
+        super().__init__(
+            dataset_directory,
+            split=split,
+            sample_type=PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE,
+            split_config=split_config,
+            verify_integrity=verify_integrity,
+        )
+
+    def _torch_sample(self, sample: TensorizedTrainingSample) -> PlayingSelfPlayTorchSample:
+        if not isinstance(sample, TensorizedPlayingSelfPlaySample):
+            raise DatasetError(
+                "PlayingSelfPlayIterableDataset requires a playing-self-play-sample dataset."
+            )
+
+        return _torch_playing_self_play_sample(sample)
+
+
 def create_playing_dataloader(
     dataset_directory: Path | str,
     *,
@@ -266,6 +311,34 @@ def create_playing_dataloader(
         shuffle=False,
         num_workers=0,
         drop_last=drop_last,
+    )
+
+
+def create_playing_self_play_dataloader(
+    dataset_directory: Path | str,
+    *,
+    split: DatasetSplit | str,
+    batch_size: int,
+    split_config: SplitConfig | None = None,
+    verify_integrity: bool = True,
+    drop_last: bool = False,
+    num_workers: int = 0,
+) -> DataLoader[PlayingSelfPlayTorchSample]:
+    """Create a deterministic DataLoader for playing self-play RL batches."""
+
+    _validate_dataloader_options(
+        batch_size=batch_size,
+        num_workers=num_workers,
+        function_name="create_playing_self_play_dataloader",
+    )
+    dataset = PlayingSelfPlayIterableDataset(
+        dataset_directory,
+        split=split,
+        split_config=split_config,
+        verify_integrity=verify_integrity,
+    )
+    return DataLoader(
+        dataset, batch_size=batch_size, shuffle=False, num_workers=0, drop_last=drop_last
     )
 
 
@@ -379,6 +452,11 @@ def create_training_dataloader(
             mask_dtype=mask_dtype,
             drop_last=drop_last,
             num_workers=num_workers,
+        )
+    if manifest.sample_type == PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE:
+        raise DatasetError(
+            "create_training_dataloader does not treat playing-self-play-sample as "
+            "supervised data; use create_playing_self_play_dataloader instead."
         )
     if mask_dtype != torch.bool:
         raise DatasetError(
@@ -595,6 +673,38 @@ def _torch_adjutant_sample(sample: TensorizedAdjutantSample) -> AdjutantTorchSam
         "actor_target": torch.tensor(actor_target_value, dtype=torch.int64),
         "seed": torch.tensor(sample.seed, dtype=torch.int64),
         "step": torch.tensor(sample.step, dtype=torch.int64),
+    }
+
+
+def _torch_playing_self_play_sample(
+    sample: TensorizedPlayingSelfPlaySample,
+) -> PlayingSelfPlayTorchSample:
+    selected_value = int(sample.selected_card_index)
+    legal_play_mask = torch.from_numpy(sample.legal_play_mask.copy()).to(dtype=torch.bool)
+
+    if selected_value < 0 or selected_value >= CARD_COUNT:
+        raise DatasetError(
+            f"selected_card_index must be between 0 and {CARD_COUNT - 1}, got "
+            f"{selected_value} (seed={sample.seed}, step={sample.step})."
+        )
+
+    if not bool(legal_play_mask[selected_value].item()):
+        raise DatasetError(
+            "selected_card_index must be legal according to legal_play_mask "
+            f"(seed={sample.seed}, step={sample.step}, selected_card_index={selected_value})."
+        )
+
+    return {
+        "model_input": torch.from_numpy(sample.model_input.copy()),
+        "legal_play_mask": legal_play_mask,
+        "selected_card_index": torch.tensor(selected_value, dtype=torch.int64),
+        "behavior_log_probability": torch.tensor(
+            float(sample.behavior_log_probability), dtype=torch.float32
+        ),
+        "terminal_reward": torch.tensor(float(sample.terminal_reward), dtype=torch.float32),
+        "seed": torch.tensor(sample.seed, dtype=torch.int64),
+        "step": torch.tensor(sample.step, dtype=torch.int64),
+        "acting_player_index": torch.tensor(sample.acting_player_index, dtype=torch.int64),
     }
 
 

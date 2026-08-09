@@ -54,6 +54,15 @@ from .constants import (
     NOT_IN_HAND_CLASS_INDEX,
     PLAYER_COUNT,
     PLAYING_ENCODER_SCHEMA_VERSION,
+    PLAYING_MODEL_INPUT_SCHEMA_VERSION,
+    PLAYING_SELF_PLAY_BEHAVIOR_POLICY_TYPE,
+    PLAYING_SELF_PLAY_DATASET_GENERATOR_VERSION,
+    PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE,
+    PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION,
+    PLAYING_SELF_PLAY_REWARD_TYPE,
+    PLAYING_SELF_PLAY_REWARD_VERSION,
+    PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION,
+    PLAYING_SELF_PLAY_SAMPLING_ALGORITHM,
     REVEALED_ADJUTANT_CLASS_COUNT,
     RULE_BASED_AGENT_VERSION,
     SHARD_FILE_DIGITS,
@@ -72,6 +81,7 @@ from .sample import (
     EncodedExchangeObservation,
     EncodedPlayingObservation,
     ExchangeTrainingSample,
+    PlayingSelfPlaySample,
     PlayingTrainingSample,
     SpecialCardIndices,
     TrainingSample,
@@ -80,6 +90,8 @@ from .sample import (
 _SHA256_HEX_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _SHARD_FILE_NAME_PATTERN = re.compile(rf"^shard-(\d{{{SHARD_FILE_DIGITS}}})\.jsonl$")
 _TRUMP_SUIT_OPTION_COUNT = 4
+_WINNING_TEAMS = frozenset({"napoleon-team", "alliance"})
+_SELF_PLAY_ROLES = frozenset({"napoleon", "adjutant", "alliance"})
 
 
 def calculate_card_ids_sha256() -> str:
@@ -203,9 +215,10 @@ def _validate_schema_identity(manifest: DatasetManifest) -> None:
     if manifest.dataset_schema_version not in {
         DATASET_SCHEMA_VERSION,
         MULTIPHASE_DATASET_SCHEMA_VERSION,
+        PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION,
     }:
         raise ManifestValidationError(
-            "manifest.datasetSchemaVersion mismatch: expected 1 or 2, "
+            "manifest.datasetSchemaVersion mismatch: expected 1, 2, or 3, "
             f"got {manifest.dataset_schema_version}."
         )
 
@@ -214,7 +227,10 @@ def _validate_schema_identity(manifest: DatasetManifest) -> None:
             f"manifest.format mismatch: expected {DATASET_FORMAT!r}, got {manifest.format!r}."
         )
 
-    if manifest.sample_type not in DATASET_SAMPLE_TYPES:
+    if (
+        manifest.dataset_schema_version != PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION
+        and manifest.sample_type not in DATASET_SAMPLE_TYPES
+    ):
         raise ManifestValidationError(
             f"manifest.sampleType mismatch: unsupported sample type {manifest.sample_type!r}."
         )
@@ -238,7 +254,7 @@ def _validate_schema_identity(manifest: DatasetManifest) -> None:
                 "manifest.playingEncoderSchemaVersion mismatch: "
                 f"expected {PLAYING_ENCODER_SCHEMA_VERSION}, got {actual}."
             )
-    else:
+    elif manifest.dataset_schema_version == MULTIPHASE_DATASET_SCHEMA_VERSION:
         if manifest.generator_version != MULTIPHASE_DATASET_GENERATOR_VERSION:
             raise ManifestValidationError(
                 "manifest.generatorVersion mismatch: "
@@ -256,7 +272,14 @@ def _validate_schema_identity(manifest: DatasetManifest) -> None:
                 "manifest.encoderSchemaVersion mismatch: "
                 f"expected {expected_encoder_version}, got {manifest.encoder_schema_version}."
             )
+    else:
+        _validate_playing_self_play_manifest_identity(manifest)
 
+    if manifest.dataset_schema_version == PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION:
+        return
+
+    if manifest.agent is None:
+        raise ManifestValidationError("manifest.agent is required for manifest v1/v2.")
     if manifest.agent.type != "rule-based":
         raise ManifestValidationError(
             f"manifest.agent.type mismatch: expected 'rule-based', got {manifest.agent.type!r}."
@@ -267,6 +290,99 @@ def _validate_schema_identity(manifest: DatasetManifest) -> None:
             "manifest.agent.version mismatch: "
             f"expected {RULE_BASED_AGENT_VERSION}, got {manifest.agent.version}."
         )
+
+
+def _validate_playing_self_play_manifest_identity(manifest: DatasetManifest) -> None:
+    if manifest.generator_version != PLAYING_SELF_PLAY_DATASET_GENERATOR_VERSION:
+        raise ManifestValidationError(
+            "self-play manifest.generatorVersion mismatch: "
+            f"expected {PLAYING_SELF_PLAY_DATASET_GENERATOR_VERSION}, "
+            f"got {manifest.generator_version}."
+        )
+
+    if manifest.sample_type != PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE:
+        raise ManifestValidationError(
+            "self-play manifest.sampleType must be "
+            f"{PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE!r}, got {manifest.sample_type!r}."
+        )
+
+    if manifest.sample_schema_version != PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION:
+        raise ManifestValidationError(
+            "self-play manifest.sampleSchemaVersion mismatch: "
+            f"expected {PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION}, "
+            f"got {manifest.sample_schema_version}."
+        )
+
+    if manifest.playing_encoder_schema_version != PLAYING_ENCODER_SCHEMA_VERSION:
+        raise ManifestValidationError(
+            "self-play manifest.playingEncoderSchemaVersion mismatch: "
+            f"expected {PLAYING_ENCODER_SCHEMA_VERSION}, "
+            f"got {manifest.playing_encoder_schema_version}."
+        )
+
+    if manifest.playing_model_input_schema_version != PLAYING_MODEL_INPUT_SCHEMA_VERSION:
+        raise ManifestValidationError(
+            "self-play manifest.playingModelInputSchemaVersion mismatch: "
+            f"expected {PLAYING_MODEL_INPUT_SCHEMA_VERSION}, "
+            f"got {manifest.playing_model_input_schema_version}."
+        )
+
+    policy = manifest.behavior_policy
+    if policy is None:
+        raise ManifestValidationError("self-play manifest.behaviorPolicy is required.")
+
+    if policy.type != PLAYING_SELF_PLAY_BEHAVIOR_POLICY_TYPE:
+        raise ManifestValidationError(
+            "self-play manifest.behaviorPolicy.type mismatch: "
+            f"expected {PLAYING_SELF_PLAY_BEHAVIOR_POLICY_TYPE!r}, got {policy.type!r}."
+        )
+
+    for name, value in (
+        ("artifactId", policy.artifact_id),
+        ("onnxFileName", policy.onnx_file_name),
+        ("metadataFileName", policy.metadata_file_name),
+    ):
+        if value == "":
+            raise ManifestValidationError(f"self-play manifest.behaviorPolicy.{name} is empty.")
+
+    if not _SHA256_HEX_PATTERN.match(policy.onnx_sha256):
+        raise ManifestValidationError("self-play manifest.behaviorPolicy.onnxSha256 is invalid.")
+
+    if not _SHA256_HEX_PATTERN.match(policy.metadata_sha256):
+        raise ManifestValidationError(
+            "self-play manifest.behaviorPolicy.metadataSha256 is invalid."
+        )
+
+    if manifest.sampling_algorithm != PLAYING_SELF_PLAY_SAMPLING_ALGORITHM:
+        raise ManifestValidationError(
+            "self-play manifest.samplingAlgorithm mismatch: "
+            f"expected {PLAYING_SELF_PLAY_SAMPLING_ALGORITHM!r}, "
+            f"got {manifest.sampling_algorithm!r}."
+        )
+
+    if manifest.temperature is None or not math.isfinite(manifest.temperature):
+        raise ManifestValidationError("self-play manifest.temperature must be finite.")
+
+    if manifest.temperature <= 0:
+        raise ManifestValidationError("self-play manifest.temperature must be greater than 0.")
+
+    if manifest.reward is None:
+        raise ManifestValidationError("self-play manifest.reward is required.")
+
+    if (
+        manifest.reward.type != PLAYING_SELF_PLAY_REWARD_TYPE
+        or manifest.reward.version != PLAYING_SELF_PLAY_REWARD_VERSION
+    ):
+        raise ManifestValidationError("self-play manifest.reward metadata mismatch.")
+
+    if manifest.non_playing_agent is None:
+        raise ManifestValidationError("self-play manifest.nonPlayingAgent is required.")
+
+    if (
+        manifest.non_playing_agent.type != "rule-based"
+        or manifest.non_playing_agent.version != RULE_BASED_AGENT_VERSION
+    ):
+        raise ManifestValidationError("self-play manifest.nonPlayingAgent metadata mismatch.")
 
 
 def _encoder_schema_version_for_sample_type(sample_type: str) -> int:
@@ -461,6 +577,9 @@ def validate_sample(sample: TrainingSample) -> None:
     if isinstance(sample, AdjutantTrainingSample):
         validate_adjutant_training_sample(sample)
         return
+    if isinstance(sample, PlayingSelfPlaySample):
+        validate_playing_self_play_sample(sample)
+        return
 
     raise SampleValidationError(f"Unsupported sample class: {type(sample).__name__}.")
 
@@ -597,6 +716,111 @@ def validate_adjutant_training_sample(sample: AdjutantTrainingSample) -> None:
         raise SampleValidationError("actorTarget must be legal in observation.legalAdjutantMask.")
 
 
+def validate_playing_self_play_sample(sample: PlayingSelfPlaySample) -> None:
+    if sample.sample_type != PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE:
+        raise SampleValidationError(
+            f"sample.sampleType must be {PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE!r}, "
+            f"got {sample.sample_type!r}."
+        )
+
+    if sample.schema_version != PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION:
+        raise SampleValidationError(
+            f"sample.schemaVersion mismatch: expected {PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION}, "
+            f"got {sample.schema_version}."
+        )
+
+    if sample.observation.schema_version != PLAYING_ENCODER_SCHEMA_VERSION:
+        raise SampleValidationError(
+            "self-play sample observation.schemaVersion mismatch: "
+            f"expected {PLAYING_ENCODER_SCHEMA_VERSION}, got {sample.observation.schema_version}."
+        )
+
+    require_int_in_range(
+        sample.seed, path="sample.seed", minimum=0, maximum=UINT32_MAX, error=_sample_error
+    )
+
+    if sample.step <= 0:
+        raise SampleValidationError(f"sample.step must be a positive integer, got {sample.step}.")
+
+    _validate_playing_identity(
+        acting_player_id=sample.acting_player_id,
+        relative_player_ids=sample.relative_player_ids,
+        observation=sample.observation,
+    )
+    validate_encoded_playing_observation(sample.observation)
+
+    _expect_int_range("selectedCardIndex", sample.selected_card_index, 0, CARD_COUNT - 1)
+
+    if sample.observation.legal_play_mask[sample.selected_card_index] != 1:
+        raise SampleValidationError(
+            "selectedCardIndex must be legal in observation.legalPlayMask."
+        )
+
+    if not math.isfinite(sample.behavior_log_probability):
+        raise SampleValidationError("behaviorLogProbability must be finite.")
+
+    if sample.behavior_log_probability > 1e-12:
+        raise SampleValidationError("behaviorLogProbability must be <= 0.")
+
+    if sum(sample.observation.legal_play_mask) == 1 and sample.behavior_log_probability != 0:
+        raise SampleValidationError("forced self-play actions must have behaviorLogProbability 0.")
+
+    if sample.terminal_reward not in {-1, 1}:
+        raise SampleValidationError("terminalReward must be +1 or -1.")
+
+    outcome = sample.outcome
+
+    if outcome.winner not in _WINNING_TEAMS:
+        raise SampleValidationError(f"outcome.winner is invalid: {outcome.winner!r}.")
+
+    if outcome.acting_player_team not in _WINNING_TEAMS:
+        raise SampleValidationError(
+            f"outcome.actingPlayerTeam is invalid: {outcome.acting_player_team!r}."
+        )
+
+    if outcome.acting_player_role not in _SELF_PLAY_ROLES:
+        raise SampleValidationError(
+            f"outcome.actingPlayerRole is invalid: {outcome.acting_player_role!r}."
+        )
+
+    napoleon_player_index = sample.observation.napoleon_player_one_hot.index(1)
+    expected_napoleon_player_id = sample.relative_player_ids[napoleon_player_index]
+
+    if outcome.napoleon_player_id != expected_napoleon_player_id:
+        raise SampleValidationError(
+            "outcome.napoleonPlayerId must match observation.napoleonPlayerOneHot."
+        )
+
+    if outcome.acting_player_role == "napoleon":
+        if sample.acting_player_id != outcome.napoleon_player_id:
+            raise SampleValidationError(
+                "outcome.actingPlayerRole napoleon must match outcome.napoleonPlayerId."
+            )
+    elif sample.acting_player_id == outcome.napoleon_player_id:
+        raise SampleValidationError(
+            "outcome.actingPlayerRole must be napoleon when the acting player is "
+            "outcome.napoleonPlayerId."
+        )
+
+    expected_team = (
+        "napoleon-team"
+        if outcome.acting_player_role in {"napoleon", "adjutant"}
+        else "alliance"
+    )
+
+    if outcome.acting_player_team != expected_team:
+        raise SampleValidationError(
+            "outcome.actingPlayerTeam is inconsistent with outcome.actingPlayerRole."
+        )
+
+    expected_reward = 1 if outcome.acting_player_team == outcome.winner else -1
+
+    if sample.terminal_reward != expected_reward:
+        raise SampleValidationError(
+            "terminalReward is inconsistent with outcome.winner and outcome.actingPlayerTeam."
+        )
+
+
 def _validate_sample_common(
     sample: BiddingTrainingSample | ExchangeTrainingSample | AdjutantTrainingSample,
 ) -> None:
@@ -624,6 +848,34 @@ def _validate_sample_common(
         raise SampleValidationError("sample.actingPlayerId must match relativePlayerIds[0].")
 
     if sample.relative_player_ids != sample.observation.relative_player_ids:
+        raise SampleValidationError(
+            "sample.relativePlayerIds must match observation.relativePlayerIds."
+        )
+
+
+def _validate_playing_identity(
+    *,
+    acting_player_id: str,
+    relative_player_ids: tuple[str, ...],
+    observation: EncodedPlayingObservation,
+) -> None:
+    if len(relative_player_ids) != PLAYER_COUNT:
+        raise SampleValidationError(
+            f"sample.relativePlayerIds must have length {PLAYER_COUNT}, "
+            f"got {len(relative_player_ids)}."
+        )
+
+    if len(set(relative_player_ids)) != len(relative_player_ids):
+        raise SampleValidationError("sample.relativePlayerIds must be unique.")
+
+    for index, player_id in enumerate(relative_player_ids):
+        if len(player_id) == 0:
+            raise SampleValidationError(f"sample.relativePlayerIds[{index}] must be non-empty.")
+
+    if acting_player_id != relative_player_ids[0]:
+        raise SampleValidationError("sample.actingPlayerId must match relativePlayerIds[0].")
+
+    if relative_player_ids != observation.relative_player_ids:
         raise SampleValidationError(
             "sample.relativePlayerIds must match observation.relativePlayerIds."
         )

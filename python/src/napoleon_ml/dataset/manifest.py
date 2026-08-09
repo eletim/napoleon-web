@@ -15,6 +15,7 @@ from ._strict import (
     require_exact_keys,
     require_int,
     require_list,
+    require_number,
     require_str,
     require_str_tuple,
 )
@@ -24,6 +25,18 @@ _SHARD_KEYS = frozenset(
     {"file", "startSeed", "endSeed", "gameCount", "sampleCount", "byteLength", "sha256"}
 )
 _AGENT_KEYS = frozenset({"type", "version"})
+_BEHAVIOR_POLICY_KEYS = frozenset(
+    {
+        "type",
+        "artifactId",
+        "onnxFileName",
+        "metadataFileName",
+        "onnxSha256",
+        "metadataSha256",
+        "metadata",
+    }
+)
+_REWARD_KEYS = frozenset({"type", "version"})
 _MANIFEST_BASE_KEYS = frozenset(
     {
         "datasetSchemaVersion",
@@ -46,6 +59,21 @@ _MANIFEST_BASE_KEYS = frozenset(
 )
 _PLAYING_MANIFEST_KEYS = _MANIFEST_BASE_KEYS | frozenset({"playingEncoderSchemaVersion"})
 _MULTIPHASE_MANIFEST_KEYS = _MANIFEST_BASE_KEYS | frozenset({"encoderSchemaVersion"})
+_SELF_PLAY_MANIFEST_KEYS = (
+    (_MANIFEST_BASE_KEYS - frozenset({"agent"}))
+    | frozenset(
+        {
+            "sampleSchemaVersion",
+            "playingEncoderSchemaVersion",
+            "playingModelInputSchemaVersion",
+            "behaviorPolicy",
+            "samplingAlgorithm",
+            "temperature",
+            "reward",
+            "nonPlayingAgent",
+        }
+    )
+)
 
 
 @dataclass(frozen=True)
@@ -66,14 +94,32 @@ class DatasetAgentInfo:
 
 
 @dataclass(frozen=True)
+class DatasetBehaviorPolicyInfo:
+    type: str
+    artifact_id: str
+    onnx_file_name: str
+    metadata_file_name: str
+    onnx_sha256: str
+    metadata_sha256: str
+    metadata: object
+
+
+@dataclass(frozen=True)
+class DatasetRewardInfo:
+    type: str
+    version: int
+
+
+@dataclass(frozen=True)
 class DatasetManifest:
     dataset_schema_version: int
     generator_version: int
     playing_encoder_schema_version: int | None
+    playing_model_input_schema_version: int | None
     encoder_schema_version: int | None
     format: str
     sample_type: str
-    agent: DatasetAgentInfo
+    agent: DatasetAgentInfo | None
     start_seed: int
     end_seed: int
     game_count: int
@@ -85,6 +131,12 @@ class DatasetManifest:
     card_ids: tuple[str, ...]
     card_ids_sha256: str
     shards: tuple[DatasetShardManifest, ...]
+    sample_schema_version: int | None = None
+    behavior_policy: DatasetBehaviorPolicyInfo | None = None
+    sampling_algorithm: str | None = None
+    temperature: float | None = None
+    reward: DatasetRewardInfo | None = None
+    non_playing_agent: DatasetAgentInfo | None = None
 
 
 def _error(message: str) -> ManifestValidationError:
@@ -118,6 +170,50 @@ def _parse_agent(raw: object) -> DatasetAgentInfo:
     )
 
 
+def _parse_non_playing_agent(raw: object) -> DatasetAgentInfo:
+    path = "manifest.nonPlayingAgent"
+    obj = require_dict(raw, path=path, error=_error)
+    require_exact_keys(obj, _AGENT_KEYS, path=path, error=_error)
+
+    return DatasetAgentInfo(
+        type=require_str(obj["type"], path=f"{path}.type", error=_error),
+        version=require_int(obj["version"], path=f"{path}.version", error=_error),
+    )
+
+
+def _parse_behavior_policy(raw: object) -> DatasetBehaviorPolicyInfo:
+    path = "manifest.behaviorPolicy"
+    obj = require_dict(raw, path=path, error=_error)
+    require_exact_keys(obj, _BEHAVIOR_POLICY_KEYS, path=path, error=_error)
+
+    return DatasetBehaviorPolicyInfo(
+        type=require_str(obj["type"], path=f"{path}.type", error=_error),
+        artifact_id=require_str(obj["artifactId"], path=f"{path}.artifactId", error=_error),
+        onnx_file_name=require_str(
+            obj["onnxFileName"], path=f"{path}.onnxFileName", error=_error
+        ),
+        metadata_file_name=require_str(
+            obj["metadataFileName"], path=f"{path}.metadataFileName", error=_error
+        ),
+        onnx_sha256=require_str(obj["onnxSha256"], path=f"{path}.onnxSha256", error=_error),
+        metadata_sha256=require_str(
+            obj["metadataSha256"], path=f"{path}.metadataSha256", error=_error
+        ),
+        metadata=obj["metadata"],
+    )
+
+
+def _parse_reward(raw: object) -> DatasetRewardInfo:
+    path = "manifest.reward"
+    obj = require_dict(raw, path=path, error=_error)
+    require_exact_keys(obj, _REWARD_KEYS, path=path, error=_error)
+
+    return DatasetRewardInfo(
+        type=require_str(obj["type"], path=f"{path}.type", error=_error),
+        version=require_int(obj["version"], path=f"{path}.version", error=_error),
+    )
+
+
 def parse_manifest(raw: object) -> DatasetManifest:
     """Parse an already JSON-decoded manifest value into a typed dataclass.
 
@@ -143,16 +239,58 @@ def parse_manifest(raw: object) -> DatasetManifest:
             path="manifest.playingEncoderSchemaVersion",
             error=_error,
         )
+        playing_model_input_schema_version = None
         encoder_schema_version = None
+        agent = _parse_agent(obj["agent"])
+        sample_schema_version = None
+        behavior_policy = None
+        sampling_algorithm = None
+        temperature = None
+        reward = None
+        non_playing_agent = None
     elif dataset_schema_version == 2:
         require_exact_keys(obj, _MULTIPHASE_MANIFEST_KEYS, path="manifest", error=_error)
         playing_encoder_schema_version = None
+        playing_model_input_schema_version = None
         encoder_schema_version = require_int(
             obj["encoderSchemaVersion"], path="manifest.encoderSchemaVersion", error=_error
         )
+        agent = _parse_agent(obj["agent"])
+        sample_schema_version = None
+        behavior_policy = None
+        sampling_algorithm = None
+        temperature = None
+        reward = None
+        non_playing_agent = None
+    elif dataset_schema_version == 3:
+        require_exact_keys(obj, _SELF_PLAY_MANIFEST_KEYS, path="manifest", error=_error)
+        playing_encoder_schema_version = require_int(
+            obj["playingEncoderSchemaVersion"],
+            path="manifest.playingEncoderSchemaVersion",
+            error=_error,
+        )
+        playing_model_input_schema_version = require_int(
+            obj["playingModelInputSchemaVersion"],
+            path="manifest.playingModelInputSchemaVersion",
+            error=_error,
+        )
+        encoder_schema_version = None
+        agent = None
+        sample_schema_version = require_int(
+            obj["sampleSchemaVersion"], path="manifest.sampleSchemaVersion", error=_error
+        )
+        behavior_policy = _parse_behavior_policy(obj["behaviorPolicy"])
+        sampling_algorithm = require_str(
+            obj["samplingAlgorithm"], path="manifest.samplingAlgorithm", error=_error
+        )
+        temperature = require_number(
+            obj["temperature"], path="manifest.temperature", error=_error
+        )
+        reward = _parse_reward(obj["reward"])
+        non_playing_agent = _parse_non_playing_agent(obj["nonPlayingAgent"])
     else:
         raise _error(
-            "manifest.datasetSchemaVersion must be 1 or 2, "
+            "manifest.datasetSchemaVersion must be 1, 2, or 3, "
             f"got {dataset_schema_version}."
         )
 
@@ -164,10 +302,11 @@ def parse_manifest(raw: object) -> DatasetManifest:
             obj["generatorVersion"], path="manifest.generatorVersion", error=_error
         ),
         playing_encoder_schema_version=playing_encoder_schema_version,
+        playing_model_input_schema_version=playing_model_input_schema_version,
         encoder_schema_version=encoder_schema_version,
         format=require_str(obj["format"], path="manifest.format", error=_error),
         sample_type=require_str(obj["sampleType"], path="manifest.sampleType", error=_error),
-        agent=_parse_agent(obj["agent"]),
+        agent=agent,
         start_seed=require_int(obj["startSeed"], path="manifest.startSeed", error=_error),
         end_seed=require_int(obj["endSeed"], path="manifest.endSeed", error=_error),
         game_count=require_int(obj["gameCount"], path="manifest.gameCount", error=_error),
@@ -183,4 +322,10 @@ def parse_manifest(raw: object) -> DatasetManifest:
             obj["cardIdsSha256"], path="manifest.cardIdsSha256", error=_error
         ),
         shards=tuple(_parse_shard(item, index=index) for index, item in enumerate(shards_raw)),
+        sample_schema_version=sample_schema_version,
+        behavior_policy=behavior_policy,
+        sampling_algorithm=sampling_algorithm,
+        temperature=temperature,
+        reward=reward,
+        non_playing_agent=non_playing_agent,
     )
