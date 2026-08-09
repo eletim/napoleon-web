@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { RuleBasedAgent } from "@napoleon/ai";
 import {
+  createInitialGame,
+  createPlayerView,
+  getLegalActions
+} from "@napoleon/game-core";
+import type { PolicyOnnxModel } from "@napoleon/policy-onnx";
+import {
   PLAYING_POLICY_ONNX_AGENT_ID,
   RULE_BASED_AGENT_ID,
   UnknownAgentIdError,
@@ -55,5 +61,39 @@ describe("agent registry", () => {
         registry
       )
     ).toThrow(UnknownAgentIdError);
+  });
+
+  it("retries loading the learned policy after a failed lazy load", async () => {
+    let loadCount = 0;
+    const registry = createAgentRegistry({
+      playingPolicyOnnx: {
+        onnxPath: "/tmp/policy.onnx",
+        metadataPath: "/tmp/policy.json"
+      },
+      loadPlayingPolicyOnnxModel: async () => {
+        loadCount += 1;
+
+        if (loadCount === 1) {
+          throw new Error("temporary load failure");
+        }
+
+        return {} as PolicyOnnxModel;
+      }
+    });
+    const agent = registry.createAgent(PLAYING_POLICY_ONNX_AGENT_ID);
+    const state = createInitialGame();
+    const playerId = "player-0";
+    const observation = {
+      playerId,
+      view: createPlayerView(state, playerId),
+      legalActions: getLegalActions(state, playerId),
+      publicActionHistory: []
+    };
+
+    await expect(agent.selectAction(observation)).rejects.toThrow("temporary load failure");
+    await expect(agent.selectAction(observation)).resolves.toMatchObject({
+      playerId
+    });
+    expect(loadCount).toBe(2);
   });
 });

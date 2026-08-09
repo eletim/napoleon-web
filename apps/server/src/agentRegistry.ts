@@ -30,6 +30,7 @@ export interface PlayingPolicyOnnxPaths {
 
 export interface AgentRegistryOptions {
   playingPolicyOnnx?: PlayingPolicyOnnxPaths;
+  loadPlayingPolicyOnnxModel?: (paths: PlayingPolicyOnnxPaths) => Promise<PolicyOnnxModel>;
 }
 
 export interface AgentRegistry {
@@ -44,6 +45,8 @@ interface AgentDefinition {
 
 export function createAgentRegistry(options: AgentRegistryOptions = {}): AgentRegistry {
   const learnedPolicyPaths = options.playingPolicyOnnx;
+  const loadPlayingPolicyOnnxModel =
+    options.loadPlayingPolicyOnnxModel ?? loadPolicyOnnxModel;
   let learnedPolicyPromise: Promise<PolicyOnnxModel> | undefined;
   const loadLearnedPolicy = () => {
     if (learnedPolicyPaths === undefined) {
@@ -53,7 +56,11 @@ export function createAgentRegistry(options: AgentRegistryOptions = {}): AgentRe
       );
     }
 
-    learnedPolicyPromise ??= loadPolicyOnnxModel(learnedPolicyPaths);
+    learnedPolicyPromise ??= loadPlayingPolicyOnnxModel(learnedPolicyPaths).catch((error) => {
+      learnedPolicyPromise = undefined;
+      throw error;
+    });
+
     return learnedPolicyPromise;
   };
   const definitions = new Map<string, AgentDefinition>([
