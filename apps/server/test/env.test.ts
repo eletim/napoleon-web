@@ -1,9 +1,12 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { learnedPolicyEnvKeys } from "../src/agentEnv.js";
 import { loadLocalEnvFile } from "../src/env.js";
+
+const envExamplePath = fileURLToPath(new URL("../../../.env.example", import.meta.url));
 
 describe("local .env loading", () => {
   it("loads server ONNX policy settings from a root .env file", () => {
@@ -51,5 +54,15 @@ describe("local .env loading", () => {
     }
 
     rmSync(root, { recursive: true, force: true });
+  });
+
+  it("keeps the committed .env.example in sync with supported learned policy keys", () => {
+    const keys = readFileSync(envExamplePath, "utf8")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith("#"))
+      .map((line) => line.split("=")[0]);
+
+    expect(keys).toEqual(learnedPolicyEnvKeys);
   });
 });

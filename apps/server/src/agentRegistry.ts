@@ -7,17 +7,14 @@ import {
 import type { PublicAgentDescriptor } from "@napoleon/protocol";
 import {
   createLearnedPolicyEnvKey,
-  learnedPolicySlotNumbers
+  learnedPolicySlotNumbers,
+  type LearnedPolicySlotNumber
 } from "./agentEnv.js";
 
 export const RULE_BASED_AGENT_ID = "rule-based";
 export const PLAYING_POLICY_ONNX_AGENT_ID = "playing-policy-onnx";
 export const PLAYING_POLICY_ONNX_AGENT_IDS = [
-  PLAYING_POLICY_ONNX_AGENT_ID,
-  "playing-policy-onnx-2",
-  "playing-policy-onnx-3",
-  "playing-policy-onnx-4",
-  "playing-policy-onnx-5"
+  ...learnedPolicySlotNumbers.map(createPlayingPolicyOnnxAgentId)
 ] as const;
 
 export class UnknownAgentIdError extends Error {
@@ -134,7 +131,7 @@ export function createAgentRegistryFromEnvironment(
 export function readPlayingPolicyOnnxAgentConfigs(
   env: NodeJS.ProcessEnv
 ): readonly PlayingPolicyOnnxAgentConfig[] {
-  return learnedPolicySlotNumbers.flatMap((slotNumber, index) => {
+  return learnedPolicySlotNumbers.flatMap((slotNumber) => {
     const displayNameVariable = createLearnedPolicyEnvKey(slotNumber, "DISPLAY_NAME");
     const onnxPathVariable = createLearnedPolicyEnvKey(slotNumber, "ONNX_PATH");
     const metadataPathVariable = createLearnedPolicyEnvKey(slotNumber, "METADATA_PATH");
@@ -160,13 +157,17 @@ export function readPlayingPolicyOnnxAgentConfigs(
 
     return [
       {
-        id: PLAYING_POLICY_ONNX_AGENT_IDS[index],
+        id: createPlayingPolicyOnnxAgentId(slotNumber),
         displayName,
         onnxPath,
         metadataPath
       }
     ];
   });
+}
+
+function createPlayingPolicyOnnxAgentId(slotNumber: LearnedPolicySlotNumber): string {
+  return slotNumber === 1 ? PLAYING_POLICY_ONNX_AGENT_ID : `playing-policy-onnx-${slotNumber}`;
 }
 
 class LazyPolicyOnnxAgent implements Agent {
