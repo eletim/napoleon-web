@@ -488,6 +488,46 @@ describe("server API", () => {
     expect(body.error.code).toBe("AGENT_UNAVAILABLE");
   });
 
+  it("returns an API error when a configured learned agent cannot load during play", async () => {
+    await app.close();
+    app = await buildApp({
+      agentRegistry: createAgentRegistry({
+        playingPolicyOnnx: {
+          onnxPath: "/tmp/missing-policy.onnx",
+          metadataPath: "/tmp/missing-policy.json"
+        }
+      })
+    });
+
+    const createdResponse = await app.inject({
+      method: "POST",
+      url: "/api/games",
+      payload: {
+        aiAgents: [
+          {
+            playerId: "player-1",
+            agentId: PLAYING_POLICY_ONNX_AGENT_ID
+          }
+        ]
+      }
+    });
+    const session = createdResponse.json<CreateGameResponse>();
+    const action = chooseHumanAction(session.state);
+    const actionResponse = await app.inject({
+      method: "POST",
+      url: `/api/games/${session.gameId}/actions`,
+      payload: {
+        action
+      }
+    });
+    const body = actionResponse.json<ApiError>();
+
+    expect(createdResponse.statusCode).toBe(201);
+    expect(actionResponse.statusCode).toBe(503);
+    expect(body.error.code).toBe("AGENT_UNAVAILABLE");
+    expect(body.error.message).toContain("Playing policy ONNX could not be loaded");
+  });
+
   it("runs a human game with learned playing-policy AI seats", async () => {
     await rebuildAppWithOnnxPolicy();
 

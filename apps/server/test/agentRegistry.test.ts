@@ -34,7 +34,7 @@ describe("agent registry", () => {
 
   it("creates rule-based agents by default", () => {
     const registry = createAgentRegistry();
-    const configuration = createAgentConfiguration(["player-1", "player-2"], [], registry);
+    const configuration = createAgentConfiguration(["player-1", "player-2"], registry);
 
     expect(configuration.agentIds).toEqual(
       new Map([
@@ -52,13 +52,13 @@ describe("agent registry", () => {
     expect(() =>
       createAgentConfiguration(
         ["player-1"],
+        registry,
         [
           {
             playerId: "player-1",
             agentId: "missing-agent"
           }
-        ],
-        registry
+        ]
       )
     ).toThrow(UnknownAgentIdError);
   });
@@ -90,7 +90,9 @@ describe("agent registry", () => {
       publicActionHistory: []
     };
 
-    await expect(agent.selectAction(observation)).rejects.toThrow("temporary load failure");
+    await expect(agent.selectAction(observation)).rejects.toThrow(
+      "Playing policy ONNX could not be loaded: temporary load failure"
+    );
     await expect(agent.selectAction(observation)).resolves.toMatchObject({
       playerId
     });

@@ -141,10 +141,25 @@ class LazyPolicyOnnxAgent implements Agent {
   constructor(private readonly loadPolicy: () => Promise<PolicyOnnxModel>) {}
 
   async selectAction(input: Parameters<Agent["selectAction"]>[0]) {
-    this.delegate ??= new PolicyOnnxAgent({
-      policy: await this.loadPolicy()
-    });
+    try {
+      this.delegate ??= new PolicyOnnxAgent({
+        policy: await this.loadPolicy()
+      });
+    } catch (error) {
+      if (error instanceof AgentUnavailableError) {
+        throw error;
+      }
+
+      throw new AgentUnavailableError(
+        PLAYING_POLICY_ONNX_AGENT_ID,
+        `Playing policy ONNX could not be loaded: ${formatErrorMessage(error)}`
+      );
+    }
 
     return this.delegate.selectAction(input);
   }
+}
+
+function formatErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

@@ -10,6 +10,11 @@
       "types": "./src/index.ts",
       "development": "./src/index.ts",
       "import": "./dist/index.js"
+    },
+    "./test-fixtures": {
+      "types": "./src/testFixtures.ts",
+      "development": "./src/testFixtures.ts",
+      "import": "./dist/testFixtures.js"
     }
   },
   "scripts": {

@@ -86,8 +86,8 @@ export async function registerRoutes(
     try {
       agentConfiguration = createAgentConfiguration(
         aiPlayerIds,
-        body.aiAgents ?? [],
-        agentRegistry
+        agentRegistry,
+        body.aiAgents ?? []
       );
     } catch (error) {
       return handleCreateGameError(reply, error);
@@ -347,6 +347,10 @@ function handleActionError(reply: FastifyReply, error: unknown): FastifyReply {
 
   if (error instanceof NoLegalActionsError) {
     return sendError(reply, 409, "NO_LEGAL_ACTIONS", error.message);
+  }
+
+  if (error instanceof AgentUnavailableError) {
+    return sendError(reply, 503, "AGENT_UNAVAILABLE", error.message);
   }
 
   throw error;

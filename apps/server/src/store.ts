@@ -1,12 +1,8 @@
-import type { Agent, PublicActionRecord } from "@napoleon/ai";
+import { RuleBasedAgent, type Agent, type PublicActionRecord } from "@napoleon/ai";
 import type { GameState, PlayerId } from "@napoleon/game-core";
 import type { CreateGameAgentSelection } from "@napoleon/protocol";
 import { randomUUID } from "node:crypto";
-import {
-  RULE_BASED_AGENT_ID,
-  createAgentRegistry,
-  type AgentRegistry
-} from "./agentRegistry.js";
+import { RULE_BASED_AGENT_ID, type AgentRegistry } from "./agentRegistry.js";
 
 export interface InternalGameState {
   state: GameState;
@@ -34,12 +30,10 @@ export class InvalidAgentSelectionError extends Error {
   }
 }
 
-const defaultAgentRegistry = createAgentRegistry();
-
 export function createAgentConfiguration(
   playerIds: readonly PlayerId[],
-  selections: readonly CreateGameAgentSelection[] = [],
-  registry: AgentRegistry = defaultAgentRegistry
+  registry: AgentRegistry,
+  selections: readonly CreateGameAgentSelection[] = []
 ): AgentConfiguration {
   const playerIdSet = new Set(playerIds);
   const selectedPlayerIds = new Set<string>();
@@ -76,9 +70,7 @@ export function createAgentConfiguration(
 }
 
 export function createAgents(
-  playerIds: readonly PlayerId[],
-  selections: readonly CreateGameAgentSelection[] = [],
-  registry: AgentRegistry = defaultAgentRegistry
+  playerIds: readonly PlayerId[]
 ): ReadonlyMap<PlayerId, Agent> {
-  return createAgentConfiguration(playerIds, selections, registry).agents;
+  return new Map(playerIds.map((playerId) => [playerId, new RuleBasedAgent()]));
 }

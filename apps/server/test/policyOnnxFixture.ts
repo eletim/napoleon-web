@@ -11,7 +11,7 @@ import {
   POLICY_ONNX_METADATA_SCHEMA_VERSION,
   calculateCardIdsSha256
 } from "@napoleon/policy-onnx";
-import { createConstantPolicyOnnx } from "../../../packages/policy-onnx/test/testOnnxFixture.js";
+import { createConstantPolicyOnnx } from "@napoleon/policy-onnx/test-fixtures";
 
 export function createIncreasingLogitPolicyOnnx(): Uint8Array {
   const logits = new Float32Array(CARD_COUNT);
