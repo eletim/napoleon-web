@@ -43,7 +43,7 @@ const pythonNonplayingModelInputSamplesUrl = new URL(
   import.meta.url
 );
 const pythonValidSampleModelInputSha256 =
-  "699a9fc67c6b93c5d866c73b8461f498d1183b3cefdfea693e31373b8d5380d8";
+  "b00d0806e8bafe90d7d942a55282928804b6f0856c3fb04d6f7b0a92210dc320";
 const pythonBiddingSampleModelInputSha256 =
   "e4f86e8b9dd5661301e701c71ad6fc167123acedb8e118192e8ccfe6bc6df877";
 const pythonExchangeSampleModelInputSha256 =
@@ -90,7 +90,8 @@ describe("encodePlayingModelInput", () => {
       { name: "biddingHistoryActionTypeIndicesOneHot", start: 4136, stop: 4370, shape: [117, 2], dtype: "float32" },
       { name: "biddingHistoryPlayerIndicesOneHot", start: 4370, stop: 4955, shape: [117, 5], dtype: "float32" },
       { name: "biddingHistorySuitIndicesOneHot", start: 4955, stop: 5423, shape: [117, 4], dtype: "float32" },
-      { name: "biddingHistoryTargetPointCardsOneHot", start: 5423, stop: 6242, shape: [117, 7], dtype: "float32" }
+      { name: "biddingHistoryTargetPointCardsOneHot", start: 5423, stop: 6242, shape: [117, 7], dtype: "float32" },
+      { name: "selfRoleOneHot", start: 6242, stop: 6246, shape: [4], dtype: "float32" }
     ]);
     expect(MODEL_INPUT_LAYOUT).toEqual([
       ...FLAT_OBSERVATION_LAYOUT,
@@ -98,7 +99,7 @@ describe("encodePlayingModelInput", () => {
     ]);
   });
 
-  it("builds the fixed 6242-feature model_input from an encoded playing observation", async () => {
+  it("builds the fixed 6246-feature model_input from an encoded playing observation", async () => {
     const record = await runAutomatedGame({
       seed: 12345,
       createAgent: ({ rng }) => new RuleBasedAgent(rng)
@@ -119,6 +120,9 @@ describe("encodePlayingModelInput", () => {
 
     expect(modelInput).toBeInstanceOf(Float32Array);
     expect(modelInput).toHaveLength(MODEL_INPUT_FEATURE_COUNT);
+    expect(Array.from(modelInput.slice(MODEL_INPUT_FEATURE_COUNT - 4))).toEqual(
+      sample.observation.selfRoleOneHot
+    );
 
     const legalMaskOffset = 4 + 5 + 6 + CARD_COUNT + CARD_COUNT;
     expect(Array.from(modelInput.slice(legalMaskOffset, legalMaskOffset + CARD_COUNT))).toEqual(

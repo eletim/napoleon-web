@@ -270,8 +270,8 @@ def _write_checkpoint(path: Path, model: PolicyMlpModel) -> dict[str, object]:
         "model_config": model.config.to_dict(),
         "training_config": {"source": "unit-test"},
         "dataset_schema_version": 1,
-        "playing_encoder_schema_version": 1,
-        "model_input_schema_version": 1,
+        "playing_encoder_schema_version": 2,
+        "model_input_schema_version": 2,
         "card_ids_sha256": calculate_card_ids_sha256(),
     }
     torch.save(checkpoint, path)
@@ -287,7 +287,7 @@ def _write_supervised_dataset(directory: Path, *, seeds: tuple[int, ...]) -> Non
         manifest_extra={
             "datasetSchemaVersion": 1,
             "generatorVersion": 1,
-            "playingEncoderSchemaVersion": 1,
+            "playingEncoderSchemaVersion": 2,
             "sampleType": "playing-training-sample",
             "agent": {"type": "rule-based", "version": 1},
         },
@@ -316,7 +316,7 @@ def _write_self_play_dataset(
         sample.update(
             {
                 "sampleType": "playing-self-play-sample",
-                "schemaVersion": 1,
+                "schemaVersion": 2,
                 "seed": index,
                 "step": 1,
                 "selectedCardIndex": selected,
@@ -340,9 +340,9 @@ def _write_self_play_dataset(
             "datasetSchemaVersion": 3,
             "generatorVersion": 1,
             "sampleType": "playing-self-play-sample",
-            "sampleSchemaVersion": 1,
-            "playingEncoderSchemaVersion": 1,
-            "playingModelInputSchemaVersion": 1,
+            "sampleSchemaVersion": 2,
+            "playingEncoderSchemaVersion": 2,
+            "playingModelInputSchemaVersion": 2,
             "behaviorPolicy": {
                 "type": "playing-onnx",
                 "artifactId": "unit-policy",

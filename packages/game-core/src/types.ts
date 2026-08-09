@@ -77,6 +77,8 @@ export interface AdjutantView {
   revealedPlayerId: PlayerId | null;
 }
 
+export type PlayingSelfRole = "napoleon" | "adjutant" | "alliance" | "napoleon-solo";
+
 export type WinningTeam = "napoleon-team" | "alliance";
 
 export interface GameResult {
@@ -206,6 +208,7 @@ export interface PlayerView {
   selfId: PlayerId;
   players: readonly PublicPlayerState[];
   phase: GamePhase;
+  playingSelfRole: PlayingSelfRole | null;
   trumpSuit: Suit | null;
   contract: Contract | null;
   specialCards: SpecialCardsView;

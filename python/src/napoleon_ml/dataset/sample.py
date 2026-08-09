@@ -10,7 +10,7 @@ Mirrors, field-for-field, the following TypeScript sources:
 
 Parsing here only enforces JSON *shape*: required keys present, no unknown
 keys, every value has the declared JSON type, and every fixed-length array
-has its schema-v1 length. No numeric-range or cross-field checking is done
+has its schema-declared length. No numeric-range or cross-field checking is done
 here; that lives in :mod:`napoleon_ml.dataset.validation`.
 """
 
@@ -42,6 +42,7 @@ from .constants import (
     PLAYING_DATASET_SAMPLE_TYPE,
     PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE,
     REVEALED_ADJUTANT_CLASS_COUNT,
+    SELF_ROLE_COUNT,
     TRICK_COUNT,
 )
 from .errors import SampleValidationError
@@ -63,6 +64,7 @@ _PLAYING_OBSERVATION_KEYS = frozenset(
         "trumpSuitOneHot",
         "napoleonPlayerOneHot",
         "revealedAdjutantPlayerOneHot",
+        "selfRoleOneHot",
         "calledAdjutantCardMask",
         "selfHandMask",
         "legalPlayMask",
@@ -200,6 +202,7 @@ class EncodedPlayingObservation:
     trump_suit_one_hot: tuple[int, ...]
     napoleon_player_one_hot: tuple[int, ...]
     revealed_adjutant_player_one_hot: tuple[int, ...]
+    self_role_one_hot: tuple[int, ...]
     called_adjutant_card_mask: tuple[int, ...]
     self_hand_mask: tuple[int, ...]
     legal_play_mask: tuple[int, ...]
@@ -468,6 +471,12 @@ def _parse_playing_observation(raw: object, *, error: ErrorFactory) -> EncodedPl
             obj["revealedAdjutantPlayerOneHot"],
             path=f"{path}.revealedAdjutantPlayerOneHot",
             length=REVEALED_ADJUTANT_CLASS_COUNT,
+            error=error,
+        ),
+        self_role_one_hot=require_fixed_length_int_tuple(
+            obj["selfRoleOneHot"],
+            path=f"{path}.selfRoleOneHot",
+            length=SELF_ROLE_COUNT,
             error=error,
         ),
         called_adjutant_card_mask=require_fixed_length_int_tuple(

@@ -3,7 +3,8 @@ import type {
   AdjutantTrainingSample,
   BiddingTrainingSample,
   ExchangeTrainingSample,
-  PlayingTrainingSample
+  PlayingTrainingSample,
+  PLAYING_ENCODER_SCHEMA_VERSION
 } from "@napoleon/ai-observation";
 import type {
   DATASET_SAMPLE_TYPES,
@@ -56,7 +57,7 @@ interface DatasetManifestBase {
 export interface DatasetManifest extends DatasetManifestBase {
   datasetSchemaVersion: typeof DATASET_SCHEMA_VERSION;
   generatorVersion: typeof DATASET_GENERATOR_VERSION;
-  playingEncoderSchemaVersion: 1;
+  playingEncoderSchemaVersion: typeof PLAYING_ENCODER_SCHEMA_VERSION;
   sampleType: typeof DATASET_SAMPLE_TYPE;
 }
 

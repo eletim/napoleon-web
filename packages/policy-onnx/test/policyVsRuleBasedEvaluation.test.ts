@@ -251,7 +251,7 @@ describe("runFullPolicyVsRuleBasedEvaluation", () => {
           exchange: { policyType: "exchange" }
         }
       });
-      expect(first.configuration.policyMetadata.playing.playingEncoderSchemaVersion).toBe(1);
+      expect(first.configuration.policyMetadata.playing.playingEncoderSchemaVersion).toBe(2);
       expect(first.run.games).toHaveLength(5);
       expect(first.run.completedCount).toBe(5);
       expect(first.run.failedCount).toBe(0);
@@ -547,8 +547,8 @@ function createMetadata() {
     metadataSchemaVersion: 1,
     checkpointSchemaVersion: 1,
     datasetSchemaVersion: 1,
-    playingEncoderSchemaVersion: 1,
-    modelInputSchemaVersion: 1,
+    playingEncoderSchemaVersion: 2,
+    modelInputSchemaVersion: 2,
     cardIdsSha256: calculateCardIdsSha256(),
     onnx: {
       opsetVersion: ONNX_OPSET_VERSION,

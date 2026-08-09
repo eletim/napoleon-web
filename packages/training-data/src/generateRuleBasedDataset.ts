@@ -60,7 +60,7 @@ import {
 
 interface SampleGenerationSpec {
   sampleType: DatasetSampleType;
-  encoderSchemaVersion: 1;
+  encoderSchemaVersion: number;
   createSamples: SampleCreator;
   validateSample: SampleValidator;
   serializeSample: SampleSerializer;
@@ -250,7 +250,7 @@ function createManifest(input: {
   return {
     datasetSchemaVersion: MULTIPHASE_DATASET_SCHEMA_VERSION,
     generatorVersion: MULTIPHASE_DATASET_GENERATOR_VERSION,
-    encoderSchemaVersion: input.spec.encoderSchemaVersion,
+    encoderSchemaVersion: input.spec.encoderSchemaVersion as 1,
     format: DATASET_FORMAT,
     sampleType: input.spec.sampleType,
     agent: {

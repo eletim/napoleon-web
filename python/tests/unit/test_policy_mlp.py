@@ -24,6 +24,7 @@ from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 from napoleon_ml.policy.checkpoint import (
     PolicyCheckpointCompatibilityError,
     load_policy_checkpoint,
+    migrate_policy_checkpoint_v1_to_v2,
 )
 from napoleon_ml.policy.metrics import (
     evaluate_policy_model,
@@ -83,7 +84,7 @@ def _write_dataset(
     manifest = {
         "datasetSchemaVersion": 1,
         "generatorVersion": 1,
-        "playingEncoderSchemaVersion": 1,
+        "playingEncoderSchemaVersion": 2,
         "format": "jsonl",
         "sampleType": "playing-training-sample",
         "agent": {"type": "rule-based", "version": 1},
@@ -426,6 +427,58 @@ def test_policy_checkpoint_rejects_incompatible_metadata(
         load_policy_checkpoint(checkpoint_path, manifest=load_manifest(tmp_path))
 
 
+def test_migrate_policy_checkpoint_v1_to_v2_preserves_logits_and_zeroes_new_role_weights(
+    tmp_path: Path,
+) -> None:
+    _write_dataset(tmp_path, seeds=(0,))
+    source_path = tmp_path.parent / f"{tmp_path.name}-old-policy.pt"
+    migrated_path = tmp_path.parent / f"{tmp_path.name}-migrated-policy.pt"
+    old_model = create_seeded_policy_model(
+        PolicyMlpConfig(input_dim=6242, hidden_dim=8, hidden_layers=1),
+        seed=123,
+    )
+    torch.save(
+        {
+            "checkpoint_schema_version": 1,
+            "model_state": old_model.state_dict(),
+            "model_config": old_model.config.to_dict(),
+            "training_config": {},
+            "dataset_schema_version": 1,
+            "playing_encoder_schema_version": 1,
+            "model_input_schema_version": 1,
+            "card_ids_sha256": calculate_card_ids_sha256(),
+        },
+        source_path,
+    )
+    source_sha256 = hashlib.sha256(source_path.read_bytes()).hexdigest()
+
+    migrated = migrate_policy_checkpoint_v1_to_v2(source_path, migrated_path)
+    migrated_model, checkpoint = load_policy_checkpoint(
+        migrated_path, manifest=load_manifest(tmp_path)
+    )
+
+    first_weight = cast(dict[str, torch.Tensor], migrated["model_state"])["network.0.weight"]
+    assert torch.equal(first_weight[:, :6242], old_model.state_dict()["network.0.weight"])
+    assert torch.count_nonzero(first_weight[:, 6242:]).item() == 0
+    provenance = cast(dict[str, object], checkpoint["migration_provenance"])
+    assert provenance["sourceCheckpointSha256"] == source_sha256
+    assert provenance["sourceModelInputSchemaVersion"] == 1
+    assert provenance["targetModelInputSchemaVersion"] == 2
+
+    old_model.eval()
+    migrated_model.eval()
+    old_input = torch.randn((3, 6242), generator=torch.Generator().manual_seed(456))
+    role_features = torch.tensor(
+        [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]],
+        dtype=torch.float32,
+    )
+    with torch.no_grad():
+        old_logits = old_model(old_input)
+        migrated_logits = migrated_model(torch.cat([old_input, role_features], dim=1))
+
+    torch.testing.assert_close(migrated_logits, old_logits, rtol=0, atol=1e-7)
+
+
 def test_evaluate_cli_reports_missing_checkpoint_without_traceback(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -529,8 +582,8 @@ def test_policy_onnx_metadata_records_runtime_contract(tmp_path: Path) -> None:
 
     validate_policy_onnx_metadata(metadata)
     assert metadata["datasetSchemaVersion"] == 1
-    assert metadata["playingEncoderSchemaVersion"] == 1
-    assert metadata["modelInputSchemaVersion"] == 1
+    assert metadata["playingEncoderSchemaVersion"] == 2
+    assert metadata["modelInputSchemaVersion"] == 2
     assert metadata["cardIdsSha256"] == calculate_card_ids_sha256()
     assert metadata["policyModel"] == {
         "input_dim": MODEL_INPUT_FEATURE_COUNT,
@@ -570,8 +623,8 @@ def test_policy_onnx_export_rejects_checkpoint_with_wrong_input_shape_before_out
             "model_config": bad_model.config.to_dict(),
             "training_config": {},
             "dataset_schema_version": 1,
-            "playing_encoder_schema_version": 1,
-            "model_input_schema_version": 1,
+            "playing_encoder_schema_version": 2,
+            "model_input_schema_version": 2,
             "card_ids_sha256": calculate_card_ids_sha256(),
         },
         checkpoint_path,

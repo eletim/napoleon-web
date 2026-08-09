@@ -1,7 +1,7 @@
 """NumPy tensorization of validated samples, with an explicit fixed feature layout.
 
-Every array here has a fixed shape and dtype derived directly from schema
-v1's constants (see :mod:`napoleon_ml.dataset.constants`), never inferred by
+Every array here has a fixed shape and dtype derived directly from the schema
+constants (see :mod:`napoleon_ml.dataset.constants`), never inferred by
 recursively flattening whatever a sample happens to contain. ``flat_observation``
 concatenates only the fields that are already good MLP input as-is (binary
 masks, one-hots, and small scalars) in the fixed order recorded in
@@ -52,6 +52,7 @@ from .constants import (
     PLAYER_COUNT,
     PLAYING_MODEL_INPUT_SCHEMA_VERSION,
     REVEALED_ADJUTANT_CLASS_COUNT,
+    SELF_ROLE_COUNT,
     TRICK_COUNT,
 )
 from .errors import SampleValidationError
@@ -69,7 +70,7 @@ from .sample import (
     TrainingSample,
 )
 
-MODEL_INPUT_SCHEMA_VERSION = 1
+MODEL_INPUT_SCHEMA_VERSION = 2
 BIDDING_MODEL_INPUT_SCHEMA_VERSION = 1
 EXCHANGE_MODEL_INPUT_SCHEMA_VERSION = 1
 ADJUTANT_MODEL_INPUT_SCHEMA_VERSION = 1
@@ -121,6 +122,7 @@ class PlayingObservationTensors:
     trump_suit_one_hot: np.ndarray
     napoleon_player_one_hot: np.ndarray
     revealed_adjutant_player_one_hot: np.ndarray
+    self_role_one_hot: np.ndarray
 
     # Scalars and small count vectors (float32), cast but not rescaled.
     trick_number: np.float32
@@ -379,8 +381,12 @@ _MODEL_INPUT_ONEHOT_FIELDS: tuple[_OneHotField, ...] = (
     ),
 )
 
-_MODEL_INPUT_ONEHOT_SPEC: tuple[tuple[str, tuple[int, ...]], ...] = tuple(
+_MODEL_INPUT_INDEX_ONEHOT_SPEC: tuple[tuple[str, tuple[int, ...]], ...] = tuple(
     (field.name, (field.slot_count, field.num_classes)) for field in _MODEL_INPUT_ONEHOT_FIELDS
+)
+_MODEL_INPUT_ONEHOT_SPEC: tuple[tuple[str, tuple[int, ...]], ...] = (
+    *_MODEL_INPUT_INDEX_ONEHOT_SPEC,
+    ("selfRoleOneHot", (SELF_ROLE_COUNT,)),
 )
 
 
@@ -437,6 +443,7 @@ _validate_layout(
     expected_start=FLAT_OBSERVATION_FEATURE_COUNT,
     label="MODEL_INPUT_ONEHOT_LAYOUT",
 )
+_MODEL_INPUT_INDEX_ONEHOT_LAYOUT = MODEL_INPUT_ONEHOT_LAYOUT[: len(_MODEL_INPUT_ONEHOT_FIELDS)]
 
 MODEL_INPUT_LAYOUT: tuple[FeatureSlice, ...] = FLAT_OBSERVATION_LAYOUT + MODEL_INPUT_ONEHOT_LAYOUT
 _validate_layout(MODEL_INPUT_LAYOUT, expected_start=0, label="MODEL_INPUT_LAYOUT")
@@ -663,6 +670,7 @@ def tensorize_observation(observation: EncodedPlayingObservation) -> PlayingObse
         revealed_adjutant_player_one_hot=_one_hot_array(
             observation.revealed_adjutant_player_one_hot
         ),
+        self_role_one_hot=_one_hot_array(observation.self_role_one_hot),
         trick_number=np.float32(observation.trick_number),
         completed_trick_count=np.float32(observation.completed_trick_count),
         contract_target_point_cards=np.float32(observation.contract_target_point_cards),
@@ -821,6 +829,7 @@ def _model_input(tensors: PlayingObservationTensors, flat: np.ndarray) -> np.nda
 
     parts = [flat]
     parts.extend(_one_hot_field(tensors, field).reshape(-1) for field in _MODEL_INPUT_ONEHOT_FIELDS)
+    parts.append(tensors.self_role_one_hot)
     model_input = np.ascontiguousarray(np.concatenate(parts), dtype=np.float32)
 
     if model_input.shape != (MODEL_INPUT_FEATURE_COUNT,):
@@ -1301,7 +1310,9 @@ def _validate_model_input(
     # also catches a region that is well-formed but encodes the wrong
     # class -- a shifted, swapped, or all-zeroed-out index that a
     # structural-only check would silently accept.
-    for feature, field in zip(MODEL_INPUT_ONEHOT_LAYOUT, _MODEL_INPUT_ONEHOT_FIELDS, strict=True):
+    for feature, field in zip(
+        _MODEL_INPUT_INDEX_ONEHOT_LAYOUT, _MODEL_INPUT_ONEHOT_FIELDS, strict=True
+    ):
         region = model_input[feature.start : feature.stop].reshape(feature.shape)
         expected = _one_hot_field(observation, field)
 
@@ -1310,3 +1321,12 @@ def _validate_model_input(
                 f"model_input region {feature.name!r} does not match "
                 f"observation.{field.tensor_attr}."
             )
+
+    self_role_feature = MODEL_INPUT_ONEHOT_LAYOUT[-1]
+    if self_role_feature.name != "selfRoleOneHot":
+        raise AssertionError("MODEL_INPUT_ONEHOT_LAYOUT must end with selfRoleOneHot.")
+    self_role_region = model_input[self_role_feature.start : self_role_feature.stop]
+    if not np.array_equal(self_role_region, observation.self_role_one_hot):
+        raise SampleValidationError(
+            "model_input region 'selfRoleOneHot' does not match observation.self_role_one_hot."
+        )

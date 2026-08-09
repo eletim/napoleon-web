@@ -22,6 +22,7 @@ import type {
   GameState,
   PlayerId,
   PlayerState,
+  PlayingSelfRole,
   PlayerView,
   StandardCard
 } from "./types.js";
@@ -176,6 +177,7 @@ export function createPlayerView(state: GameState, playerId: PlayerId): PlayerVi
       ...(player.id === playerId ? { hand: player.hand } : {})
     })),
     phase: state.phase,
+    playingSelfRole: getPlayingSelfRole(state, playerId),
     trumpSuit: state.trumpSuit,
     contract: state.contract,
     specialCards: {
@@ -209,6 +211,22 @@ export function createPlayerView(state: GameState, playerId: PlayerId): PlayerVi
     isGameOver: state.isGameOver,
     legalActions: getLegalActions(state, playerId)
   };
+}
+
+function getPlayingSelfRole(state: GameState, playerId: PlayerId): PlayingSelfRole | null {
+  if (state.phase !== "playing" || state.contract === null || state.adjutant === null) {
+    return null;
+  }
+
+  if (playerId === state.contract.napoleonPlayerId) {
+    return state.adjutant.playerId === null ? "napoleon-solo" : "napoleon";
+  }
+
+  if (state.adjutant.playerId === playerId) {
+    return "adjutant";
+  }
+
+  return "alliance";
 }
 
 function playCard(state: GameState, playerId: PlayerId, cardId: string): GameState {

@@ -245,7 +245,7 @@ def test_model_input_feature_count_matches_layout_and_expected_total() -> None:
     onehot_length = sum(feature.stop - feature.start for feature in MODEL_INPUT_ONEHOT_LAYOUT)
 
     assert FLAT_OBSERVATION_FEATURE_COUNT + onehot_length == MODEL_INPUT_FEATURE_COUNT
-    assert MODEL_INPUT_FEATURE_COUNT == 6242
+    assert MODEL_INPUT_FEATURE_COUNT == 6246
 
 
 def test_model_input_is_c_contiguous_and_finite() -> None:

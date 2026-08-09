@@ -12,6 +12,8 @@ import {
   MAX_BIDDING_TARGET_POINT_CARDS,
   PLAYER_COUNT,
   PLAYING_ENCODER_SCHEMA_VERSION,
+  SELF_ROLE_COUNT,
+  SELF_ROLE_ORDER,
   TRICK_COUNT
 } from "./schema.js";
 
@@ -28,6 +30,7 @@ export interface EncodedPlayingObservation {
   trumpSuitOneHot: readonly number[];
   napoleonPlayerOneHot: readonly number[];
   revealedAdjutantPlayerOneHot: readonly number[];
+  selfRoleOneHot: readonly number[];
   calledAdjutantCardMask: readonly number[];
   selfHandMask: readonly number[];
   legalPlayMask: readonly number[];
@@ -78,6 +81,10 @@ export function encodePlayingObservation(
     throw new Error("Playing observations must include an adjutant view.");
   }
 
+  if (view.playingSelfRole === null) {
+    throw new Error("Playing observations must include a self playing role.");
+  }
+
   const relativePlayerIds = createRelativePlayerOrder(absolutePlayerIds, observation.playerId);
   const playersById = createPlayersById(view.players);
   const self = playersById.get(observation.playerId);
@@ -101,6 +108,7 @@ export function encodePlayingObservation(
       relativePlayerIds,
       view.adjutant.revealedPlayerId
     ),
+    selfRoleOneHot: encodeSelfRoleOneHot(view.playingSelfRole),
     calledAdjutantCardMask: createMask([view.adjutant.calledCardId]),
     selfHandMask: createMask(self.hand.map((card) => card.id)),
     legalPlayMask: encodeLegalPlayMask(observation),
@@ -160,6 +168,7 @@ export function validateEncodedPlayingObservation(
     observation.revealedAdjutantPlayerOneHot,
     REVEALED_ADJUTANT_CLASS_COUNT
   );
+  expectLength("selfRoleOneHot", observation.selfRoleOneHot, SELF_ROLE_COUNT);
   expectLength("calledAdjutantCardMask", observation.calledAdjutantCardMask, CARD_COUNT);
   expectLength("selfHandMask", observation.selfHandMask, CARD_COUNT);
   expectLength("legalPlayMask", observation.legalPlayMask, CARD_COUNT);
@@ -219,6 +228,7 @@ export function validateEncodedPlayingObservation(
   validateOneHot("trumpSuitOneHot", observation.trumpSuitOneHot);
   validateOneHot("napoleonPlayerOneHot", observation.napoleonPlayerOneHot);
   validateOneHot("revealedAdjutantPlayerOneHot", observation.revealedAdjutantPlayerOneHot);
+  validateOneHot("selfRoleOneHot", observation.selfRoleOneHot);
   validateMask("calledAdjutantCardMask", observation.calledAdjutantCardMask);
   expectSum("calledAdjutantCardMask", observation.calledAdjutantCardMask, 1);
   validateMask("selfHandMask", observation.selfHandMask);
@@ -261,6 +271,14 @@ export function validateEncodedPlayingObservation(
       `trickNumber must equal completedTrickCount + 1: ${observation.trickNumber} !== ${observation.completedTrickCount + 1}.`
     );
   }
+}
+
+function encodeSelfRoleOneHot(role: PlayerObservation["view"]["playingSelfRole"]): readonly number[] {
+  if (role === null) {
+    throw new Error("Playing self role is required.");
+  }
+
+  return SELF_ROLE_ORDER.map((candidate) => (candidate === role ? 1 : 0));
 }
 
 function createPlayersById(

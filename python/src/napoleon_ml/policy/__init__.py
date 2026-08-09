@@ -6,6 +6,7 @@ from .checkpoint import (
     CHECKPOINT_SCHEMA_VERSION,
     PolicyCheckpointCompatibilityError,
     load_policy_checkpoint,
+    migrate_policy_checkpoint_v1_to_v2,
     save_policy_checkpoint,
 )
 from .metrics import (
@@ -58,6 +59,7 @@ __all__ = [
     "export_policy_checkpoint_to_onnx",
     "load_policy_checkpoint",
     "mask_illegal_policy_logits",
+    "migrate_policy_checkpoint_v1_to_v2",
     "masked_selected_log_probability",
     "masked_policy_accuracy",
     "masked_policy_cross_entropy",

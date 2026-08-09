@@ -104,7 +104,7 @@ def _write_dataset(directory: Path, samples: list[dict[str, Any]]) -> None:
     manifest = {
         "datasetSchemaVersion": 1,
         "generatorVersion": 1,
-        "playingEncoderSchemaVersion": 1,
+        "playingEncoderSchemaVersion": 2,
         "format": "jsonl",
         "sampleType": "playing-training-sample",
         "agent": {"type": "rule-based", "version": 1},
@@ -150,7 +150,7 @@ def _write_self_play_dataset(directory: Path, samples: list[dict[str, Any]]) -> 
         "generatorVersion": 1,
         "format": "jsonl",
         "sampleType": "playing-self-play-sample",
-        "sampleSchemaVersion": 1,
+        "sampleSchemaVersion": 2,
         "startSeed": seeds[0],
         "endSeed": seeds[-1],
         "gameCount": unique_seed_runs,
@@ -172,8 +172,8 @@ def _write_self_play_dataset(directory: Path, samples: list[dict[str, Any]]) -> 
                 "sha256": hashlib.sha256(shard_bytes).hexdigest(),
             }
         ],
-        "playingEncoderSchemaVersion": 1,
-        "playingModelInputSchemaVersion": 1,
+        "playingEncoderSchemaVersion": 2,
+        "playingModelInputSchemaVersion": 2,
         "behaviorPolicy": {
             "type": "playing-onnx",
             "artifactId": "unit-policy",

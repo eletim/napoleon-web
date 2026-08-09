@@ -164,7 +164,7 @@ def test_self_play_missing_outcome_key_rejected() -> None:
 
 def test_schema_version_mismatch_rejected() -> None:
     raw = _load_valid_sample()
-    raw["schemaVersion"] = 2
+    raw["schemaVersion"] = 1
 
     with pytest.raises(SampleValidationError, match="schemaVersion"):
         _parse_and_validate(raw)
