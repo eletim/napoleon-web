@@ -42,6 +42,7 @@ DEFAULT_GAMES_PER_ITERATION = 200
 DEFAULT_GAMES_PER_SHARD = 20
 DEFAULT_SELF_PLAY_SEED_BASE = 0
 DEFAULT_TEMPERATURE = 1.0
+DEFAULT_ROLLOUT_ROSTER = ",".join(["current-policy"] * 5)
 DEFAULT_LEARNING_RATE = 1e-5
 DEFAULT_EPOCHS = 1
 DEFAULT_BATCH_SIZE = 128
@@ -62,6 +63,7 @@ class PlayingRlRunConfig:
     games_per_shard: int = DEFAULT_GAMES_PER_SHARD
     self_play_seed_base: int = DEFAULT_SELF_PLAY_SEED_BASE
     temperature: float = DEFAULT_TEMPERATURE
+    rollout_roster: str = DEFAULT_ROLLOUT_ROSTER
     algorithm: str = REINFORCE_ALGORITHM
     learning_rate: float = DEFAULT_LEARNING_RATE
     value_loss_coefficient: float = DEFAULT_VALUE_LOSS_COEFFICIENT
@@ -83,6 +85,7 @@ class PlayingRlRunConfig:
             games_per_shard=self.games_per_shard,
             self_play_seed_base=self.self_play_seed_base,
             temperature=self.temperature,
+            rollout_roster=self.rollout_roster,
             algorithm=self.algorithm,
             learning_rate=self.learning_rate,
             value_loss_coefficient=self.value_loss_coefficient,
@@ -108,6 +111,7 @@ class PlayingRlRunConfig:
             "gamesPerShard": self.games_per_shard,
             "selfPlaySeedBase": self.self_play_seed_base,
             "temperature": self.temperature,
+            "rolloutRoster": self.rollout_roster,
             "algorithm": self.algorithm,
             "learningRate": self.learning_rate,
             "valueLossCoefficient": self.value_loss_coefficient,
@@ -241,6 +245,8 @@ def _run_iteration(
             str(config.games_per_shard),
             "--temperature",
             repr(config.temperature),
+            "--rollout-roster",
+            config.rollout_roster,
             "--artifact-id",
             f"policy-v{iteration}",
             "--progress-prefix",
@@ -919,6 +925,7 @@ def _validate_resume_config(
         "initialCheckpointSha256",
         "supervisedManifestSha256",
         "algorithm",
+        "rolloutRoster",
     }
     for key in always_check | provided_config_keys:
         if requested_config.get(key) != _stored_config_value(stored_config, key):
@@ -942,6 +949,7 @@ def _config_from_file_dict(
         games_per_shard=_required_int(data["gamesPerShard"]),
         self_play_seed_base=_required_int(data["selfPlaySeedBase"]),
         temperature=_required_float(data["temperature"]),
+        rollout_roster=_required_str(_stored_config_value(data, "rolloutRoster")),
         algorithm=_required_str(_stored_config_value(data, "algorithm")),
         learning_rate=_required_float(data["learningRate"]),
         value_loss_coefficient=_required_float(
@@ -974,6 +982,8 @@ def _validate_config(config: PlayingRlRunConfig) -> None:
         raise PlayingRlOrchestratorError("games_per_shard must be <= games_per_iteration.")
     if config.temperature <= 0 or not math.isfinite(config.temperature):
         raise PlayingRlOrchestratorError("temperature must be finite and positive.")
+    if config.rollout_roster.strip() == "":
+        raise PlayingRlOrchestratorError("rollout_roster must be non-empty.")
     if config.algorithm not in PLAYING_RL_ALGORITHMS:
         raise PlayingRlOrchestratorError(
             "algorithm must be one of "
@@ -1149,6 +1159,8 @@ def _stored_config_value(data: Mapping[str, object], key: str) -> object:
         return REINFORCE_ALGORITHM
     if key == "valueLossCoefficient":
         return DEFAULT_VALUE_LOSS_COEFFICIENT
+    if key == "rolloutRoster":
+        return DEFAULT_ROLLOUT_ROSTER
     raise KeyError(key)
 
 

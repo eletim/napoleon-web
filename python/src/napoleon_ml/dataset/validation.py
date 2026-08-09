@@ -29,6 +29,7 @@ from .constants import (
     CARD_COUNT,
     CARDS_PER_TRICK,
     COMPLETED_TRICK_CARD_SLOT_COUNT,
+    CURRENT_POLICY_ROSTER_SOURCE,
     DATASET_FORMAT,
     DATASET_GENERATOR_VERSION,
     DATASET_SAMPLE_TYPE,
@@ -41,6 +42,7 @@ from .constants import (
     EXCHANGE_DATASET_SAMPLE_TYPE,
     EXCHANGE_ENCODER_SCHEMA_VERSION,
     EXPECTED_CARD_IDS,
+    FROZEN_ONNX_ROSTER_SOURCE,
     MAX_BIDDING_ACTION_COUNT,
     MAX_BIDDING_TARGET_POINT_CARDS,
     MAX_CONTRACT_TARGET_POINT_CARDS,
@@ -61,10 +63,13 @@ from .constants import (
     PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION,
     PLAYING_SELF_PLAY_REWARD_TYPE,
     PLAYING_SELF_PLAY_REWARD_VERSION,
+    PLAYING_SELF_PLAY_ROSTER_ASSIGNMENT,
     PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION,
     PLAYING_SELF_PLAY_SAMPLING_ALGORITHM,
     REVEALED_ADJUTANT_CLASS_COUNT,
+    ROLLOUT_ROSTER_SOURCES,
     RULE_BASED_AGENT_VERSION,
+    RULE_BASED_ROSTER_SOURCE,
     SELF_ROLE_COUNT,
     SELF_ROLE_ORDER,
     SHARD_FILE_DIGITS,
@@ -385,6 +390,57 @@ def _validate_playing_self_play_manifest_identity(manifest: DatasetManifest) -> 
         or manifest.non_playing_agent.version != RULE_BASED_AGENT_VERSION
     ):
         raise ManifestValidationError("self-play manifest.nonPlayingAgent metadata mismatch.")
+
+    roster = manifest.rollout_roster
+    if roster is None:
+        raise ManifestValidationError("self-play manifest.rolloutRoster is required.")
+
+    if roster.assignment != PLAYING_SELF_PLAY_ROSTER_ASSIGNMENT:
+        raise ManifestValidationError("self-play manifest.rolloutRoster.assignment mismatch.")
+
+    if len(roster.seats) != PLAYER_COUNT:
+        raise ManifestValidationError(
+            f"self-play manifest.rolloutRoster.seats must have length {PLAYER_COUNT}."
+        )
+
+    current_policy_count = 0
+    for index, seat in enumerate(roster.seats):
+        if seat.source not in ROLLOUT_ROSTER_SOURCES:
+            raise ManifestValidationError(
+                f"self-play manifest.rolloutRoster.seats[{index}].source is invalid."
+            )
+        if seat.source == CURRENT_POLICY_ROSTER_SOURCE:
+            current_policy_count += 1
+        elif seat.source == RULE_BASED_ROSTER_SOURCE:
+            if seat.version != RULE_BASED_AGENT_VERSION:
+                raise ManifestValidationError(
+                    f"self-play manifest.rolloutRoster.seats[{index}] "
+                    "rule-based version mismatch."
+                )
+        elif seat.source == FROZEN_ONNX_ROSTER_SOURCE:
+            for field_name, optional_value in (
+                ("artifactId", seat.artifact_id),
+                ("onnxFileName", seat.onnx_file_name),
+                ("metadataFileName", seat.metadata_file_name),
+            ):
+                if optional_value is None or optional_value == "":
+                    raise ManifestValidationError(
+                        f"self-play manifest.rolloutRoster.seats[{index}].{field_name} is empty."
+                    )
+            if seat.onnx_sha256 is None or not _SHA256_HEX_PATTERN.match(seat.onnx_sha256):
+                raise ManifestValidationError(
+                    f"self-play manifest.rolloutRoster.seats[{index}].onnxSha256 is invalid."
+                )
+            if (
+                seat.metadata_sha256 is None
+                or not _SHA256_HEX_PATTERN.match(seat.metadata_sha256)
+            ):
+                raise ManifestValidationError(
+                    f"self-play manifest.rolloutRoster.seats[{index}].metadataSha256 is invalid."
+                )
+
+    if current_policy_count == 0:
+        raise ManifestValidationError("self-play manifest.rolloutRoster has no current-policy.")
 
 
 def _encoder_schema_version_for_sample_type(sample_type: str) -> int:
@@ -749,6 +805,22 @@ def validate_playing_self_play_sample(sample: PlayingSelfPlaySample) -> None:
         relative_player_ids=sample.relative_player_ids,
         observation=sample.observation,
     )
+    if sample.acting_seat_source != CURRENT_POLICY_ROSTER_SOURCE:
+        raise SampleValidationError("actingSeatSource must be current-policy.")
+
+    if sample.behavior_policy_artifact_id == "":
+        raise SampleValidationError("behaviorPolicyArtifactId must be non-empty.")
+
+    if len(sample.rollout_seat_sources) != PLAYER_COUNT:
+        raise SampleValidationError(
+            f"rolloutSeatSources must have length {PLAYER_COUNT}, "
+            f"got {len(sample.rollout_seat_sources)}."
+        )
+
+    for index, source in enumerate(sample.rollout_seat_sources):
+        if source not in ROLLOUT_ROSTER_SOURCES:
+            raise SampleValidationError(f"rolloutSeatSources[{index}] is invalid: {source!r}.")
+
     validate_encoded_playing_observation(sample.observation)
 
     _expect_int_range("selectedCardIndex", sample.selected_card_index, 0, CARD_COUNT - 1)

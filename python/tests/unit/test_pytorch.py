@@ -71,6 +71,16 @@ def _self_play_sample(*, seed: int = 0, step: int = 1) -> dict[str, Any]:
     raw.update(
         {
             "sampleType": "playing-self-play-sample",
+            "schemaVersion": 3,
+            "actingSeatSource": "current-policy",
+            "behaviorPolicyArtifactId": "unit-policy",
+            "rolloutSeatSources": [
+                "current-policy",
+                "current-policy",
+                "current-policy",
+                "current-policy",
+                "current-policy",
+            ],
             "seed": seed,
             "step": step,
             "selectedCardIndex": selected_card_index,
@@ -150,7 +160,7 @@ def _write_self_play_dataset(directory: Path, samples: list[dict[str, Any]]) -> 
         "generatorVersion": 1,
         "format": "jsonl",
         "sampleType": "playing-self-play-sample",
-        "sampleSchemaVersion": 2,
+        "sampleSchemaVersion": 3,
         "startSeed": seeds[0],
         "endSeed": seeds[-1],
         "gameCount": unique_seed_runs,
@@ -187,6 +197,10 @@ def _write_self_play_dataset(directory: Path, samples: list[dict[str, Any]]) -> 
         "temperature": 1.0,
         "reward": {"type": "terminal-team-win", "version": 1},
         "nonPlayingAgent": {"type": "rule-based", "version": 1},
+        "rolloutRoster": {
+            "assignment": "rotate-by-seed",
+            "seats": [{"source": "current-policy"} for _ in range(5)],
+        },
     }
     (directory / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 

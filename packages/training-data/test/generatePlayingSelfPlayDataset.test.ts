@@ -19,10 +19,12 @@ import {
   PLAYING_SELF_PLAY_DATASET_GENERATOR_VERSION,
   PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE,
   PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION,
+  PLAYING_SELF_PLAY_ROSTER_ASSIGNMENT,
   PLAYING_SELF_PLAY_REWARD_TYPE,
   PLAYING_SELF_PLAY_REWARD_VERSION,
   PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION,
   PLAYING_SELF_PLAY_SAMPLING_ALGORITHM,
+  assignRolloutRosterForSeed,
   calculatePlayingSelfPlayLogProbability,
   generatePlayingSelfPlayDataset,
   validatePlayingSelfPlayDatasetManifest,
@@ -30,6 +32,7 @@ import {
 } from "../src/index.js";
 import type {
   PlayingSelfPlayDatasetManifest,
+  PlayingSelfPlayRolloutRosterOptions,
   PlayingSelfPlaySample
 } from "../src/index.js";
 import { createConstantPolicyOnnx } from "../../policy-onnx/test/testOnnxFixture.js";
@@ -91,6 +94,10 @@ describe("generatePlayingSelfPlayDataset", () => {
         type: "rule-based",
         version: 1
       });
+      expect(manifest.rolloutRoster).toEqual({
+        assignment: PLAYING_SELF_PLAY_ROSTER_ASSIGNMENT,
+        seats: Array.from({ length: 5 }, () => ({ source: "current-policy" }))
+      });
       expect(manifest.behaviorPolicy.onnxSha256).toBe(await sha256File(artifact.onnxPath));
       expect(manifest.behaviorPolicy.metadataSha256).toBe(await sha256File(artifact.metadataPath));
       expect(manifest.cardIdsSha256).toBe(calculateCardIdsSha256());
@@ -112,6 +119,15 @@ describe("generatePlayingSelfPlayDataset", () => {
 
       for (const sample of samples) {
         validatePlayingSelfPlaySample(sample, sample.seed);
+        expect(sample.actingSeatSource).toBe("current-policy");
+        expect(sample.behaviorPolicyArtifactId).toBe("test-playing-policy");
+        expect(sample.rolloutSeatSources).toEqual([
+          "current-policy",
+          "current-policy",
+          "current-policy",
+          "current-policy",
+          "current-policy"
+        ]);
         expect(sample.observation.legalPlayMask[sample.selectedCardIndex]).toBe(1);
         expect(sample.terminalReward).toBe(sample.outcome.actingPlayerTeam === sample.outcome.winner ? 1 : -1);
 
@@ -150,6 +166,152 @@ describe("generatePlayingSelfPlayDataset", () => {
     });
   });
 
+  it("samples only current-policy decisions with rule-based opponents and rotated seats", async () => {
+    await withTempDir(async (directory) => {
+      const artifact = await createPlayingPolicyFixture(directory);
+      const policy = await loadPolicyOnnxModel(artifact);
+      const output = join(directory, "current-vs-rule");
+      const roster: PlayingSelfPlayRolloutRosterOptions = {
+        seats: [
+          { source: "current-policy" },
+          { source: "rule-based" },
+          { source: "rule-based" },
+          { source: "rule-based" },
+          { source: "rule-based" }
+        ]
+      };
+
+      await generatePlayingSelfPlayDataset({
+        outputDirectory: output,
+        playingPolicy: policy,
+        playingPolicyArtifact: artifact,
+        rolloutRoster: roster,
+        startSeed: 0,
+        gameCount: 5,
+        gamesPerShard: 5
+      });
+
+      const manifest = await readManifest(output);
+      const samples = (await readAllShardLines(output, manifest)).map((line) =>
+        JSON.parse(line) as PlayingSelfPlaySample
+      );
+
+      expect(manifest.rolloutRoster.seats.map((seat) => seat.source)).toEqual([
+        "current-policy",
+        "rule-based",
+        "rule-based",
+        "rule-based",
+        "rule-based"
+      ]);
+      expect(samples).toHaveLength(50);
+      expect(new Set(samples.map((sample) => sample.actingPlayerId))).toEqual(
+        new Set(["player-0", "player-1", "player-2", "player-3", "player-4"])
+      );
+
+      for (const sample of samples) {
+        validatePlayingSelfPlaySample(sample, sample.seed);
+        expect(sample.actingSeatSource).toBe("current-policy");
+        expect(sample.rolloutSeatSources.filter((source) => source === "current-policy")).toHaveLength(1);
+        expect(sample.rolloutSeatSources[Number(sample.actingPlayerId.at(-1))]).toBe("current-policy");
+      }
+    });
+  });
+
+  it("supports mixed current, rule-based, and frozen ONNX roster seats", async () => {
+    await withTempDir(async (directory) => {
+      const currentArtifact = await createPlayingPolicyFixture(join(directory, "current"));
+      const frozenArtifact = await createPlayingPolicyFixture(join(directory, "frozen"));
+      const currentPolicy = await loadPolicyOnnxModel(currentArtifact);
+      const frozenPolicy = await loadPolicyOnnxModel(frozenArtifact);
+      const output = join(directory, "mixed");
+
+      await generatePlayingSelfPlayDataset({
+        outputDirectory: output,
+        playingPolicy: currentPolicy,
+        playingPolicyArtifact: currentArtifact,
+        rolloutRoster: {
+          seats: [
+            { source: "current-policy" },
+            { source: "rule-based" },
+            { source: "rule-based" },
+            {
+              source: "frozen-onnx",
+              policy: frozenPolicy,
+              artifact: frozenArtifact
+            },
+            {
+              source: "frozen-onnx",
+              policy: frozenPolicy,
+              artifact: {
+                ...frozenArtifact,
+                artifactId: "frozen-v740-copy"
+              }
+            }
+          ]
+        },
+        startSeed: 3,
+        gameCount: 1,
+        gamesPerShard: 1
+      });
+
+      const manifest = await readManifest(output);
+      const lines = await readAllShardLines(output, manifest);
+      const samples = lines.map((line) => JSON.parse(line) as PlayingSelfPlaySample);
+
+      expect(manifest.rolloutRoster.seats.map((seat) => seat.source)).toEqual([
+        "current-policy",
+        "rule-based",
+        "rule-based",
+        "frozen-onnx",
+        "frozen-onnx"
+      ]);
+      expect(manifest.rolloutRoster.seats[3]).toMatchObject({
+        source: "frozen-onnx",
+        artifactId: "test-playing-policy"
+      });
+      expect(manifest.rolloutRoster.seats[4]).toMatchObject({
+        source: "frozen-onnx",
+        artifactId: "frozen-v740-copy"
+      });
+      expect(samples).toHaveLength(10);
+      expect(samples.every((sample) => sample.actingSeatSource === "current-policy")).toBe(true);
+      expect(samples.every((sample) => !sample.rolloutSeatSources.includes("frozen-onnx") ||
+        sample.rolloutSeatSources.filter((source) => source === "current-policy").length === 1
+      )).toBe(true);
+      assertNoHiddenStateFields(lines);
+    });
+  });
+
+  it("assigns rollout roster seats deterministically by seed rotation", () => {
+    const roster: PlayingSelfPlayRolloutRosterOptions = {
+      seats: [
+        { source: "current-policy" },
+        { source: "rule-based" },
+        { source: "rule-based" },
+        { source: "frozen-onnx", policy: fakePolicy(), artifact: fakeArtifact("a") },
+        { source: "frozen-onnx", policy: fakePolicy(), artifact: fakeArtifact("b") }
+      ]
+    };
+
+    expect(assignRolloutRosterForSeed(roster, 0).map((seat) => seat.source)).toEqual([
+      "current-policy",
+      "rule-based",
+      "rule-based",
+      "frozen-onnx",
+      "frozen-onnx"
+    ]);
+    expect(assignRolloutRosterForSeed(roster, 1).map((seat) => seat.source)).toEqual([
+      "frozen-onnx",
+      "current-policy",
+      "rule-based",
+      "rule-based",
+      "frozen-onnx"
+    ]);
+    expect(assignRolloutRosterForSeed(roster, 6).map((seat) => seat.source)).toEqual(
+      assignRolloutRosterForSeed(roster, 1).map((seat) => seat.source)
+    );
+  });
+
   it("rejects an existing output directory before writing self-play data", async () => {
     await withTempDir(async (directory) => {
       const artifact = await createPlayingPolicyFixture(directory);
@@ -178,6 +340,7 @@ async function createPlayingPolicyFixture(directory: string): Promise<{
   metadataPath: string;
   artifactId: string;
 }> {
+  await mkdir(directory, { recursive: true });
   const onnxPath = join(directory, "playing-policy.onnx");
   const metadataPath = join(directory, "playing-policy.json");
   const logits = new Float32Array(CARD_COUNT);
@@ -193,6 +356,21 @@ async function createPlayingPolicyFixture(directory: string): Promise<{
     onnxPath,
     metadataPath,
     artifactId: "test-playing-policy"
+  };
+}
+
+function fakePolicy() {
+  return {
+    metadata: {},
+    predictLogits: async () => new Float32Array(CARD_COUNT)
+  };
+}
+
+function fakeArtifact(artifactId: string) {
+  return {
+    onnxPath: `${artifactId}.onnx`,
+    metadataPath: `${artifactId}.json`,
+    artifactId
   };
 }
 

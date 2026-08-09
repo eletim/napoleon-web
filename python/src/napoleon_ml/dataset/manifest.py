@@ -37,6 +37,20 @@ _BEHAVIOR_POLICY_KEYS = frozenset(
     }
 )
 _REWARD_KEYS = frozenset({"type", "version"})
+_ROLLOUT_ROSTER_KEYS = frozenset({"assignment", "seats"})
+_CURRENT_POLICY_ROSTER_SEAT_KEYS = frozenset({"source"})
+_RULE_BASED_ROSTER_SEAT_KEYS = frozenset({"source", "version"})
+_FROZEN_ONNX_ROSTER_SEAT_KEYS = frozenset(
+    {
+        "source",
+        "artifactId",
+        "onnxFileName",
+        "metadataFileName",
+        "onnxSha256",
+        "metadataSha256",
+        "metadata",
+    }
+)
 _MANIFEST_BASE_KEYS = frozenset(
     {
         "datasetSchemaVersion",
@@ -71,6 +85,7 @@ _SELF_PLAY_MANIFEST_KEYS = (
             "temperature",
             "reward",
             "nonPlayingAgent",
+            "rolloutRoster",
         }
     )
 )
@@ -111,6 +126,24 @@ class DatasetRewardInfo:
 
 
 @dataclass(frozen=True)
+class DatasetRolloutRosterSeat:
+    source: str
+    version: int | None = None
+    artifact_id: str | None = None
+    onnx_file_name: str | None = None
+    metadata_file_name: str | None = None
+    onnx_sha256: str | None = None
+    metadata_sha256: str | None = None
+    metadata: object | None = None
+
+
+@dataclass(frozen=True)
+class DatasetRolloutRoster:
+    assignment: str
+    seats: tuple[DatasetRolloutRosterSeat, ...]
+
+
+@dataclass(frozen=True)
 class DatasetManifest:
     dataset_schema_version: int
     generator_version: int
@@ -137,6 +170,7 @@ class DatasetManifest:
     temperature: float | None = None
     reward: DatasetRewardInfo | None = None
     non_playing_agent: DatasetAgentInfo | None = None
+    rollout_roster: DatasetRolloutRoster | None = None
 
 
 def _error(message: str) -> ManifestValidationError:
@@ -214,6 +248,58 @@ def _parse_reward(raw: object) -> DatasetRewardInfo:
     )
 
 
+def _parse_rollout_roster(raw: object) -> DatasetRolloutRoster:
+    path = "manifest.rolloutRoster"
+    obj = require_dict(raw, path=path, error=_error)
+    require_exact_keys(obj, _ROLLOUT_ROSTER_KEYS, path=path, error=_error)
+    seats = require_list(obj["seats"], path=f"{path}.seats", error=_error)
+
+    return DatasetRolloutRoster(
+        assignment=require_str(obj["assignment"], path=f"{path}.assignment", error=_error),
+        seats=tuple(
+            _parse_rollout_roster_seat(seat, index=index)
+            for index, seat in enumerate(seats)
+        ),
+    )
+
+
+def _parse_rollout_roster_seat(raw: object, *, index: int) -> DatasetRolloutRosterSeat:
+    path = f"manifest.rolloutRoster.seats[{index}]"
+    obj = require_dict(raw, path=path, error=_error)
+    source = require_str(obj.get("source"), path=f"{path}.source", error=_error)
+
+    if source == "current-policy":
+        require_exact_keys(obj, _CURRENT_POLICY_ROSTER_SEAT_KEYS, path=path, error=_error)
+        return DatasetRolloutRosterSeat(source=source)
+
+    if source == "rule-based":
+        require_exact_keys(obj, _RULE_BASED_ROSTER_SEAT_KEYS, path=path, error=_error)
+        return DatasetRolloutRosterSeat(
+            source=source,
+            version=require_int(obj["version"], path=f"{path}.version", error=_error),
+        )
+
+    if source == "frozen-onnx":
+        require_exact_keys(obj, _FROZEN_ONNX_ROSTER_SEAT_KEYS, path=path, error=_error)
+        return DatasetRolloutRosterSeat(
+            source=source,
+            artifact_id=require_str(obj["artifactId"], path=f"{path}.artifactId", error=_error),
+            onnx_file_name=require_str(
+                obj["onnxFileName"], path=f"{path}.onnxFileName", error=_error
+            ),
+            metadata_file_name=require_str(
+                obj["metadataFileName"], path=f"{path}.metadataFileName", error=_error
+            ),
+            onnx_sha256=require_str(obj["onnxSha256"], path=f"{path}.onnxSha256", error=_error),
+            metadata_sha256=require_str(
+                obj["metadataSha256"], path=f"{path}.metadataSha256", error=_error
+            ),
+            metadata=obj["metadata"],
+        )
+
+    raise _error(f"{path}.source is invalid: {source!r}.")
+
+
 def parse_manifest(raw: object) -> DatasetManifest:
     """Parse an already JSON-decoded manifest value into a typed dataclass.
 
@@ -248,6 +334,7 @@ def parse_manifest(raw: object) -> DatasetManifest:
         temperature = None
         reward = None
         non_playing_agent = None
+        rollout_roster = None
     elif dataset_schema_version == 2:
         require_exact_keys(obj, _MULTIPHASE_MANIFEST_KEYS, path="manifest", error=_error)
         playing_encoder_schema_version = None
@@ -262,6 +349,7 @@ def parse_manifest(raw: object) -> DatasetManifest:
         temperature = None
         reward = None
         non_playing_agent = None
+        rollout_roster = None
     elif dataset_schema_version == 3:
         require_exact_keys(obj, _SELF_PLAY_MANIFEST_KEYS, path="manifest", error=_error)
         playing_encoder_schema_version = require_int(
@@ -288,6 +376,7 @@ def parse_manifest(raw: object) -> DatasetManifest:
         )
         reward = _parse_reward(obj["reward"])
         non_playing_agent = _parse_non_playing_agent(obj["nonPlayingAgent"])
+        rollout_roster = _parse_rollout_roster(obj["rolloutRoster"])
     else:
         raise _error(
             "manifest.datasetSchemaVersion must be 1, 2, or 3, "
@@ -328,4 +417,5 @@ def parse_manifest(raw: object) -> DatasetManifest:
         temperature=temperature,
         reward=reward,
         non_playing_agent=non_playing_agent,
+        rollout_roster=rollout_roster,
     )

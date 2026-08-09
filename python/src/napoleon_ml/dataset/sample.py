@@ -162,6 +162,9 @@ _PLAYING_SELF_PLAY_SAMPLE_KEYS = frozenset(
         "seed",
         "step",
         "actingPlayerId",
+        "actingSeatSource",
+        "behaviorPolicyArtifactId",
+        "rolloutSeatSources",
         "relativePlayerIds",
         "observation",
         "selectedCardIndex",
@@ -343,6 +346,9 @@ class PlayingSelfPlaySample:
     seed: int
     step: int
     acting_player_id: str
+    acting_seat_source: str
+    behavior_policy_artifact_id: str
+    rollout_seat_sources: tuple[str, ...]
     relative_player_ids: tuple[str, ...]
     observation: EncodedPlayingObservation
     selected_card_index: int
@@ -941,6 +947,17 @@ def parse_sample(
             seed=require_int(obj["seed"], path="seed", error=error),
             step=require_int(obj["step"], path="step", error=error),
             acting_player_id=require_str(obj["actingPlayerId"], path="actingPlayerId", error=error),
+            acting_seat_source=require_str(
+                obj["actingSeatSource"], path="actingSeatSource", error=error
+            ),
+            behavior_policy_artifact_id=require_str(
+                obj["behaviorPolicyArtifactId"],
+                path="behaviorPolicyArtifactId",
+                error=error,
+            ),
+            rollout_seat_sources=require_str_tuple(
+                obj["rolloutSeatSources"], path="rolloutSeatSources", error=error
+            ),
             relative_player_ids=require_str_tuple(
                 obj["relativePlayerIds"], path="relativePlayerIds", error=error
             ),

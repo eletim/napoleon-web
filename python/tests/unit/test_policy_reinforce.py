@@ -316,9 +316,18 @@ def _write_self_play_dataset(
         sample.update(
             {
                 "sampleType": "playing-self-play-sample",
-                "schemaVersion": 2,
+                "schemaVersion": 3,
                 "seed": index,
                 "step": 1,
+                "actingSeatSource": "current-policy",
+                "behaviorPolicyArtifactId": "unit-policy",
+                "rolloutSeatSources": [
+                    "current-policy",
+                    "current-policy",
+                    "current-policy",
+                    "current-policy",
+                    "current-policy",
+                ],
                 "selectedCardIndex": selected,
                 "behaviorLogProbability": 0,
                 "terminalReward": reward,
@@ -340,7 +349,7 @@ def _write_self_play_dataset(
             "datasetSchemaVersion": 3,
             "generatorVersion": 1,
             "sampleType": "playing-self-play-sample",
-            "sampleSchemaVersion": 2,
+            "sampleSchemaVersion": 3,
             "playingEncoderSchemaVersion": 2,
             "playingModelInputSchemaVersion": 2,
             "behaviorPolicy": {
@@ -356,6 +365,10 @@ def _write_self_play_dataset(
             "temperature": 1.0,
             "reward": {"type": "terminal-team-win", "version": 1},
             "nonPlayingAgent": {"type": "rule-based", "version": 1},
+            "rolloutRoster": {
+                "assignment": "rotate-by-seed",
+                "seats": [{"source": "current-policy"} for _ in range(5)],
+            },
         },
     )
 
