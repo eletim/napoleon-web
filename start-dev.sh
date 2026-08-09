@@ -17,25 +17,6 @@ trim() {
   printf '%s' "$value"
 }
 
-normalize_hosts() {
-  local input="$1"
-  local normalized=""
-  local host
-
-  IFS=',' read -ra hosts <<< "$input"
-  for host in "${hosts[@]}"; do
-    host="$(trim "$host")"
-    if [[ -n "$host" ]]; then
-      if [[ -n "$normalized" ]]; then
-        normalized+=","
-      fi
-      normalized+="$host"
-    fi
-  done
-
-  printf '%s' "$normalized"
-}
-
 read_allowed_hosts() {
   local file="$1"
   local line
@@ -135,31 +116,58 @@ count_incomplete_policy_slots() {
   printf '%s' "$count"
 }
 
-is_interactive() {
-  [[ -t 0 || "${NAPOLEON_DEV_FORCE_INTERACTIVE:-}" == "1" ]]
+read_tailscale_self_dns_name() {
+  local status_json
+
+  if ! command -v tailscale >/dev/null 2>&1; then
+    return 1
+  fi
+
+  if ! command -v node >/dev/null 2>&1; then
+    return 1
+  fi
+
+  if ! status_json="$(tailscale status --json 2>/dev/null)"; then
+    return 1
+  fi
+
+  printf '%s' "$status_json" | node -e '
+let input = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  input += chunk;
+});
+process.stdin.on("end", () => {
+  try {
+    const status = JSON.parse(input);
+    if (status?.BackendState !== "Running") {
+      process.exit(1);
+    }
+    const dnsName = status?.Self?.DNSName;
+    if (typeof dnsName !== "string") {
+      process.exit(1);
+    }
+    const normalized = dnsName.trim().replace(/\.+$/, "");
+    if (normalized.length === 0) {
+      process.exit(1);
+    }
+    process.stdout.write(normalized);
+  } catch {
+    process.exit(1);
+  }
+});
+'
 }
 
-create_env_file_interactively() {
-  local answer
-  local raw_hosts
-  local allowed_hosts
+create_env_file_from_tailscale() {
+  local allowed_host
 
-  printf 'apps/web/.env.local がありません。\n'
-  printf '外部アクセス用の設定を生成しますか？ [y/N]: '
-  read -r answer
-
-  if [[ "$answer" != "y" && "$answer" != "Y" ]]; then
-    printf '.env.local を生成せず、localhost限定で起動します。\n'
+  if [[ -f "$WEB_ENV_FILE" ]]; then
     return
   fi
 
-  printf '許可するホスト名を入力してください。\n'
-  printf '複数指定する場合はカンマ区切りです: '
-  read -r raw_hosts
-  allowed_hosts="$(normalize_hosts "$raw_hosts")"
-
-  if [[ -z "$allowed_hosts" ]]; then
-    printf '.env.local を生成せず、localhost限定で起動します。\n'
+  if ! allowed_host="$(read_tailscale_self_dns_name)"; then
+    printf 'Tailscale DNS名を取得できないため、.env.local を生成せずlocalhost限定で起動します。\n'
     return
   fi
 
@@ -168,8 +176,8 @@ create_env_file_interactively() {
   fi
 
   mkdir -p "$(dirname "$WEB_ENV_FILE")"
-  printf 'VITE_ALLOWED_HOSTS=%s\n' "$allowed_hosts" > "$WEB_ENV_FILE"
-  printf 'apps/web/.env.local を生成しました。\n'
+  printf 'VITE_ALLOWED_HOSTS=%s\n' "$allowed_host" > "$WEB_ENV_FILE"
+  printf 'apps/web/.env.local をTailscale DNS名から生成しました。\n'
 }
 
 create_root_env_file_from_sample
@@ -177,8 +185,8 @@ load_root_env_file "$ROOT_ENV_FILE"
 
 unset VITE_ALLOWED_HOSTS
 
-if [[ ! -f "$WEB_ENV_FILE" ]] && is_interactive; then
-  create_env_file_interactively
+if [[ ! -f "$WEB_ENV_FILE" ]]; then
+  create_env_file_from_tailscale
 fi
 
 if [[ -f "$WEB_ENV_FILE" ]]; then

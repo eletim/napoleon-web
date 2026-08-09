@@ -128,97 +128,124 @@ describe("start-dev.sh", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("does not prompt or create .env.local without a TTY", () => {
+  it("automatically creates .env.local from Tailscale Self.DNSName", () => {
     const root = createTempRoot();
     const envFile = join(root, "apps/web/.env.local");
+    const fakeTailscale = createFakeTailscale({
+      selfDnsName: "e-ryzen.tail6bc726.ts.net."
+    });
 
-    const result = runDevScript(root);
+    const result = runDevScript(root, {
+      path: fakeTailscale.path
+    });
 
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain("env_file_exists=false");
-    expect(result.stdout).toContain("VITE_ALLOWED_HOSTS=\n");
+    expect(readFileSync(envFile, "utf8")).toBe(
+      "VITE_ALLOWED_HOSTS=e-ryzen.tail6bc726.ts.net\n"
+    );
+    expect(result.stdout).toContain("apps/web/.env.local をTailscale DNS名から生成しました。");
+    expect(result.stdout).toContain("env_file_exists=true");
+    expect(result.stdout).toContain("VITE_ALLOWED_HOSTS=e-ryzen.tail6bc726.ts.net");
     expect(result.stdout).not.toContain("生成しますか");
-    expect(existsSync(envFile)).toBe(false);
+    expect(result.stdout).not.toContain("許可するホスト名を入力してください");
+    expect(readFakeTailscaleLog(fakeTailscale.logPath)).toEqual(["status --json"]);
     rmSync(root, { recursive: true, force: true });
+    rmSync(fakeTailscale.root, { recursive: true, force: true });
   });
 
-  it("creates a normalized .env.local for interactive Yes input", () => {
+  it("falls back to localhost-only when Tailscale is not installed", () => {
     const root = createTempRoot();
     const envFile = join(root, "apps/web/.env.local");
 
     const result = runDevScript(root, {
-      forceInteractive: true,
-      input: "y\nhost-a.example, host-b.example,,host-c.example\n"
-    });
-
-    expect(result.status).toBe(0);
-    expect(readFileSync(envFile, "utf8")).toBe(
-      "VITE_ALLOWED_HOSTS=host-a.example,host-b.example,host-c.example\n"
-    );
-    expect(result.stdout).toContain("VITE_ALLOWED_HOSTS=host-a.example,host-b.example,host-c.example");
-    rmSync(root, { recursive: true, force: true });
-  });
-
-  it("does not create .env.local for interactive No input", () => {
-    const root = createTempRoot();
-    const envFile = join(root, "apps/web/.env.local");
-
-    const result = runDevScript(root, {
-      forceInteractive: true,
-      input: "n\n"
+      path: createPathWithoutTailscale()
     });
 
     expect(result.status).toBe(0);
     expect(existsSync(envFile)).toBe(false);
     expect(result.stdout).toContain("env_file_exists=false");
+    expect(result.stdout).toContain("VITE_ALLOWED_HOSTS=\n");
+    expect(result.stdout).toContain("tailscale_serve_enabled=false");
+    expect(result.stdout).not.toContain("生成しますか");
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("does not create .env.local when interactive Yes input has no hosts", () => {
+  it("falls back to localhost-only when Tailscale status json fails", () => {
     const root = createTempRoot();
     const envFile = join(root, "apps/web/.env.local");
+    const fakeTailscale = createFakeTailscale({ statusExitCode: 1 });
 
     const result = runDevScript(root, {
-      forceInteractive: true,
-      input: "Y\n , , \n"
+      dryRun: false,
+      testMode: true,
+      path: fakeTailscale.path
     });
 
     expect(result.status).toBe(0);
     expect(existsSync(envFile)).toBe(false);
-    expect(result.stdout).toContain("VITE_ALLOWED_HOSTS=\n");
+    expect(result.stdout).toContain("Tailscale DNS名を取得できないため");
+    expect(result.stdout).toContain("dev_server_started=true");
+    expect(readFakeTailscaleLog(fakeTailscale.logPath)).toEqual(["status --json"]);
     rmSync(root, { recursive: true, force: true });
+    rmSync(fakeTailscale.root, { recursive: true, force: true });
   });
 
-  it("preserves multiple host input order", () => {
+  it("falls back to localhost-only when Tailscale is disconnected", () => {
     const root = createTempRoot();
     const envFile = join(root, "apps/web/.env.local");
+    const fakeTailscale = createFakeTailscale({ backendState: "NeedsLogin" });
 
     const result = runDevScript(root, {
-      forceInteractive: true,
-      input: "y\nz.example, a.example, m.example\n"
+      dryRun: false,
+      testMode: true,
+      path: fakeTailscale.path
     });
 
     expect(result.status).toBe(0);
-    expect(readFileSync(envFile, "utf8")).toBe(
-      "VITE_ALLOWED_HOSTS=z.example,a.example,m.example\n"
-    );
+    expect(existsSync(envFile)).toBe(false);
+    expect(result.stdout).toContain("Tailscale DNS名を取得できないため");
+    expect(result.stdout).toContain("dev_server_started=true");
+    expect(readFakeTailscaleLog(fakeTailscale.logPath)).toEqual(["status --json"]);
     rmSync(root, { recursive: true, force: true });
+    rmSync(fakeTailscale.root, { recursive: true, force: true });
+  });
+
+  it("falls back to localhost-only when Tailscale Self.DNSName is missing", () => {
+    const root = createTempRoot();
+    const envFile = join(root, "apps/web/.env.local");
+    const fakeTailscale = createFakeTailscale({ selfDnsName: null });
+
+    const result = runDevScript(root, {
+      dryRun: false,
+      testMode: true,
+      path: fakeTailscale.path
+    });
+
+    expect(result.status).toBe(0);
+    expect(existsSync(envFile)).toBe(false);
+    expect(result.stdout).toContain("Tailscale DNS名を取得できないため");
+    expect(result.stdout).toContain("dev_server_started=true");
+    expect(readFakeTailscaleLog(fakeTailscale.logPath)).toEqual(["status --json"]);
+    rmSync(root, { recursive: true, force: true });
+    rmSync(fakeTailscale.root, { recursive: true, force: true });
   });
 
   it("does not overwrite or prompt for an existing .env.local", () => {
     const root = createTempRoot();
     const envFile = join(root, "apps/web/.env.local");
+    const fakeTailscale = createFakeTailscale();
     writeFileSync(envFile, "VITE_ALLOWED_HOSTS=existing.example\n");
 
     const result = runDevScript(root, {
-      forceInteractive: true,
-      input: "y\nnew.example\n"
+      path: fakeTailscale.path
     });
 
     expect(result.status).toBe(0);
     expect(readFileSync(envFile, "utf8")).toBe("VITE_ALLOWED_HOSTS=existing.example\n");
     expect(result.stdout).not.toContain("生成しますか");
+    expect(existsSync(fakeTailscale.logPath)).toBe(false);
     rmSync(root, { recursive: true, force: true });
+    rmSync(fakeTailscale.root, { recursive: true, force: true });
   });
 
   it("configures Tailscale Serve once when hosts are configured", () => {
@@ -242,21 +269,19 @@ describe("start-dev.sh", () => {
     rmSync(fakeTailscale.root, { recursive: true, force: true });
   });
 
-  it("does not call Tailscale when hosts are not configured", () => {
+  it("starts localhost-only when automatic host configuration is unavailable", () => {
     const root = createTempRoot();
-    const fakeTailscale = createFakeTailscale();
 
     const result = runDevScript(root, {
       dryRun: false,
       testMode: true,
-      path: fakeTailscale.path
+      path: createPathWithoutTailscale()
     });
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("dev_server_started=true");
-    expect(existsSync(fakeTailscale.logPath)).toBe(false);
+    expect(result.stdout).toContain("Tailscale DNS名を取得できないため");
     rmSync(root, { recursive: true, force: true });
-    rmSync(fakeTailscale.root, { recursive: true, force: true });
   });
 
   it("runs Tailscale Serve once for multiple allowed hosts", () => {
@@ -396,7 +421,6 @@ function runDevScript(
   root: string,
   options: {
     dryRun?: boolean;
-    forceInteractive?: boolean;
     input?: string;
     path?: string;
     testMode?: boolean;
@@ -420,15 +444,9 @@ function runDevScript(
   } else {
     delete env.NAPOLEON_DEV_TEST_MODE;
   }
-  if (options.path !== undefined) {
-    env.PATH = options.path;
-  }
+  env.PATH = options.path ?? createPathWithoutTailscale();
 
-  if (options.forceInteractive === true) {
-    env.NAPOLEON_DEV_FORCE_INTERACTIVE = "1";
-  } else {
-    delete env.NAPOLEON_DEV_FORCE_INTERACTIVE;
-  }
+  delete env.NAPOLEON_DEV_FORCE_INTERACTIVE;
 
   return spawnSync("/bin/bash", [scriptPath], {
     cwd: root,
@@ -439,12 +457,24 @@ function runDevScript(
 }
 
 function createFakeTailscale(
-  options: { serveExitCode?: number; statusExitCode?: number } = {}
+  options: {
+    backendState?: string;
+    selfDnsName?: string | null;
+    serveExitCode?: number;
+    statusExitCode?: number;
+  } = {}
 ): { logPath: string; path: string; root: string } {
   const root = mkdtempSync(join(tmpdir(), "napoleon-tailscale-"));
   const binDir = join(root, "bin");
   const logPath = join(root, "tailscale.log");
   const tailscalePath = join(binDir, "tailscale");
+  const statusJson =
+    options.selfDnsName === null
+      ? JSON.stringify({ BackendState: options.backendState ?? "Running", Self: {} })
+      : JSON.stringify({
+          BackendState: options.backendState ?? "Running",
+          Self: { DNSName: options.selfDnsName ?? "host.example.ts.net." }
+        });
   mkdirSync(binDir, { recursive: true });
   writeFileSync(
     tailscalePath,
@@ -452,6 +482,9 @@ function createFakeTailscale(
       "#!/bin/bash",
       `printf "%s\\n" "$*" >> "${logPath}"`,
       'if [[ "$1" == "status" ]]; then',
+      '  if [[ "$2" == "--json" ]]; then',
+      `    printf '%s\\n' '${statusJson}'`,
+      "  fi",
       `  exit ${options.statusExitCode ?? 0}`,
       "fi",
       'if [[ "$1" == "serve" ]]; then',
@@ -473,7 +506,7 @@ function createPathWithoutTailscale(): string {
   const root = mkdtempSync(join(tmpdir(), "napoleon-path-"));
   const binDir = join(root, "bin");
   mkdirSync(binDir, { recursive: true });
-  for (const command of ["dirname", "grep", "pwd", "tail"]) {
+  for (const command of ["cp", "dirname", "grep", "mkdir", "node", "pwd", "tail"]) {
     symlinkSync(findCommand(command), join(binDir, command));
   }
   return binDir;

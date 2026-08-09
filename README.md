@@ -191,9 +191,9 @@ pnpm dev
 
 ### Tailscale Serve経由のWeb開発アクセス
 
-`./start-dev.sh`と`pnpm dev`は同じ処理です。初回起動時にルートの`.env`がなければ`.env.sample`から生成し、その後`apps/web/.env.local`を確認し、必要なら対話式で生成します。`VITE_ALLOWED_HOSTS`を読んで、外部アクセス設定がある場合だけTailscale Serveを設定してからVite/Fastifyを起動します。
+`./start-dev.sh`と`pnpm dev`は同じ処理です。初回起動時にルートの`.env`がなければ`.env.sample`から生成し、その後`apps/web/.env.local`を確認します。ファイルがなければ`tailscale status --json`の`Self.DNSName`から端末のTailscale DNS名を取得し、末尾の`.`を除去して自動生成します。`VITE_ALLOWED_HOSTS`を読んで、外部アクセス設定がある場合だけTailscale Serveを設定してからVite/Fastifyを起動します。
 
-既存の`.env`は上書きしません。ローカルのONNX PolicyパスはGit管理外の`.env`で調整してください。外部アクセス設定がない場合、Tailscale Serveは設定せずlocalhost限定で起動します。設定する場合はGit管理外の`apps/web/.env.local`に端末固有のホスト名だけを書きます。実ホスト名や実IPをリポジトリへ書かないでください。
+既存の`.env`や`apps/web/.env.local`は上書きしません。ローカルのONNX PolicyパスはGit管理外の`.env`で調整してください。Tailscale未導入・未接続・DNS名取得失敗などで外部アクセス設定を自動生成できない場合、Tailscale Serveは設定せずlocalhost限定で起動します。設定する場合はGit管理外の`apps/web/.env.local`に端末固有のホスト名だけを書きます。実ホスト名や実IPをリポジトリへ書かないでください。
 
 ```env
 VITE_ALLOWED_HOSTS=my-machine.example.ts.net
@@ -211,7 +211,7 @@ tailscale serve --bg --http=5173 http://127.0.0.1:5173
 http://my-machine.example.ts.net:5173/
 ```
 
-Viteは`127.0.0.1:5173`で待ち受け、Tailscale Serveがtailnet側の5173を転送します。HTTPSやFunnelは使いません。Tailscale未導入・未接続・Serve失敗時は起動を中止します。`start-dev.sh`は自動で`tailscale serve reset`を実行しません。
+Viteは`127.0.0.1:5173`で待ち受け、Tailscale Serveがtailnet側の5173を転送します。HTTPSやFunnelは使いません。`apps/web/.env.local`に外部アクセス設定がある状態でTailscale未導入・未接続・Serve失敗になった場合は起動を中止します。`start-dev.sh`は自動で`tailscale serve reset`を実行しません。
 
 ブラウザは`/api`へ同一オリジンでアクセスし、Vite開発サーバーが`127.0.0.1:3000`のFastifyへ転送します。Tailscale Serveで公開するのは5173だけで、Fastifyの3000番へ直接アクセスしません。ブラウザコードにlocalhost API URLを設定しないでください。
 
