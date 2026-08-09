@@ -1,5 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
+  CreateGameAgentSelection,
+  PublicAgentDescriptor,
   PublicBidAction,
   PublicCard,
   PublicGameAction,
@@ -24,7 +26,7 @@ import {
   type AdjutantSelection,
   type AdjutantSuitOption
 } from "./adjutantSelection";
-import { createGame, nextTrick, sendAction } from "./api";
+import { createGame, getAgents, nextTrick, sendAction } from "./api";
 import { suitSymbols } from "./cardSymbols";
 import {
   createGameStatusDisplay,
@@ -43,11 +45,27 @@ interface Session {
 
 type AppMode = "game" | "simulation";
 
+const defaultAgentId = "rule-based";
+const defaultAiPlayerIds = ["player-1", "player-2", "player-3", "player-4"] as const;
+const fallbackAgents: readonly PublicAgentDescriptor[] = [
+  {
+    id: defaultAgentId,
+    displayName: "Rule-based AI",
+    isAvailable: true
+  }
+];
+const defaultAgentSelections: Record<string, string> = Object.fromEntries(
+  defaultAiPlayerIds.map((playerId) => [playerId, defaultAgentId])
+);
+
 export function App() {
   const [mode, setMode] = useState<AppMode>("game");
   const [session, setSession] = useState<Session | undefined>();
   const [message, setMessage] = useState("ゲームを開始してください。");
   const [isBusy, setIsBusy] = useState(false);
+  const [agents, setAgents] = useState<readonly PublicAgentDescriptor[]>(fallbackAgents);
+  const [agentSelections, setAgentSelections] =
+    useState<Record<string, string>>(defaultAgentSelections);
   const [selectedDiscardCardIds, setSelectedDiscardCardIds] = useState<readonly string[]>([]);
   const [adjutantSelection, setAdjutantSelection] =
     useState<AdjutantSelection>(defaultAdjutantSelection);
@@ -94,10 +112,43 @@ export function App() {
     adjutantShortcutOptions
   );
   const canSelectJoker = session?.state.adjutantChoice?.jokerAllowed === true;
+  const hasUnavailableAgentSelection = aiPlayers.some((player) => {
+    const agentId = agentSelections[player.id] ?? defaultAgentId;
+    const agent = agents.find((candidate) => candidate.id === agentId);
+
+    return agent?.isAvailable !== true;
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void getAgents()
+      .then((response) => {
+        if (cancelled) {
+          return;
+        }
+
+        setAgents(response.agents.length > 0 ? response.agents : fallbackAgents);
+        setAgentSelections((current) => normalizeAgentSelections(current, response.agents));
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setMessage(error instanceof Error ? error.message : "AI一覧を取得できませんでした。");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleCreateGame(): Promise<void> {
     await runRequest(async () => {
-      const response = await createGame();
+      const aiAgents: CreateGameAgentSelection[] = aiPlayers.map((player) => ({
+        playerId: player.id,
+        agentId: agentSelections[player.id] ?? defaultAgentId
+      }));
+      const response = await createGame({ aiAgents });
       setSession(response);
       setSelectedDiscardCardIds([]);
       setAdjutantSelection(defaultAdjutantSelection);
@@ -105,6 +156,13 @@ export function App() {
         createMessage(response.state, response.playerId, createTablePlayers(response.state))
       );
     });
+  }
+
+  function handleAgentSelectionChange(playerId: string, agentId: string): void {
+    setAgentSelections((current) => ({
+      ...current,
+      [playerId]: agentId
+    }));
   }
 
   async function handlePlay(card: PublicCard): Promise<void> {
@@ -225,13 +283,40 @@ export function App() {
             </div>
             <button
               className="primary-button"
-              disabled={isBusy}
+              disabled={isBusy || hasUnavailableAgentSelection}
               onClick={handleCreateGame}
               type="button"
             >
               ゲーム開始
             </button>
           </section>
+
+          {session === undefined ? (
+            <section className="agent-setup" aria-label="AI選択">
+              <h2>AI選択</h2>
+              <div className="agent-selector-grid">
+                {aiPlayers.map((player) => (
+                  <label className="agent-selector" key={player.id}>
+                    <span>{player.label}</span>
+                    <select
+                      disabled={isBusy}
+                      onChange={(event) =>
+                        handleAgentSelectionChange(player.id, event.target.value)
+                      }
+                      value={agentSelections[player.id] ?? defaultAgentId}
+                    >
+                      {agents.map((agent) => (
+                        <option disabled={!agent.isAvailable} key={agent.id} value={agent.id}>
+                          {agent.displayName}
+                          {agent.isAvailable ? "" : " (未設定)"}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           <section className="table" aria-label="ゲームテーブル">
             <div className="table-grid">
@@ -466,3 +551,21 @@ const rankOptions: readonly PublicRank[] = [
   "3",
   "2"
 ];
+
+function normalizeAgentSelections(
+  current: Record<string, string>,
+  agents: readonly PublicAgentDescriptor[]
+): Record<string, string> {
+  const availableAgentIds = new Set(
+    agents.filter((agent) => agent.isAvailable).map((agent) => agent.id)
+  );
+  const next = { ...current };
+
+  for (const playerId of defaultAiPlayerIds) {
+    if (!availableAgentIds.has(next[playerId])) {
+      next[playerId] = defaultAgentId;
+    }
+  }
+
+  return next;
+}

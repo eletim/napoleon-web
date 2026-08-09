@@ -16,6 +16,7 @@
     "@fastify/cors": "^10.0.2",
     "@napoleon/ai": "workspace:*",
     "@napoleon/game-core": "workspace:*",
+    "@napoleon/policy-onnx": "workspace:*",
     "@napoleon/protocol": "workspace:*",
     "fastify": "^5.2.0"
   },

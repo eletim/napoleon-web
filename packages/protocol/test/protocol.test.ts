@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type {
+  CreateGameRequest,
+  GetAgentsResponse,
   PublicCard,
   PublicGameAction,
   PublicGameEvent,
@@ -70,6 +72,36 @@ describe("protocol DTOs", () => {
       cardId: "joker"
     });
     expect(Object.prototype.hasOwnProperty.call(action, "playerId")).toBe(false);
+  });
+
+  it("describes available agents and selected game agents", () => {
+    const agents: GetAgentsResponse = {
+      agents: [
+        {
+          id: "rule-based",
+          displayName: "Rule-based AI",
+          isAvailable: true
+        }
+      ]
+    };
+    const request: CreateGameRequest = {
+      aiAgents: [
+        {
+          playerId: "player-1",
+          agentId: "rule-based"
+        }
+      ]
+    };
+
+    expect(agents.agents[0]).toEqual({
+      id: "rule-based",
+      displayName: "Rule-based AI",
+      isAvailable: true
+    });
+    expect(request.aiAgents?.[0]).toEqual({
+      playerId: "player-1",
+      agentId: "rule-based"
+    });
   });
 
   it("exposes exchange and adjutant state without private fields", () => {
