@@ -592,6 +592,67 @@ describe("generatePlayingSelfPlayDataset", () => {
     });
   });
 
+  it("uses runner-provided tensor samples without parent policy inference", async () => {
+    await withTempDir(async (directory) => {
+      const artifact = await createPlayingPolicyFixture(directory);
+      const workerPolicy = await loadPolicyOnnxModel(artifact);
+      const output = join(directory, "worker-tensor-samples");
+      const parentPredictLogits = vi.fn(async () => {
+        throw new Error("parent policy inference should not be called");
+      });
+      const runner: PlayingSelfPlayGameRunner = {
+        runGame: async (request) => {
+          const result = await runPlayingSelfPlayGameWithSamples({
+            seed: request.seed,
+            currentPolicy: workerPolicy,
+            behaviorPolicyArtifactId: request.behaviorPolicyArtifactId,
+            rolloutRoster: request.rolloutRoster,
+            temperature: request.temperature,
+            maxDecisionSteps: request.maxDecisionSteps
+          });
+
+          return {
+            seed: result.seed,
+            tensorSamples: result.tensorSamples,
+            rolloutInferenceStats: {
+              requestCount: 1,
+              sessionRunCount: 1,
+              meanBatchSize: 1,
+              maxObservedBatchSize: 1,
+              batchSizeHistogram: { "1": 1 }
+            }
+          };
+        }
+      };
+
+      const result = await generatePlayingSelfPlayDataset({
+        outputDirectory: output,
+        playingPolicy: {
+          metadata: workerPolicy.metadata,
+          predictLogits: parentPredictLogits
+        },
+        playingPolicyArtifact: artifact,
+        startSeed: 45,
+        gameCount: 1,
+        gamesPerShard: 1,
+        rolloutWorkers: 2,
+        format: PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT,
+        gameRunner: runner
+      });
+
+      expect(parentPredictLogits).not.toHaveBeenCalled();
+      expect(result.manifest.sampleCount).toBeGreaterThan(0);
+      expect(result.rolloutTiming.inference).toMatchObject({
+        requestCount: 1,
+        sessionRunCount: 1,
+        meanBatchSize: 1,
+        maxObservedBatchSize: 1,
+        batchSizeHistogram: { "1": 1 }
+      });
+      await readManifest(output);
+    });
+  });
+
   it("assigns rollout roster seats deterministically by seed rotation", () => {
     const roster: PlayingSelfPlayRolloutRosterOptions = {
       seats: [

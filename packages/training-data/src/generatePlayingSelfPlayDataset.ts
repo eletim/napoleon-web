@@ -739,7 +739,12 @@ async function getSamplesForGameRunResult(
 function isPlayingSelfPlayGameRunResult(
   result: AutomatedGameRecord | PlayingSelfPlayGameRunResult
 ): result is PlayingSelfPlayGameRunResult {
-  return "samples" in result || "record" in result;
+  return (
+    "samples" in result ||
+    "record" in result ||
+    "tensorSamples" in result ||
+    "rolloutInferenceStats" in result
+  );
 }
 
 export function calculatePlayingSelfPlayLogProbability(options: {
