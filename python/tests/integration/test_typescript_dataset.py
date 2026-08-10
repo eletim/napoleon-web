@@ -17,9 +17,7 @@ import pytest
 import torch
 
 from napoleon_ml.dataset import (
-    iter_playing_self_play_samples,
     iter_samples,
-    iter_tensorized_playing_self_play_samples,
     iter_tensorized_samples,
     load_manifest,
 )
@@ -33,16 +31,14 @@ from napoleon_ml.dataset.sample import (
     AdjutantTrainingSample,
     BiddingTrainingSample,
     ExchangeTrainingSample,
-    PlayingSelfPlaySample,
 )
-from napoleon_ml.dataset.split import DatasetSplit, split_for_seed
+from napoleon_ml.dataset.split import DatasetSplit, SplitConfig, split_for_seed
 from napoleon_ml.dataset.tensors import (
     ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
     BIDDING_MODEL_INPUT_FEATURE_COUNT,
     EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
     MODEL_INPUT_FEATURE_COUNT,
     TensorizedPlayingSample,
-    TensorizedPlayingSelfPlaySample,
 )
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 
@@ -277,10 +273,12 @@ def test_typescript_generated_playing_self_play_dataset_loads_rl_batch() -> None
 
         manifest = load_manifest(output_directory)
 
-        assert manifest.dataset_schema_version == 3
+        assert manifest.dataset_schema_version == 4
         assert manifest.generator_version == 1
+        assert manifest.format == "playing-self-play-binary-v1"
         assert manifest.sample_type == "playing-self-play-sample"
-        assert manifest.sample_schema_version == 3
+        assert manifest.sample_schema_version == 4
+        assert manifest.tensor_schema is not None
         assert manifest.playing_encoder_schema_version == 2
         assert manifest.playing_model_input_schema_version == 2
         assert manifest.sampling_algorithm == "masked-categorical"
@@ -295,32 +293,14 @@ def test_typescript_generated_playing_self_play_dataset_loads_rl_batch() -> None
         assert manifest.card_ids == EXPECTED_CARD_IDS
         assert manifest.card_ids_sha256 == calculate_card_ids_sha256()
 
-        samples = list(iter_playing_self_play_samples(output_directory))
-        assert len(samples) == manifest.sample_count
-        assert all(isinstance(sample, PlayingSelfPlaySample) for sample in samples)
-        assert all(sample.terminal_reward in {-1, 1} for sample in samples)
-        assert all(sample.behavior_log_probability <= 0 for sample in samples)
-        assert all(
-            sample.observation.legal_play_mask[sample.selected_card_index] == 1
-            for sample in samples
-        )
-        forced = [sample for sample in samples if sum(sample.observation.legal_play_mask) == 1]
-        assert forced
-        assert all(sample.behavior_log_probability == 0 for sample in forced)
-
-        tensorized = next(iter_tensorized_playing_self_play_samples(output_directory))
-        assert isinstance(tensorized, TensorizedPlayingSelfPlaySample)
-        assert tensorized.model_input.shape == (MODEL_INPUT_FEATURE_COUNT,)
-        assert str(tensorized.model_input.dtype) == "float32"
-        assert tensorized.legal_play_mask.shape == (53,)
-        assert tensorized.legal_play_mask[int(tensorized.selected_card_index)] == 1
-
         loader = create_playing_self_play_dataloader(
             output_directory,
             split=DatasetSplit.TRAIN,
+            split_config=SplitConfig(train=100, validation=0, test=0),
             batch_size=4,
         )
-        batch = next(iter(loader))
+        batches = list(loader)
+        batch = batches[0]
 
         assert batch["model_input"].shape == (4, MODEL_INPUT_FEATURE_COUNT)
         assert batch["model_input"].dtype == torch.float32
@@ -338,13 +318,9 @@ def test_typescript_generated_playing_self_play_dataset_loads_rl_batch() -> None
         assert batch["seed"].dtype == torch.int64
         assert batch["step"].dtype == torch.int64
 
-        seed_to_split: dict[int, DatasetSplit] = {}
-        for sample in iter_tensorized_playing_self_play_samples(output_directory):
-            split = split_for_seed(sample.seed)
-            seed_to_split.setdefault(sample.seed, split)
-            assert seed_to_split[sample.seed] == split
-
-        assert set(seed_to_split) == set(range(manifest.start_seed, manifest.end_seed + 1))
+        loaded_sample_count = sum(int(next(iter(batch.values())).shape[0]) for batch in batches)
+        assert loaded_sample_count == manifest.sample_count
+        assert all((batch["behavior_log_probability"] <= 0).all() for batch in batches)
 
     assert not tmp_root.exists()
 

@@ -96,6 +96,9 @@ _SELF_PLAY_MANIFEST_KEYS = (
         }
     )
 )
+_BINARY_SELF_PLAY_MANIFEST_KEYS = _SELF_PLAY_MANIFEST_KEYS | frozenset({"tensorSchema"})
+_TENSOR_SCHEMA_KEYS = frozenset({"shardSchemaVersion", "byteOrder", "compression", "fields"})
+_TENSOR_FIELD_SCHEMA_KEYS = frozenset({"name", "dtype", "shape"})
 
 
 @dataclass(frozen=True)
@@ -157,6 +160,21 @@ class DatasetRolloutRoster:
 
 
 @dataclass(frozen=True)
+class DatasetTensorFieldSchema:
+    name: str
+    dtype: str
+    shape: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class DatasetTensorSchema:
+    shard_schema_version: int
+    byte_order: str
+    compression: str
+    fields: tuple[DatasetTensorFieldSchema, ...]
+
+
+@dataclass(frozen=True)
 class DatasetManifest:
     dataset_schema_version: int
     generator_version: int
@@ -184,6 +202,7 @@ class DatasetManifest:
     reward: DatasetRewardInfo | None = None
     non_playing_agent: DatasetAgentInfo | None = None
     rollout_roster: DatasetRolloutRoster | None = None
+    tensor_schema: DatasetTensorSchema | None = None
 
 
 def _error(message: str) -> ManifestValidationError:
@@ -337,6 +356,38 @@ def _parse_rollout_roster_seat(raw: object, *, index: int) -> DatasetRolloutRost
     raise _error(f"{path}.source is invalid: {source!r}.")
 
 
+def _parse_tensor_schema(raw: object) -> DatasetTensorSchema:
+    path = "manifest.tensorSchema"
+    obj = require_dict(raw, path=path, error=_error)
+    require_exact_keys(obj, _TENSOR_SCHEMA_KEYS, path=path, error=_error)
+    fields = require_list(obj["fields"], path=f"{path}.fields", error=_error)
+
+    return DatasetTensorSchema(
+        shard_schema_version=require_int(
+            obj["shardSchemaVersion"], path=f"{path}.shardSchemaVersion", error=_error
+        ),
+        byte_order=require_str(obj["byteOrder"], path=f"{path}.byteOrder", error=_error),
+        compression=require_str(obj["compression"], path=f"{path}.compression", error=_error),
+        fields=tuple(_parse_tensor_field(field, index=index) for index, field in enumerate(fields)),
+    )
+
+
+def _parse_tensor_field(raw: object, *, index: int) -> DatasetTensorFieldSchema:
+    path = f"manifest.tensorSchema.fields[{index}]"
+    obj = require_dict(raw, path=path, error=_error)
+    require_exact_keys(obj, _TENSOR_FIELD_SCHEMA_KEYS, path=path, error=_error)
+    shape = require_list(obj["shape"], path=f"{path}.shape", error=_error)
+
+    return DatasetTensorFieldSchema(
+        name=require_str(obj["name"], path=f"{path}.name", error=_error),
+        dtype=require_str(obj["dtype"], path=f"{path}.dtype", error=_error),
+        shape=tuple(
+            require_int(value, path=f"{path}.shape[{shape_index}]", error=_error)
+            for shape_index, value in enumerate(shape)
+        ),
+    )
+
+
 def _select_runtime_key_set(
     obj: dict[str, object],
     base_keys: frozenset[str],
@@ -389,6 +440,7 @@ def parse_manifest(raw: object) -> DatasetManifest:
         reward = None
         non_playing_agent = None
         rollout_roster = None
+        tensor_schema = None
     elif dataset_schema_version == 2:
         require_exact_keys(obj, _MULTIPHASE_MANIFEST_KEYS, path="manifest", error=_error)
         playing_encoder_schema_version = None
@@ -404,6 +456,7 @@ def parse_manifest(raw: object) -> DatasetManifest:
         reward = None
         non_playing_agent = None
         rollout_roster = None
+        tensor_schema = None
     elif dataset_schema_version == 3:
         require_exact_keys(obj, _SELF_PLAY_MANIFEST_KEYS, path="manifest", error=_error)
         playing_encoder_schema_version = require_int(
@@ -431,9 +484,38 @@ def parse_manifest(raw: object) -> DatasetManifest:
         reward = _parse_reward(obj["reward"])
         non_playing_agent = _parse_non_playing_agent(obj["nonPlayingAgent"])
         rollout_roster = _parse_rollout_roster(obj["rolloutRoster"])
+        tensor_schema = None
+    elif dataset_schema_version == 4:
+        require_exact_keys(obj, _BINARY_SELF_PLAY_MANIFEST_KEYS, path="manifest", error=_error)
+        playing_encoder_schema_version = require_int(
+            obj["playingEncoderSchemaVersion"],
+            path="manifest.playingEncoderSchemaVersion",
+            error=_error,
+        )
+        playing_model_input_schema_version = require_int(
+            obj["playingModelInputSchemaVersion"],
+            path="manifest.playingModelInputSchemaVersion",
+            error=_error,
+        )
+        encoder_schema_version = None
+        agent = None
+        sample_schema_version = require_int(
+            obj["sampleSchemaVersion"], path="manifest.sampleSchemaVersion", error=_error
+        )
+        behavior_policy = _parse_behavior_policy(obj["behaviorPolicy"])
+        sampling_algorithm = require_str(
+            obj["samplingAlgorithm"], path="manifest.samplingAlgorithm", error=_error
+        )
+        temperature = require_number(
+            obj["temperature"], path="manifest.temperature", error=_error
+        )
+        reward = _parse_reward(obj["reward"])
+        non_playing_agent = _parse_non_playing_agent(obj["nonPlayingAgent"])
+        rollout_roster = _parse_rollout_roster(obj["rolloutRoster"])
+        tensor_schema = _parse_tensor_schema(obj["tensorSchema"])
     else:
         raise _error(
-            "manifest.datasetSchemaVersion must be 1, 2, or 3, "
+            "manifest.datasetSchemaVersion must be 1, 2, 3, or 4, "
             f"got {dataset_schema_version}."
         )
 
@@ -472,4 +554,5 @@ def parse_manifest(raw: object) -> DatasetManifest:
         reward=reward,
         non_playing_agent=non_playing_agent,
         rollout_roster=rollout_roster,
+        tensor_schema=tensor_schema,
     )

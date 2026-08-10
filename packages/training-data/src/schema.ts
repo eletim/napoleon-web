@@ -4,6 +4,7 @@ export const MULTIPHASE_DATASET_SCHEMA_VERSION = 2 as const;
 export const MULTIPHASE_DATASET_GENERATOR_VERSION = 2 as const;
 export const RULE_BASED_AGENT_VERSION = 1 as const;
 export const DATASET_FORMAT = "jsonl" as const;
+export const PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT = "playing-self-play-binary-v1" as const;
 export const PLAYING_DATASET_SAMPLE_TYPE = "playing-training-sample" as const;
 export const BIDDING_DATASET_SAMPLE_TYPE = "bidding-training-sample" as const;
 export const EXCHANGE_DATASET_SAMPLE_TYPE = "exchange-training-sample" as const;

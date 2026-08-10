@@ -51,6 +51,7 @@ from .constants import (
     MAX_SHARD_COUNT,
     MIN_BIDDING_TARGET_POINT_CARDS,
     MIN_CONTRACT_TARGET_POINT_CARDS,
+    MODEL_INPUT_FEATURE_COUNT,
     MULTIPHASE_DATASET_GENERATOR_VERSION,
     MULTIPHASE_DATASET_SCHEMA_VERSION,
     NOT_IN_HAND_CLASS_INDEX,
@@ -58,9 +59,13 @@ from .constants import (
     PLAYING_ENCODER_SCHEMA_VERSION,
     PLAYING_MODEL_INPUT_SCHEMA_VERSION,
     PLAYING_SELF_PLAY_BEHAVIOR_POLICY_TYPE,
+    PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT,
+    PLAYING_SELF_PLAY_BINARY_SHARD_SCHEMA_VERSION,
     PLAYING_SELF_PLAY_DATASET_GENERATOR_VERSION,
     PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE,
     PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION,
+    PLAYING_SELF_PLAY_LEGACY_DATASET_SCHEMA_VERSION,
+    PLAYING_SELF_PLAY_LEGACY_SAMPLE_SCHEMA_VERSION,
     PLAYING_SELF_PLAY_REWARD_TYPE,
     PLAYING_SELF_PLAY_REWARD_VERSION,
     PLAYING_SELF_PLAY_ROSTER_ASSIGNMENT,
@@ -96,6 +101,7 @@ from .sample import (
 
 _SHA256_HEX_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _SHARD_FILE_NAME_PATTERN = re.compile(rf"^shard-(\d{{{SHARD_FILE_DIGITS}}})\.jsonl$")
+_BINARY_SHARD_FILE_NAME_PATTERN = re.compile(rf"^shard-(\d{{{SHARD_FILE_DIGITS}}})\.bin$")
 _TRUMP_SUIT_OPTION_COUNT = 4
 _WINNING_TEAMS = frozenset({"napoleon-team", "alliance"})
 _SELF_PLAY_ROLES = frozenset(SELF_ROLE_ORDER)
@@ -125,6 +131,15 @@ def shard_file_name(index: int) -> str:
         )
 
     return f"shard-{index:0{SHARD_FILE_DIGITS}d}.jsonl"
+
+
+def binary_shard_file_name(index: int) -> str:
+    if index < 0 or index >= MAX_SHARD_COUNT:
+        raise ManifestValidationError(
+            f"shard index must be between 0 and {MAX_SHARD_COUNT - 1}, got {index}."
+        )
+
+    return f"shard-{index:0{SHARD_FILE_DIGITS}d}.bin"
 
 
 def validate_manifest(manifest: DatasetManifest) -> None:
@@ -182,7 +197,7 @@ def validate_dataset_directory(directory: Path, manifest: DatasetManifest) -> No
     expected_names = {"manifest.json"}
 
     for shard in manifest.shards:
-        _validate_shard_file_name_is_safe(shard.file)
+        _validate_shard_file_name_is_safe(shard.file, manifest=manifest)
         expected_names.add(shard.file)
 
         shard_path = directory / shard.file
@@ -203,7 +218,7 @@ def validate_dataset_directory(directory: Path, manifest: DatasetManifest) -> No
         )
 
 
-def _validate_shard_file_name_is_safe(file_name: str) -> None:
+def _validate_shard_file_name_is_safe(file_name: str, *, manifest: DatasetManifest) -> None:
     if file_name != Path(file_name).name:
         raise ShardIntegrityError(
             f"Shard file name must be a bare file name with no path separators: {file_name!r}"
@@ -214,9 +229,17 @@ def _validate_shard_file_name_is_safe(file_name: str) -> None:
             f"Shard file name must not be a path traversal segment: {file_name!r}"
         )
 
-    if not _SHARD_FILE_NAME_PATTERN.match(file_name):
+    pattern = (
+        _BINARY_SHARD_FILE_NAME_PATTERN
+        if manifest.format == PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT
+        else _SHARD_FILE_NAME_PATTERN
+    )
+    extension = ".bin" if manifest.format == PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT else ".jsonl"
+
+    if not pattern.match(file_name):
         raise ShardIntegrityError(
-            f"Shard file name must match shard-{'0' * SHARD_FILE_DIGITS}.jsonl, got {file_name!r}"
+            f"Shard file name must match shard-{'0' * SHARD_FILE_DIGITS}{extension}, "
+            f"got {file_name!r}"
         )
 
 
@@ -225,19 +248,30 @@ def _validate_schema_identity(manifest: DatasetManifest) -> None:
         DATASET_SCHEMA_VERSION,
         MULTIPHASE_DATASET_SCHEMA_VERSION,
         PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION,
+        PLAYING_SELF_PLAY_LEGACY_DATASET_SCHEMA_VERSION,
     }:
         raise ManifestValidationError(
-            "manifest.datasetSchemaVersion mismatch: expected 1, 2, or 3, "
+            "manifest.datasetSchemaVersion mismatch: expected 1, 2, 3, or 4, "
             f"got {manifest.dataset_schema_version}."
         )
 
-    if manifest.format != DATASET_FORMAT:
+    expected_format = (
+        PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT
+        if manifest.dataset_schema_version == PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION
+        else DATASET_FORMAT
+    )
+
+    if manifest.format != expected_format:
         raise ManifestValidationError(
-            f"manifest.format mismatch: expected {DATASET_FORMAT!r}, got {manifest.format!r}."
+            f"manifest.format mismatch: expected {expected_format!r}, got {manifest.format!r}."
         )
 
     if (
-        manifest.dataset_schema_version != PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION
+        manifest.dataset_schema_version
+        not in {
+            PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION,
+            PLAYING_SELF_PLAY_LEGACY_DATASET_SCHEMA_VERSION,
+        }
         and manifest.sample_type not in DATASET_SAMPLE_TYPES
     ):
         raise ManifestValidationError(
@@ -284,7 +318,10 @@ def _validate_schema_identity(manifest: DatasetManifest) -> None:
     else:
         _validate_playing_self_play_manifest_identity(manifest)
 
-    if manifest.dataset_schema_version == PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION:
+    if manifest.dataset_schema_version in {
+        PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION,
+        PLAYING_SELF_PLAY_LEGACY_DATASET_SCHEMA_VERSION,
+    }:
         return
 
     if manifest.agent is None:
@@ -315,10 +352,15 @@ def _validate_playing_self_play_manifest_identity(manifest: DatasetManifest) -> 
             f"{PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE!r}, got {manifest.sample_type!r}."
         )
 
-    if manifest.sample_schema_version != PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION:
+    expected_sample_schema_version = (
+        PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION
+        if manifest.dataset_schema_version == PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION
+        else PLAYING_SELF_PLAY_LEGACY_SAMPLE_SCHEMA_VERSION
+    )
+    if manifest.sample_schema_version != expected_sample_schema_version:
         raise ManifestValidationError(
             "self-play manifest.sampleSchemaVersion mismatch: "
-            f"expected {PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION}, "
+            f"expected {expected_sample_schema_version}, "
             f"got {manifest.sample_schema_version}."
         )
 
@@ -457,6 +499,38 @@ def _validate_playing_self_play_manifest_identity(manifest: DatasetManifest) -> 
     if current_policy_count == 0:
         raise ManifestValidationError("self-play manifest.rolloutRoster has no current-policy.")
 
+    if manifest.dataset_schema_version == PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION:
+        _validate_tensor_schema(manifest)
+    elif manifest.tensor_schema is not None:
+        raise ManifestValidationError("legacy self-play manifest must not include tensorSchema.")
+
+
+def _validate_tensor_schema(manifest: DatasetManifest) -> None:
+    schema = manifest.tensor_schema
+    if schema is None:
+        raise ManifestValidationError("binary self-play manifest.tensorSchema is required.")
+    if schema.shard_schema_version != PLAYING_SELF_PLAY_BINARY_SHARD_SCHEMA_VERSION:
+        raise ManifestValidationError("binary self-play tensorSchema.shardSchemaVersion mismatch.")
+    if schema.byte_order != "little-endian":
+        raise ManifestValidationError("binary self-play tensorSchema.byteOrder mismatch.")
+    if schema.compression != "gzip":
+        raise ManifestValidationError("binary self-play tensorSchema.compression mismatch.")
+
+    expected_fields = (
+        ("modelInput", "float32", (MODEL_INPUT_FEATURE_COUNT,)),
+        ("legalPlayMask", "uint8", (CARD_COUNT,)),
+        ("selectedCardIndex", "uint8", ()),
+        ("behaviorLogProbability", "float32", ()),
+        ("terminalReward", "int8", ()),
+        ("seed", "uint32", ()),
+        ("step", "uint16", ()),
+        ("actingPlayerIndex", "uint8", ()),
+        ("selfRoleIndex", "uint8", ()),
+    )
+    actual_fields = tuple((field.name, field.dtype, field.shape) for field in schema.fields)
+    if actual_fields != expected_fields:
+        raise ManifestValidationError("binary self-play tensorSchema.fields mismatch.")
+
 
 def _validate_optional_inference_runtime(
     path: str,
@@ -561,7 +635,11 @@ def _validate_shards(manifest: DatasetManifest) -> None:
     for index, shard in enumerate(manifest.shards):
         _validate_shard_numbers(shard)
 
-        expected_file = shard_file_name(index)
+        expected_file = (
+            binary_shard_file_name(index)
+            if manifest.format == PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT
+            else shard_file_name(index)
+        )
 
         if shard.file != expected_file:
             raise ManifestValidationError(
@@ -824,9 +902,10 @@ def validate_playing_self_play_sample(sample: PlayingSelfPlaySample) -> None:
             f"got {sample.sample_type!r}."
         )
 
-    if sample.schema_version != PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION:
+    if sample.schema_version != PLAYING_SELF_PLAY_LEGACY_SAMPLE_SCHEMA_VERSION:
         raise SampleValidationError(
-            f"sample.schemaVersion mismatch: expected {PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION}, "
+            "sample.schemaVersion mismatch: expected "
+            f"{PLAYING_SELF_PLAY_LEGACY_SAMPLE_SCHEMA_VERSION}, "
             f"got {sample.schema_version}."
         )
 

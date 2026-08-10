@@ -103,7 +103,7 @@ def test_valid_manifest_passes() -> None:
 
 def test_schema_version_mismatch_rejected() -> None:
     raw = _valid_manifest_dict()
-    raw["datasetSchemaVersion"] = 4
+    raw["datasetSchemaVersion"] = 5
 
     with pytest.raises(ManifestValidationError, match="datasetSchemaVersion"):
         _parse_and_validate(raw)

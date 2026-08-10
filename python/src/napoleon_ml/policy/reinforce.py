@@ -21,6 +21,7 @@ from napoleon_ml.dataset.constants import (
     PLAYING_ENCODER_SCHEMA_VERSION,
     PLAYING_MODEL_INPUT_SCHEMA_VERSION,
     PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION,
+    PLAYING_SELF_PLAY_LEGACY_DATASET_SCHEMA_VERSION,
     PLAYING_SELF_PLAY_REWARD_TYPE,
     PLAYING_SELF_PLAY_REWARD_VERSION,
     PLAYING_SELF_PLAY_SAMPLING_ALGORITHM,
@@ -597,9 +598,12 @@ def _validate_checkpoint_for_reinforce(
 
 
 def _validate_self_play_manifest(manifest: DatasetManifest) -> None:
-    if manifest.dataset_schema_version != PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION:
+    if manifest.dataset_schema_version not in {
+        PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION,
+        PLAYING_SELF_PLAY_LEGACY_DATASET_SCHEMA_VERSION,
+    }:
         raise ValueError(
-            "REINFORCE training requires a playing self-play dataset schema v3, "
+            "REINFORCE training requires a playing self-play dataset schema v3 or v4, "
             f"got {manifest.dataset_schema_version}."
         )
     if manifest.playing_encoder_schema_version != PLAYING_ENCODER_SCHEMA_VERSION:

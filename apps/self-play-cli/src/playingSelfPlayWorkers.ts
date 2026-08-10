@@ -87,7 +87,8 @@ export class ChildProcessPlayingSelfPlayGameRunner implements PlayingSelfPlayGam
 
   private spawnWorker(): WorkerSlot {
     const child = fork(fileURLToPath(new URL("./playingSelfPlayWorker.js", import.meta.url)), [], {
-      stdio: ["ignore", "ignore", "pipe", "ipc"]
+      stdio: ["ignore", "ignore", "pipe", "ipc"],
+      serialization: "advanced"
     });
     const worker: WorkerSlot = {
       child,
