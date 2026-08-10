@@ -83,9 +83,9 @@ def iter_binary_playing_self_play_batches(
         if pending is not None:
             needed = batch_size - _batch_array_count(pending)
             take = min(needed, int(indices.shape[0]))
+            offset = take
             if take > 0:
                 pending = _concat_batch_arrays(pending, _slice_arrays(arrays, indices[:take]))
-                offset = take
             if _batch_array_count(pending) == batch_size:
                 yield _torch_batch(pending)
                 pending = None
@@ -236,6 +236,8 @@ def _validate_arrays(arrays: dict[str, np.ndarray], shard: DatasetShardManifest)
         raise ShardIntegrityError(f"{shard.file}: legalPlayMask must contain only 0/1.")
     if bool(legal.sum(axis=1).min() <= 0):
         raise ShardIntegrityError(f"{shard.file}: every row needs at least one legal card.")
+    if bool((selected >= CARD_COUNT).any()):
+        raise ShardIntegrityError(f"{shard.file}: selectedCardIndex out of range.")
     if bool((legal[np.arange(selected.shape[0]), selected] != 1).any()):
         raise ShardIntegrityError(f"{shard.file}: selectedCardIndex must be legal.")
     if bool(~np.isfinite(arrays["modelInput"]).all()):

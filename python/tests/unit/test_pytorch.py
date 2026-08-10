@@ -13,10 +13,11 @@ import numpy as np
 import pytest
 import torch
 
+import napoleon_ml.dataset.binary as binary_module
 import napoleon_ml.dataset.pytorch as pytorch_module
 import napoleon_ml.dataset.reader as reader_module
 from napoleon_ml.dataset.constants import CARD_COUNT, EXPECTED_CARD_IDS
-from napoleon_ml.dataset.errors import DatasetError
+from napoleon_ml.dataset.errors import DatasetError, ShardIntegrityError
 from napoleon_ml.dataset.pytorch import (
     AdjutantIterableDataset,
     BiddingIterableDataset,
@@ -208,9 +209,36 @@ def _write_self_play_dataset(directory: Path, samples: list[dict[str, Any]]) -> 
     (directory / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
 
-def _write_binary_self_play_dataset(directory: Path, samples: list[dict[str, Any]]) -> None:
-    shard_bytes = _binary_self_play_shard_bytes(samples)
-    (directory / "shard-00000.bin").write_bytes(shard_bytes)
+def _write_binary_self_play_dataset(
+    directory: Path,
+    samples: list[dict[str, Any]],
+    *,
+    shard_sample_counts: list[int] | None = None,
+) -> None:
+    if shard_sample_counts is None:
+        shard_sample_counts = [len(samples)]
+    shards: list[dict[str, Any]] = []
+    sample_offset = 0
+    for shard_index, sample_count in enumerate(shard_sample_counts):
+        shard_samples = samples[sample_offset : sample_offset + sample_count]
+        sample_offset += sample_count
+        shard_bytes = _binary_self_play_shard_bytes(shard_samples)
+        file_name = f"shard-{shard_index:05d}.bin"
+        (directory / file_name).write_bytes(shard_bytes)
+        shard_seeds = [sample["seed"] for sample in shard_samples]
+        shards.append(
+            {
+                "file": file_name,
+                "startSeed": shard_seeds[0],
+                "endSeed": shard_seeds[-1],
+                "gameCount": len(set(shard_seeds)),
+                "sampleCount": len(shard_samples),
+                "byteLength": len(shard_bytes),
+                "sha256": hashlib.sha256(shard_bytes).hexdigest(),
+            }
+        )
+    if sample_offset != len(samples):
+        raise ValueError("shard_sample_counts must cover all samples.")
     seeds = [sample["seed"] for sample in samples]
     unique_seed_runs = 0
     previous_seed: int | None = None
@@ -230,23 +258,13 @@ def _write_binary_self_play_dataset(directory: Path, samples: list[dict[str, Any
         "endSeed": seeds[-1],
         "gameCount": unique_seed_runs,
         "sampleCount": len(samples),
-        "gamesPerShard": unique_seed_runs,
-        "shardCount": 1,
+        "gamesPerShard": (unique_seed_runs + len(shards) - 1) // len(shards),
+        "shardCount": len(shards),
         "playerCount": 5,
         "cardCount": CARD_COUNT,
         "cardIds": list(EXPECTED_CARD_IDS),
         "cardIdsSha256": calculate_card_ids_sha256(),
-        "shards": [
-            {
-                "file": "shard-00000.bin",
-                "startSeed": seeds[0],
-                "endSeed": seeds[-1],
-                "gameCount": unique_seed_runs,
-                "sampleCount": len(samples),
-                "byteLength": len(shard_bytes),
-                "sha256": hashlib.sha256(shard_bytes).hexdigest(),
-            }
-        ],
+        "shards": shards,
         "playingEncoderSchemaVersion": 2,
         "playingModelInputSchemaVersion": 2,
         "behaviorPolicy": {
@@ -703,6 +721,41 @@ def test_binary_playing_self_play_dataloader_matches_legacy_json(tmp_path: Path)
         "acting_player_index",
     ):
         assert torch.equal(json_batches[0][key], binary_batches[0][key])
+
+
+def test_binary_playing_self_play_dataloader_carries_pending_across_small_shards(
+    tmp_path: Path,
+) -> None:
+    samples = [_self_play_sample(seed=seed, step=1) for seed in range(5)]
+    _write_binary_self_play_dataset(tmp_path, samples, shard_sample_counts=[2, 2, 1])
+
+    batches = list(
+        create_playing_self_play_dataloader(
+            tmp_path,
+            split=DatasetSplit.TRAIN,
+            split_config=SplitConfig(train=100, validation=0, test=0),
+            batch_size=3,
+        )
+    )
+
+    assert [batch["seed"].tolist() for batch in batches] == [[0, 1, 2], [3, 4]]
+
+
+def test_binary_playing_self_play_dataloader_rejects_out_of_range_selected_card(
+    tmp_path: Path,
+) -> None:
+    _write_binary_self_play_dataset(tmp_path, [_self_play_sample(seed=0, step=1)])
+    manifest = reader_module.load_manifest(tmp_path)
+    shard = manifest.shards[0]
+    arrays = binary_module._read_shard(
+        tmp_path / shard.file,
+        shard,
+        verify_integrity=True,
+    )
+    arrays["selectedCardIndex"][0] = CARD_COUNT
+
+    with pytest.raises(ShardIntegrityError, match="selectedCardIndex out of range"):
+        binary_module._validate_arrays(arrays, shard)
 
 
 def test_self_play_is_not_loaded_as_supervised_training_dataloader(tmp_path: Path) -> None:
