@@ -70,7 +70,7 @@ describe("SelfHandPanel", () => {
     expect(html).toContain("aria-pressed=\"true\"");
     expect(indexOfCard(html, "A♠")).toBeLessThan(indexOfCard(html, "K♥"));
     expect(indexOfCard(html, "K♥")).toBeLessThan(indexOfCard(html, "2♣"));
-    expect(html).toContain("aria-label=\"理牌\"");
+    expect(html).toContain("aria-label=\"理牌オン\"");
     expect(html).not.toContain("aria-label=\"配札順\"");
   });
 
@@ -130,18 +130,24 @@ describe("SelfHandPanel", () => {
 
     expect(cardLabels(container)).toEqual(["A♠", "2♠", "K♥", "2♣", "JOKER"]);
 
+    expect(getHandSortButton(container).getAttribute("aria-pressed")).toBe("true");
+
     act(() => {
-      getButtonByAriaLabel(container, "理牌").click();
+      getHandSortButton(container).click();
     });
 
     expect(onPlay).not.toHaveBeenCalled();
     expect(cardLabels(container)).toEqual(["2♣", "JOKER", "2♠", "K♥", "A♠"]);
+    expect(getHandSortButton(container).getAttribute("aria-pressed")).toBe("false");
+    expect(getHandSortButton(container).getAttribute("aria-label")).toBe("理牌オフ");
 
     act(() => {
-      getButtonByAriaLabel(container, "理牌").click();
+      getHandSortButton(container).click();
     });
 
     expect(cardLabels(container)).toEqual(["A♠", "2♠", "K♥", "2♣", "JOKER"]);
+    expect(getHandSortButton(container).getAttribute("aria-pressed")).toBe("true");
+    expect(getHandSortButton(container).getAttribute("aria-label")).toBe("理牌オン");
 
     act(() => {
       getCardButton(container, "2♠").click();
@@ -238,13 +244,11 @@ function cardLabels(container: Element): string[] {
   });
 }
 
-function getButtonByAriaLabel(container: Element, label: string): HTMLButtonElement {
-  const button = Array.from(container.querySelectorAll("button")).find(
-    (candidate) => candidate.getAttribute("aria-label") === label
-  );
+function getHandSortButton(container: Element): HTMLButtonElement {
+  const button = container.querySelector(".hand-sort-toggle button");
 
   if (!(button instanceof HTMLButtonElement)) {
-    throw new Error(`Button ${label} was not rendered.`);
+    throw new Error("Hand sort button was not rendered.");
   }
 
   return button;

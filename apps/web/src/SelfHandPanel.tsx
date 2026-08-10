@@ -74,7 +74,7 @@ export function SelfHandPanel({
 
         <div className="hand-sort-toggle" aria-label="理牌切り替え">
           <button
-            aria-label="理牌"
+            aria-label={handOrderMode === "riipai" ? "理牌オン" : "理牌オフ"}
             aria-pressed={handOrderMode === "riipai"}
             className={getHandSortButtonClassName(handOrderMode)}
             onClick={() =>
