@@ -35,6 +35,7 @@ export {
   createPlayingSelfPlaySamples,
   generatePlayingSelfPlayDataset,
   runPlayingSelfPlayGame,
+  runPlayingSelfPlayGameWithSamples,
   serializePlayingSelfPlaySample,
   validatePlayingSelfPlayDatasetManifest,
   validatePlayingSelfPlaySample
@@ -78,6 +79,7 @@ export type {
   FrozenOnnxRolloutRosterSeat,
   PlayingSelfPlayGameRunner,
   PlayingSelfPlayGameRunRequest,
+  PlayingSelfPlayGameRunResult,
   PlayingSelfPlayDatasetManifest,
   PlayingSelfPlayOutcome,
   PlayingSelfPlayPolicy,

@@ -149,13 +149,22 @@ export interface PlayingSelfPlayGameRunRequest {
   gameOffset: number;
   seed: number;
   currentPolicy: PlayingSelfPlayPolicy;
+  behaviorPolicyArtifactId: string;
   rolloutRoster: PlayingSelfPlayRolloutRosterOptions | undefined;
   temperature: number;
   maxDecisionSteps: number | undefined;
 }
 
+export interface PlayingSelfPlayGameRunResult {
+  seed: number;
+  record?: AutomatedGameRecord;
+  samples?: readonly PlayingSelfPlaySample[];
+}
+
 export interface PlayingSelfPlayGameRunner {
-  runGame: (request: PlayingSelfPlayGameRunRequest) => Promise<AutomatedGameRecord>;
+  runGame: (
+    request: PlayingSelfPlayGameRunRequest
+  ) => Promise<AutomatedGameRecord | PlayingSelfPlayGameRunResult>;
   close?: () => Promise<void>;
 }
 
@@ -239,7 +248,7 @@ export async function generatePlayingSelfPlayDataset(
     let nextGameOffsetToCommit = 0;
     let pendingError: unknown = null;
     const inFlight = new Set<Promise<void>>();
-    const completedRecords = new Map<number, AutomatedGameRecord>();
+    const completedResults = new Map<number, AutomatedGameRecord | PlayingSelfPlayGameRunResult>();
 
     const startGame = (gameOffset: number): void => {
       const seed = options.startSeed + gameOffset;
@@ -247,18 +256,20 @@ export async function generatePlayingSelfPlayDataset(
         gameOffset,
         seed,
         currentPolicy: options.playingPolicy,
+        behaviorPolicyArtifactId: artifact.artifactId,
         rolloutRoster: options.rolloutRoster,
         temperature,
         maxDecisionSteps: options.maxDecisionSteps
       }).then(
-        (record) => {
-          if (record.seed !== seed) {
-            throw new Error(`Worker returned seed ${record.seed} for expected seed ${seed}.`);
+        (result) => {
+          const resultSeed = getGameRunSeed(result);
+          if (resultSeed !== seed) {
+            throw new Error(`Worker returned seed ${resultSeed} for expected seed ${seed}.`);
           }
-          if (completedRecords.has(gameOffset)) {
+          if (completedResults.has(gameOffset)) {
             throw new Error(`Duplicate completed game offset: ${gameOffset}`);
           }
-          completedRecords.set(gameOffset, record);
+          completedResults.set(gameOffset, result);
         },
         (error: unknown) => {
           pendingError = error;
@@ -287,9 +298,9 @@ export async function generatePlayingSelfPlayDataset(
 
       const gameOffset = nextGameOffsetToCommit;
       const seed = options.startSeed + gameOffset;
-      const record = completedRecords.get(gameOffset);
+      const result = completedResults.get(gameOffset);
 
-      if (record === undefined) {
+      if (result === undefined) {
         if (inFlight.size === 0) {
           throw new Error(`Missing completed game offset: ${gameOffset}`);
         }
@@ -297,7 +308,7 @@ export async function generatePlayingSelfPlayDataset(
         continue;
       }
 
-      completedRecords.delete(gameOffset);
+      completedResults.delete(gameOffset);
 
       if (activeShard === null) {
         activeShard = createJsonlShardWriter(
@@ -309,10 +320,9 @@ export async function generatePlayingSelfPlayDataset(
         shardGameCount = 0;
       }
 
-      const assignedRoster = assignRolloutRosterForSeed(options.rolloutRoster, seed);
-      const samples = await createPlayingSelfPlaySamples(record, options.playingPolicy, temperature, {
+      const samples = await getSamplesForGameRunResult(result, options.playingPolicy, temperature, {
         behaviorPolicyArtifactId: artifact.artifactId,
-        rolloutSeatSources: assignedRoster.map((seat) => seat.source)
+        rolloutSeatSources: assignRolloutRosterForSeed(options.rolloutRoster, seed).map((seat) => seat.source)
       });
 
       for (const sample of samples) {
@@ -422,6 +432,38 @@ export async function createPlayingSelfPlaySamples(
 
 export function serializePlayingSelfPlaySample(sample: PlayingSelfPlaySample): string {
   return `${JSON.stringify(sample)}\n`;
+}
+
+function getGameRunSeed(result: AutomatedGameRecord | PlayingSelfPlayGameRunResult): number {
+  return isPlayingSelfPlayGameRunResult(result) ? result.seed : result.seed;
+}
+
+async function getSamplesForGameRunResult(
+  result: AutomatedGameRecord | PlayingSelfPlayGameRunResult,
+  policy: PlayingSelfPlayPolicy,
+  temperature: number,
+  metadata: {
+    behaviorPolicyArtifactId: string;
+    rolloutSeatSources: readonly PlayingSelfPlayRosterSource[];
+  }
+): Promise<readonly PlayingSelfPlaySample[]> {
+  if (isPlayingSelfPlayGameRunResult(result)) {
+    if (result.samples !== undefined) {
+      return result.samples;
+    }
+    if (result.record !== undefined) {
+      return createPlayingSelfPlaySamples(result.record, policy, temperature, metadata);
+    }
+    throw new Error("Game runner result must include samples or record.");
+  }
+
+  return createPlayingSelfPlaySamples(result, policy, temperature, metadata);
+}
+
+function isPlayingSelfPlayGameRunResult(
+  result: AutomatedGameRecord | PlayingSelfPlayGameRunResult
+): result is PlayingSelfPlayGameRunResult {
+  return "samples" in result || "record" in result;
 }
 
 export function calculatePlayingSelfPlayLogProbability(options: {
@@ -673,19 +715,73 @@ export async function runPlayingSelfPlayGame(options: {
   });
 }
 
+export async function runPlayingSelfPlayGameWithSamples(options: {
+  seed: number;
+  currentPolicy: PlayingSelfPlayPolicy;
+  behaviorPolicyArtifactId: string;
+  rolloutRoster: PlayingSelfPlayRolloutRosterOptions | undefined;
+  temperature: number;
+  maxDecisionSteps: number | undefined;
+}): Promise<PlayingSelfPlayGameRunResult> {
+  const assignedRoster = assignRolloutRosterForSeed(options.rolloutRoster, options.seed);
+  const sampledDecisions: PlayingSelfPlaySampleDraft[] = [];
+  const record = await runAutomatedGame({
+    seed: options.seed,
+    maxDecisionSteps: options.maxDecisionSteps,
+    createAgent: ({ rng, playerIndex }) => {
+      const seat = assignedRoster[playerIndex];
+
+      switch (seat.source) {
+        case CURRENT_POLICY_ROSTER_SOURCE:
+          return new PlayingSelfPlayAgent({
+            policy: options.currentPolicy,
+            rng,
+            temperature: options.temperature,
+            recordSample: (sample) => {
+              sampledDecisions.push(sample);
+            }
+          });
+        case RULE_BASED_ROSTER_SOURCE:
+          return new RuleBasedAgent(rng);
+        case FROZEN_ONNX_ROSTER_SOURCE:
+          return new PlayingSelfPlayAgent({
+            policy: seat.policy,
+            rng,
+            temperature: options.temperature
+          });
+      }
+    }
+  });
+  const samples = completePlayingSelfPlaySamples(record, sampledDecisions, {
+    behaviorPolicyArtifactId: options.behaviorPolicyArtifactId,
+    rolloutSeatSources: assignedRoster.map((seat) => seat.source)
+  });
+
+  return { seed: record.seed, samples };
+}
+
 const defaultPlayingSelfPlayGameRunner: PlayingSelfPlayGameRunner = {
-  runGame: async (request) => runPlayingSelfPlayGame(request)
+  runGame: async (request) => runPlayingSelfPlayGameWithSamples(request)
 };
+
+interface PlayingSelfPlaySampleDraft {
+  playerId: PlayerId;
+  relativePlayerIds: readonly PlayerId[];
+  observation: ReturnType<typeof encodePlayingObservation>;
+  selectedCardIndex: number;
+  behaviorLogProbability: number;
+}
 
 class PlayingSelfPlayAgent implements Agent {
   private readonly ruleBasedAgent: RuleBasedAgent;
 
-	  constructor(
-	    private readonly options: {
-	      policy: PlayingSelfPlayPolicy;
-	      rng: () => number;
-	      temperature: number;
-	    }
+  constructor(
+    private readonly options: {
+      policy: PlayingSelfPlayPolicy;
+      rng: () => number;
+      temperature: number;
+      recordSample?: (sample: PlayingSelfPlaySampleDraft) => void;
+    }
   ) {
     this.ruleBasedAgent = new RuleBasedAgent(options.rng);
   }
@@ -695,7 +791,7 @@ class PlayingSelfPlayAgent implements Agent {
       return this.ruleBasedAgent.selectAction(observation);
     }
 
-    const { modelInput, legalPlayMask } = createPlayingSelfPlayPolicyInput(observation);
+    const { modelInput, legalPlayMask, encodedObservation } = createPlayingSelfPlayPolicyInput(observation);
     const logits = await this.options.policy.predictLogits(modelInput);
     const selection = samplePlayingSelfPlayAction({
       logits,
@@ -714,6 +810,14 @@ class PlayingSelfPlayAgent implements Agent {
       );
     }
 
+    this.options.recordSample?.({
+      playerId: observation.playerId,
+      relativePlayerIds: encodedObservation.relativePlayerIds,
+      observation: encodedObservation,
+      selectedCardIndex: selection.selectedCardIndex,
+      behaviorLogProbability: selection.logProbability
+    });
+
     return selectedAction;
   }
 }
@@ -721,6 +825,7 @@ class PlayingSelfPlayAgent implements Agent {
 function createPlayingSelfPlayPolicyInput(observation: PlayerObservation): {
   modelInput: Float32Array;
   legalPlayMask: readonly number[];
+  encodedObservation: ReturnType<typeof encodePlayingObservation>;
 } {
   if (observation.view.phase !== "playing") {
     throw new Error(
@@ -743,8 +848,9 @@ function createPlayingSelfPlayPolicyInput(observation: PlayerObservation): {
     absolutePlayerIds,
     biddingHistory
   );
+  const { modelInput, legalPlayMask } = createPlayingModelInput(encodedObservation);
 
-  return createPlayingModelInput(encodedObservation);
+  return { modelInput, legalPlayMask, encodedObservation };
 }
 
 function samplePlayingSelfPlayAction(options: {
@@ -860,6 +966,94 @@ function createMaskedCategoricalDistribution(
     probabilities,
     logProbabilities
   };
+}
+
+function completePlayingSelfPlaySamples(
+  record: AutomatedGameRecord,
+  sampledDecisions: readonly PlayingSelfPlaySampleDraft[],
+  metadata: {
+    behaviorPolicyArtifactId: string;
+    rolloutSeatSources: readonly PlayingSelfPlayRosterSource[];
+  }
+): readonly PlayingSelfPlaySample[] {
+  const samples: PlayingSelfPlaySample[] = [];
+  let sampledDecisionIndex = 0;
+
+  for (const decision of record.decisions) {
+    if (decision.phase !== "playing") {
+      continue;
+    }
+
+    const seatIndex = record.playerIds.indexOf(decision.playerId);
+    const source = metadata.rolloutSeatSources[seatIndex];
+
+    if (source !== CURRENT_POLICY_ROSTER_SOURCE) {
+      continue;
+    }
+    if (decision.action.type !== "play-card") {
+      throw new Error(`Playing self-play decision action must be play-card, got ${decision.action.type}.`);
+    }
+
+    const sampledDecision = sampledDecisions[sampledDecisionIndex];
+    sampledDecisionIndex += 1;
+
+    if (sampledDecision === undefined) {
+      throw new Error("Missing sampled action for current-policy playing decision.");
+    }
+    if (sampledDecision.playerId !== decision.playerId) {
+      throw new Error(
+        `Sampled action player mismatch: ${sampledDecision.playerId} !== ${decision.playerId}.`
+      );
+    }
+
+    const selectedCardIndex = getCardIndex(decision.action.cardId);
+    if (sampledDecision.selectedCardIndex !== selectedCardIndex) {
+      throw new Error(
+        `Sampled action card mismatch: ${sampledDecision.selectedCardIndex} !== ${selectedCardIndex}.`
+      );
+    }
+
+    const relativePlayerIds = createRelativePlayerOrder(record.playerIds, decision.playerId);
+    if (!sameStringArray(sampledDecision.relativePlayerIds, relativePlayerIds)) {
+      throw new Error("Sampled action relativePlayerIds mismatch.");
+    }
+    if (!sameStringArray(sampledDecision.relativePlayerIds, sampledDecision.observation.relativePlayerIds)) {
+      throw new Error("Sampled action observation relativePlayerIds mismatch.");
+    }
+    if (sampledDecision.observation.legalPlayMask[selectedCardIndex] !== 1) {
+      throw new Error("Sampled action selectedCardIndex must be legal.");
+    }
+    if (
+      !Number.isFinite(sampledDecision.behaviorLogProbability) ||
+      sampledDecision.behaviorLogProbability > 1e-12
+    ) {
+      throw new Error("Sampled action behaviorLogProbability must be finite and <= 0.");
+    }
+
+    const outcome = createOutcome(record, decision.playerId);
+    samples.push({
+      sampleType: PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE,
+      schemaVersion: PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION,
+      seed: record.seed,
+      step: decision.step,
+      actingPlayerId: decision.playerId,
+      actingSeatSource: CURRENT_POLICY_ROSTER_SOURCE,
+      behaviorPolicyArtifactId: metadata.behaviorPolicyArtifactId,
+      rolloutSeatSources: metadata.rolloutSeatSources,
+      relativePlayerIds: sampledDecision.relativePlayerIds,
+      observation: sampledDecision.observation,
+      selectedCardIndex,
+      behaviorLogProbability: sampledDecision.behaviorLogProbability,
+      terminalReward: outcome.actingPlayerTeam === outcome.winner ? 1 : -1,
+      outcome
+    });
+  }
+
+  if (sampledDecisionIndex !== sampledDecisions.length) {
+    throw new Error("Unused sampled actions remain after completing self-play samples.");
+  }
+
+  return samples;
 }
 
 async function createPlayingSelfPlaySample(

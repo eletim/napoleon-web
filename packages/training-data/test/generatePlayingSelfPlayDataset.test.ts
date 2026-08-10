@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   CARD_COUNT,
   MODEL_INPUT_FEATURE_COUNT,
@@ -28,6 +28,7 @@ import {
   calculatePlayingSelfPlayLogProbability,
   generatePlayingSelfPlayDataset,
   runPlayingSelfPlayGame,
+  runPlayingSelfPlayGameWithSamples,
   validatePlayingSelfPlayDatasetManifest,
   validatePlayingSelfPlaySample
 } from "../src/index.js";
@@ -394,6 +395,52 @@ describe("generatePlayingSelfPlayDataset", () => {
       })).rejects.toThrow("worker failed");
 
       await expect(stat(output)).rejects.toMatchObject({ code: "ENOENT" });
+    });
+  });
+
+  it("uses runner-provided samples without parent policy inference", async () => {
+    await withTempDir(async (directory) => {
+      const artifact = await createPlayingPolicyFixture(directory);
+      const workerPolicy = await loadPolicyOnnxModel(artifact);
+      const output = join(directory, "worker-samples");
+      const parentPredictLogits = vi.fn(async () => {
+        throw new Error("parent policy inference should not be called");
+      });
+      const runner: PlayingSelfPlayGameRunner = {
+        runGame: async (request) => runPlayingSelfPlayGameWithSamples({
+          seed: request.seed,
+          currentPolicy: workerPolicy,
+          behaviorPolicyArtifactId: request.behaviorPolicyArtifactId,
+          rolloutRoster: request.rolloutRoster,
+          temperature: request.temperature,
+          maxDecisionSteps: request.maxDecisionSteps
+        })
+      };
+
+      await generatePlayingSelfPlayDataset({
+        outputDirectory: output,
+        playingPolicy: {
+          metadata: workerPolicy.metadata,
+          predictLogits: parentPredictLogits
+        },
+        playingPolicyArtifact: artifact,
+        startSeed: 40,
+        gameCount: 2,
+        gamesPerShard: 2,
+        rolloutWorkers: 2,
+        gameRunner: runner
+      });
+
+      expect(parentPredictLogits).not.toHaveBeenCalled();
+      const manifest = await readManifest(output);
+      const samples = (await readAllShardLines(output, manifest)).map((line) =>
+        JSON.parse(line) as PlayingSelfPlaySample
+      );
+      expect(samples.length).toBeGreaterThan(0);
+      for (const sample of samples) {
+        validatePlayingSelfPlaySample(sample, sample.seed);
+        expect(sample.behaviorPolicyArtifactId).toBe("test-playing-policy");
+      }
     });
   });
 
