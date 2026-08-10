@@ -36,6 +36,7 @@ export interface PolicyOnnxMetadata {
     outputs: readonly PolicyOnnxIoMetadata[];
   };
   policyModel?: unknown;
+  sourceCheckpointSha256?: string;
 }
 
 export interface NonPlayingPolicyOnnxMetadata {

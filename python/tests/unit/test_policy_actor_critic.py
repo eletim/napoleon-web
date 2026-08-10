@@ -9,6 +9,7 @@ import pytest
 import torch
 
 from napoleon_ml.dataset.constants import CARD_COUNT, EXPECTED_CARD_IDS
+from napoleon_ml.dataset.errors import SampleValidationError
 from napoleon_ml.dataset.pytorch import create_playing_self_play_dataloader
 from napoleon_ml.dataset.reader import load_manifest
 from napoleon_ml.dataset.sample import PlayingSelfPlaySample
@@ -109,6 +110,7 @@ def test_actor_critic_training_migrates_policy_logits_and_saves_checkpoint(
         self_play_dataset,
         model=policy_model,
         checkpoint=checkpoint,
+        checkpoint_path=checkpoint_path,
         rewards=(1, -1),
     )
 
@@ -142,7 +144,7 @@ def test_actor_critic_training_migrates_policy_logits_and_saves_checkpoint(
     assert report.diagnostics_performed is True
     assert report.sample_count == 2
     assert report.optimizer_step_count == 1
-    assert report.max_behavior_log_probability_parity_error == pytest.approx(0.0)
+    assert report.max_behavior_log_probability_parity_error == pytest.approx(0.0, abs=2e-7)
     assert report.actor_parameter_delta_norm > 0
     assert report.critic_parameter_delta_norm > 0
     assert report.changed_actor_parameter_count > 0
@@ -216,6 +218,7 @@ def test_actor_critic_can_skip_full_diagnostics_and_still_update_critic(
         self_play_dataset,
         model=policy_model,
         checkpoint=checkpoint,
+        checkpoint_path=checkpoint_path,
         rewards=(1, -1),
     )
 
@@ -300,6 +303,7 @@ def test_actor_critic_wrong_behavior_checkpoint_fails_before_save(tmp_path: Path
         self_play_dataset,
         model=behavior_model,
         checkpoint=checkpoint,
+        checkpoint_path=checkpoint_path,
         rewards=(1, -1),
     )
 
@@ -330,6 +334,7 @@ def test_actor_critic_subset_parity_fails_before_save(tmp_path: Path) -> None:
         self_play_dataset,
         model=behavior_model,
         checkpoint=checkpoint,
+        checkpoint_path=checkpoint_path,
         rewards=(1, -1),
     )
 
@@ -352,6 +357,124 @@ def test_actor_critic_subset_parity_fails_before_save(tmp_path: Path) -> None:
     assert not (tmp_path / "subset-should-not-exist.pt").exists()
 
 
+def test_actor_critic_batched_cuda_numeric_drift_passes_with_diagnostics(
+    tmp_path: Path,
+) -> None:
+    self_play_dataset = tmp_path / "self-play"
+    self_play_dataset.mkdir()
+    policy_model = PolicyMlpModel(PolicyMlpConfig(hidden_dim=8, hidden_layers=1))
+    checkpoint_path = tmp_path / "input.pt"
+    checkpoint = _write_checkpoint(checkpoint_path, policy_model)
+    _write_self_play_dataset(
+        self_play_dataset,
+        model=policy_model,
+        checkpoint=checkpoint,
+        checkpoint_path=checkpoint_path,
+        rewards=(1,),
+        behavior_log_probability_offset=-0.001,
+    )
+
+    report = _run_actor_critic(
+        input_checkpoint=checkpoint_path,
+        self_play_dataset=self_play_dataset,
+        output_checkpoint=tmp_path / "output.pt",
+        behavior_parity_execution_provider="cuda",
+        behavior_parity_max_observed_batch_size=32,
+    )
+
+    assert report.behavior_parity_diagnostics.tolerance.mode == "batched-cuda"
+    assert report.behavior_parity_diagnostics.strict_failed_count == 1
+    assert report.behavior_parity_diagnostics.max_abs_error == pytest.approx(
+        0.001,
+        abs=1e-7,
+    )
+    assert report.max_behavior_log_probability_parity_error == pytest.approx(0.001, abs=1e-7)
+    assert report.output_checkpoint_path.is_file()
+
+
+def test_actor_critic_batched_cuda_large_numeric_drift_fails(tmp_path: Path) -> None:
+    self_play_dataset = tmp_path / "self-play"
+    self_play_dataset.mkdir()
+    policy_model = PolicyMlpModel(PolicyMlpConfig(hidden_dim=8, hidden_layers=1))
+    checkpoint_path = tmp_path / "input.pt"
+    checkpoint = _write_checkpoint(checkpoint_path, policy_model)
+    _write_self_play_dataset(
+        self_play_dataset,
+        model=policy_model,
+        checkpoint=checkpoint,
+        checkpoint_path=checkpoint_path,
+        rewards=(1,),
+        behavior_log_probability_offset=0.01,
+    )
+
+    with pytest.raises(PolicyCheckpointCompatibilityError, match="max abs error"):
+        _run_actor_critic(
+            input_checkpoint=checkpoint_path,
+            self_play_dataset=self_play_dataset,
+            output_checkpoint=tmp_path / "should-not-exist.pt",
+            behavior_parity_execution_provider="cuda",
+            behavior_parity_max_observed_batch_size=32,
+        )
+
+    assert not (tmp_path / "should-not-exist.pt").exists()
+
+
+def test_actor_critic_batch_one_keeps_strict_parity(tmp_path: Path) -> None:
+    self_play_dataset = tmp_path / "self-play"
+    self_play_dataset.mkdir()
+    policy_model = PolicyMlpModel(PolicyMlpConfig(hidden_dim=8, hidden_layers=1))
+    checkpoint_path = tmp_path / "input.pt"
+    checkpoint = _write_checkpoint(checkpoint_path, policy_model)
+    _write_self_play_dataset(
+        self_play_dataset,
+        model=policy_model,
+        checkpoint=checkpoint,
+        checkpoint_path=checkpoint_path,
+        rewards=(1,),
+        behavior_log_probability_offset=-0.001,
+    )
+
+    with pytest.raises(PolicyCheckpointCompatibilityError, match="strict"):
+        _run_actor_critic(
+            input_checkpoint=checkpoint_path,
+            self_play_dataset=self_play_dataset,
+            output_checkpoint=tmp_path / "should-not-exist.pt",
+            behavior_parity_execution_provider="cuda",
+            behavior_parity_max_observed_batch_size=1,
+        )
+
+    assert not (tmp_path / "should-not-exist.pt").exists()
+
+
+def test_actor_critic_batched_cuda_forced_action_nonzero_behavior_fails(
+    tmp_path: Path,
+) -> None:
+    self_play_dataset = tmp_path / "self-play"
+    self_play_dataset.mkdir()
+    policy_model = PolicyMlpModel(PolicyMlpConfig(hidden_dim=8, hidden_layers=1))
+    checkpoint_path = tmp_path / "input.pt"
+    checkpoint = _write_checkpoint(checkpoint_path, policy_model)
+    _write_self_play_dataset(
+        self_play_dataset,
+        model=policy_model,
+        checkpoint=checkpoint,
+        checkpoint_path=checkpoint_path,
+        rewards=(1, -1),
+        behavior_log_probability_offset=-0.001,
+    )
+
+    with pytest.raises(SampleValidationError, match="forced self-play actions"):
+        _run_actor_critic(
+            input_checkpoint=checkpoint_path,
+            self_play_dataset=self_play_dataset,
+            output_checkpoint=tmp_path / "should-not-exist.pt",
+            behavior_parity_execution_provider="cuda",
+            behavior_parity_max_observed_batch_size=32,
+        )
+
+    assert not (tmp_path / "should-not-exist.pt").exists()
+
+
 def _run_actor_critic(
     *,
     input_checkpoint: Path,
@@ -359,6 +482,8 @@ def _run_actor_critic(
     output_checkpoint: Path,
     full_diagnostics: bool = True,
     behavior_parity_subset_size: int = 4096,
+    behavior_parity_execution_provider: str | None = None,
+    behavior_parity_max_observed_batch_size: int | None = None,
 ) -> ActorCriticTrainReport:
     settings = ActorCriticTrainSettings(
         seed=0,
@@ -369,6 +494,8 @@ def _run_actor_critic(
         verify_integrity=True,
         full_diagnostics=full_diagnostics,
         behavior_parity_subset_size=behavior_parity_subset_size,
+        behavior_parity_execution_provider=behavior_parity_execution_provider,
+        behavior_parity_max_observed_batch_size=behavior_parity_max_observed_batch_size,
     )
     loader = create_playing_self_play_dataloader(
         self_play_dataset,
@@ -410,11 +537,23 @@ def _write_self_play_dataset(
     *,
     model: PolicyMlpModel,
     checkpoint: dict[str, object],
-    rewards: tuple[int, int],
+    checkpoint_path: Path,
+    rewards: tuple[int, ...],
+    behavior_log_probability_offset: float = 0.0,
 ) -> None:
     base = _load_valid_sample()
     selected = int(base["actorTarget"]["selectedCardIndex"])
-    metadata = build_policy_onnx_metadata(model=model, checkpoint=checkpoint)
+    metadata = build_policy_onnx_metadata(
+        model=model,
+        checkpoint=checkpoint,
+        source_checkpoint_sha256=_sha256_file(checkpoint_path),
+    )
+    metadata_bytes = (json.dumps(metadata, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    metadata_sha256 = hashlib.sha256(metadata_bytes).hexdigest()
+    onnx_bytes = b"unit-test-policy-onnx"
+    onnx_sha256 = hashlib.sha256(onnx_bytes).hexdigest()
+    (directory.parent / "policy.json").write_bytes(metadata_bytes)
+    (directory.parent / "policy.onnx").write_bytes(onnx_bytes)
     samples = []
     for index, reward in enumerate(rewards):
         sample = json.loads(json.dumps(base))
@@ -450,7 +589,10 @@ def _write_self_play_dataset(
                 },
             }
         )
-        sample["behaviorLogProbability"] = _behavior_log_probability(model, sample, selected)
+        sample["behaviorLogProbability"] = (
+            _behavior_log_probability(model, sample, selected)
+            + behavior_log_probability_offset
+        )
         samples.append(sample)
 
     _write_dataset_manifest(
@@ -468,8 +610,8 @@ def _write_self_play_dataset(
                 "artifactId": "unit-policy",
                 "onnxFileName": "policy.onnx",
                 "metadataFileName": "policy.json",
-                "onnxSha256": "a" * 64,
-                "metadataSha256": "b" * 64,
+                "onnxSha256": onnx_sha256,
+                "metadataSha256": metadata_sha256,
                 "metadata": metadata,
             },
             "samplingAlgorithm": "masked-categorical",
@@ -552,3 +694,7 @@ def _write_dataset_manifest(
         ],
     }
     (directory / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def _sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()

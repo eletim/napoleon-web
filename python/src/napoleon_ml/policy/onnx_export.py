@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from contextlib import redirect_stdout
 from dataclasses import dataclass
@@ -121,7 +122,11 @@ def export_policy_checkpoint_to_onnx(
             _export_onnx(model=model, dummy_input=dummy_input, output=staged_output)
 
         parity = _check_onnx_runtime_parity(model=model, onnx_path=staged_output, sample=sample)
-        metadata = build_policy_onnx_metadata(model=model, checkpoint=checkpoint)
+        metadata = build_policy_onnx_metadata(
+            model=model,
+            checkpoint=checkpoint,
+            source_checkpoint_sha256=_sha256_file(checkpoint_file),
+        )
         staged_metadata.write_text(
             json.dumps(metadata, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
@@ -148,6 +153,7 @@ def build_policy_onnx_metadata(
     *,
     model: PolicyMlpModel | PolicyActorCriticModel,
     checkpoint: dict[str, object],
+    source_checkpoint_sha256: str | None = None,
 ) -> dict[str, object]:
     _validate_model_for_export(model)
     _validate_checkpoint_metadata_for_export(checkpoint)
@@ -178,6 +184,8 @@ def build_policy_onnx_metadata(
         },
         "policyModel": model.config.to_dict(),
     }
+    if source_checkpoint_sha256 is not None:
+        metadata["sourceCheckpointSha256"] = source_checkpoint_sha256
     if "model_architecture" in checkpoint:
         metadata["modelArchitecture"] = checkpoint["model_architecture"]
     return metadata
@@ -225,6 +233,16 @@ def validate_policy_onnx_metadata(metadata: dict[str, Any]) -> None:
         expected_dtype=_FLOAT32_DTYPE,
         label="output",
     )
+    source_checkpoint_sha256 = metadata.get("sourceCheckpointSha256")
+    if source_checkpoint_sha256 is not None:
+        if (
+            not isinstance(source_checkpoint_sha256, str)
+            or len(source_checkpoint_sha256) != 64
+            or any(char not in "0123456789abcdef" for char in source_checkpoint_sha256)
+        ):
+            raise PolicyCheckpointCompatibilityError(
+                "metadata sourceCheckpointSha256 must be a lowercase SHA-256 hex string."
+            )
 
 
 def _temporary_sibling(path: Path) -> Path:
@@ -235,6 +253,10 @@ def _temporary_sibling(path: Path) -> Path:
         delete=False,
     ) as file:
         return Path(file.name)
+
+
+def _sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _validate_export_paths(*, checkpoint_path: Path, onnx_path: Path, metadata_path: Path) -> None:
