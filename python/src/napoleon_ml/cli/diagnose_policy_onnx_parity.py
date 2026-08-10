@@ -15,7 +15,7 @@ import torch
 from napoleon_ml.cli._policy_common import handle_cli_error, load_checked_manifest
 from napoleon_ml.dataset.reader import iter_tensorized_playing_self_play_samples
 from napoleon_ml.dataset.tensors import TensorizedPlayingSelfPlaySample
-from napoleon_ml.policy.checkpoint import load_policy_logits_checkpoint
+from napoleon_ml.policy.actor_critic import load_checkpoint_for_actor_critic
 from napoleon_ml.policy.device import SUPPORTED_TORCH_DEVICES, resolve_torch_device
 from napoleon_ml.policy.onnx_export import validate_policy_onnx_metadata
 from napoleon_ml.policy.reinforce import masked_selected_log_probability
@@ -72,7 +72,8 @@ def _run(args: argparse.Namespace) -> int:
     if not isinstance(metadata_raw, dict):
         raise ValueError("policy ONNX metadata must be a JSON object.")
     validate_policy_onnx_metadata(metadata_raw)
-    model, _ = load_policy_logits_checkpoint(args.checkpoint, manifest=manifest)
+    loaded = load_checkpoint_for_actor_critic(args.checkpoint, manifest=manifest)
+    model = loaded.behavior_model
     model.to(device.torch_device)
     model.eval()
 
