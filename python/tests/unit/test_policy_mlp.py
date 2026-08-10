@@ -328,6 +328,45 @@ def test_train_cli_saves_checkpoint_and_evaluate_cli_loads_test_split(
     ] == pytest.approx(0.1)
 
 
+def test_train_cli_hidden_dims_records_resolved_training_config(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _write_dataset(tmp_path, seeds=(0, 1, 2))
+    checkpoint_path = tmp_path.parent / f"{tmp_path.name}-policy.pt"
+
+    assert (
+        train_main(
+            [
+                str(tmp_path),
+                "--output",
+                str(checkpoint_path),
+                "--epochs",
+                "1",
+                "--batch-size",
+                "1",
+                "--hidden-dims",
+                "16,12",
+                "--train-ratio",
+                "1",
+                "--validation-ratio",
+                "1",
+                "--test-ratio",
+                "98",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    raw = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    assert raw["model_config"]["hidden_dims"] == [16, 12]
+    assert raw["training_config"]["hidden_dim"] == 16
+    assert raw["training_config"]["hidden_layers"] == 2
+    assert raw["training_config"]["hidden_dims"] == [16, 12]
+
+
 @pytest.mark.parametrize(
     ("invalid_args", "expected_error"),
     (

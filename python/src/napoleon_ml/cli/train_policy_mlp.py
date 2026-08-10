@@ -16,6 +16,7 @@ from napoleon_ml.cli._policy_common import (
     configure_reproducibility,
     handle_cli_error,
     load_checked_manifest,
+    parse_hidden_dims,
     print_policy_report,
     split_config_from_args,
 )
@@ -34,7 +35,7 @@ class TrainSettings:
     learning_rate: float
     hidden_dim: int
     hidden_layers: int
-    hidden_dims: list[int] | None
+    hidden_dims: list[int]
     dropout: float
     train_ratio: int
     validation_ratio: int
@@ -83,15 +84,21 @@ def _run(args: argparse.Namespace) -> int:
         raise ValueError(f"learning-rate must be positive, got {args.learning_rate}.")
 
     split_config = split_config_from_args(args)
-    hidden_dims = _parse_hidden_dims(args.hidden_dims) if args.hidden_dims is not None else None
+    hidden_dims = parse_hidden_dims(args.hidden_dims) if args.hidden_dims is not None else None
+    model_config = PolicyMlpConfig(
+        hidden_dim=args.hidden_dim,
+        hidden_layers=args.hidden_layers,
+        hidden_dims=hidden_dims,
+        dropout=args.dropout,
+    )
     settings = TrainSettings(
         seed=args.seed,
         epochs=args.epochs,
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
-        hidden_dim=args.hidden_dim,
-        hidden_layers=args.hidden_layers,
-        hidden_dims=list(hidden_dims) if hidden_dims is not None else None,
+        hidden_dim=model_config.hidden_dim,
+        hidden_layers=model_config.hidden_layers,
+        hidden_dims=list(model_config.hidden_widths),
         dropout=args.dropout,
         train_ratio=split_config.train,
         validation_ratio=split_config.validation,
@@ -101,12 +108,6 @@ def _run(args: argparse.Namespace) -> int:
 
     configure_reproducibility(settings.seed)
     manifest = load_checked_manifest(args.dataset_directory, command_label="train-policy")
-    model_config = PolicyMlpConfig(
-        hidden_dim=settings.hidden_dim,
-        hidden_layers=settings.hidden_layers,
-        hidden_dims=hidden_dims,
-        dropout=settings.dropout,
-    )
     model = create_seeded_policy_model(model_config, seed=settings.seed)
     optimizer = optim.AdamW(model.parameters(), lr=settings.learning_rate)
 
@@ -199,17 +200,6 @@ def _train_one_epoch(
         raise ValueError("train split contains no policy samples.")
 
     return loss_sum / sample_total
-
-
-def _parse_hidden_dims(value: str) -> tuple[int, ...]:
-    try:
-        widths = tuple(int(part.strip()) for part in value.split(",") if part.strip())
-    except ValueError as error:
-        raise ValueError("hidden-dims must be comma-separated integers.") from error
-    if not widths:
-        raise ValueError("hidden-dims must contain at least one width.")
-    return widths
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

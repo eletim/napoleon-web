@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import cast
 
-from napoleon_ml.cli._policy_common import handle_cli_error
+from napoleon_ml.cli._policy_common import handle_cli_error, parse_hidden_dims
 from napoleon_ml.policy.checkpoint import migrate_policy_checkpoint_to_hidden_dims
 
 
@@ -40,7 +40,10 @@ def _run(args: argparse.Namespace) -> int:
     migrated = migrate_policy_checkpoint_to_hidden_dims(
         args.input_checkpoint,
         args.output,
-        target_hidden_dims=_parse_hidden_dims(args.target_hidden_dims),
+        target_hidden_dims=parse_hidden_dims(
+            args.target_hidden_dims,
+            label="target-hidden-dims",
+        ),
         seed=args.seed,
     )
     provenance = cast(dict[str, object], migrated["architecture_migration_provenance"])
@@ -53,17 +56,6 @@ def _run(args: argparse.Namespace) -> int:
         print(f"target_model_config: {json.dumps(provenance['targetModelConfig'])}")
 
     return 0
-
-
-def _parse_hidden_dims(value: str) -> tuple[int, ...]:
-    try:
-        widths = tuple(int(part.strip()) for part in value.split(",") if part.strip())
-    except ValueError as error:
-        raise ValueError("target-hidden-dims must be comma-separated integers.") from error
-    if not widths:
-        raise ValueError("target-hidden-dims must contain at least one width.")
-    return widths
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

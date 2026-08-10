@@ -23,6 +23,7 @@ __all__ = [
     "dataset_split",
     "handle_cli_error",
     "load_checked_manifest",
+    "parse_hidden_dims",
     "print_policy_report",
     "split_config_from_args",
 ]
@@ -62,6 +63,16 @@ def handle_cli_error(error: Exception) -> int:
         return 1
 
     raise error
+
+
+def parse_hidden_dims(value: str, *, label: str = "hidden-dims") -> tuple[int, ...]:
+    try:
+        widths = tuple(int(part.strip()) for part in value.split(",") if part.strip())
+    except ValueError as error:
+        raise ValueError(f"{label} must be comma-separated integers.") from error
+    if not widths:
+        raise ValueError(f"{label} must contain at least one width.")
+    return widths
 
 
 def _print_metric(label: str, metric: PolicyMetric) -> None:
