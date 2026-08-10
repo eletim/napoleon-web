@@ -26,6 +26,25 @@ are available through the `export` extra.
 
 ## Setup
 
+The standard development environment is managed with `uv`:
+
+```bash
+uv sync --project python --extra dev
+```
+
+On Linux, the `uv` configuration pins PyTorch to the official CUDA 12.6
+(`cu126`) wheel index. Verify the resolved build with:
+
+```bash
+uv run --project python python -c 'import torch; print(torch.__version__); print(torch.version.cuda); print(torch.cuda.is_available())'
+```
+
+`torch.__version__` should include `+cu126`, and `torch.version.cuda`
+should report `12.6`. `torch.cuda.is_available()` still depends on the host
+driver and GPU.
+
+For a pip-based local install:
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
