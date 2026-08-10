@@ -93,11 +93,11 @@ class PolicyMlpConfig:
             hidden_layers = _require_int(value, "hidden_layers")
 
         return cls(
-            input_dim=_optional_int(value, "input_dim", MODEL_INPUT_FEATURE_COUNT),
+            input_dim=_require_int(value, "input_dim"),
             hidden_dim=hidden_dim,
             hidden_layers=hidden_layers,
             hidden_dims=hidden_dims,
-            dropout=_optional_float(value, "dropout", 0.0),
+            dropout=_require_float(value, "dropout"),
         )
 
     @property
@@ -264,12 +264,6 @@ def _require_float(value: dict[str, Any], key: str) -> float:
     item = value.get(key)
 
     return _require_float_item(item, key)
-
-
-def _optional_float(value: dict[str, Any], key: str, default: float) -> float:
-    if key not in value:
-        return default
-    return _require_float(value, key)
 
 
 def _require_float_item(item: object, key: str) -> float:

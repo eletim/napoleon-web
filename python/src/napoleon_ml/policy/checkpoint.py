@@ -215,6 +215,10 @@ def migrate_policy_checkpoint_to_hidden_dims(
 
     source = Path(source_path)
     output = Path(output_path)
+    if output.exists():
+        raise PolicyCheckpointCompatibilityError(
+            f"output checkpoint already exists: {output}."
+        )
     raw = _load_raw_checkpoint(source)
     _validate_current_checkpoint_metadata(raw)
 
@@ -232,6 +236,10 @@ def migrate_policy_checkpoint_to_hidden_dims(
     architecture = raw.get("model_architecture", POLICY_MODEL_ARCHITECTURE)
     migrated = dict(raw)
     migrated["model_config"] = target_config.to_dict()
+    migrated["training_config"] = _migrated_training_config(
+        raw.get("training_config"),
+        target_config=target_config,
+    )
     migrated["model_architecture"] = architecture
     migrated["architecture_migration_provenance"] = {
         "migration": "playing-mlp-hidden-dims-function-preserving-v1",
@@ -327,6 +335,20 @@ def _validate_current_checkpoint_metadata(raw: dict[Any, Any]) -> None:
             raise PolicyCheckpointCompatibilityError(
                 f"checkpoint {key} mismatch: expected {expected!r}, got {actual!r}."
             )
+
+
+def _migrated_training_config(
+    value: object,
+    *,
+    target_config: PolicyMlpConfig,
+) -> object:
+    if not isinstance(value, dict):
+        return value
+    migrated = dict(value)
+    migrated["hidden_dim"] = target_config.hidden_dim
+    migrated["hidden_layers"] = target_config.hidden_layers
+    migrated["hidden_dims"] = list(target_config.hidden_widths)
+    return migrated
 
 
 def _load_raw_checkpoint(path: Path) -> dict[Any, Any]:

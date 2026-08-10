@@ -66,8 +66,11 @@ def handle_cli_error(error: Exception) -> int:
 
 
 def parse_hidden_dims(value: str, *, label: str = "hidden-dims") -> tuple[int, ...]:
+    parts = [part.strip() for part in value.split(",")]
+    if any(part == "" for part in parts):
+        raise ValueError(f"{label} must not contain empty segments.")
     try:
-        widths = tuple(int(part.strip()) for part in value.split(",") if part.strip())
+        widths = tuple(int(part) for part in parts)
     except ValueError as error:
         raise ValueError(f"{label} must be comma-separated integers.") from error
     if not widths:

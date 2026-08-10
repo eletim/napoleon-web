@@ -154,14 +154,22 @@ def test_policy_config_loads_legacy_and_roundtrips_hidden_dims() -> None:
         256,
         256,
     )
-    assert PolicyMlpConfig.from_dict({"hidden_dims": [512, 512, 256, 256]}).hidden_widths == (
+    assert PolicyMlpConfig.from_dict(
+        {
+            "input_dim": MODEL_INPUT_FEATURE_COUNT,
+            "hidden_dims": [512, 512, 256, 256],
+            "dropout": 0.0,
+        }
+    ).hidden_widths == (
         512,
         512,
         256,
         256,
     )
     with pytest.raises(ValueError, match="non-empty"):
-        PolicyMlpConfig.from_dict({"hidden_dims": []})
+        PolicyMlpConfig.from_dict(
+            {"input_dim": MODEL_INPUT_FEATURE_COUNT, "hidden_dims": [], "dropout": 0.0}
+        )
     with pytest.raises(ValueError, match="hidden_layers"):
         PolicyMlpConfig.from_dict({"hidden_dim": 512, "hidden_layers": 2, "hidden_dims": [512]})
 
@@ -374,6 +382,7 @@ def test_train_cli_hidden_dims_records_resolved_training_config(
     (
         (["--epochs", "0"], "epochs must be positive"),
         (["--learning-rate", "0"], "learning-rate must be positive"),
+        (["--hidden-dims", "16,,12"], "must not contain empty segments"),
     ),
 )
 def test_train_cli_reports_invalid_training_settings_without_traceback(
@@ -597,6 +606,10 @@ def test_migrate_policy_checkpoint_to_hidden_dims_preserves_logits_and_reloads(
     ]
     assert checkpoint["architecture_migration_provenance"] == provenance
     assert migrated_model.config.hidden_widths == (16, 16, 12, 12)
+    training_config = cast(dict[str, object], checkpoint["training_config"])
+    assert training_config["hidden_dim"] == 16
+    assert training_config["hidden_layers"] == 4
+    assert training_config["hidden_dims"] == [16, 16, 12, 12]
 
     model_input = torch.randn(
         (5, MODEL_INPUT_FEATURE_COUNT),
@@ -608,6 +621,29 @@ def test_migrate_policy_checkpoint_to_hidden_dims_preserves_logits_and_reloads(
         source_logits = source_model(model_input)
         migrated_logits = migrated_model(model_input)
     torch.testing.assert_close(migrated_logits, source_logits, rtol=0, atol=1e-6)
+
+
+def test_migrate_policy_checkpoint_to_hidden_dims_rejects_existing_output(
+    tmp_path: Path,
+) -> None:
+    _write_dataset(tmp_path, seeds=(0,))
+    source_path = tmp_path.parent / f"{tmp_path.name}-small-policy.pt"
+    migrated_path = tmp_path.parent / f"{tmp_path.name}-large-policy.pt"
+    source_model = create_seeded_policy_model(
+        PolicyMlpConfig(hidden_dim=8, hidden_layers=2),
+        seed=123,
+    )
+    _write_current_policy_checkpoint(source_path, source_model)
+    migrated_path.write_bytes(b"existing")
+
+    with pytest.raises(PolicyCheckpointCompatibilityError, match="already exists"):
+        migrate_policy_checkpoint_to_hidden_dims(
+            source_path,
+            migrated_path,
+            target_hidden_dims=(16, 16, 12, 12),
+        )
+
+    assert migrated_path.read_bytes() == b"existing"
 
 
 def test_migrated_policy_extra_capacity_receives_optimizer_update(tmp_path: Path) -> None:
@@ -1263,7 +1299,11 @@ def _write_current_policy_checkpoint(path: Path, model: PolicyMlpModel) -> None:
             "checkpoint_schema_version": 1,
             "model_state": model.state_dict(),
             "model_config": model.config.to_dict(),
-            "training_config": {},
+            "training_config": {
+                "hidden_dim": model.config.hidden_dim,
+                "hidden_layers": model.config.hidden_layers,
+                "hidden_dims": list(model.config.hidden_widths),
+            },
             "dataset_schema_version": 1,
             "playing_encoder_schema_version": 2,
             "model_input_schema_version": 2,
