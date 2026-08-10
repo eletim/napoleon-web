@@ -20,6 +20,7 @@ from napoleon_ml.dataset.errors import DatasetError
 from napoleon_ml.dataset.pytorch import (
     AdjutantIterableDataset,
     BiddingIterableDataset,
+    BinaryPlayingSelfPlayBatchIterableDataset,
     ExchangeIterableDataset,
     PlayingIterableDataset,
     PlayingSelfPlayIterableDataset,
@@ -1101,6 +1102,13 @@ def test_invalid_pytorch_loader_configuration_is_rejected(tmp_path: Path) -> Non
 
     with pytest.raises(DatasetError, match="batch_size"):
         create_playing_dataloader(tmp_path, split=DatasetSplit.TRAIN, batch_size=0)
+
+    with pytest.raises(DatasetError, match="batch_size"):
+        BinaryPlayingSelfPlayBatchIterableDataset(
+            tmp_path,
+            split=DatasetSplit.TRAIN,
+            batch_size=0,
+        )
 
     with pytest.raises(DatasetError, match="num_workers=0"):
         create_playing_dataloader(

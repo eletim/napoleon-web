@@ -290,6 +290,11 @@ class BinaryPlayingSelfPlayBatchIterableDataset(IterableDataset[PlayingSelfPlayT
         drop_last: bool = False,
     ) -> None:
         super().__init__()
+        _validate_dataloader_options(
+            batch_size=batch_size,
+            num_workers=0,
+            function_name=type(self).__name__,
+        )
         self.dataset_directory = Path(dataset_directory)
         self.split = _coerce_split(split)
         self.split_config = _coerce_split_config(split_config)

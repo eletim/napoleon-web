@@ -69,6 +69,9 @@ def iter_binary_playing_self_play_batches(
 ) -> Iterator[PlayingSelfPlayBinaryBatch]:
     """Yield pre-batched tensors from a v4 binary self-play dataset."""
 
+    if isinstance(batch_size, bool) or not isinstance(batch_size, int) or batch_size <= 0:
+        raise DatasetError(f"batch_size must be a positive integer, got {batch_size!r}.")
+
     directory = Path(dataset_directory)
     pending: dict[str, np.ndarray] | None = None
     for shard in manifest.shards:
