@@ -320,6 +320,7 @@ class _EvaluationAccumulator:
             self.behavior_parity_diagnostics.update(
                 selected_log_probability=selected_log_probability,
                 behavior_log_probability=behavior_log_probability,
+                legal_mask=legal_mask,
             )
 
     def mean_actor_loss(self) -> float:

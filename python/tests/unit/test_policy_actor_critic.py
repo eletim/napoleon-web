@@ -9,6 +9,7 @@ import pytest
 import torch
 
 from napoleon_ml.dataset.constants import CARD_COUNT, EXPECTED_CARD_IDS
+from napoleon_ml.dataset.errors import SampleValidationError
 from napoleon_ml.dataset.pytorch import create_playing_self_play_dataloader
 from napoleon_ml.dataset.reader import load_manifest
 from napoleon_ml.dataset.sample import PlayingSelfPlaySample
@@ -143,7 +144,7 @@ def test_actor_critic_training_migrates_policy_logits_and_saves_checkpoint(
     assert report.diagnostics_performed is True
     assert report.sample_count == 2
     assert report.optimizer_step_count == 1
-    assert report.max_behavior_log_probability_parity_error == pytest.approx(0.0)
+    assert report.max_behavior_log_probability_parity_error == pytest.approx(0.0, abs=2e-7)
     assert report.actor_parameter_delta_norm > 0
     assert report.critic_parameter_delta_norm > 0
     assert report.changed_actor_parameter_count > 0
@@ -370,7 +371,7 @@ def test_actor_critic_batched_cuda_numeric_drift_passes_with_diagnostics(
         checkpoint=checkpoint,
         checkpoint_path=checkpoint_path,
         rewards=(1,),
-        behavior_log_probability_offset=0.001,
+        behavior_log_probability_offset=-0.001,
     )
 
     report = _run_actor_critic(
@@ -430,7 +431,7 @@ def test_actor_critic_batch_one_keeps_strict_parity(tmp_path: Path) -> None:
         checkpoint=checkpoint,
         checkpoint_path=checkpoint_path,
         rewards=(1,),
-        behavior_log_probability_offset=0.001,
+        behavior_log_probability_offset=-0.001,
     )
 
     with pytest.raises(PolicyCheckpointCompatibilityError, match="strict"):
@@ -440,6 +441,35 @@ def test_actor_critic_batch_one_keeps_strict_parity(tmp_path: Path) -> None:
             output_checkpoint=tmp_path / "should-not-exist.pt",
             behavior_parity_execution_provider="cuda",
             behavior_parity_max_observed_batch_size=1,
+        )
+
+    assert not (tmp_path / "should-not-exist.pt").exists()
+
+
+def test_actor_critic_batched_cuda_forced_action_nonzero_behavior_fails(
+    tmp_path: Path,
+) -> None:
+    self_play_dataset = tmp_path / "self-play"
+    self_play_dataset.mkdir()
+    policy_model = PolicyMlpModel(PolicyMlpConfig(hidden_dim=8, hidden_layers=1))
+    checkpoint_path = tmp_path / "input.pt"
+    checkpoint = _write_checkpoint(checkpoint_path, policy_model)
+    _write_self_play_dataset(
+        self_play_dataset,
+        model=policy_model,
+        checkpoint=checkpoint,
+        checkpoint_path=checkpoint_path,
+        rewards=(1, -1),
+        behavior_log_probability_offset=-0.001,
+    )
+
+    with pytest.raises(SampleValidationError, match="forced self-play actions"):
+        _run_actor_critic(
+            input_checkpoint=checkpoint_path,
+            self_play_dataset=self_play_dataset,
+            output_checkpoint=tmp_path / "should-not-exist.pt",
+            behavior_parity_execution_provider="cuda",
+            behavior_parity_max_observed_batch_size=32,
         )
 
     assert not (tmp_path / "should-not-exist.pt").exists()

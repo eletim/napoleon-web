@@ -102,14 +102,27 @@ class BehaviorParityDiagnostics:
     max_abs_error: float = 0.0
     mean_abs_error_sum: float = 0.0
     nonfinite_count: int = 0
+    forced_nonzero_count: int = 0
     _errors: list[float] = field(default_factory=list)
 
-    def update(self, *, selected_log_probability: Tensor, behavior_log_probability: Tensor) -> None:
+    def update(
+        self,
+        *,
+        selected_log_probability: Tensor,
+        behavior_log_probability: Tensor,
+        legal_mask: Tensor,
+    ) -> None:
         selected = selected_log_probability.detach()
         behavior = behavior_log_probability.detach().to(
             device=selected.device,
             dtype=selected.dtype,
         )
+        legal_counts = legal_mask.detach().to(device=selected.device, dtype=torch.int64).sum(dim=1)
+        forced = legal_counts.eq(1)
+        if bool(forced.any().item()):
+            forced_behavior = behavior[forced]
+            forced_nonzero = torch.abs(forced_behavior).gt(STRICT_BEHAVIOR_LOG_PROB_PARITY_ATOL)
+            self.forced_nonzero_count += int(forced_nonzero.sum().item())
         errors = torch.abs(selected - behavior)
         finite = torch.isfinite(errors)
         finite_errors = errors[finite]
@@ -144,6 +157,8 @@ class BehaviorParityDiagnostics:
     def failed(self) -> bool:
         if self.nonfinite_count > 0:
             return True
+        if self.forced_nonzero_count > 0:
+            return True
         if self.strict_failed_count == 0:
             return False
         if self.tolerance.mode == "strict":
@@ -168,6 +183,11 @@ class BehaviorParityDiagnostics:
     def failure_detail(self) -> str:
         if self.nonfinite_count > 0:
             return f"{self.nonfinite_count} non-finite behavior parity errors"
+        if self.forced_nonzero_count > 0:
+            return (
+                f"{self.forced_nonzero_count} forced-action samples have non-zero "
+                "behavior log probability"
+            )
         if self.tolerance.mode == "strict":
             return (
                 f"{self.strict_failed_count} samples exceed rtol={self.tolerance.rtol} "
@@ -206,6 +226,7 @@ class BehaviorParityDiagnostics:
             "maxObservedBatchSize": self.max_observed_batch_size,
             "strictFailedCount": self.strict_failed_count,
             "nonfiniteCount": self.nonfinite_count,
+            "forcedNonZeroCount": self.forced_nonzero_count,
             "maxAbsError": self.max_abs_error,
             "meanAbsError": self.mean_abs_error(),
             "p99AbsError": self.p99_abs_error(),

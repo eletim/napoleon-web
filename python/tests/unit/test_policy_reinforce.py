@@ -11,6 +11,7 @@ import torch
 import napoleon_ml.policy.reinforce as reinforce_module
 from napoleon_ml.cli.train_policy_reinforce import main as reinforce_main
 from napoleon_ml.dataset.constants import CARD_COUNT, EXPECTED_CARD_IDS
+from napoleon_ml.dataset.errors import SampleValidationError
 from napoleon_ml.dataset.pytorch import create_playing_self_play_dataloader
 from napoleon_ml.dataset.reader import load_manifest
 from napoleon_ml.dataset.sample import PlayingSelfPlaySample
@@ -344,7 +345,7 @@ def test_reinforce_batched_cuda_numeric_drift_passes_with_diagnostics(
         checkpoint=checkpoint,
         checkpoint_path=checkpoint_path,
         rewards=(1,),
-        behavior_log_probability_offset=0.001,
+        behavior_log_probability_offset=-0.001,
     )
     loader = create_playing_self_play_dataloader(
         self_play_dataset,
@@ -434,7 +435,7 @@ def test_reinforce_batch_one_keeps_strict_parity(tmp_path: Path) -> None:
         checkpoint=checkpoint,
         checkpoint_path=checkpoint_path,
         rewards=(1,),
-        behavior_log_probability_offset=0.001,
+        behavior_log_probability_offset=-0.001,
     )
     loader = create_playing_self_play_dataloader(
         self_play_dataset,
@@ -458,6 +459,50 @@ def test_reinforce_batch_one_keeps_strict_parity(tmp_path: Path) -> None:
                 verify_integrity=True,
                 behavior_parity_execution_provider="cuda",
                 behavior_parity_max_observed_batch_size=1,
+            ),
+        )
+
+    assert not (tmp_path / "should-not-exist.pt").exists()
+
+
+def test_reinforce_batched_cuda_forced_action_nonzero_behavior_fails(
+    tmp_path: Path,
+) -> None:
+    self_play_dataset = tmp_path / "self-play"
+    self_play_dataset.mkdir()
+    model = PolicyMlpModel(PolicyMlpConfig(hidden_dim=8, hidden_layers=1))
+    checkpoint_path = tmp_path / "input.pt"
+    checkpoint = _write_checkpoint(checkpoint_path, model)
+    _write_self_play_dataset(
+        self_play_dataset,
+        model=model,
+        checkpoint=checkpoint,
+        checkpoint_path=checkpoint_path,
+        rewards=(1, -1),
+        behavior_log_probability_offset=-0.001,
+    )
+    loader = create_playing_self_play_dataloader(
+        self_play_dataset,
+        split=DatasetSplit.TRAIN,
+        split_config=SplitConfig(train=100, validation=0, test=0),
+        batch_size=2,
+    )
+
+    with pytest.raises(SampleValidationError, match="forced self-play actions"):
+        train_policy_reinforce(
+            input_checkpoint=checkpoint_path,
+            self_play_dataset_directory=self_play_dataset,
+            output_checkpoint=tmp_path / "should-not-exist.pt",
+            manifest=load_manifest(self_play_dataset),
+            dataloader=loader,
+            settings=ReinforceTrainSettings(
+                seed=0,
+                epochs=1,
+                batch_size=2,
+                learning_rate=0.01,
+                verify_integrity=True,
+                behavior_parity_execution_provider="cuda",
+                behavior_parity_max_observed_batch_size=32,
             ),
         )
 
