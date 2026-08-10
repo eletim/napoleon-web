@@ -16,6 +16,7 @@ from napoleon_ml.cli._policy_common import (
     configure_reproducibility,
     handle_cli_error,
     load_checked_manifest,
+    parse_hidden_dims,
     print_policy_report,
     split_config_from_args,
 )
@@ -34,6 +35,7 @@ class TrainSettings:
     learning_rate: float
     hidden_dim: int
     hidden_layers: int
+    hidden_dims: list[int]
     dropout: float
     train_ratio: int
     validation_ratio: int
@@ -51,6 +53,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--hidden-dim", type=int, default=128)
     parser.add_argument("--hidden-layers", type=int, default=2)
+    parser.add_argument(
+        "--hidden-dims",
+        help="Comma-separated hidden widths, e.g. 512,512,256,256. "
+        "Overrides --hidden-dim/--hidden-layers when set.",
+    )
     parser.add_argument("--dropout", type=float, default=0.0)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--no-integrity-check", action="store_true")
@@ -77,13 +84,21 @@ def _run(args: argparse.Namespace) -> int:
         raise ValueError(f"learning-rate must be positive, got {args.learning_rate}.")
 
     split_config = split_config_from_args(args)
+    hidden_dims = parse_hidden_dims(args.hidden_dims) if args.hidden_dims is not None else None
+    model_config = PolicyMlpConfig(
+        hidden_dim=args.hidden_dim,
+        hidden_layers=args.hidden_layers,
+        hidden_dims=hidden_dims,
+        dropout=args.dropout,
+    )
     settings = TrainSettings(
         seed=args.seed,
         epochs=args.epochs,
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
-        hidden_dim=args.hidden_dim,
-        hidden_layers=args.hidden_layers,
+        hidden_dim=model_config.hidden_dim,
+        hidden_layers=model_config.hidden_layers,
+        hidden_dims=list(model_config.hidden_widths),
         dropout=args.dropout,
         train_ratio=split_config.train,
         validation_ratio=split_config.validation,
@@ -93,11 +108,6 @@ def _run(args: argparse.Namespace) -> int:
 
     configure_reproducibility(settings.seed)
     manifest = load_checked_manifest(args.dataset_directory, command_label="train-policy")
-    model_config = PolicyMlpConfig(
-        hidden_dim=settings.hidden_dim,
-        hidden_layers=settings.hidden_layers,
-        dropout=settings.dropout,
-    )
     model = create_seeded_policy_model(model_config, seed=settings.seed)
     optimizer = optim.AdamW(model.parameters(), lr=settings.learning_rate)
 

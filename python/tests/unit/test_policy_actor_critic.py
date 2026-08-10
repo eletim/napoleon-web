@@ -25,6 +25,7 @@ from napoleon_ml.policy.actor_critic import (
 from napoleon_ml.policy.checkpoint import (
     ACTOR_CRITIC_MODEL_ARCHITECTURE,
     PolicyCheckpointCompatibilityError,
+    migrate_policy_checkpoint_to_hidden_dims,
 )
 from napoleon_ml.policy.model import PolicyActorCriticModel, PolicyMlpConfig, PolicyMlpModel
 from napoleon_ml.policy.onnx_export import build_policy_onnx_metadata
@@ -242,6 +243,51 @@ def test_actor_critic_can_skip_full_diagnostics_and_still_update_critic(
     assert report.post_eval_elapsed_seconds is None
     assert report.safety_validation_elapsed_seconds >= 0.0
     assert output_path.is_file()
+
+
+def test_actor_critic_hidden_dims_migration_preserves_policy_and_value(
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "small-ac.pt"
+    migrated_path = tmp_path / "large-ac.pt"
+    source_model = PolicyActorCriticModel(PolicyMlpConfig(hidden_dim=8, hidden_layers=2))
+    torch.save(
+        {
+            "checkpoint_schema_version": 1,
+            "model_architecture": ACTOR_CRITIC_MODEL_ARCHITECTURE,
+            "model_state": source_model.state_dict(),
+            "model_config": source_model.config.to_dict(),
+            "training_config": {},
+            "dataset_schema_version": 1,
+            "playing_encoder_schema_version": 2,
+            "model_input_schema_version": 2,
+            "card_ids_sha256": calculate_card_ids_sha256(),
+        },
+        source_path,
+    )
+
+    migrated = migrate_policy_checkpoint_to_hidden_dims(
+        source_path,
+        migrated_path,
+        target_hidden_dims=(16, 16, 12, 12),
+        seed=123,
+    )
+    raw = torch.load(migrated_path, map_location="cpu", weights_only=True)
+    migrated_config = PolicyMlpConfig.from_dict(cast(dict[str, Any], raw["model_config"]))
+    migrated_model = PolicyActorCriticModel(migrated_config)
+    migrated_model.load_state_dict(raw["model_state"])
+
+    model_input = torch.randn((4, 6246), generator=torch.Generator().manual_seed(456))
+    source_model.eval()
+    migrated_model.eval()
+    with torch.no_grad():
+        source_logits, source_value = source_model.forward_actor_critic(model_input)
+        migrated_logits, migrated_value = migrated_model.forward_actor_critic(model_input)
+
+    torch.testing.assert_close(migrated_logits, source_logits, rtol=0, atol=1e-6)
+    torch.testing.assert_close(migrated_value, source_value, rtol=0, atol=1e-6)
+    provenance = cast(dict[str, object], migrated["architecture_migration_provenance"])
+    assert provenance["valuePredictionPreserved"] is True
 
 
 def test_actor_critic_wrong_behavior_checkpoint_fails_before_save(tmp_path: Path) -> None:

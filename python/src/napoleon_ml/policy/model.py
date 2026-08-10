@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Any, cast
 
 import torch
@@ -17,6 +17,7 @@ class PolicyMlpConfig:
     input_dim: int = MODEL_INPUT_FEATURE_COUNT
     hidden_dim: int = 128
     hidden_layers: int = 2
+    hidden_dims: tuple[int, ...] | None = None
     dropout: float = 0.0
 
     def __post_init__(self) -> None:
@@ -29,20 +30,81 @@ class PolicyMlpConfig:
         if isinstance(self.hidden_layers, bool) or self.hidden_layers <= 0:
             raise ValueError(f"hidden_layers must be positive, got {self.hidden_layers}.")
 
+        hidden_dims = self.hidden_dims
+        if hidden_dims is None:
+            object.__setattr__(self, "hidden_dims", (self.hidden_dim,) * self.hidden_layers)
+        else:
+            if isinstance(hidden_dims, list):
+                hidden_dims = tuple(hidden_dims)
+                object.__setattr__(self, "hidden_dims", hidden_dims)
+            if not isinstance(hidden_dims, tuple) or len(hidden_dims) == 0:
+                raise ValueError("hidden_dims must be a non-empty sequence of positive integers.")
+            for index, width in enumerate(hidden_dims):
+                if isinstance(width, bool) or not isinstance(width, int) or width <= 0:
+                    raise ValueError(
+                        f"hidden_dims[{index}] must be a positive integer, got {width!r}."
+                    )
+            object.__setattr__(self, "hidden_dim", hidden_dims[0])
+            object.__setattr__(self, "hidden_layers", len(hidden_dims))
+
         if self.dropout < 0.0 or self.dropout >= 1.0:
             raise ValueError(f"dropout must be in [0.0, 1.0), got {self.dropout}.")
 
-    def to_dict(self) -> dict[str, int | float]:
-        return asdict(self)
+    def to_dict(self) -> dict[str, int | float | list[int]]:
+        if self.hidden_dims is None:
+            raise AssertionError("hidden_dims must be normalized.")
+        return {
+            "input_dim": self.input_dim,
+            "hidden_dim": self.hidden_dim,
+            "hidden_layers": self.hidden_layers,
+            "hidden_dims": list(self.hidden_dims),
+            "dropout": self.dropout,
+        }
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> PolicyMlpConfig:
+        hidden_dims: tuple[int, ...] | None = None
+        raw_hidden_dims = value.get("hidden_dims")
+        if raw_hidden_dims is not None:
+            if not isinstance(raw_hidden_dims, list | tuple):
+                raise ValueError("model_config.hidden_dims must be a list of integers.")
+            hidden_dims = tuple(
+                _require_int_item(item, f"hidden_dims[{index}]")
+                for index, item in enumerate(raw_hidden_dims)
+            )
+            if len(hidden_dims) == 0:
+                raise ValueError(
+                    "model_config.hidden_dims must be a non-empty list of integers."
+                )
+            hidden_dim = _optional_int(value, "hidden_dim", hidden_dims[0])
+            hidden_layers = _optional_int(value, "hidden_layers", len(hidden_dims))
+            if hidden_dim != hidden_dims[0]:
+                raise ValueError(
+                    "model_config.hidden_dim must match hidden_dims[0] "
+                    f"when hidden_dims is set: {hidden_dim} != {hidden_dims[0]}."
+                )
+            if hidden_layers != len(hidden_dims):
+                raise ValueError(
+                    "model_config.hidden_layers must match len(hidden_dims) "
+                    f"when hidden_dims is set: {hidden_layers} != {len(hidden_dims)}."
+                )
+        else:
+            hidden_dim = _require_int(value, "hidden_dim")
+            hidden_layers = _require_int(value, "hidden_layers")
+
         return cls(
             input_dim=_require_int(value, "input_dim"),
-            hidden_dim=_require_int(value, "hidden_dim"),
-            hidden_layers=_require_int(value, "hidden_layers"),
+            hidden_dim=hidden_dim,
+            hidden_layers=hidden_layers,
+            hidden_dims=hidden_dims,
             dropout=_require_float(value, "dropout"),
         )
+
+    @property
+    def hidden_widths(self) -> tuple[int, ...]:
+        if self.hidden_dims is None:
+            raise AssertionError("hidden_dims must be normalized.")
+        return self.hidden_dims
 
 
 class PolicyMlpModel(nn.Module):
@@ -55,12 +117,12 @@ class PolicyMlpModel(nn.Module):
         layers: list[nn.Module] = []
         input_dim = config.input_dim
 
-        for _ in range(config.hidden_layers):
-            layers.append(nn.Linear(input_dim, config.hidden_dim))
+        for hidden_dim in config.hidden_widths:
+            layers.append(nn.Linear(input_dim, hidden_dim))
             layers.append(nn.ReLU())
             if config.dropout > 0.0:
                 layers.append(nn.Dropout(config.dropout))
-            input_dim = config.hidden_dim
+            input_dim = hidden_dim
 
         layers.append(nn.Linear(input_dim, CARD_COUNT))
         self.network = nn.Sequential(*layers)
@@ -89,12 +151,12 @@ class PolicyActorCriticModel(nn.Module):
 
         layers: list[nn.Module] = []
         input_dim = config.input_dim
-        for _ in range(config.hidden_layers):
-            layers.append(nn.Linear(input_dim, config.hidden_dim))
+        for hidden_dim in config.hidden_widths:
+            layers.append(nn.Linear(input_dim, hidden_dim))
             layers.append(nn.ReLU())
             if config.dropout > 0.0:
                 layers.append(nn.Dropout(config.dropout))
-            input_dim = config.hidden_dim
+            input_dim = hidden_dim
 
         self.trunk = nn.Sequential(*layers)
         self.policy_head = nn.Linear(input_dim, CARD_COUNT)
@@ -182,6 +244,16 @@ def create_seeded_actor_critic_model(
 def _require_int(value: dict[str, Any], key: str) -> int:
     item = value.get(key)
 
+    return _require_int_item(item, key)
+
+
+def _optional_int(value: dict[str, Any], key: str, default: int) -> int:
+    if key not in value:
+        return default
+    return _require_int(value, key)
+
+
+def _require_int_item(item: object, key: str) -> int:
     if isinstance(item, bool) or not isinstance(item, int):
         raise ValueError(f"model_config.{key} must be an integer.")
 
@@ -191,6 +263,10 @@ def _require_int(value: dict[str, Any], key: str) -> int:
 def _require_float(value: dict[str, Any], key: str) -> float:
     item = value.get(key)
 
+    return _require_float_item(item, key)
+
+
+def _require_float_item(item: object, key: str) -> float:
     if isinstance(item, bool) or not isinstance(item, int | float):
         raise ValueError(f"model_config.{key} must be a number.")
 

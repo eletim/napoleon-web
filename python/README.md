@@ -662,6 +662,21 @@ napoleon-export-policy-onnx ./datasets/rule-based-v1 \
   --metadata-output ./models/policy-mlp.json
 ```
 
+Migrate an existing 128x2 playing checkpoint to the standard larger hidden
+layout while preserving policy logits:
+
+```bash
+napoleon-migrate-policy-architecture \
+  --input-checkpoint ./models/policy-128x2.pt \
+  --output ./models/policy-512-512-256-256.pt \
+  --target-hidden-dims 512,512,256,256
+```
+
+The migration artifact records the source checkpoint SHA-256, source and
+target model configs, migration strategy, and whether policy/value outputs
+are preserved. Actor-Critic checkpoints preserve both policy logits and value
+predictions; policy-only checkpoints preserve policy logits.
+
 The ONNX model has one input named `model_input` with shape `(batch, 6246)`
 and dtype `float32`, and one output named `logits` with shape `(batch, 53)`
 and dtype `float32`; the batch dimension is dynamic. The JSON metadata records
