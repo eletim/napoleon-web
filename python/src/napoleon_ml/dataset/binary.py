@@ -55,6 +55,7 @@ _FIELD_SHAPES = {
     "selfRoleIndex": (),
 }
 _HEADER_PREFIX_LENGTH = len(_MAGIC) + 4
+_SUPPORTED_COMPRESSIONS = frozenset({"none", "gzip"})
 
 
 def iter_binary_playing_self_play_batches(
@@ -135,11 +136,21 @@ def _read_shard(
         raise ShardIntegrityError(f"{shard.file}: invalid binary shard header: {error}") from error
 
     _validate_header(header, shard)
-    compressed_payload = data[header_stop:]
-    try:
-        payload = bytearray(gzip.decompress(compressed_payload))
-    except OSError as error:
-        raise ShardIntegrityError(f"{shard.file}: gzip payload cannot be decompressed.") from error
+    compression = header["compression"]
+    raw_payload = data[header_stop:]
+    if compression == "gzip":
+        try:
+            payload = bytearray(gzip.decompress(raw_payload))
+        except OSError as error:
+            raise ShardIntegrityError(
+                f"{shard.file}: gzip payload cannot be decompressed."
+            ) from error
+    elif compression == "none":
+        payload = bytearray(raw_payload)
+    else:
+        raise ShardIntegrityError(
+            f"{shard.file}: unsupported binary shard compression: {compression!r}."
+        )
 
     expected_length = int(header["uncompressedByteLength"])
     if len(payload) != expected_length:
@@ -164,7 +175,6 @@ def _validate_header(header: object, shard: DatasetShardManifest) -> None:
         "modelInputFeatureCount": MODEL_INPUT_FEATURE_COUNT,
         "cardCount": CARD_COUNT,
         "byteOrder": "little-endian",
-        "compression": "gzip",
     }
     for key, expected in expected_scalars.items():
         if header.get(key) != expected:
@@ -172,6 +182,11 @@ def _validate_header(header: object, shard: DatasetShardManifest) -> None:
                 f"{shard.file}: header {key} mismatch: expected {expected!r}, "
                 f"got {header.get(key)!r}."
             )
+    if header.get("compression") not in _SUPPORTED_COMPRESSIONS:
+        raise ShardIntegrityError(
+            f"{shard.file}: header compression mismatch: expected one of "
+            f"{sorted(_SUPPORTED_COMPRESSIONS)!r}, got {header.get('compression')!r}."
+        )
     if not isinstance(header.get("uncompressedByteLength"), int):
         raise ShardIntegrityError(f"{shard.file}: header uncompressedByteLength is invalid.")
     fields = header.get("fields")

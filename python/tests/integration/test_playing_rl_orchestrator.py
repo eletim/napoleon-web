@@ -62,6 +62,7 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
     stored_config = _load_json(run_directory / "config.json")
     assert stored_config["device"] == "cpu"
     assert stored_config["inferenceDevice"] == "cpu"
+    assert stored_config["retainSelfPlayData"] is False
     assert stored_config["fullDiagnosticsInterval"] == 1
     iter0 = _load_json(run_directory / "iterations" / "iter-000" / "iteration.json")
     iter1 = _load_json(run_directory / "iterations" / "iter-001" / "iteration.json")
@@ -74,6 +75,11 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
     assert iter0["requestedInferenceDevice"] == "cpu"
     assert iter0["resolvedInferenceDevice"] == "cpu"
     assert iter0["executionProvider"] == "cpu"
+    assert iter0["selfPlayFormat"] == "playing-self-play-binary-v1"
+    assert iter0["selfPlayTensorCompression"] == "none"
+    assert _required_int(iter0["selfPlayShardCount"]) > 0
+    assert _required_int(iter0["selfPlayShardByteLength"]) > 0
+    assert iter0["selfPlayCacheRetained"] is False
     assert iter0["requestedDevice"] == "cpu"
     assert iter0["resolvedDevice"] == "cpu"
     assert iter0["cudaDeviceName"] is None
@@ -110,6 +116,9 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
         _required_object(seat)["source"]
         for seat in _required_list(_required_object(manifest0["rolloutRoster"])["seats"])
     ] == ["current-policy"] * 5
+    for shard in _required_list(manifest0["shards"]):
+        shard_file = _required_str(_required_object(shard)["file"])
+        assert not (run_directory / "iterations" / "iter-000" / "selfplay" / shard_file).exists()
 
     evaluations = [
         _load_json(run_directory / "evaluations" / f"policy-v{generation:03d}" / "summary.json")
@@ -222,6 +231,34 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
 
 
 @pytest.mark.integration
+def test_playing_rl_orchestrator_can_retain_self_play_cache(tmp_path: Path) -> None:
+    supervised_dataset = tmp_path / "supervised"
+    initial_checkpoint = tmp_path / "initial-playing.pt"
+    _create_initial_checkpoint(supervised_dataset, initial_checkpoint)
+
+    run_directory = tmp_path / "run"
+    config = replace(
+        _small_config(
+            run_directory=run_directory,
+            initial_checkpoint=initial_checkpoint,
+            supervised_dataset=supervised_dataset,
+        ),
+        iterations=1,
+        retain_self_play_data=True,
+    )
+    run_playing_rl_experiment(config, resume=False)
+
+    iter0 = _load_json(run_directory / "iterations" / "iter-000" / "iteration.json")
+    manifest0 = _load_json(
+        run_directory / "iterations" / "iter-000" / "selfplay" / "manifest.json"
+    )
+    assert iter0["selfPlayCacheRetained"] is True
+    for shard in _required_list(manifest0["shards"]):
+        shard_file = _required_str(_required_object(shard)["file"])
+        assert (run_directory / "iterations" / "iter-000" / "selfplay" / shard_file).is_file()
+
+
+@pytest.mark.integration
 def test_playing_rl_orchestrator_reproducibility(tmp_path: Path) -> None:
     supervised_dataset = tmp_path / "supervised"
     initial_checkpoint = tmp_path / "initial-playing.pt"
@@ -239,6 +276,8 @@ def test_playing_rl_orchestrator_reproducibility(tmp_path: Path) -> None:
         initial_checkpoint=initial_checkpoint,
         supervised_dataset=supervised_dataset,
     )
+    left_config = replace(left_config, retain_self_play_data=True)
+    right_config = replace(right_config, retain_self_play_data=True)
     run_playing_rl_experiment(left_config, resume=False)
     run_playing_rl_experiment(right_config, resume=False)
 
@@ -372,7 +411,9 @@ def test_playing_rl_full_diagnostics_interval_uses_output_generation(
         _validate_config(invalid)
 
 
-def test_run_playing_rl_cli_parses_full_diagnostics_interval(tmp_path: Path) -> None:
+def test_run_playing_rl_cli_parses_full_diagnostics_interval_and_cache_retention(
+    tmp_path: Path,
+) -> None:
     parser = build_parser()
     args = parser.parse_args(
         [
@@ -386,12 +427,14 @@ def test_run_playing_rl_cli_parses_full_diagnostics_interval(tmp_path: Path) -> 
             "7",
             "--inference-device",
             "auto",
+            "--retain-self-play-data",
         ]
     )
     config = _config_from_args(args, parser)
 
     assert config.full_diagnostics_interval == 7
     assert config.inference_device == "auto"
+    assert config.retain_self_play_data is True
 
 
 def _small_config(
@@ -532,6 +575,11 @@ def _required_object(value: object) -> dict[str, object]:
 def _required_list(value: object) -> list[object]:
     assert isinstance(value, list)
     return cast(list[object], value)
+
+
+def _required_str(value: object) -> str:
+    assert isinstance(value, str)
+    return value
 
 
 def _required_int(value: object) -> int:

@@ -214,6 +214,7 @@ def _write_binary_self_play_dataset(
     samples: list[dict[str, Any]],
     *,
     shard_sample_counts: list[int] | None = None,
+    compression: str = "none",
 ) -> None:
     if shard_sample_counts is None:
         shard_sample_counts = [len(samples)]
@@ -222,7 +223,7 @@ def _write_binary_self_play_dataset(
     for shard_index, sample_count in enumerate(shard_sample_counts):
         shard_samples = samples[sample_offset : sample_offset + sample_count]
         sample_offset += sample_count
-        shard_bytes = _binary_self_play_shard_bytes(shard_samples)
+        shard_bytes = _binary_self_play_shard_bytes(shard_samples, compression=compression)
         file_name = f"shard-{shard_index:05d}.bin"
         (directory / file_name).write_bytes(shard_bytes)
         shard_seeds = [sample["seed"] for sample in shard_samples]
@@ -287,7 +288,7 @@ def _write_binary_self_play_dataset(
         "tensorSchema": {
             "shardSchemaVersion": 1,
             "byteOrder": "little-endian",
-            "compression": "gzip",
+            "compression": compression,
             "fields": [
                 {"name": "modelInput", "dtype": "float32", "shape": [MODEL_INPUT_FEATURE_COUNT]},
                 {"name": "legalPlayMask", "dtype": "uint8", "shape": [CARD_COUNT]},
@@ -304,7 +305,7 @@ def _write_binary_self_play_dataset(
     (directory / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
 
-def _binary_self_play_shard_bytes(samples: list[dict[str, Any]]) -> bytes:
+def _binary_self_play_shard_bytes(samples: list[dict[str, Any]], *, compression: str) -> bytes:
     tensorized = [
         tensorize_sample(
             parse_sample(
@@ -390,13 +391,18 @@ def _binary_self_play_shard_bytes(samples: list[dict[str, Any]]) -> bytes:
             "modelInputFeatureCount": MODEL_INPUT_FEATURE_COUNT,
             "cardCount": CARD_COUNT,
             "byteOrder": "little-endian",
-            "compression": "gzip",
+            "compression": compression,
             "uncompressedByteLength": offset,
             "fields": fields,
         },
         separators=(",", ":"),
     ).encode("utf-8")
-    return b"NPSPBD01" + struct.pack("<I", len(header)) + header + gzip.compress(b"".join(chunks))
+    payload = b"".join(chunks)
+    if compression == "gzip":
+        payload = gzip.compress(payload)
+    elif compression != "none":
+        raise ValueError(f"Unsupported fixture compression: {compression}")
+    return b"NPSPBD01" + struct.pack("<I", len(header)) + header + payload
 
 
 def _empty_bidding_history() -> dict[str, list[int]]:
@@ -721,6 +727,54 @@ def test_binary_playing_self_play_dataloader_matches_legacy_json(tmp_path: Path)
         "acting_player_index",
     ):
         assert torch.equal(json_batches[0][key], binary_batches[0][key])
+
+
+def test_binary_playing_self_play_dataloader_keeps_legacy_gzip_parity(
+    tmp_path: Path,
+) -> None:
+    samples = [
+        _self_play_sample(seed=0, step=1),
+        _self_play_sample(seed=0, step=2),
+        _self_play_sample(seed=1, step=1),
+        _self_play_sample(seed=1, step=2),
+    ]
+    raw_dir = tmp_path / "raw"
+    gzip_dir = tmp_path / "gzip"
+    raw_dir.mkdir()
+    gzip_dir.mkdir()
+    _write_binary_self_play_dataset(raw_dir, samples, compression="none")
+    _write_binary_self_play_dataset(gzip_dir, samples, compression="gzip")
+
+    raw_batches = list(
+        create_playing_self_play_dataloader(
+            raw_dir,
+            split=DatasetSplit.TRAIN,
+            split_config=SplitConfig(train=100, validation=0, test=0),
+            batch_size=2,
+        )
+    )
+    gzip_batches = list(
+        create_playing_self_play_dataloader(
+            gzip_dir,
+            split=DatasetSplit.TRAIN,
+            split_config=SplitConfig(train=100, validation=0, test=0),
+            batch_size=2,
+        )
+    )
+
+    assert len(raw_batches) == len(gzip_batches) == 2
+    for raw_batch, gzip_batch in zip(raw_batches, gzip_batches, strict=True):
+        for key in (
+            "model_input",
+            "legal_play_mask",
+            "selected_card_index",
+            "behavior_log_probability",
+            "terminal_reward",
+            "seed",
+            "step",
+            "acting_player_index",
+        ):
+            assert torch.equal(raw_batch[key], gzip_batch[key])
 
 
 def test_binary_playing_self_play_dataloader_carries_pending_across_small_shards(

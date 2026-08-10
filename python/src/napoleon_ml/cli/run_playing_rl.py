@@ -22,6 +22,7 @@ from napoleon_ml.rl_orchestrator import (
     DEFAULT_INFERENCE_DEVICE,
     DEFAULT_ITERATIONS,
     DEFAULT_LEARNING_RATE,
+    DEFAULT_RETAIN_SELF_PLAY_DATA,
     DEFAULT_ROLLOUT_ROSTER,
     DEFAULT_ROLLOUT_WORKERS,
     DEFAULT_SELF_PLAY_SEED_BASE,
@@ -54,6 +55,7 @@ _OPTION_TO_CONFIG_KEY = {
     "--evaluation-start-seed": "evaluationStartSeed",
     "--evaluation-seed-count": "evaluationSeedCount",
     "--inference-device": "inferenceDevice",
+    "--retain-self-play-data": "retainSelfPlayData",
 }
 
 
@@ -96,6 +98,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--inference-device",
         choices=SUPPORTED_INFERENCE_DEVICES,
         default=DEFAULT_INFERENCE_DEVICE,
+    )
+    parser.add_argument(
+        "--retain-self-play-data",
+        action="store_true",
+        default=DEFAULT_RETAIN_SELF_PLAY_DATA,
     )
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--no-typescript-build", action="store_true")
@@ -155,6 +162,7 @@ def _config_from_args(
         evaluation_start_seed=args.evaluation_start_seed,
         evaluation_seed_count=args.evaluation_seed_count,
         inference_device=args.inference_device,
+        retain_self_play_data=args.retain_self_play_data,
         build_typescript=not args.no_typescript_build,
     )
 
