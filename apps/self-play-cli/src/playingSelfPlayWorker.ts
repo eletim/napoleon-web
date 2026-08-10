@@ -32,7 +32,10 @@ async function handleMessage(message: PlayingSelfPlayWorkerMessage): Promise<voi
   switch (message.type) {
     case "init":
       currentPolicy = await loadPolicyOnnxModel(message.currentPolicy);
-      rolloutRoster = await loadWorkerRolloutRoster(message.rolloutRoster);
+      rolloutRoster = await loadWorkerRolloutRoster(
+        message.rolloutRoster,
+        message.currentPolicy.inferenceDevice
+      );
       temperature = message.temperature;
       maxDecisionSteps = message.maxDecisionSteps;
       send({
@@ -103,7 +106,8 @@ async function createRolloutRosterFingerprint(
 }
 
 async function loadWorkerRolloutRoster(
-  seats: readonly WorkerRolloutRosterSeat[] | undefined
+  seats: readonly WorkerRolloutRosterSeat[] | undefined,
+  inferenceDevice: "cpu" | "auto" | "cuda"
 ): Promise<PlayingSelfPlayRolloutRosterOptions | undefined> {
   if (seats === undefined) {
     return undefined;
@@ -121,7 +125,8 @@ async function loadWorkerRolloutRoster(
             source: FROZEN_ONNX_ROSTER_SOURCE,
             policy: await loadPolicyOnnxModel({
               onnxPath: seat.onnxPath,
-              metadataPath: seat.metadataPath
+              metadataPath: seat.metadataPath,
+              inferenceDevice
             }),
             artifact: {
               onnxPath: seat.onnxPath,

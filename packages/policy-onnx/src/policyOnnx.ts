@@ -18,10 +18,14 @@ import type {
   NonPlayingPolicyOnnxMetadata,
   NonPlayingPolicyOnnxSingleSelection,
   CalculateLegalPolicyLogProbabilityOptions,
+  PolicyOnnxExecutionProvider,
+  PolicyOnnxInferenceDevice,
   PolicyOnnxLoadOptions,
   PolicyOnnxMetadata,
+  PolicyOnnxRuntimeInfo,
   PolicyOnnxSampledSelection,
   PolicyOnnxSelection,
+  PolicyOnnxSessionFactory,
   SampleLegalPolicyActionOptions,
   SelectLegalAdjutantInput,
   SelectLegalBiddingInput,
@@ -34,7 +38,8 @@ const FLOAT32_MIN = -3.4028234663852886e38;
 export class PolicyOnnxModel {
   constructor(
     readonly metadata: PolicyOnnxMetadata,
-    private readonly session: ort.InferenceSession
+    private readonly session: ort.InferenceSession,
+    readonly runtime: PolicyOnnxRuntimeInfo
   ) {}
 
   async predictLogits(modelInput: Float32Array | readonly number[]): Promise<Float32Array> {
@@ -75,7 +80,8 @@ export class NonPlayingPolicyOnnxModel {
 
   constructor(
     readonly metadata: NonPlayingPolicyOnnxMetadata,
-    private readonly session: ort.InferenceSession
+    private readonly session: ort.InferenceSession,
+    readonly runtime: PolicyOnnxRuntimeInfo
   ) {
     this.policyType = metadata.policyType;
     this.spec = getNonPlayingPolicyOnnxSpec(metadata.policyType);
@@ -125,13 +131,11 @@ export async function loadPolicyOnnxModel(options: PolicyOnnxLoadOptions): Promi
   const metadata = parsePolicyOnnxMetadata(await readFile(options.metadataPath, "utf8"));
   await validateOnnxModelIo(options.onnxPath, metadata, PLAYING_POLICY_ONNX_SPEC);
 
-  const session = await ort.InferenceSession.create(options.onnxPath, {
-    executionProviders: ["cpu"]
-  });
+  const { session, runtime } = await createPolicyOnnxSession(options);
 
   validateSessionNames(session, PLAYING_POLICY_ONNX_SPEC);
 
-  return new PolicyOnnxModel(metadata, session);
+  return new PolicyOnnxModel(metadata, session, runtime);
 }
 
 export async function loadNonPlayingPolicyOnnxModel(
@@ -141,13 +145,95 @@ export async function loadNonPlayingPolicyOnnxModel(
   const spec = getNonPlayingPolicyOnnxSpec(metadata.policyType);
   await validateOnnxModelIo(options.onnxPath, metadata, spec);
 
-  const session = await ort.InferenceSession.create(options.onnxPath, {
-    executionProviders: ["cpu"]
-  });
+  const { session, runtime } = await createPolicyOnnxSession(options);
 
   validateSessionNames(session, spec);
 
-  return new NonPlayingPolicyOnnxModel(metadata, session);
+  return new NonPlayingPolicyOnnxModel(metadata, session, runtime);
+}
+
+async function createPolicyOnnxSession(options: PolicyOnnxLoadOptions): Promise<{
+  session: ort.InferenceSession;
+  runtime: PolicyOnnxRuntimeInfo;
+}> {
+  const requestedInferenceDevice = options.inferenceDevice ?? "cpu";
+  validateInferenceDevice(requestedInferenceDevice);
+  const sessionFactory = options.sessionFactory ?? defaultSessionFactory;
+
+  if (requestedInferenceDevice === "cpu") {
+    return {
+      session: await createSession(sessionFactory, options.onnxPath, "cpu", requestedInferenceDevice),
+      runtime: {
+        requestedInferenceDevice,
+        resolvedInferenceDevice: "cpu",
+        executionProvider: "cpu"
+      }
+    };
+  }
+
+  try {
+    return {
+      session: await createSession(sessionFactory, options.onnxPath, "cuda", requestedInferenceDevice),
+      runtime: {
+        requestedInferenceDevice,
+        resolvedInferenceDevice: "cuda",
+        executionProvider: "cuda"
+      }
+    };
+  } catch (error) {
+    if (requestedInferenceDevice === "cuda") {
+      throw new PolicyOnnxCompatibilityError(
+        "CUDA ONNX Runtime execution provider was requested but could not create a CUDA session. " +
+        "Install the CUDA 12 ONNX Runtime Node artifact and ensure CUDA/cuDNN shared libraries are visible. " +
+        formatErrorCause(error)
+      );
+    }
+  }
+
+  return {
+    session: await createSession(sessionFactory, options.onnxPath, "cpu", requestedInferenceDevice),
+    runtime: {
+      requestedInferenceDevice,
+      resolvedInferenceDevice: "cpu",
+      executionProvider: "cpu"
+    }
+  };
+}
+
+async function createSession(
+  sessionFactory: PolicyOnnxSessionFactory,
+  onnxPath: string,
+  executionProvider: PolicyOnnxExecutionProvider,
+  requestedInferenceDevice: PolicyOnnxInferenceDevice
+): Promise<ort.InferenceSession> {
+  try {
+    return await sessionFactory(onnxPath, { executionProviders: [executionProvider] }) as ort.InferenceSession;
+  } catch (error) {
+    throw new PolicyOnnxCompatibilityError(
+      `Failed to create ONNX Runtime session with executionProvider=${executionProvider} ` +
+      `for requestedInferenceDevice=${requestedInferenceDevice}. ${formatErrorCause(error)}`
+    );
+  }
+}
+
+const defaultSessionFactory: PolicyOnnxSessionFactory = async (onnxPath, options) =>
+  ort.InferenceSession.create(onnxPath, {
+    executionProviders: [...options.executionProviders]
+  });
+
+function validateInferenceDevice(value: PolicyOnnxInferenceDevice): void {
+  if (value !== "cpu" && value !== "auto" && value !== "cuda") {
+    throw new PolicyOnnxCompatibilityError(
+      `inferenceDevice must be one of cpu, auto, cuda; got ${String(value)}.`
+    );
+  }
+}
+
+function formatErrorCause(error: unknown): string {
+  if (error instanceof Error) {
+    return `Cause: ${error.message}`;
+  }
+  return `Cause: ${String(error)}`;
 }
 
 export function selectLegalPolicyAction(

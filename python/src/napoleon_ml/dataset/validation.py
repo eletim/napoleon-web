@@ -99,6 +99,8 @@ _SHARD_FILE_NAME_PATTERN = re.compile(rf"^shard-(\d{{{SHARD_FILE_DIGITS}}})\.jso
 _TRUMP_SUIT_OPTION_COUNT = 4
 _WINNING_TEAMS = frozenset({"napoleon-team", "alliance"})
 _SELF_PLAY_ROLES = frozenset(SELF_ROLE_ORDER)
+_REQUESTED_INFERENCE_DEVICES = frozenset({"cpu", "auto", "cuda"})
+_RESOLVED_INFERENCE_DEVICES = frozenset({"cpu", "cuda"})
 
 
 def calculate_card_ids_sha256() -> str:
@@ -360,6 +362,13 @@ def _validate_playing_self_play_manifest_identity(manifest: DatasetManifest) -> 
             "self-play manifest.behaviorPolicy.metadataSha256 is invalid."
         )
 
+    _validate_optional_inference_runtime(
+        "self-play manifest.behaviorPolicy",
+        requested=policy.requested_inference_device,
+        resolved=policy.resolved_inference_device,
+        execution_provider=policy.execution_provider,
+    )
+
     if manifest.sampling_algorithm != PLAYING_SELF_PLAY_SAMPLING_ALGORITHM:
         raise ManifestValidationError(
             "self-play manifest.samplingAlgorithm mismatch: "
@@ -438,9 +447,43 @@ def _validate_playing_self_play_manifest_identity(manifest: DatasetManifest) -> 
                 raise ManifestValidationError(
                     f"self-play manifest.rolloutRoster.seats[{index}].metadataSha256 is invalid."
                 )
+            _validate_optional_inference_runtime(
+                f"self-play manifest.rolloutRoster.seats[{index}]",
+                requested=seat.requested_inference_device,
+                resolved=seat.resolved_inference_device,
+                execution_provider=seat.execution_provider,
+            )
 
     if current_policy_count == 0:
         raise ManifestValidationError("self-play manifest.rolloutRoster has no current-policy.")
+
+
+def _validate_optional_inference_runtime(
+    path: str,
+    *,
+    requested: str | None,
+    resolved: str | None,
+    execution_provider: str | None,
+) -> None:
+    fields = (requested, resolved, execution_provider)
+    if all(value is None for value in fields):
+        return
+    if any(value is None for value in fields):
+        raise ManifestValidationError(f"{path} inference runtime metadata is incomplete.")
+    if requested not in _REQUESTED_INFERENCE_DEVICES:
+        raise ManifestValidationError(f"{path}.requestedInferenceDevice is invalid.")
+    if resolved not in _RESOLVED_INFERENCE_DEVICES:
+        raise ManifestValidationError(f"{path}.resolvedInferenceDevice is invalid.")
+    if execution_provider not in _RESOLVED_INFERENCE_DEVICES:
+        raise ManifestValidationError(f"{path}.executionProvider is invalid.")
+    if resolved != execution_provider:
+        raise ManifestValidationError(
+            f"{path}.resolvedInferenceDevice must match executionProvider."
+        )
+    if requested == "cpu" and resolved != "cpu":
+        raise ManifestValidationError(f"{path} requested cpu but resolved {resolved}.")
+    if requested == "cuda" and resolved != "cuda":
+        raise ManifestValidationError(f"{path} requested cuda but resolved {resolved}.")
 
 
 def _encoder_schema_version_for_sample_type(sample_type: str) -> int:

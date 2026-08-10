@@ -32,6 +32,7 @@ interface ParsedArgs {
   gamesPerShard: number;
   rolloutWorkers: number;
   temperature: number;
+  inferenceDevice: "cpu" | "auto" | "cuda";
   artifactId: string | undefined;
   rolloutRoster: string | undefined;
   progressPrefix: string;
@@ -46,6 +47,7 @@ const optionNames = new Set([
   "--games-per-shard",
   "--rollout-workers",
   "--temperature",
+  "--inference-device",
   "--artifact-id",
   "--rollout-roster",
   "--progress-prefix"
@@ -63,9 +65,10 @@ export async function runPlayingSelfPlayCli(
     const args = parseArgs(argv);
     const policy = await loadPolicyOnnxModel({
       onnxPath: args.onnx,
-      metadataPath: args.metadata
+      metadataPath: args.metadata,
+      inferenceDevice: args.inferenceDevice
     });
-    const rolloutRoster = await loadRolloutRoster(args.rolloutRoster);
+    const rolloutRoster = await loadRolloutRoster(args.rolloutRoster, args.inferenceDevice);
     gameRunner = args.rolloutWorkers === 1
       ? undefined
       : new ChildProcessPlayingSelfPlayGameRunner({
@@ -73,6 +76,7 @@ export async function runPlayingSelfPlayCli(
           currentPolicy: {
             onnxPath: args.onnx,
             metadataPath: args.metadata,
+            inferenceDevice: args.inferenceDevice,
             ...await createPolicyFingerprint(args.onnx, args.metadata)
           },
           rolloutRoster: rolloutRoster.workerSeats,
@@ -108,6 +112,9 @@ export async function runPlayingSelfPlayCli(
       startSeed: result.manifest.startSeed,
       endSeed: result.manifest.endSeed,
       rolloutWorkers: args.rolloutWorkers,
+      requestedInferenceDevice: result.manifest.behaviorPolicy.requestedInferenceDevice,
+      resolvedInferenceDevice: result.manifest.behaviorPolicy.resolvedInferenceDevice,
+      executionProvider: result.manifest.behaviorPolicy.executionProvider,
       behaviorOnnxSha256: result.manifest.behaviorPolicy.onnxSha256,
       behaviorMetadataSha256: result.manifest.behaviorPolicy.metadataSha256,
       rolloutRoster: result.manifest.rolloutRoster
@@ -150,6 +157,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
       "--temperature",
       optionalValue(values, "--temperature") ?? "1"
     ),
+    inferenceDevice: parseInferenceDevice(optionalValue(values, "--inference-device") ?? "cpu"),
     artifactId: optionalValue(values, "--artifact-id"),
     rolloutRoster: optionalValue(values, "--rollout-roster"),
     progressPrefix: optionalValue(values, "--progress-prefix") ?? ""
@@ -162,7 +170,8 @@ interface LoadedRolloutRoster {
 }
 
 async function loadRolloutRoster(
-  value: string | undefined
+  value: string | undefined,
+  inferenceDevice: "cpu" | "auto" | "cuda"
 ): Promise<LoadedRolloutRoster> {
   if (value === undefined) {
     return {
@@ -172,7 +181,10 @@ async function loadRolloutRoster(
   }
 
   const rawSeats = parseRolloutRosterValue(value);
-  const seats = await Promise.all(rawSeats.map(loadRolloutRosterSeat));
+  const seats = await Promise.all(rawSeats.map((seat) => loadRolloutRosterSeat(
+    seat,
+    inferenceDevice
+  )));
 
   return {
     options: { seats: seats.map((seat) => seat.option) },
@@ -204,7 +216,10 @@ function parseRolloutRosterValue(value: string): readonly unknown[] {
   return trimmed.split(",").map((entry) => entry.trim());
 }
 
-async function loadRolloutRosterSeat(raw: unknown): Promise<{
+async function loadRolloutRosterSeat(
+  raw: unknown,
+  inferenceDevice: "cpu" | "auto" | "cuda"
+): Promise<{
   option: RolloutRosterSeatOptions;
   workerSeat: WorkerRolloutRosterSeat;
 }> {
@@ -243,7 +258,11 @@ async function loadRolloutRosterSeat(raw: unknown): Promise<{
 
   const onnxPath = requiredString(raw.onnxPath, "rolloutRoster.seats[].onnxPath");
   const metadataPath = requiredString(raw.metadataPath, "rolloutRoster.seats[].metadataPath");
-  const policy: PlayingSelfPlayPolicy = await loadPolicyOnnxModel({ onnxPath, metadataPath });
+  const policy: PlayingSelfPlayPolicy = await loadPolicyOnnxModel({
+    onnxPath,
+    metadataPath,
+    inferenceDevice
+  });
   const artifactId = typeof raw.artifactId === "string" ? raw.artifactId : undefined;
   const fingerprint = await createPolicyFingerprint(onnxPath, metadataPath);
 
@@ -265,6 +284,13 @@ async function loadRolloutRosterSeat(raw: unknown): Promise<{
       artifactId
     }
   };
+}
+
+function parseInferenceDevice(value: string): "cpu" | "auto" | "cuda" {
+  if (value === "cpu" || value === "auto" || value === "cuda") {
+    return value;
+  }
+  throw new Error("--inference-device must be one of cpu, auto, cuda.");
 }
 
 async function createPolicyFingerprint(

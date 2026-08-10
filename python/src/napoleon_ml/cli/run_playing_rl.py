@@ -19,6 +19,7 @@ from napoleon_ml.rl_orchestrator import (
     DEFAULT_FULL_DIAGNOSTICS_INTERVAL,
     DEFAULT_GAMES_PER_ITERATION,
     DEFAULT_GAMES_PER_SHARD,
+    DEFAULT_INFERENCE_DEVICE,
     DEFAULT_ITERATIONS,
     DEFAULT_LEARNING_RATE,
     DEFAULT_ROLLOUT_ROSTER,
@@ -27,6 +28,7 @@ from napoleon_ml.rl_orchestrator import (
     DEFAULT_TEMPERATURE,
     DEFAULT_TRAINING_SEED_BASE,
     PLAYING_RL_ALGORITHMS,
+    SUPPORTED_INFERENCE_DEVICES,
     PlayingRlOrchestratorError,
     PlayingRlRunConfig,
     run_playing_rl_experiment,
@@ -51,6 +53,7 @@ _OPTION_TO_CONFIG_KEY = {
     "--evaluation-interval": "evaluationInterval",
     "--evaluation-start-seed": "evaluationStartSeed",
     "--evaluation-seed-count": "evaluationSeedCount",
+    "--inference-device": "inferenceDevice",
 }
 
 
@@ -89,6 +92,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--evaluation-interval", type=int, default=DEFAULT_EVALUATION_INTERVAL)
     parser.add_argument("--evaluation-start-seed", type=int, default=DEFAULT_EVALUATION_START_SEED)
     parser.add_argument("--evaluation-seed-count", type=int, default=DEFAULT_EVALUATION_SEED_COUNT)
+    parser.add_argument(
+        "--inference-device",
+        choices=SUPPORTED_INFERENCE_DEVICES,
+        default=DEFAULT_INFERENCE_DEVICE,
+    )
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--no-typescript-build", action="store_true")
     return parser
@@ -146,6 +154,7 @@ def _config_from_args(
         evaluation_interval=args.evaluation_interval,
         evaluation_start_seed=args.evaluation_start_seed,
         evaluation_seed_count=args.evaluation_seed_count,
+        inference_device=args.inference_device,
         build_typescript=not args.no_typescript_build,
     )
 

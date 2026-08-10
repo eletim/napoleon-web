@@ -107,6 +107,7 @@ describe("runPlayingSelfPlayCli", () => {
         currentPolicy: {
           onnxPath: currentOnnx,
           metadataPath: currentMetadata,
+          inferenceDevice: "cpu",
           onnxSha256: "f1b90777ed3270f25bcb35d754aceefd946660ca3d50362e02135704c60cd051",
           metadataSha256: "ff8e755f6a6c8c7a4b36a040afca64b79c479684f18b10477eff43c2db2600fb"
         },
@@ -132,6 +133,16 @@ describe("runPlayingSelfPlayCli", () => {
       }));
       expect(JSON.parse(io.stdout.write.mock.calls[0][0])).toMatchObject({
         rolloutWorkers: 2
+      });
+      expect(loadPolicyOnnxModel).toHaveBeenNthCalledWith(1, {
+        onnxPath: currentOnnx,
+        metadataPath: currentMetadata,
+        inferenceDevice: "cpu"
+      });
+      expect(loadPolicyOnnxModel).toHaveBeenNthCalledWith(2, {
+        onnxPath: frozenOnnx,
+        metadataPath: frozenMetadata,
+        inferenceDevice: "cpu"
       });
     } finally {
       await rm(directory, { recursive: true, force: true });
@@ -179,6 +190,113 @@ describe("runPlayingSelfPlayCli", () => {
       rolloutWorkers: 1,
       gameRunner: undefined
     }));
+  });
+
+  it("passes explicit CUDA inference device to current, frozen, and worker policies", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "playing-cli-test-"));
+    const currentOnnx = join(directory, "current.onnx");
+    const currentMetadata = join(directory, "current.json");
+    const frozenOnnx = join(directory, "frozen.onnx");
+    const frozenMetadata = join(directory, "frozen.json");
+    try {
+      const io = createIo();
+      const currentPolicy = {
+        metadata: { policy: "current" },
+        runtime: {
+          requestedInferenceDevice: "cuda",
+          resolvedInferenceDevice: "cuda",
+          executionProvider: "cuda"
+        }
+      };
+      const frozenPolicy = {
+        metadata: { policy: "frozen" },
+        runtime: {
+          requestedInferenceDevice: "cuda",
+          resolvedInferenceDevice: "cuda",
+          executionProvider: "cuda"
+        }
+      };
+      const workerRunner = { runGame: vi.fn(), close: vi.fn() };
+      childRunnerConstructor.mockReturnValueOnce(workerRunner);
+      loadPolicyOnnxModel
+        .mockResolvedValueOnce(currentPolicy)
+        .mockResolvedValueOnce(frozenPolicy);
+      generatePlayingSelfPlayDataset.mockResolvedValueOnce({
+        outputDirectory: "/out",
+        manifest: {
+          gameCount: 1,
+          sampleCount: 10,
+          shardCount: 1,
+          startSeed: 1,
+          endSeed: 1,
+          behaviorPolicy: {
+            requestedInferenceDevice: "cuda",
+            resolvedInferenceDevice: "cuda",
+            executionProvider: "cuda",
+            onnxSha256: "a".repeat(64),
+            metadataSha256: "b".repeat(64)
+          },
+          rolloutRoster: { seats: [] }
+        }
+      });
+      await writeFile(currentOnnx, "current-onnx");
+      await writeFile(currentMetadata, "current-metadata");
+      await writeFile(frozenOnnx, "frozen-onnx");
+      await writeFile(frozenMetadata, "frozen-metadata");
+
+      const code = await runPlayingSelfPlayCli([
+        "--onnx",
+        currentOnnx,
+        "--metadata",
+        currentMetadata,
+        "--output",
+        "/out",
+        "--start-seed",
+        "1",
+        "--games",
+        "1",
+        "--games-per-shard",
+        "1",
+        "--rollout-workers",
+        "2",
+        "--inference-device",
+        "cuda",
+        "--rollout-roster",
+        JSON.stringify([
+          "current-policy",
+          "rule-based",
+          {
+            source: "frozen-onnx",
+            onnxPath: frozenOnnx,
+            metadataPath: frozenMetadata
+          },
+          "rule-based",
+          "current-policy"
+        ])
+      ], io);
+
+      expect(code).toBe(0);
+      expect(loadPolicyOnnxModel).toHaveBeenNthCalledWith(1, {
+        onnxPath: currentOnnx,
+        metadataPath: currentMetadata,
+        inferenceDevice: "cuda"
+      });
+      expect(loadPolicyOnnxModel).toHaveBeenNthCalledWith(2, {
+        onnxPath: frozenOnnx,
+        metadataPath: frozenMetadata,
+        inferenceDevice: "cuda"
+      });
+      expect(childRunnerConstructor).toHaveBeenCalledWith(expect.objectContaining({
+        currentPolicy: expect.objectContaining({ inferenceDevice: "cuda" })
+      }));
+      expect(JSON.parse(io.stdout.write.mock.calls[0][0])).toMatchObject({
+        requestedInferenceDevice: "cuda",
+        resolvedInferenceDevice: "cuda",
+        executionProvider: "cuda"
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("rejects non-positive rollout workers", async () => {

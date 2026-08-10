@@ -22,6 +22,7 @@ interface ParsedArgs {
   startSeed: number;
   seedCount: number;
   benchmark: PolicyEvaluationBenchmarkArgument;
+  inferenceDevice: "cpu" | "auto" | "cuda";
   progressPrefix: string;
 }
 
@@ -34,6 +35,7 @@ const optionNames = new Set([
   "--start-seed",
   "--seed-count",
   "--benchmark",
+  "--inference-device",
   "--progress-prefix"
 ]);
 
@@ -48,7 +50,8 @@ export async function runPolicyEvaluationCli(
     const args = parseArgs(argv);
     const policy = await loadPolicyOnnxModel({
       onnxPath: args.onnx,
-      metadataPath: args.metadata
+      metadataPath: args.metadata,
+      inferenceDevice: args.inferenceDevice
     });
     if (args.benchmark === "rule-based-x4") {
       const result = await runPolicyVsRuleBasedEvaluation({
@@ -74,7 +77,8 @@ export async function runPolicyEvaluationCli(
       candidatePolicy: policy,
       benchmarks: args.benchmark === "standard" ? undefined : [args.benchmark],
       startSeed: args.startSeed,
-      gameCount: args.seedCount
+      gameCount: args.seedCount,
+      inferenceDevice: args.inferenceDevice
     });
     await writeJsonAtomic(args.output, suite);
     const summaries = suite.benchmarks.map((benchmark) => ({
@@ -107,8 +111,16 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
     startSeed: parseUnsignedInteger("--start-seed", requireValue(values, "--start-seed")),
     seedCount: parsePositiveInteger("--seed-count", requireValue(values, "--seed-count")),
     benchmark: parseBenchmark(optionalValue(values, "--benchmark") ?? "rule-based-x4"),
+    inferenceDevice: parseInferenceDevice(optionalValue(values, "--inference-device") ?? "cpu"),
     progressPrefix: optionalValue(values, "--progress-prefix") ?? ""
   };
+}
+
+function parseInferenceDevice(value: string): "cpu" | "auto" | "cuda" {
+  if (value === "cpu" || value === "auto" || value === "cuda") {
+    return value;
+  }
+  throw new Error("--inference-device must be one of cpu, auto, cuda.");
 }
 
 function parseBenchmark(value: string): PolicyEvaluationBenchmarkArgument {

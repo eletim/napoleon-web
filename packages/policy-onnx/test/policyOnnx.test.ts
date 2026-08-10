@@ -281,6 +281,87 @@ describe("non-playing legal selection", () => {
 });
 
 describe("policy ONNX Runtime smoke", () => {
+  it("records explicit CPU inference runtime metadata", async () => {
+    const directory = await temporaryDirectory();
+    const onnxPath = join(directory, "policy.onnx");
+    const metadataPath = join(directory, "policy.json");
+    await writeFile(onnxPath, createConstantPolicyOnnx(new Float32Array(CARD_COUNT)));
+    await writeFile(metadataPath, JSON.stringify(createMetadata()) + "\n", "utf8");
+    const requestedProviders: string[][] = [];
+
+    const model = await loadPolicyOnnxModel({
+      onnxPath,
+      metadataPath,
+      inferenceDevice: "cpu",
+      sessionFactory: async (_path, options) => {
+        requestedProviders.push([...options.executionProviders]);
+        return {
+          inputNames: [ONNX_INPUT_NAME],
+          outputNames: [ONNX_OUTPUT_NAME],
+          run: async () => ({})
+        };
+      }
+    });
+
+    expect(requestedProviders).toEqual([["cpu"]]);
+    expect(model.runtime).toEqual({
+      requestedInferenceDevice: "cpu",
+      resolvedInferenceDevice: "cpu",
+      executionProvider: "cpu"
+    });
+  });
+
+  it("falls back to CPU for auto inference when CUDA session creation fails", async () => {
+    const directory = await temporaryDirectory();
+    const onnxPath = join(directory, "policy.onnx");
+    const metadataPath = join(directory, "policy.json");
+    await writeFile(onnxPath, createConstantPolicyOnnx(new Float32Array(CARD_COUNT)));
+    await writeFile(metadataPath, JSON.stringify(createMetadata()) + "\n", "utf8");
+    const requestedProviders: string[][] = [];
+
+    const model = await loadPolicyOnnxModel({
+      onnxPath,
+      metadataPath,
+      inferenceDevice: "auto",
+      sessionFactory: async (_path, options) => {
+        requestedProviders.push([...options.executionProviders]);
+        if (options.executionProviders[0] === "cuda") {
+          throw new Error("CUDA provider unavailable");
+        }
+        return {
+          inputNames: [ONNX_INPUT_NAME],
+          outputNames: [ONNX_OUTPUT_NAME],
+          run: async () => ({})
+        };
+      }
+    });
+
+    expect(requestedProviders).toEqual([["cuda"], ["cpu"]]);
+    expect(model.runtime).toEqual({
+      requestedInferenceDevice: "auto",
+      resolvedInferenceDevice: "cpu",
+      executionProvider: "cpu"
+    });
+  });
+
+  it("fails fast for explicit CUDA inference when CUDA session creation fails", async () => {
+    const directory = await temporaryDirectory();
+    const onnxPath = join(directory, "policy.onnx");
+    const metadataPath = join(directory, "policy.json");
+    await writeFile(onnxPath, createConstantPolicyOnnx(new Float32Array(CARD_COUNT)));
+    await writeFile(metadataPath, JSON.stringify(createMetadata()) + "\n", "utf8");
+
+    await expect(loadPolicyOnnxModel({
+      onnxPath,
+      metadataPath,
+      inferenceDevice: "cuda",
+      sessionFactory: async (_path, options) => {
+        expect(options.executionProviders).toEqual(["cuda"]);
+        throw new Error("libcudnn.so missing");
+      }
+    })).rejects.toThrow(/CUDA ONNX Runtime execution provider was requested/);
+  });
+
   it("loads ONNX and metadata, then matches fixed ONNX-side logits and masked selection", async () => {
     const expectedOnnxLogits = new Float32Array(CARD_COUNT);
     for (let index = 0; index < expectedOnnxLogits.length; index += 1) {

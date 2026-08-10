@@ -103,6 +103,9 @@ describe("generatePlayingSelfPlayDataset", () => {
       });
       expect(manifest.behaviorPolicy.onnxSha256).toBe(await sha256File(artifact.onnxPath));
       expect(manifest.behaviorPolicy.metadataSha256).toBe(await sha256File(artifact.metadataPath));
+      expect(manifest.behaviorPolicy.requestedInferenceDevice).toBe("cpu");
+      expect(manifest.behaviorPolicy.resolvedInferenceDevice).toBe("cpu");
+      expect(manifest.behaviorPolicy.executionProvider).toBe("cpu");
       expect(manifest.cardIdsSha256).toBe(calculateCardIdsSha256());
       expect(manifest.gameCount).toBe(2);
       expect(manifest.shardCount).toBe(2);
@@ -270,11 +273,17 @@ describe("generatePlayingSelfPlayDataset", () => {
       ]);
       expect(manifest.rolloutRoster.seats[3]).toMatchObject({
         source: "frozen-onnx",
-        artifactId: "test-playing-policy"
+        artifactId: "test-playing-policy",
+        requestedInferenceDevice: "cpu",
+        resolvedInferenceDevice: "cpu",
+        executionProvider: "cpu"
       });
       expect(manifest.rolloutRoster.seats[4]).toMatchObject({
         source: "frozen-onnx",
-        artifactId: "frozen-v740-copy"
+        artifactId: "frozen-v740-copy",
+        requestedInferenceDevice: "cpu",
+        resolvedInferenceDevice: "cpu",
+        executionProvider: "cpu"
       });
       expect(samples).toHaveLength(10);
       expect(samples.every((sample) => sample.actingSeatSource === "current-policy")).toBe(true);

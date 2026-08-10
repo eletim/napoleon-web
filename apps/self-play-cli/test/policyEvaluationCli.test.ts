@@ -70,6 +70,11 @@ describe("runPolicyEvaluationCli", () => {
       startSeed: 10,
       gameCount: 1
     });
+    expect(loadPolicyOnnxModel).toHaveBeenCalledWith({
+      onnxPath: "/models/candidate.onnx",
+      metadataPath: "/models/candidate.json",
+      inferenceDevice: "cpu"
+    });
     expect(runStandardPlayingPolicyBenchmarks).not.toHaveBeenCalled();
     expect(JSON.parse(await readFile(output, "utf8"))).toEqual(result);
     expect(JSON.parse(io.stdout.write.mock.calls[0][0])).toMatchObject({
@@ -129,7 +134,8 @@ describe("runPolicyEvaluationCli", () => {
       candidatePolicy: policy,
       benchmarks: undefined,
       startSeed: 10,
-      gameCount: 1
+      gameCount: 1,
+      inferenceDevice: "cpu"
     });
     expect(JSON.parse(await readFile(output, "utf8"))).toEqual(suite);
     expect(JSON.parse(io.stdout.write.mock.calls[0][0])).toEqual({
@@ -194,7 +200,8 @@ describe("runPolicyEvaluationCli", () => {
       candidatePolicy: policy,
       benchmarks: ["rl-v740-x4"],
       startSeed: 10,
-      gameCount: 1
+      gameCount: 1,
+      inferenceDevice: "cpu"
     });
     expect(JSON.parse(await readFile(output, "utf8"))).toEqual(suite);
 
@@ -223,5 +230,48 @@ describe("runPolicyEvaluationCli", () => {
       "--benchmark must be one of rule-based-x4"
     );
     expect(loadPolicyOnnxModel).not.toHaveBeenCalled();
+  });
+
+  it("passes explicit inference device to policy loading and standard benchmarks", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "policy-eval-cli-"));
+    const output = join(directory, "evaluation.json");
+    const io = createIo();
+    const policy = {};
+    const suite = {
+      schemaVersion: 1,
+      candidateMetadata: {},
+      benchmarks: []
+    };
+    loadPolicyOnnxModel.mockResolvedValueOnce(policy);
+    runStandardPlayingPolicyBenchmarks.mockResolvedValueOnce(suite);
+
+    const code = await runPolicyEvaluationCli([
+      "--onnx",
+      "/models/candidate.onnx",
+      "--metadata",
+      "/models/candidate.json",
+      "--output",
+      output,
+      "--start-seed",
+      "10",
+      "--seed-count",
+      "1",
+      "--benchmark",
+      "standard",
+      "--inference-device",
+      "cuda"
+    ], io);
+
+    expect(code).toBe(0);
+    expect(loadPolicyOnnxModel).toHaveBeenCalledWith({
+      onnxPath: "/models/candidate.onnx",
+      metadataPath: "/models/candidate.json",
+      inferenceDevice: "cuda"
+    });
+    expect(runStandardPlayingPolicyBenchmarks).toHaveBeenCalledWith(expect.objectContaining({
+      inferenceDevice: "cuda"
+    }));
+
+    await rm(directory, { recursive: true, force: true });
   });
 });

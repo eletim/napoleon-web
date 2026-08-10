@@ -5,7 +5,7 @@ import { PolicyOnnxCompatibilityError } from "./errors.js";
 import { loadPolicyOnnxModel } from "./policyOnnx.js";
 import type { PolicyOnnxModel } from "./policyOnnx.js";
 import { validatePolicyOnnxMetadata } from "./metadata.js";
-import type { PolicyOnnxMetadata } from "./types.js";
+import type { PolicyOnnxInferenceDevice, PolicyOnnxMetadata } from "./types.js";
 
 export const RL_V740_BENCHMARK_POLICY_ID = "rl-v740" as const;
 
@@ -46,7 +46,8 @@ export function getRepoManagedPlayingPolicyBenchmark(
 }
 
 export async function loadRepoManagedPlayingPolicyBenchmark(
-  id: RepoManagedPlayingPolicyBenchmarkId
+  id: RepoManagedPlayingPolicyBenchmarkId,
+  options: { inferenceDevice?: PolicyOnnxInferenceDevice } = {}
 ): Promise<LoadedPlayingPolicyBenchmark> {
   const artifact = getRepoManagedPlayingPolicyBenchmark(id);
   await validatePlayingPolicyArtifactReference(artifact);
@@ -54,7 +55,8 @@ export async function loadRepoManagedPlayingPolicyBenchmark(
     artifact,
     policy: await loadPolicyOnnxModel({
       onnxPath: artifact.onnxPath,
-      metadataPath: artifact.metadataPath
+      metadataPath: artifact.metadataPath,
+      inferenceDevice: options.inferenceDevice
     })
   };
 }
