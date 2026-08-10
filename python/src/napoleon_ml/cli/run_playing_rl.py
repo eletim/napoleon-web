@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from napoleon_ml.policy.actor_critic import DEFAULT_VALUE_LOSS_COEFFICIENT
+from napoleon_ml.policy.device import SUPPORTED_TORCH_DEVICES
 from napoleon_ml.policy.reinforce import REINFORCE_ALGORITHM
 from napoleon_ml.rl_orchestrator import (
     DEFAULT_BATCH_SIZE,
@@ -43,6 +44,7 @@ _OPTION_TO_CONFIG_KEY = {
     "--value-loss-coefficient": "valueLossCoefficient",
     "--epochs": "epochs",
     "--batch-size": "batchSize",
+    "--device": "device",
     "--training-seed-base": "trainingSeedBase",
     "--evaluation-interval": "evaluationInterval",
     "--evaluation-start-seed": "evaluationStartSeed",
@@ -75,6 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS)
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
+    parser.add_argument("--device", choices=SUPPORTED_TORCH_DEVICES, default="cpu")
     parser.add_argument("--training-seed-base", type=int, default=DEFAULT_TRAINING_SEED_BASE)
     parser.add_argument("--evaluation-interval", type=int, default=DEFAULT_EVALUATION_INTERVAL)
     parser.add_argument("--evaluation-start-seed", type=int, default=DEFAULT_EVALUATION_START_SEED)
@@ -130,6 +133,7 @@ def _config_from_args(
         value_loss_coefficient=args.value_loss_coefficient,
         epochs=args.epochs,
         batch_size=args.batch_size,
+        device=args.device,
         training_seed_base=args.training_seed_base,
         evaluation_interval=args.evaluation_interval,
         evaluation_start_seed=args.evaluation_start_seed,

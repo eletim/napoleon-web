@@ -28,6 +28,13 @@ from napoleon_ml.policy.checkpoint import (
     POLICY_MODEL_ARCHITECTURE,
     PolicyCheckpointCompatibilityError,
 )
+from napoleon_ml.policy.device import (
+    RequestedTorchDevice,
+    ResolvedTorchDevice,
+    elapsed_seconds_since,
+    resolve_torch_device,
+    start_timing,
+)
 from napoleon_ml.policy.model import (
     PolicyActorCriticModel,
     PolicyMlpConfig,
@@ -54,6 +61,7 @@ class ActorCriticTrainSettings:
     batch_size: int
     learning_rate: float
     verify_integrity: bool
+    device: RequestedTorchDevice = "cpu"
     value_loss_coefficient: float = DEFAULT_VALUE_LOSS_COEFFICIENT
     optimizer: str = "AdamW"
 
@@ -64,6 +72,7 @@ class ActorCriticTrainSettings:
             "batchSize": self.batch_size,
             "learningRate": self.learning_rate,
             "verifyIntegrity": self.verify_integrity,
+            "device": self.device,
             "valueLossCoefficient": self.value_loss_coefficient,
             "optimizer": self.optimizer,
         }
@@ -107,6 +116,13 @@ class ActorCriticTrainReport:
     changed_critic_parameter_count: int
     role_stats_before: dict[str, dict[str, float | int]]
     role_stats_after: dict[str, dict[str, float | int]]
+    requested_device: str
+    resolved_device: str
+    cuda_device_name: str | None
+    pre_eval_elapsed_seconds: float
+    optimizer_training_elapsed_seconds: float
+    post_eval_elapsed_seconds: float
+    total_elapsed_seconds: float
     output_checkpoint_path: Path
 
     def to_dict(self) -> dict[str, object]:
@@ -151,6 +167,13 @@ class ActorCriticTrainReport:
             "changedCriticParameterCount": self.changed_critic_parameter_count,
             "roleStatsBefore": self.role_stats_before,
             "roleStatsAfter": self.role_stats_after,
+            "requestedDevice": self.requested_device,
+            "resolvedDevice": self.resolved_device,
+            "cudaDeviceName": self.cuda_device_name,
+            "preEvalElapsedSeconds": self.pre_eval_elapsed_seconds,
+            "optimizerTrainingElapsedSeconds": self.optimizer_training_elapsed_seconds,
+            "postEvalElapsedSeconds": self.post_eval_elapsed_seconds,
+            "totalElapsedSeconds": self.total_elapsed_seconds,
             "outputCheckpointPath": str(self.output_checkpoint_path),
         }
 
@@ -327,8 +350,10 @@ def train_policy_actor_critic(
     dataloader: Iterable[PlayingSelfPlayTorchSample],
     settings: ActorCriticTrainSettings,
 ) -> ActorCriticTrainReport:
-    """Run fail-close behavior parity and Actor-Critic updates on CPU."""
+    """Run fail-close behavior parity and Actor-Critic updates on the requested device."""
 
+    device = resolve_torch_device(settings.device)
+    total_start = start_timing(device)
     _validate_settings(settings)
     _validate_self_play_manifest(manifest)
     loaded = load_checkpoint_for_actor_critic(
@@ -337,15 +362,19 @@ def train_policy_actor_critic(
         value_head_seed=settings.seed,
     )
     _validate_behavior_metadata(loaded.behavior_model, loaded.checkpoint, manifest=manifest)
+    loaded.training_model.to(device.torch_device)
 
     temperature = _require_manifest_temperature(manifest)
+    pre_eval_start = start_timing(device)
     parity = evaluate_actor_critic_policy(
         loaded.training_model,
         dataloader,
         temperature=temperature,
         value_loss_coefficient=settings.value_loss_coefficient,
         require_behavior_parity=True,
+        device=device,
     )
+    pre_eval_elapsed = elapsed_seconds_since(pre_eval_start, device)
     _assert_behavior_parity(parity)
 
     before_parameters = _clone_parameters(loaded.training_model)
@@ -356,13 +385,11 @@ def train_policy_actor_critic(
     trained_sample_count = 0
 
     loaded.training_model.train()
+    training_start = start_timing(device)
     for _ in range(settings.epochs):
         for batch in dataloader:
             optimizer.zero_grad(set_to_none=True)
-            model_input = batch["model_input"].to(dtype=torch.float32)
-            selected = batch["selected_card_index"].to(dtype=torch.long)
-            legal_mask = batch["legal_play_mask"].to(dtype=torch.bool)
-            reward = batch["terminal_reward"].to(dtype=torch.float32)
+            model_input, selected, legal_mask, reward, _ = _batch_to_device(batch, device)
 
             logits, value_prediction = loaded.training_model.forward_actor_critic(model_input)
             selected_log_probability = masked_selected_log_probability(
@@ -386,17 +413,21 @@ def train_policy_actor_critic(
             optimizer_step_count += 1
             trained_sample_count += batch_size
             actor_loss_sum += float(actor_loss.detach().item()) * batch_size
+    training_elapsed = elapsed_seconds_since(training_start, device)
 
     if optimizer_step_count == 0:
         raise ValueError("optimizer.step() was not executed; self-play dataset may be empty.")
 
+    post_eval_start = start_timing(device)
     after = evaluate_actor_critic_policy(
         loaded.training_model,
         dataloader,
         temperature=temperature,
         value_loss_coefficient=settings.value_loss_coefficient,
         require_behavior_parity=False,
+        device=device,
     )
+    post_eval_elapsed = elapsed_seconds_since(post_eval_start, device)
     parameter_delta_norm, changed_parameter_count = _parameter_delta(
         before_parameters, loaded.training_model
     )
@@ -410,6 +441,7 @@ def train_policy_actor_critic(
         loaded.training_model,
         prefixes=("value_head.",),
     )
+    total_elapsed = elapsed_seconds_since(total_start, device)
 
     output = Path(output_checkpoint)
     report = ActorCriticTrainReport(
@@ -449,6 +481,13 @@ def train_policy_actor_critic(
         changed_critic_parameter_count=changed_critic_parameter_count,
         role_stats_before=parity.role_stats(),
         role_stats_after=after.role_stats(),
+        requested_device=device.requested,
+        resolved_device=device.resolved,
+        cuda_device_name=device.cuda_device_name,
+        pre_eval_elapsed_seconds=pre_eval_elapsed,
+        optimizer_training_elapsed_seconds=training_elapsed,
+        post_eval_elapsed_seconds=post_eval_elapsed,
+        total_elapsed_seconds=total_elapsed,
         output_checkpoint_path=output,
     )
     _assert_report_finite(report)
@@ -461,6 +500,7 @@ def train_policy_actor_critic(
         optimizer_step_count=optimizer_step_count,
         sample_count=parity.sample_count,
         migrated_from_policy=loaded.migrated_from_policy,
+        device=device,
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     _save_actor_critic_checkpoint(
@@ -482,16 +522,22 @@ def evaluate_actor_critic_policy(
     temperature: float,
     value_loss_coefficient: float,
     require_behavior_parity: bool,
+    device: ResolvedTorchDevice | None = None,
 ) -> _EvaluationAccumulator:
+    if device is None:
+        device = resolve_torch_device("cpu")
+    model.to(device.torch_device)
     model.eval()
     accumulator = _EvaluationAccumulator()
 
     for batch in dataloader:
-        model_input = batch["model_input"].to(dtype=torch.float32)
-        selected = batch["selected_card_index"].to(dtype=torch.long)
-        legal_mask = batch["legal_play_mask"].to(dtype=torch.bool)
-        reward = batch["terminal_reward"].to(dtype=torch.float32)
-        behavior_log_probability = batch["behavior_log_probability"].to(dtype=torch.float32)
+        (
+            model_input,
+            selected,
+            legal_mask,
+            reward,
+            behavior_log_probability,
+        ) = _batch_to_device(batch, device)
 
         logits, value_prediction = model.forward_actor_critic(model_input)
         selected_log_probability = masked_selected_log_probability(
@@ -739,6 +785,7 @@ def _build_rl_provenance(
     optimizer_step_count: int,
     sample_count: int,
     migrated_from_policy: bool,
+    device: ResolvedTorchDevice,
 ) -> dict[str, object]:
     if manifest.behavior_policy is None or manifest.reward is None:
         raise ValueError("self-play manifest behaviorPolicy and reward metadata are required.")
@@ -763,6 +810,7 @@ def _build_rl_provenance(
         "sampleCount": sample_count,
         "migratedFromPolicyCheckpoint": migrated_from_policy,
         "valueHeadInitializationSeed": settings.seed if migrated_from_policy else None,
+        **device.to_metadata(),
     }
 
 
@@ -777,7 +825,7 @@ def _save_actor_critic_checkpoint(
 ) -> None:
     checkpoint = dict(parent_checkpoint)
     checkpoint["model_architecture"] = ACTOR_CRITIC_MODEL_ARCHITECTURE
-    checkpoint["model_state"] = model.state_dict()
+    checkpoint["model_state"] = _cpu_state_dict(model)
     checkpoint["model_config"] = model.config.to_dict()
     checkpoint["rl_provenance"] = rl_provenance
     if migrated_from_policy:
@@ -793,6 +841,26 @@ def _save_actor_critic_checkpoint(
             "policyLogitsPreserved": True,
         }
     torch.save(checkpoint, path)
+
+
+def _batch_to_device(
+    batch: PlayingSelfPlayTorchSample,
+    device: ResolvedTorchDevice,
+) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
+    return (
+        batch["model_input"].to(device=device.torch_device, dtype=torch.float32),
+        batch["selected_card_index"].to(device=device.torch_device, dtype=torch.long),
+        batch["legal_play_mask"].to(device=device.torch_device, dtype=torch.bool),
+        batch["terminal_reward"].to(device=device.torch_device, dtype=torch.float32),
+        batch["behavior_log_probability"].to(
+            device=device.torch_device,
+            dtype=torch.float32,
+        ),
+    )
+
+
+def _cpu_state_dict(model: PolicyActorCriticModel) -> dict[str, Tensor]:
+    return {name: value.detach().cpu() for name, value in model.state_dict().items()}
 
 
 def _validate_settings(settings: ActorCriticTrainSettings) -> None:

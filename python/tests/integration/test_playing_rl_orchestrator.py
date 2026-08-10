@@ -55,6 +55,8 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
     )
     run_playing_rl_experiment(config, resume=False)
 
+    stored_config = _load_json(run_directory / "config.json")
+    assert stored_config["device"] == "cpu"
     iter0 = _load_json(run_directory / "iterations" / "iter-000" / "iteration.json")
     iter1 = _load_json(run_directory / "iterations" / "iter-001" / "iteration.json")
     assert iter0["inputCheckpointSha256"] == _sha256_file(initial_checkpoint)
@@ -63,6 +65,13 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
     assert iter0["behaviorOnnxSha256"] != iter1["behaviorOnnxSha256"]
     assert iter0["rolloutWorkers"] == 2
     assert iter1["rolloutWorkers"] == 2
+    assert iter0["requestedDevice"] == "cpu"
+    assert iter0["resolvedDevice"] == "cpu"
+    assert iter0["cudaDeviceName"] is None
+    assert _required_float(iter0["preEvalElapsedSeconds"]) >= 0.0
+    assert _required_float(iter0["optimizerTrainingElapsedSeconds"]) >= 0.0
+    assert _required_float(iter0["postEvalElapsedSeconds"]) >= 0.0
+    assert _required_float(iter0["totalElapsedSeconds"]) >= 0.0
     assert _required_int(iter0["optimizerStepCount"]) > 0
     assert _required_int(iter1["optimizerStepCount"]) > 0
 
@@ -116,6 +125,18 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
         == before_resume
     )
 
+    legacy_config = _load_json(run_directory / "config.json")
+    legacy_config.pop("device")
+    (run_directory / "config.json").write_text(
+        json.dumps(legacy_config, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    run_playing_rl_experiment(
+        config,
+        resume=True,
+        provided_config_keys={"iterations", "gamesPerIteration"},
+    )
+
     mismatch = replace(config, games_per_iteration=config.games_per_iteration + 1)
     with pytest.raises(PlayingRlOrchestratorError, match="resume config mismatch"):
         run_playing_rl_experiment(
@@ -147,6 +168,17 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
             worker_mismatch,
             resume=True,
             provided_config_keys={"rolloutWorkers"},
+        )
+
+    device_mismatch = replace(config, device="auto")
+    with pytest.raises(
+        PlayingRlOrchestratorError,
+        match="resume config mismatch for device",
+    ):
+        run_playing_rl_experiment(
+            device_mismatch,
+            resume=True,
+            provided_config_keys={"device"},
         )
 
     checkpoint = run_directory / "iterations" / "iter-001" / "output-checkpoint.pt"
@@ -230,6 +262,9 @@ def test_playing_rl_orchestrator_actor_critic_two_iteration_resume_and_safety(
         report = _load_json(
             run_directory / "iterations" / f"iter-{iteration:03d}" / "train-report.json"
         )
+        assert report["requestedDevice"] == "cpu"
+        assert report["resolvedDevice"] == "cpu"
+        assert _required_float(report["totalElapsedSeconds"]) >= 0.0
         assert report["actorLossBefore"] is not None
         assert report["valueLossBefore"] is not None
         assert report["totalLossAfter"] is not None
@@ -243,6 +278,8 @@ def test_playing_rl_orchestrator_actor_critic_two_iteration_resume_and_safety(
         assert checkpoint["model_architecture"] == "playing-actor-critic-v1"
         provenance = cast(dict[str, object], checkpoint["rl_provenance"])
         assert provenance["algorithm"] == ACTOR_CRITIC_ALGORITHM
+        assert provenance["requestedDevice"] == "cpu"
+        assert provenance["resolvedDevice"] == "cpu"
 
     final_evaluation = run_directory / "evaluations" / "policy-v002"
     shutil.rmtree(final_evaluation)

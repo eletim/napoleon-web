@@ -28,6 +28,7 @@ from napoleon_ml.policy.actor_critic import (
     ActorCriticTrainSettings,
     train_policy_actor_critic,
 )
+from napoleon_ml.policy.device import SUPPORTED_TORCH_DEVICES, RequestedTorchDevice
 from napoleon_ml.policy.onnx_export import export_policy_checkpoint_to_onnx
 from napoleon_ml.policy.reinforce import (
     REINFORCE_ALGORITHM,
@@ -71,6 +72,7 @@ class PlayingRlRunConfig:
     value_loss_coefficient: float = DEFAULT_VALUE_LOSS_COEFFICIENT
     epochs: int = DEFAULT_EPOCHS
     batch_size: int = DEFAULT_BATCH_SIZE
+    device: RequestedTorchDevice = "cpu"
     training_seed_base: int = DEFAULT_TRAINING_SEED_BASE
     evaluation_interval: int = DEFAULT_EVALUATION_INTERVAL
     evaluation_start_seed: int = DEFAULT_EVALUATION_START_SEED
@@ -94,6 +96,7 @@ class PlayingRlRunConfig:
             value_loss_coefficient=self.value_loss_coefficient,
             epochs=self.epochs,
             batch_size=self.batch_size,
+            device=self.device,
             training_seed_base=self.training_seed_base,
             evaluation_interval=self.evaluation_interval,
             evaluation_start_seed=self.evaluation_start_seed,
@@ -121,6 +124,7 @@ class PlayingRlRunConfig:
             "valueLossCoefficient": self.value_loss_coefficient,
             "epochs": self.epochs,
             "batchSize": self.batch_size,
+            "device": self.device,
             "trainingSeedBase": self.training_seed_base,
             "evaluationInterval": self.evaluation_interval,
             "evaluationStartSeed": self.evaluation_start_seed,
@@ -300,6 +304,7 @@ def _run_iteration(
             learning_rate=config.learning_rate,
             value_loss_coefficient=config.value_loss_coefficient,
             verify_integrity=True,
+            device=config.device,
         )
         report = train_policy_actor_critic(
             input_checkpoint=input_checkpoint,
@@ -316,6 +321,7 @@ def _run_iteration(
             batch_size=config.batch_size,
             learning_rate=config.learning_rate,
             verify_integrity=True,
+            device=config.device,
         )
         report = train_policy_reinforce(
             input_checkpoint=input_checkpoint,
@@ -363,6 +369,13 @@ def _run_iteration(
         "sampleCount": manifest.sample_count,
         "rolloutWorkers": config.rollout_workers,
         "trainingSeed": training_seed,
+        "requestedDevice": report.requested_device,
+        "resolvedDevice": report.resolved_device,
+        "cudaDeviceName": report.cuda_device_name,
+        "preEvalElapsedSeconds": report.pre_eval_elapsed_seconds,
+        "optimizerTrainingElapsedSeconds": report.optimizer_training_elapsed_seconds,
+        "postEvalElapsedSeconds": report.post_eval_elapsed_seconds,
+        "totalElapsedSeconds": report.total_elapsed_seconds,
         "valueLossCoefficient": (
             config.value_loss_coefficient if config.algorithm == ACTOR_CRITIC_ALGORITHM else None
         ),
@@ -386,6 +399,13 @@ def _run_iteration(
         "meanReward": report.mean_reward,
         "forcedSampleCount": report.forced_sample_count,
         "nonForcedSampleCount": report.non_forced_sample_count,
+        "requestedDevice": report.requested_device,
+        "resolvedDevice": report.resolved_device,
+        "cudaDeviceName": report.cuda_device_name,
+        "preEvalElapsedSeconds": report.pre_eval_elapsed_seconds,
+        "optimizerTrainingElapsedSeconds": report.optimizer_training_elapsed_seconds,
+        "postEvalElapsedSeconds": report.post_eval_elapsed_seconds,
+        "totalElapsedSeconds": report.total_elapsed_seconds,
         "optimizerStepCount": report.optimizer_step_count,
         "meanSelectedLogProbabilityBefore": report.mean_selected_log_probability_before,
         "meanSelectedLogProbabilityAfter": report.mean_selected_log_probability_after,
@@ -966,6 +986,7 @@ def _config_from_file_dict(
         ),
         epochs=_required_int(data["epochs"]),
         batch_size=_required_int(data["batchSize"]),
+        device=_required_device(_stored_config_value(data, "device")),
         training_seed_base=_required_int(data["trainingSeedBase"]),
         evaluation_interval=_required_int(data["evaluationInterval"]),
         evaluation_start_seed=_required_int(data["evaluationStartSeed"]),
@@ -1001,6 +1022,11 @@ def _validate_config(config: PlayingRlRunConfig) -> None:
         )
     if config.learning_rate <= 0 or not math.isfinite(config.learning_rate):
         raise PlayingRlOrchestratorError("learning_rate must be finite and positive.")
+    if config.device not in SUPPORTED_TORCH_DEVICES:
+        raise PlayingRlOrchestratorError(
+            "device must be one of "
+            f"{', '.join(SUPPORTED_TORCH_DEVICES)}, got {config.device!r}."
+        )
     if (
         not math.isfinite(config.value_loss_coefficient)
         or config.value_loss_coefficient < 0.0
@@ -1173,6 +1199,8 @@ def _stored_config_value(data: Mapping[str, object], key: str) -> object:
         return DEFAULT_ROLLOUT_ROSTER
     if key == "rolloutWorkers":
         return DEFAULT_ROLLOUT_WORKERS
+    if key == "device":
+        return "cpu"
     raise KeyError(key)
 
 
@@ -1210,6 +1238,16 @@ def _required_str(value: object) -> str:
     if not isinstance(value, str):
         raise PlayingRlOrchestratorError(f"expected string, got {value!r}")
     return value
+
+
+def _required_device(value: object) -> RequestedTorchDevice:
+    text = _required_str(value)
+    if text not in SUPPORTED_TORCH_DEVICES:
+        raise PlayingRlOrchestratorError(
+            "device must be one of "
+            f"{', '.join(SUPPORTED_TORCH_DEVICES)}, got {text!r}."
+        )
+    return text
 
 
 def subtract_optional(left: float | None, right: float | None) -> float | None:

@@ -34,6 +34,13 @@ from napoleon_ml.policy.checkpoint import (
     POLICY_MODEL_ARCHITECTURE,
     PolicyCheckpointCompatibilityError,
 )
+from napoleon_ml.policy.device import (
+    RequestedTorchDevice,
+    ResolvedTorchDevice,
+    elapsed_seconds_since,
+    resolve_torch_device,
+    start_timing,
+)
 from napoleon_ml.policy.model import PolicyMlpConfig, PolicyMlpModel
 from napoleon_ml.policy.onnx_export import build_policy_onnx_metadata
 
@@ -49,6 +56,7 @@ class ReinforceTrainSettings:
     batch_size: int
     learning_rate: float
     verify_integrity: bool
+    device: RequestedTorchDevice = "cpu"
     optimizer: str = "AdamW"
 
     def to_dict(self) -> dict[str, object]:
@@ -58,6 +66,7 @@ class ReinforceTrainSettings:
             "batchSize": self.batch_size,
             "learningRate": self.learning_rate,
             "verifyIntegrity": self.verify_integrity,
+            "device": self.device,
             "optimizer": self.optimizer,
         }
 
@@ -80,6 +89,13 @@ class ReinforceTrainReport:
     max_behavior_log_probability_parity_error: float
     parameter_delta_norm: float
     changed_parameter_count: int
+    requested_device: str
+    resolved_device: str
+    cuda_device_name: str | None
+    pre_eval_elapsed_seconds: float
+    optimizer_training_elapsed_seconds: float
+    post_eval_elapsed_seconds: float
+    total_elapsed_seconds: float
     output_checkpoint_path: Path
 
     def to_dict(self) -> dict[str, object]:
@@ -102,6 +118,13 @@ class ReinforceTrainReport:
             ),
             "parameterDeltaNorm": self.parameter_delta_norm,
             "changedParameterCount": self.changed_parameter_count,
+            "requestedDevice": self.requested_device,
+            "resolvedDevice": self.resolved_device,
+            "cudaDeviceName": self.cuda_device_name,
+            "preEvalElapsedSeconds": self.pre_eval_elapsed_seconds,
+            "optimizerTrainingElapsedSeconds": self.optimizer_training_elapsed_seconds,
+            "postEvalElapsedSeconds": self.post_eval_elapsed_seconds,
+            "totalElapsedSeconds": self.total_elapsed_seconds,
             "outputCheckpointPath": str(self.output_checkpoint_path),
         }
 
@@ -186,20 +209,26 @@ def train_policy_reinforce(
     dataloader: Iterable[PlayingSelfPlayTorchSample],
     settings: ReinforceTrainSettings,
 ) -> ReinforceTrainReport:
-    """Run fail-close behavior parity and REINFORCE updates on CPU."""
+    """Run fail-close behavior parity and REINFORCE updates on the requested device."""
 
+    device = resolve_torch_device(settings.device)
+    total_start = start_timing(device)
     _validate_settings(settings)
     _validate_self_play_manifest(manifest)
     loaded = load_policy_checkpoint_for_reinforce(input_checkpoint, manifest=manifest)
     _validate_behavior_metadata(loaded.model, loaded.checkpoint, manifest=manifest)
+    loaded.model.to(device.torch_device)
 
     temperature = _require_manifest_temperature(manifest)
+    pre_eval_start = start_timing(device)
     parity = evaluate_reinforce_policy(
         loaded.model,
         dataloader,
         temperature=temperature,
         require_behavior_parity=True,
+        device=device,
     )
+    pre_eval_elapsed = elapsed_seconds_since(pre_eval_start, device)
     _assert_behavior_parity(parity)
 
     before_parameters = _clone_parameters(loaded.model)
@@ -210,13 +239,11 @@ def train_policy_reinforce(
     trained_sample_count = 0
 
     loaded.model.train()
+    training_start = start_timing(device)
     for _ in range(settings.epochs):
         for batch in dataloader:
             optimizer.zero_grad(set_to_none=True)
-            model_input = batch["model_input"].to(dtype=torch.float32)
-            selected = batch["selected_card_index"].to(dtype=torch.long)
-            legal_mask = batch["legal_play_mask"].to(dtype=torch.bool)
-            reward = batch["terminal_reward"].to(dtype=torch.float32)
+            model_input, selected, legal_mask, reward, _ = _batch_to_device(batch, device)
 
             logits = loaded.model(model_input)
             selected_log_probability = masked_selected_log_probability(
@@ -235,19 +262,24 @@ def train_policy_reinforce(
             optimizer_step_count += 1
             trained_sample_count += batch_size
             loss_sum += float(loss.detach().item()) * batch_size
+    training_elapsed = elapsed_seconds_since(training_start, device)
 
     if optimizer_step_count == 0:
         raise ValueError("optimizer.step() was not executed; self-play dataset may be empty.")
 
+    post_eval_start = start_timing(device)
     after = evaluate_reinforce_policy(
         loaded.model,
         dataloader,
         temperature=temperature,
         require_behavior_parity=False,
+        device=device,
     )
+    post_eval_elapsed = elapsed_seconds_since(post_eval_start, device)
     parameter_delta_norm, changed_parameter_count = _parameter_delta(
         before_parameters, loaded.model
     )
+    total_elapsed = elapsed_seconds_since(total_start, device)
 
     output = Path(output_checkpoint)
     report = ReinforceTrainReport(
@@ -267,6 +299,13 @@ def train_policy_reinforce(
         max_behavior_log_probability_parity_error=parity.max_behavior_error,
         parameter_delta_norm=parameter_delta_norm,
         changed_parameter_count=changed_parameter_count,
+        requested_device=device.requested,
+        resolved_device=device.resolved,
+        cuda_device_name=device.cuda_device_name,
+        pre_eval_elapsed_seconds=pre_eval_elapsed,
+        optimizer_training_elapsed_seconds=training_elapsed,
+        post_eval_elapsed_seconds=post_eval_elapsed,
+        total_elapsed_seconds=total_elapsed,
         output_checkpoint_path=output,
     )
     _assert_report_finite(report)
@@ -278,6 +317,7 @@ def train_policy_reinforce(
         settings=settings,
         optimizer_step_count=optimizer_step_count,
         sample_count=parity.sample_count,
+        device=device,
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     _save_reinforce_checkpoint(
@@ -296,16 +336,22 @@ def evaluate_reinforce_policy(
     *,
     temperature: float,
     require_behavior_parity: bool,
+    device: ResolvedTorchDevice | None = None,
 ) -> _EvaluationAccumulator:
+    if device is None:
+        device = resolve_torch_device("cpu")
+    model.to(device.torch_device)
     model.eval()
     accumulator = _EvaluationAccumulator()
 
     for batch in dataloader:
-        model_input = batch["model_input"].to(dtype=torch.float32)
-        selected = batch["selected_card_index"].to(dtype=torch.long)
-        legal_mask = batch["legal_play_mask"].to(dtype=torch.bool)
-        reward = batch["terminal_reward"].to(dtype=torch.float32)
-        behavior_log_probability = batch["behavior_log_probability"].to(dtype=torch.float32)
+        (
+            model_input,
+            selected,
+            legal_mask,
+            reward,
+            behavior_log_probability,
+        ) = _batch_to_device(batch, device)
 
         logits = model(model_input)
         selected_log_probability = masked_selected_log_probability(
@@ -571,6 +617,7 @@ def _build_rl_provenance(
     settings: ReinforceTrainSettings,
     optimizer_step_count: int,
     sample_count: int,
+    device: ResolvedTorchDevice,
 ) -> dict[str, object]:
     if manifest.behavior_policy is None or manifest.reward is None:
         raise ValueError("self-play manifest behaviorPolicy and reward metadata are required.")
@@ -592,6 +639,7 @@ def _build_rl_provenance(
         "optimizerSteps": optimizer_step_count,
         "trainingSeed": settings.seed,
         "sampleCount": sample_count,
+        **device.to_metadata(),
     }
 
 
@@ -603,9 +651,29 @@ def _save_reinforce_checkpoint(
     rl_provenance: dict[str, object],
 ) -> None:
     checkpoint = dict(parent_checkpoint)
-    checkpoint["model_state"] = model.state_dict()
+    checkpoint["model_state"] = _cpu_state_dict(model)
     checkpoint["rl_provenance"] = rl_provenance
     torch.save(checkpoint, path)
+
+
+def _batch_to_device(
+    batch: PlayingSelfPlayTorchSample,
+    device: ResolvedTorchDevice,
+) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
+    return (
+        batch["model_input"].to(device=device.torch_device, dtype=torch.float32),
+        batch["selected_card_index"].to(device=device.torch_device, dtype=torch.long),
+        batch["legal_play_mask"].to(device=device.torch_device, dtype=torch.bool),
+        batch["terminal_reward"].to(device=device.torch_device, dtype=torch.float32),
+        batch["behavior_log_probability"].to(
+            device=device.torch_device,
+            dtype=torch.float32,
+        ),
+    )
+
+
+def _cpu_state_dict(model: PolicyMlpModel) -> dict[str, Tensor]:
+    return {name: value.detach().cpu() for name, value in model.state_dict().items()}
 
 
 def _require_manifest_temperature(manifest: DatasetManifest) -> float:
