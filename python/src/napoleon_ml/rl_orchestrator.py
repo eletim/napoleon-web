@@ -223,6 +223,7 @@ def _run_iteration(
     completed = _load_completed_iteration(iteration_dir)
     if completed is not None:
         _validate_iteration_artifacts(iteration_dir, completed)
+        _discard_completed_self_play_cache_if_due(completed)
         return state
 
     if iteration_dir.exists():
@@ -851,6 +852,7 @@ def _validate_completed_artifacts(config: PlayingRlRunConfig) -> None:
         if record is None:
             break
         _validate_iteration_artifacts(iteration_dir, record)
+        _discard_completed_self_play_cache_if_due(record)
         if record["inputCheckpointSha256"] != expected_input_sha256:
             raise PlayingRlOrchestratorError(
                 f"{iteration_dir}: input checkpoint chain mismatch: "
@@ -890,6 +892,8 @@ def _validate_iteration_artifacts(iteration_dir: Path, record: Mapping[str, obje
         manifest = load_manifest(self_play_dir)
         _consume_samples_for_integrity(self_play_dir)
     else:
+        # Completed ephemeral-cache iterations may retain only manifest.json.
+        # Shard integrity was already verified before training consumed them.
         manifest = _load_manifest_file(self_play_dir)
     if manifest.game_count != record["gameCount"]:
         raise PlayingRlOrchestratorError(f"{iteration_dir}: gameCount mismatch.")
@@ -1290,6 +1294,15 @@ def _discard_self_play_shards(directory: Path, manifest: DatasetManifest) -> Non
         f"[cache] discarded self-play shards: files={deleted_count} bytes={deleted_bytes}",
         flush=True,
     )
+
+
+def _discard_completed_self_play_cache_if_due(record: Mapping[str, object]) -> None:
+    if bool(record.get("selfPlayCacheRetained", True)):
+        return
+    self_play_dir = Path(cast(str, record["selfPlayDirectory"]))
+    manifest = _load_manifest_file(self_play_dir)
+    if any((self_play_dir / shard.file).exists() for shard in manifest.shards):
+        _discard_self_play_shards(self_play_dir, manifest)
 
 
 def _manifest_shard_byte_length(manifest: DatasetManifest) -> int:

@@ -103,6 +103,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--retain-self-play-data",
         action="store_true",
         default=DEFAULT_RETAIN_SELF_PLAY_DATA,
+        help=(
+            "Keep per-iteration self-play shard files after successful training. "
+            "By default completed iterations keep manifest provenance and delete the raw cache."
+        ),
     )
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--no-typescript-build", action="store_true")

@@ -120,6 +120,20 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
         shard_file = _required_str(_required_object(shard)["file"])
         assert not (run_directory / "iterations" / "iter-000" / "selfplay" / shard_file).exists()
 
+    for shard in _required_list(manifest0["shards"]):
+        shard_file = _required_str(_required_object(shard)["file"])
+        (run_directory / "iterations" / "iter-000" / "selfplay" / shard_file).write_bytes(
+            b"orphaned-after-crash"
+        )
+    run_playing_rl_experiment(
+        config,
+        resume=True,
+        provided_config_keys={"iterations", "gamesPerIteration"},
+    )
+    for shard in _required_list(manifest0["shards"]):
+        shard_file = _required_str(_required_object(shard)["file"])
+        assert not (run_directory / "iterations" / "iter-000" / "selfplay" / shard_file).exists()
+
     evaluations = [
         _load_json(run_directory / "evaluations" / f"policy-v{generation:03d}" / "summary.json")
         for generation in (0, 1, 2)
