@@ -57,5 +57,6 @@ def _run(args: argparse.Namespace) -> int:
 
     return 0
 
+
 if __name__ == "__main__":
     raise SystemExit(main())

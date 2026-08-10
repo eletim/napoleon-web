@@ -160,6 +160,8 @@ def test_policy_config_loads_legacy_and_roundtrips_hidden_dims() -> None:
         256,
         256,
     )
+    with pytest.raises(ValueError, match="non-empty"):
+        PolicyMlpConfig.from_dict({"hidden_dims": []})
     with pytest.raises(ValueError, match="hidden_layers"):
         PolicyMlpConfig.from_dict({"hidden_dim": 512, "hidden_layers": 2, "hidden_dims": [512]})
 

@@ -72,6 +72,10 @@ class PolicyMlpConfig:
                 _require_int_item(item, f"hidden_dims[{index}]")
                 for index, item in enumerate(raw_hidden_dims)
             )
+            if len(hidden_dims) == 0:
+                raise ValueError(
+                    "model_config.hidden_dims must be a non-empty list of integers."
+                )
             hidden_dim = _optional_int(value, "hidden_dim", hidden_dims[0])
             hidden_layers = _optional_int(value, "hidden_layers", len(hidden_dims))
             if hidden_dim != hidden_dims[0]:
