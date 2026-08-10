@@ -104,6 +104,7 @@ export type {
   CalculateLegalPolicyLogProbabilityOptions,
   PolicyOnnxExecutionProvider,
   PolicyOnnxInferenceDevice,
+  PolicyOnnxInferenceStats,
   NonPlayingPolicyType,
   PolicyOnnxIoMetadata,
   PolicyOnnxLoadOptions,

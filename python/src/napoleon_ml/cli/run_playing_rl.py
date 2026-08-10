@@ -20,6 +20,7 @@ from napoleon_ml.rl_orchestrator import (
     DEFAULT_GAMES_PER_ITERATION,
     DEFAULT_GAMES_PER_SHARD,
     DEFAULT_INFERENCE_DEVICE,
+    DEFAULT_INFERENCE_MAX_BATCH_SIZE,
     DEFAULT_ITERATIONS,
     DEFAULT_LEARNING_RATE,
     DEFAULT_ROLLOUT_ROSTER,
@@ -42,6 +43,8 @@ _OPTION_TO_CONFIG_KEY = {
     "--temperature": "temperature",
     "--rollout-roster": "rolloutRoster",
     "--rollout-workers": "rolloutWorkers",
+    "--rollout-concurrency": "rolloutConcurrency",
+    "--inference-max-batch-size": "inferenceMaxBatchSize",
     "--algorithm": "algorithm",
     "--learning-rate": "learningRate",
     "--value-loss-coefficient": "valueLossCoefficient",
@@ -69,6 +72,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     parser.add_argument("--rollout-roster", default=DEFAULT_ROLLOUT_ROSTER)
     parser.add_argument("--rollout-workers", type=int, default=DEFAULT_ROLLOUT_WORKERS)
+    parser.add_argument("--rollout-concurrency", type=int)
+    parser.add_argument(
+        "--inference-max-batch-size",
+        type=int,
+        default=DEFAULT_INFERENCE_MAX_BATCH_SIZE,
+    )
     parser.add_argument(
         "--algorithm",
         choices=PLAYING_RL_ALGORITHMS,
@@ -143,6 +152,8 @@ def _config_from_args(
         temperature=args.temperature,
         rollout_roster=args.rollout_roster,
         rollout_workers=args.rollout_workers,
+        rollout_concurrency=args.rollout_concurrency,
+        inference_max_batch_size=args.inference_max_batch_size,
         algorithm=args.algorithm,
         learning_rate=args.learning_rate,
         value_loss_coefficient=args.value_loss_coefficient,

@@ -20,6 +20,7 @@ import type {
   CalculateLegalPolicyLogProbabilityOptions,
   PolicyOnnxExecutionProvider,
   PolicyOnnxInferenceDevice,
+  PolicyOnnxInferenceStats,
   PolicyOnnxLoadOptions,
   PolicyOnnxMetadata,
   PolicyOnnxRuntimeInfo,
@@ -36,14 +37,37 @@ import type {
 const FLOAT32_MIN = -3.4028234663852886e38;
 
 export class PolicyOnnxModel {
+  private readonly inferenceQueue: PolicyOnnxInferenceQueue;
+
   constructor(
     readonly metadata: PolicyOnnxMetadata,
-    private readonly session: ort.InferenceSession,
-    readonly runtime: PolicyOnnxRuntimeInfo
-  ) {}
+    session: ort.InferenceSession,
+    readonly runtime: PolicyOnnxRuntimeInfo,
+    options: { inferenceMaxBatchSize?: number } = {}
+  ) {
+    this.inferenceQueue = new PolicyOnnxInferenceQueue(
+      session,
+      PLAYING_POLICY_ONNX_SPEC,
+      options.inferenceMaxBatchSize ?? 1
+    );
+  }
 
   async predictLogits(modelInput: Float32Array | readonly number[]): Promise<Float32Array> {
-    return runPolicyOnnxLogits(this.session, PLAYING_POLICY_ONNX_SPEC, modelInput);
+    return this.inferenceQueue.predict(modelInput);
+  }
+
+  async predictLogitsBatch(
+    modelInputs: readonly (Float32Array | readonly number[])[]
+  ): Promise<readonly Float32Array[]> {
+    return this.inferenceQueue.predictBatch(modelInputs);
+  }
+
+  getInferenceStats(): PolicyOnnxInferenceStats {
+    return this.inferenceQueue.getStats();
+  }
+
+  resetInferenceStats(): void {
+    this.inferenceQueue.resetStats();
   }
 
   async selectLegalPlay(input: SelectLegalPlayInput): Promise<PolicyOnnxSelection> {
@@ -88,7 +112,11 @@ export class NonPlayingPolicyOnnxModel {
   }
 
   async predictLogits(modelInput: Float32Array | readonly number[]): Promise<Float32Array> {
-    return runPolicyOnnxLogits(this.session, this.spec, modelInput);
+    return runPolicyOnnxLogitsBatch(
+      this.session,
+      this.spec,
+      [normalizeModelInputForSpec(modelInput, this.spec)]
+    ).then((outputs) => outputs[0]);
   }
 
   async selectBidding(input: SelectLegalBiddingInput): Promise<NonPlayingPolicyOnnxSingleSelection> {
@@ -135,7 +163,9 @@ export async function loadPolicyOnnxModel(options: PolicyOnnxLoadOptions): Promi
 
   validateSessionNames(session, PLAYING_POLICY_ONNX_SPEC);
 
-  return new PolicyOnnxModel(metadata, session, runtime);
+  return new PolicyOnnxModel(metadata, session, runtime, {
+    inferenceMaxBatchSize: options.inferenceMaxBatchSize
+  });
 }
 
 export async function loadNonPlayingPolicyOnnxModel(
@@ -438,13 +468,169 @@ function validateLegalPlayMask(mask: ArrayLike<number | boolean>): void {
   }
 }
 
-function runPolicyOnnxLogits(
+interface QueuedPolicyOnnxInference {
+  input: Float32Array;
+  resolve: (logits: Float32Array) => void;
+  reject: (error: unknown) => void;
+}
+
+class PolicyOnnxInferenceQueue {
+  private readonly maxBatchSize: number;
+  private readonly queue: QueuedPolicyOnnxInference[] = [];
+  private flushScheduled = false;
+  private draining = false;
+  private stats = createEmptyInferenceStats();
+
+  constructor(
+    private readonly session: ort.InferenceSession,
+    private readonly spec: RuntimePolicyOnnxSpec,
+    maxBatchSize: number
+  ) {
+    validateInferenceMaxBatchSize(maxBatchSize);
+    this.maxBatchSize = maxBatchSize;
+  }
+
+  predict(modelInput: Float32Array | readonly number[]): Promise<Float32Array> {
+    const input = normalizeModelInputForSpec(modelInput, this.spec);
+
+    if (this.maxBatchSize === 1) {
+      return this.runBatch([input]).then((outputs) => outputs[0]);
+    }
+
+    return new Promise((resolve, reject) => {
+      this.queue.push({ input, resolve, reject });
+
+      if (this.queue.length >= this.maxBatchSize) {
+        this.triggerFlush();
+      } else {
+        this.scheduleFlush();
+      }
+    });
+  }
+
+  predictBatch(
+    modelInputs: readonly (Float32Array | readonly number[])[]
+  ): Promise<readonly Float32Array[]> {
+    const inputs = normalizeModelInputBatchForSpec(modelInputs, this.spec);
+    return this.runBatch(inputs);
+  }
+
+  getStats(): PolicyOnnxInferenceStats {
+    return {
+      requestCount: this.stats.requestCount,
+      sessionRunCount: this.stats.sessionRunCount,
+      meanBatchSize: this.stats.meanBatchSize,
+      maxObservedBatchSize: this.stats.maxObservedBatchSize,
+      batchSizeHistogram: { ...this.stats.batchSizeHistogram }
+    };
+  }
+
+  resetStats(): void {
+    this.stats = createEmptyInferenceStats();
+  }
+
+  private scheduleFlush(): void {
+    if (this.flushScheduled || this.draining) {
+      return;
+    }
+
+    this.flushScheduled = true;
+    setImmediate(() => {
+      this.flushScheduled = false;
+      this.triggerFlush();
+    });
+  }
+
+  private triggerFlush(): void {
+    if (this.draining) {
+      return;
+    }
+
+    this.draining = true;
+    void this.drain().finally(() => {
+      this.draining = false;
+      if (this.queue.length > 0) {
+        this.scheduleFlush();
+      }
+    });
+  }
+
+  private async drain(): Promise<void> {
+    while (this.queue.length > 0) {
+      const batch = this.queue.splice(0, this.maxBatchSize);
+      try {
+        const outputs = await this.runBatch(batch.map((item) => item.input));
+        outputs.forEach((output, index) => {
+          batch[index].resolve(output);
+        });
+      } catch (error: unknown) {
+        batch.forEach((item) => item.reject(error));
+      }
+    }
+  }
+
+  private async runBatch(inputs: readonly Float32Array[]): Promise<readonly Float32Array[]> {
+    const outputs = await runPolicyOnnxLogitsBatch(this.session, this.spec, inputs);
+    recordInferenceBatch(this.stats, inputs.length);
+    return outputs;
+  }
+}
+
+function validateInferenceMaxBatchSize(value: number): void {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new PolicyOnnxCompatibilityError(
+      `inferenceMaxBatchSize must be a positive integer, got ${String(value)}.`
+    );
+  }
+}
+
+function createEmptyInferenceStats(): PolicyOnnxInferenceStats {
+  return {
+    requestCount: 0,
+    sessionRunCount: 0,
+    meanBatchSize: 0,
+    maxObservedBatchSize: 0,
+    batchSizeHistogram: {}
+  };
+}
+
+function recordInferenceBatch(stats: PolicyOnnxInferenceStats, batchSize: number): void {
+  stats.requestCount += batchSize;
+  stats.sessionRunCount += 1;
+  stats.meanBatchSize = stats.requestCount / stats.sessionRunCount;
+  stats.maxObservedBatchSize = Math.max(stats.maxObservedBatchSize, batchSize);
+  const key = String(batchSize);
+  stats.batchSizeHistogram = {
+    ...stats.batchSizeHistogram,
+    [key]: (stats.batchSizeHistogram[key] ?? 0) + 1
+  };
+}
+
+function normalizeModelInputBatchForSpec(
+  modelInputs: readonly (Float32Array | readonly number[])[],
+  spec: RuntimePolicyOnnxSpec
+): readonly Float32Array[] {
+  if (modelInputs.length === 0) {
+    throw new PolicyOnnxCompatibilityError("modelInputs batch must contain at least one input.");
+  }
+
+  return modelInputs.map((modelInput) => normalizeModelInputForSpec(modelInput, spec));
+}
+
+async function runPolicyOnnxLogitsBatch(
   session: ort.InferenceSession,
   spec: RuntimePolicyOnnxSpec,
-  modelInput: Float32Array | readonly number[]
-): Promise<Float32Array> {
-  const input = normalizeModelInputForSpec(modelInput, spec);
-  const tensor = new ort.Tensor("float32", input, [1, spec.modelInputFeatureCount]);
+  inputs: readonly Float32Array[]
+): Promise<readonly Float32Array[]> {
+  if (inputs.length === 0) {
+    throw new PolicyOnnxCompatibilityError("modelInputs batch must contain at least one input.");
+  }
+
+  const batchInput = new Float32Array(inputs.length * spec.modelInputFeatureCount);
+  inputs.forEach((input, index) => {
+    batchInput.set(input, index * spec.modelInputFeatureCount);
+  });
+  const tensor = new ort.Tensor("float32", batchInput, [inputs.length, spec.modelInputFeatureCount]);
 
   return session.run({ [spec.inputName]: tensor }, [spec.outputName]).then((outputs) => {
     const outputNames = Object.keys(outputs);
@@ -459,21 +645,27 @@ function runPolicyOnnxLogits(
     if (logits.type !== "float32") {
       throw new PolicyOnnxCompatibilityError(`ONNX output dtype mismatch: expected float32, got ${logits.type}.`);
     }
-    if (logits.dims.length !== 2 || logits.dims[0] !== 1 || logits.dims[1] !== spec.outputLogitCount) {
+    if (logits.dims.length !== 2 || logits.dims[0] !== inputs.length || logits.dims[1] !== spec.outputLogitCount) {
       throw new PolicyOnnxCompatibilityError(
-        `ONNX output shape mismatch: expected [1, ${spec.outputLogitCount}], got ${JSON.stringify(logits.dims)}.`
+        `ONNX output shape mismatch: expected [${inputs.length}, ${spec.outputLogitCount}], got ${JSON.stringify(logits.dims)}.`
       );
     }
-    if (!(logits.data instanceof Float32Array)) {
+    const outputData = logits.data;
+    if (!(outputData instanceof Float32Array)) {
       throw new PolicyOnnxCompatibilityError("ONNX output data must be Float32Array.");
     }
-    if (logits.data.length !== spec.outputLogitCount) {
+    if (outputData.length !== inputs.length * spec.outputLogitCount) {
       throw new PolicyOnnxCompatibilityError(
-        `ONNX output must contain ${spec.outputLogitCount} values, got ${logits.data.length}.`
+        `ONNX output must contain ${inputs.length * spec.outputLogitCount} values, got ${outputData.length}.`
       );
     }
 
-    return new Float32Array(logits.data);
+    return inputs.map((_, index) =>
+      new Float32Array(outputData.slice(
+        index * spec.outputLogitCount,
+        (index + 1) * spec.outputLogitCount
+      ))
+    );
   });
 }
 

@@ -2,7 +2,7 @@ import type { DatasetGenerationProgress } from "@napoleon/training-data";
 
 export function formatProgress(
   progress: DatasetGenerationProgress,
-  options: { rolloutWorkers?: number } = {}
+  options: { rolloutWorkers?: number; rolloutConcurrency?: number } = {}
 ): string {
   const parts = [
     `games: ${progress.completedGames} / ${progress.totalGames}`,
@@ -14,6 +14,9 @@ export function formatProgress(
   if (options.rolloutWorkers !== undefined) {
     parts.push(`workers: ${options.rolloutWorkers}`);
   }
+  if (options.rolloutConcurrency !== undefined) {
+    parts.push(`concurrency: ${options.rolloutConcurrency}`);
+  }
 
   return parts.join(" | ");
 }
@@ -21,7 +24,7 @@ export function formatProgress(
 export function createProgressReporter(
   totalGames: number,
   write: (text: string) => void,
-  options: { rolloutWorkers?: number } = {}
+  options: { rolloutWorkers?: number; rolloutConcurrency?: number } = {}
 ): (progress: DatasetGenerationProgress) => void {
   const interval = Math.max(1, Math.ceil(totalGames / 100));
   let lastCompletedShards = 0;

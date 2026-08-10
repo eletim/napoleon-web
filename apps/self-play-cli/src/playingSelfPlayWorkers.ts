@@ -20,6 +20,7 @@ export interface ChildProcessPlayingSelfPlayGameRunnerOptions {
     onnxPath: string;
     metadataPath: string;
     inferenceDevice: "cpu" | "auto" | "cuda";
+    inferenceMaxBatchSize?: number;
     onnxSha256: string;
     metadataSha256: string;
   };

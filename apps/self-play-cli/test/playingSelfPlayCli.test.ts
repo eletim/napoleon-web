@@ -29,6 +29,38 @@ function createIo() {
   };
 }
 
+function createDatasetResult(overrides: Record<string, unknown> = {}) {
+  return {
+    outputDirectory: "/out",
+    manifest: {
+      gameCount: 1,
+      sampleCount: 10,
+      shardCount: 1,
+      startSeed: 1,
+      endSeed: 1,
+      behaviorPolicy: {
+        requestedInferenceDevice: "cpu",
+        resolvedInferenceDevice: "cpu",
+        executionProvider: "cpu",
+        onnxSha256: "a".repeat(64),
+        metadataSha256: "b".repeat(64)
+      },
+      rolloutRoster: { seats: [] },
+      ...overrides
+    },
+    rolloutTiming: {
+      rolloutElapsedSeconds: 0.25,
+      inference: {
+        requestCount: 4,
+        sessionRunCount: 2,
+        meanBatchSize: 2,
+        maxObservedBatchSize: 3,
+        batchSizeHistogram: { "1": 1, "3": 1 }
+      }
+    }
+  };
+}
+
 describe("runPlayingSelfPlayCli", () => {
   beforeEach(() => {
     loadPolicyOnnxModel.mockReset();
@@ -51,21 +83,12 @@ describe("runPlayingSelfPlayCli", () => {
       loadPolicyOnnxModel
         .mockResolvedValueOnce(currentPolicy)
         .mockResolvedValueOnce(frozenPolicy);
-      generatePlayingSelfPlayDataset.mockResolvedValueOnce({
-        outputDirectory: "/out",
-        manifest: {
+      generatePlayingSelfPlayDataset.mockResolvedValueOnce(createDatasetResult({
           gameCount: 2,
           sampleCount: 20,
-          shardCount: 1,
           startSeed: 7,
           endSeed: 8,
-          behaviorPolicy: {
-            onnxSha256: "a".repeat(64),
-            metadataSha256: "b".repeat(64)
-          },
-          rolloutRoster: { seats: [] }
-        }
-      });
+      }));
       await writeFile(currentOnnx, "current-onnx");
       await writeFile(currentMetadata, "current-metadata");
       await writeFile(frozenOnnx, "frozen-onnx");
@@ -108,6 +131,7 @@ describe("runPlayingSelfPlayCli", () => {
           onnxPath: currentOnnx,
           metadataPath: currentMetadata,
           inferenceDevice: "cpu",
+          inferenceMaxBatchSize: 256,
           onnxSha256: "f1b90777ed3270f25bcb35d754aceefd946660ca3d50362e02135704c60cd051",
           metadataSha256: "ff8e755f6a6c8c7a4b36a040afca64b79c479684f18b10477eff43c2db2600fb"
         },
@@ -129,20 +153,27 @@ describe("runPlayingSelfPlayCli", () => {
       });
       expect(generatePlayingSelfPlayDataset).toHaveBeenCalledWith(expect.objectContaining({
         rolloutWorkers: 2,
+        rolloutConcurrency: 2,
+        inferenceMaxBatchSize: 256,
         gameRunner: workerRunner
       }));
       expect(JSON.parse(io.stdout.write.mock.calls[0][0])).toMatchObject({
-        rolloutWorkers: 2
+        rolloutWorkers: 2,
+        rolloutConcurrency: 2,
+        inferenceMaxBatchSize: 256,
+        inferenceSessionRunCount: 2
       });
       expect(loadPolicyOnnxModel).toHaveBeenNthCalledWith(1, {
         onnxPath: currentOnnx,
         metadataPath: currentMetadata,
-        inferenceDevice: "cpu"
+        inferenceDevice: "cpu",
+        inferenceMaxBatchSize: 256
       });
       expect(loadPolicyOnnxModel).toHaveBeenNthCalledWith(2, {
         onnxPath: frozenOnnx,
         metadataPath: frozenMetadata,
-        inferenceDevice: "cpu"
+        inferenceDevice: "cpu",
+        inferenceMaxBatchSize: 256
       });
     } finally {
       await rm(directory, { recursive: true, force: true });
@@ -153,21 +184,7 @@ describe("runPlayingSelfPlayCli", () => {
     const io = createIo();
     const currentPolicy = { metadata: { policy: "current" } };
     loadPolicyOnnxModel.mockResolvedValueOnce(currentPolicy);
-    generatePlayingSelfPlayDataset.mockResolvedValueOnce({
-      outputDirectory: "/out",
-      manifest: {
-        gameCount: 1,
-        sampleCount: 10,
-        shardCount: 1,
-        startSeed: 1,
-        endSeed: 1,
-        behaviorPolicy: {
-          onnxSha256: "a".repeat(64),
-          metadataSha256: "b".repeat(64)
-        },
-        rolloutRoster: { seats: [] }
-      }
-    });
+    generatePlayingSelfPlayDataset.mockResolvedValueOnce(createDatasetResult());
 
     const code = await runPlayingSelfPlayCli([
       "--onnx",
@@ -188,6 +205,8 @@ describe("runPlayingSelfPlayCli", () => {
     expect(childRunnerConstructor).not.toHaveBeenCalled();
     expect(generatePlayingSelfPlayDataset).toHaveBeenCalledWith(expect.objectContaining({
       rolloutWorkers: 1,
+      rolloutConcurrency: 1,
+      inferenceMaxBatchSize: 256,
       gameRunner: undefined
     }));
   });
@@ -216,29 +235,18 @@ describe("runPlayingSelfPlayCli", () => {
           executionProvider: "cuda"
         }
       };
-      const workerRunner = { runGame: vi.fn(), close: vi.fn() };
-      childRunnerConstructor.mockReturnValueOnce(workerRunner);
       loadPolicyOnnxModel
         .mockResolvedValueOnce(currentPolicy)
         .mockResolvedValueOnce(frozenPolicy);
-      generatePlayingSelfPlayDataset.mockResolvedValueOnce({
-        outputDirectory: "/out",
-        manifest: {
-          gameCount: 1,
-          sampleCount: 10,
-          shardCount: 1,
-          startSeed: 1,
-          endSeed: 1,
+      generatePlayingSelfPlayDataset.mockResolvedValueOnce(createDatasetResult({
           behaviorPolicy: {
             requestedInferenceDevice: "cuda",
             resolvedInferenceDevice: "cuda",
             executionProvider: "cuda",
             onnxSha256: "a".repeat(64),
             metadataSha256: "b".repeat(64)
-          },
-          rolloutRoster: { seats: [] }
-        }
-      });
+          }
+      }));
       await writeFile(currentOnnx, "current-onnx");
       await writeFile(currentMetadata, "current-metadata");
       await writeFile(frozenOnnx, "frozen-onnx");
@@ -279,15 +287,20 @@ describe("runPlayingSelfPlayCli", () => {
       expect(loadPolicyOnnxModel).toHaveBeenNthCalledWith(1, {
         onnxPath: currentOnnx,
         metadataPath: currentMetadata,
-        inferenceDevice: "cuda"
+        inferenceDevice: "cuda",
+        inferenceMaxBatchSize: 256
       });
       expect(loadPolicyOnnxModel).toHaveBeenNthCalledWith(2, {
         onnxPath: frozenOnnx,
         metadataPath: frozenMetadata,
-        inferenceDevice: "cuda"
+        inferenceDevice: "cuda",
+        inferenceMaxBatchSize: 256
       });
-      expect(childRunnerConstructor).toHaveBeenCalledWith(expect.objectContaining({
-        currentPolicy: expect.objectContaining({ inferenceDevice: "cuda" })
+      expect(childRunnerConstructor).not.toHaveBeenCalled();
+      expect(generatePlayingSelfPlayDataset).toHaveBeenCalledWith(expect.objectContaining({
+        rolloutWorkers: 2,
+        rolloutConcurrency: 2,
+        gameRunner: undefined
       }));
       expect(JSON.parse(io.stdout.write.mock.calls[0][0])).toMatchObject({
         requestedInferenceDevice: "cuda",

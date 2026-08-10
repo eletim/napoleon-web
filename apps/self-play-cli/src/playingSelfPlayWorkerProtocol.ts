@@ -18,6 +18,7 @@ export interface PlayingSelfPlayWorkerInitMessage {
     onnxPath: string;
     metadataPath: string;
     inferenceDevice: WorkerInferenceDevice;
+    inferenceMaxBatchSize?: number;
   };
   rolloutRoster: readonly WorkerRolloutRosterSeat[] | undefined;
   temperature: number;

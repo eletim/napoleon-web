@@ -62,6 +62,8 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
     stored_config = _load_json(run_directory / "config.json")
     assert stored_config["device"] == "cpu"
     assert stored_config["inferenceDevice"] == "cpu"
+    assert stored_config["rolloutConcurrency"] == 2
+    assert stored_config["inferenceMaxBatchSize"] == 256
     assert stored_config["fullDiagnosticsInterval"] == 1
     iter0 = _load_json(run_directory / "iterations" / "iter-000" / "iteration.json")
     iter1 = _load_json(run_directory / "iterations" / "iter-001" / "iteration.json")
@@ -71,6 +73,17 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
     assert iter0["behaviorOnnxSha256"] != iter1["behaviorOnnxSha256"]
     assert iter0["rolloutWorkers"] == 2
     assert iter1["rolloutWorkers"] == 2
+    assert iter0["rolloutConcurrency"] == 2
+    assert iter0["inferenceMaxBatchSize"] == 256
+    assert _required_int(iter0["inferenceRequestCount"]) > 0
+    assert _required_int(iter0["inferenceSessionRunCount"]) > 0
+    assert _required_float(iter0["inferenceMeanBatchSize"]) >= 1.0
+    assert _required_int(iter0["inferenceMaxObservedBatchSize"]) >= 1
+    rollout_timing = _load_json(
+        run_directory / "iterations" / "iter-000" / "selfplay-rollout-timing.json"
+    )
+    assert rollout_timing["inferenceSessionRunCount"] == iter0["inferenceSessionRunCount"]
+    assert rollout_timing["inferenceBatchSizeHistogram"] == iter0["inferenceBatchSizeHistogram"]
     assert iter0["requestedInferenceDevice"] == "cpu"
     assert iter0["resolvedInferenceDevice"] == "cpu"
     assert iter0["executionProvider"] == "cpu"
@@ -145,6 +158,8 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
     legacy_config = _load_json(run_directory / "config.json")
     legacy_config.pop("device")
     legacy_config.pop("inferenceDevice")
+    legacy_config.pop("rolloutConcurrency")
+    legacy_config.pop("inferenceMaxBatchSize")
     legacy_config.pop("fullDiagnosticsInterval")
     (run_directory / "config.json").write_text(
         json.dumps(legacy_config, indent=2, sort_keys=True) + "\n",
@@ -178,7 +193,11 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
             provided_config_keys=set(),
         )
 
-    worker_mismatch = replace(config, rollout_workers=config.rollout_workers + 1)
+    worker_mismatch = replace(
+        config,
+        rollout_workers=config.rollout_workers + 1,
+        rollout_concurrency=config.rollout_workers,
+    )
     with pytest.raises(
         PlayingRlOrchestratorError,
         match="resume config mismatch for rolloutWorkers",
@@ -198,6 +217,28 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
             inference_mismatch,
             resume=True,
             provided_config_keys={"inferenceDevice"},
+        )
+
+    concurrency_mismatch = replace(config, rollout_concurrency=config.rollout_workers + 1)
+    with pytest.raises(
+        PlayingRlOrchestratorError,
+        match="resume config mismatch for rolloutConcurrency",
+    ):
+        run_playing_rl_experiment(
+            concurrency_mismatch,
+            resume=True,
+            provided_config_keys={"rolloutConcurrency"},
+        )
+
+    max_batch_mismatch = replace(config, inference_max_batch_size=128)
+    with pytest.raises(
+        PlayingRlOrchestratorError,
+        match="resume config mismatch for inferenceMaxBatchSize",
+    ):
+        run_playing_rl_experiment(
+            max_batch_mismatch,
+            resume=True,
+            provided_config_keys={"inferenceMaxBatchSize"},
         )
 
     device_mismatch = replace(config, device="auto")
@@ -372,7 +413,7 @@ def test_playing_rl_full_diagnostics_interval_uses_output_generation(
         _validate_config(invalid)
 
 
-def test_run_playing_rl_cli_parses_full_diagnostics_interval(tmp_path: Path) -> None:
+def test_run_playing_rl_cli_parses_rollout_and_diagnostic_options(tmp_path: Path) -> None:
     parser = build_parser()
     args = parser.parse_args(
         [
@@ -386,12 +427,18 @@ def test_run_playing_rl_cli_parses_full_diagnostics_interval(tmp_path: Path) -> 
             "7",
             "--inference-device",
             "auto",
+            "--rollout-concurrency",
+            "64",
+            "--inference-max-batch-size",
+            "128",
         ]
     )
     config = _config_from_args(args, parser)
 
     assert config.full_diagnostics_interval == 7
     assert config.inference_device == "auto"
+    assert config.rollout_concurrency == 64
+    assert config.inference_max_batch_size == 128
 
 
 def _small_config(

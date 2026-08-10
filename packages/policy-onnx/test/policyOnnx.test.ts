@@ -393,6 +393,162 @@ describe("policy ONNX Runtime smoke", () => {
     expect(legalPlayMask[selection.selectedCardIndex]).toBe(1);
   });
 
+  it("runs explicit playing batch inference with stable request ordering", async () => {
+    const directory = await temporaryDirectory();
+    const onnxPath = join(directory, "policy.onnx");
+    const metadataPath = join(directory, "policy.json");
+    await writeFile(onnxPath, createConstantPolicyOnnx(new Float32Array(CARD_COUNT)));
+    await writeFile(metadataPath, JSON.stringify(createMetadata()) + "\n", "utf8");
+    const runBatchSizes: number[] = [];
+
+    const model = await loadPolicyOnnxModel({
+      onnxPath,
+      metadataPath,
+      sessionFactory: async () => createEchoSession(runBatchSizes)
+    });
+    const inputs = [3, 7, 11].map((value) => createInputWithFirstFeature(value));
+    const outputs = await model.predictLogitsBatch(inputs);
+
+    expect(runBatchSizes).toEqual([3]);
+    expect(outputs.map((logits) => logits[0])).toEqual([3, 7, 11]);
+    expect(model.getInferenceStats()).toMatchObject({
+      requestCount: 3,
+      sessionRunCount: 1,
+      meanBatchSize: 3,
+      maxObservedBatchSize: 3,
+      batchSizeHistogram: { "3": 1 }
+    });
+  });
+
+  it("dynamically batches same-tick predictLogits calls up to the configured max size", async () => {
+    const directory = await temporaryDirectory();
+    const onnxPath = join(directory, "policy.onnx");
+    const metadataPath = join(directory, "policy.json");
+    await writeFile(onnxPath, createConstantPolicyOnnx(new Float32Array(CARD_COUNT)));
+    await writeFile(metadataPath, JSON.stringify(createMetadata()) + "\n", "utf8");
+    const runBatchSizes: number[] = [];
+
+    const model = await loadPolicyOnnxModel({
+      onnxPath,
+      metadataPath,
+      inferenceMaxBatchSize: 4,
+      sessionFactory: async () => createEchoSession(runBatchSizes)
+    });
+
+    const outputs = await Promise.all([
+      model.predictLogits(createInputWithFirstFeature(1)),
+      model.predictLogits(createInputWithFirstFeature(2)),
+      model.predictLogits(createInputWithFirstFeature(3))
+    ]);
+
+    expect(runBatchSizes).toEqual([3]);
+    expect(outputs.map((logits) => logits[0])).toEqual([1, 2, 3]);
+    expect(model.getInferenceStats()).toMatchObject({
+      requestCount: 3,
+      sessionRunCount: 1,
+      meanBatchSize: 3,
+      maxObservedBatchSize: 3,
+      batchSizeHistogram: { "3": 1 }
+    });
+
+    model.resetInferenceStats();
+    expect(model.getInferenceStats()).toMatchObject({
+      requestCount: 0,
+      sessionRunCount: 0,
+      meanBatchSize: 0,
+      maxObservedBatchSize: 0,
+      batchSizeHistogram: {}
+    });
+  });
+
+  it("rejects every queued predictLogits promise when a dynamic batch fails", async () => {
+    const directory = await temporaryDirectory();
+    const onnxPath = join(directory, "policy.onnx");
+    const metadataPath = join(directory, "policy.json");
+    await writeFile(onnxPath, createConstantPolicyOnnx(new Float32Array(CARD_COUNT)));
+    await writeFile(metadataPath, JSON.stringify(createMetadata()) + "\n", "utf8");
+
+    const model = await loadPolicyOnnxModel({
+      onnxPath,
+      metadataPath,
+      inferenceMaxBatchSize: 8,
+      sessionFactory: async () => ({
+        inputNames: [ONNX_INPUT_NAME],
+        outputNames: [ONNX_OUTPUT_NAME],
+        run: async () => {
+          throw new Error("session failed");
+        }
+      })
+    });
+
+    const results = await Promise.allSettled([
+      model.predictLogits(createInputWithFirstFeature(1)),
+      model.predictLogits(createInputWithFirstFeature(2)),
+      model.predictLogits(createInputWithFirstFeature(3))
+    ]);
+
+    expect(results.every((result) => result.status === "rejected")).toBe(true);
+    expect(model.getInferenceStats()).toMatchObject({
+      requestCount: 0,
+      sessionRunCount: 0
+    });
+  });
+
+  it.each([1, 2, 32, 256])("accepts playing batch size %i", async (batchSize) => {
+    const directory = await temporaryDirectory();
+    const onnxPath = join(directory, "policy.onnx");
+    const metadataPath = join(directory, "policy.json");
+    await writeFile(onnxPath, createConstantPolicyOnnx(new Float32Array(CARD_COUNT)));
+    await writeFile(metadataPath, JSON.stringify(createMetadata()) + "\n", "utf8");
+    const runBatchSizes: number[] = [];
+
+    const model = await loadPolicyOnnxModel({
+      onnxPath,
+      metadataPath,
+      sessionFactory: async () => createEchoSession(runBatchSizes)
+    });
+    const inputs = Array.from({ length: batchSize }, (_, index) =>
+      createInputWithFirstFeature(index)
+    );
+    const outputs = await model.predictLogitsBatch(inputs);
+
+    expect(runBatchSizes).toEqual([batchSize]);
+    expect(outputs).toHaveLength(batchSize);
+    expect(outputs.at(-1)?.[0]).toBe(batchSize - 1);
+  });
+
+  it("rejects invalid playing batch inputs and output shapes", async () => {
+    const directory = await temporaryDirectory();
+    const onnxPath = join(directory, "policy.onnx");
+    const metadataPath = join(directory, "policy.json");
+    await writeFile(onnxPath, createConstantPolicyOnnx(new Float32Array(CARD_COUNT)));
+    await writeFile(metadataPath, JSON.stringify(createMetadata()) + "\n", "utf8");
+    const model = await loadPolicyOnnxModel({
+      onnxPath,
+      metadataPath,
+      sessionFactory: async () => ({
+        inputNames: [ONNX_INPUT_NAME],
+        outputNames: [ONNX_OUTPUT_NAME],
+        run: async () => ({
+          [ONNX_OUTPUT_NAME]: {
+            type: "float32",
+            dims: [1, CARD_COUNT - 1],
+            data: new Float32Array(CARD_COUNT - 1)
+          }
+        })
+      })
+    });
+
+    await expect(model.predictLogitsBatch([])).rejects.toThrow(/at least one input/);
+    await expect(model.predictLogitsBatch([
+      new Float32Array(MODEL_INPUT_FEATURE_COUNT - 1)
+    ])).rejects.toThrow(/6246/);
+    await expect(model.predictLogitsBatch([
+      createInputWithFirstFeature(Number.POSITIVE_INFINITY)
+    ])).rejects.toThrow(/modelInput\[0\] must be finite/);
+    await expect(model.predictLogits(createInputWithFirstFeature(1))).rejects.toThrow(/output shape/);
+  });
+
   it("rejects ONNX graph output drift before running inference", async () => {
     const directory = await temporaryDirectory();
     const onnxPath = join(directory, "policy.onnx");
@@ -699,6 +855,37 @@ function expectMaxAbsDiff(actual: Float32Array, expected: Float32Array, toleranc
   }
 
   expect(maxAbsDiff).toBeLessThanOrEqual(tolerance);
+}
+
+function createInputWithFirstFeature(value: number): Float32Array {
+  const input = new Float32Array(MODEL_INPUT_FEATURE_COUNT);
+  input[0] = value;
+  return input;
+}
+
+function createEchoSession(runBatchSizes: number[]) {
+  return {
+    inputNames: [ONNX_INPUT_NAME],
+    outputNames: [ONNX_OUTPUT_NAME],
+    run: async (feeds: Record<string, { dims: readonly number[]; data: Float32Array }>) => {
+      const input = feeds[ONNX_INPUT_NAME];
+      const batchSize = input.dims[0];
+      runBatchSizes.push(batchSize);
+      const data = new Float32Array(batchSize * CARD_COUNT);
+
+      for (let batchIndex = 0; batchIndex < batchSize; batchIndex += 1) {
+        data[batchIndex * CARD_COUNT] = input.data[batchIndex * MODEL_INPUT_FEATURE_COUNT];
+      }
+
+      return {
+        [ONNX_OUTPUT_NAME]: {
+          type: "float32",
+          dims: [batchSize, CARD_COUNT],
+          data
+        }
+      };
+    }
+  };
 }
 
 async function temporaryDirectory(): Promise<string> {

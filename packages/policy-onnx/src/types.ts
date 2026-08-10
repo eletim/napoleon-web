@@ -9,6 +9,14 @@ export interface PolicyOnnxRuntimeInfo {
   executionProvider: PolicyOnnxExecutionProvider;
 }
 
+export interface PolicyOnnxInferenceStats {
+  requestCount: number;
+  sessionRunCount: number;
+  meanBatchSize: number;
+  maxObservedBatchSize: number;
+  batchSizeHistogram: Readonly<Record<string, number>>;
+}
+
 export interface PolicyOnnxIoMetadata {
   name: string;
   shape: readonly PolicyOnnxDimension[];
@@ -63,6 +71,7 @@ export interface PolicyOnnxLoadOptions {
   onnxPath: string;
   metadataPath: string;
   inferenceDevice?: PolicyOnnxInferenceDevice;
+  inferenceMaxBatchSize?: number;
   sessionFactory?: PolicyOnnxSessionFactory;
 }
 
