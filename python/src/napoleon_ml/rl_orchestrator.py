@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import TextIO, cast
 
 from napoleon_ml.cli._policy_common import configure_reproducibility, load_checked_manifest
-from napoleon_ml.dataset.constants import UINT32_MAX
+from napoleon_ml.dataset.constants import PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT, UINT32_MAX
 from napoleon_ml.dataset.manifest import DatasetManifest
 from napoleon_ml.dataset.pytorch import create_playing_self_play_dataloader
 from napoleon_ml.dataset.reader import iter_raw_samples, load_manifest
@@ -1212,6 +1212,19 @@ def _read_stdout_lines(
 
 
 def _consume_samples_for_integrity(directory: Path) -> None:
+    manifest = load_manifest(directory)
+    if manifest.format == PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT:
+        loader = create_playing_self_play_dataloader(
+            directory,
+            split=DatasetSplit.TRAIN,
+            split_config=SplitConfig(train=100, validation=0, test=0),
+            batch_size=4096,
+            verify_integrity=True,
+        )
+        for _ in loader:
+            pass
+        return
+
     for _ in iter_raw_samples(directory, verify_integrity=True):
         pass
 

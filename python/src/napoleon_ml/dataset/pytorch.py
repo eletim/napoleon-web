@@ -10,6 +10,7 @@ import torch
 from torch import Tensor
 from torch.utils.data import DataLoader, IterableDataset, get_worker_info
 
+from .binary import iter_binary_playing_self_play_batches
 from .constants import (
     ADJUTANT_DATASET_SAMPLE_TYPE,
     BIDDING_ACTION_COUNT,
@@ -17,6 +18,7 @@ from .constants import (
     CARD_COUNT,
     EXCHANGE_DATASET_SAMPLE_TYPE,
     PLAYING_DATASET_SAMPLE_TYPE,
+    PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT,
     PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE,
 )
 from .errors import DatasetError
@@ -274,6 +276,54 @@ class PlayingSelfPlayIterableDataset(_TensorizedIterableDataset[PlayingSelfPlayT
         return _torch_playing_self_play_sample(sample)
 
 
+class BinaryPlayingSelfPlayBatchIterableDataset(IterableDataset[PlayingSelfPlayTorchSample]):
+    """Yield pre-batched tensors from binary playing self-play shards."""
+
+    def __init__(
+        self,
+        dataset_directory: Path | str,
+        *,
+        split: DatasetSplit | str,
+        split_config: SplitConfig | None = None,
+        batch_size: int,
+        verify_integrity: bool = True,
+        drop_last: bool = False,
+    ) -> None:
+        super().__init__()
+        self.dataset_directory = Path(dataset_directory)
+        self.split = _coerce_split(split)
+        self.split_config = _coerce_split_config(split_config)
+        self.batch_size = batch_size
+        self.verify_integrity = _coerce_bool(verify_integrity, name="verify_integrity")
+        self.drop_last = _coerce_bool(drop_last, name="drop_last")
+
+    def __iter__(self) -> Iterator[PlayingSelfPlayTorchSample]:
+        if get_worker_info() is not None:
+            raise DatasetError(
+                f"{type(self).__name__} only supports DataLoader num_workers=0."
+            )
+        manifest = load_manifest(self.dataset_directory)
+        _require_manifest_sample_type(
+            manifest,
+            PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE,
+            dataset_name=type(self).__name__,
+        )
+        if manifest.format != PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT:
+            raise DatasetError(
+                f"{type(self).__name__} requires binary self-play format, "
+                f"got {manifest.format!r}."
+            )
+        yield from iter_binary_playing_self_play_batches(
+            self.dataset_directory,
+            manifest,
+            split=self.split,
+            split_config=self.split_config,
+            batch_size=self.batch_size,
+            verify_integrity=self.verify_integrity,
+            drop_last=self.drop_last,
+        )
+
+
 def create_playing_dataloader(
     dataset_directory: Path | str,
     *,
@@ -331,14 +381,26 @@ def create_playing_self_play_dataloader(
         num_workers=num_workers,
         function_name="create_playing_self_play_dataloader",
     )
-    dataset = PlayingSelfPlayIterableDataset(
+    manifest = load_manifest(dataset_directory)
+    if manifest.format == PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT:
+        dataset = BinaryPlayingSelfPlayBatchIterableDataset(
+            dataset_directory,
+            split=split,
+            split_config=split_config,
+            batch_size=batch_size,
+            verify_integrity=verify_integrity,
+            drop_last=drop_last,
+        )
+        return DataLoader(dataset, batch_size=None, shuffle=False, num_workers=0)
+
+    legacy_dataset = PlayingSelfPlayIterableDataset(
         dataset_directory,
         split=split,
         split_config=split_config,
         verify_integrity=verify_integrity,
     )
     return DataLoader(
-        dataset, batch_size=batch_size, shuffle=False, num_workers=0, drop_last=drop_last
+        legacy_dataset, batch_size=batch_size, shuffle=False, num_workers=0, drop_last=drop_last
     )
 
 

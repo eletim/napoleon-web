@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import dataclasses
+import gzip
 import hashlib
 import json
+import struct
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any, cast
@@ -203,6 +205,179 @@ def _write_self_play_dataset(directory: Path, samples: list[dict[str, Any]]) -> 
         },
     }
     (directory / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def _write_binary_self_play_dataset(directory: Path, samples: list[dict[str, Any]]) -> None:
+    shard_bytes = _binary_self_play_shard_bytes(samples)
+    (directory / "shard-00000.bin").write_bytes(shard_bytes)
+    seeds = [sample["seed"] for sample in samples]
+    unique_seed_runs = 0
+    previous_seed: int | None = None
+
+    for seed in seeds:
+        if seed != previous_seed:
+            unique_seed_runs += 1
+            previous_seed = seed
+
+    manifest = {
+        "datasetSchemaVersion": 4,
+        "generatorVersion": 1,
+        "format": "playing-self-play-binary-v1",
+        "sampleType": "playing-self-play-sample",
+        "sampleSchemaVersion": 4,
+        "startSeed": seeds[0],
+        "endSeed": seeds[-1],
+        "gameCount": unique_seed_runs,
+        "sampleCount": len(samples),
+        "gamesPerShard": unique_seed_runs,
+        "shardCount": 1,
+        "playerCount": 5,
+        "cardCount": CARD_COUNT,
+        "cardIds": list(EXPECTED_CARD_IDS),
+        "cardIdsSha256": calculate_card_ids_sha256(),
+        "shards": [
+            {
+                "file": "shard-00000.bin",
+                "startSeed": seeds[0],
+                "endSeed": seeds[-1],
+                "gameCount": unique_seed_runs,
+                "sampleCount": len(samples),
+                "byteLength": len(shard_bytes),
+                "sha256": hashlib.sha256(shard_bytes).hexdigest(),
+            }
+        ],
+        "playingEncoderSchemaVersion": 2,
+        "playingModelInputSchemaVersion": 2,
+        "behaviorPolicy": {
+            "type": "playing-onnx",
+            "artifactId": "unit-policy",
+            "onnxFileName": "policy.onnx",
+            "metadataFileName": "policy.json",
+            "onnxSha256": "c" * 64,
+            "metadataSha256": "d" * 64,
+            "metadata": {"metadataSchemaVersion": 1},
+        },
+        "samplingAlgorithm": "masked-categorical",
+        "temperature": 1.0,
+        "reward": {"type": "terminal-team-win", "version": 1},
+        "nonPlayingAgent": {"type": "rule-based", "version": 1},
+        "rolloutRoster": {
+            "assignment": "rotate-by-seed",
+            "seats": [{"source": "current-policy"} for _ in range(5)],
+        },
+        "tensorSchema": {
+            "shardSchemaVersion": 1,
+            "byteOrder": "little-endian",
+            "compression": "gzip",
+            "fields": [
+                {"name": "modelInput", "dtype": "float32", "shape": [MODEL_INPUT_FEATURE_COUNT]},
+                {"name": "legalPlayMask", "dtype": "uint8", "shape": [CARD_COUNT]},
+                {"name": "selectedCardIndex", "dtype": "uint8", "shape": []},
+                {"name": "behaviorLogProbability", "dtype": "float32", "shape": []},
+                {"name": "terminalReward", "dtype": "int8", "shape": []},
+                {"name": "seed", "dtype": "uint32", "shape": []},
+                {"name": "step", "dtype": "uint16", "shape": []},
+                {"name": "actingPlayerIndex", "dtype": "uint8", "shape": []},
+                {"name": "selfRoleIndex", "dtype": "uint8", "shape": []},
+            ],
+        },
+    }
+    (directory / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def _binary_self_play_shard_bytes(samples: list[dict[str, Any]]) -> bytes:
+    tensorized = [
+        tensorize_sample(
+            parse_sample(
+                sample,
+                context="binary-fixture",
+                sample_type="playing-self-play-sample",
+            )
+        )
+        for sample in samples
+    ]
+    sample_count = len(tensorized)
+    arrays: list[tuple[str, str, list[int], np.ndarray]] = [
+        (
+            "modelInput",
+            "float32",
+            [MODEL_INPUT_FEATURE_COUNT],
+            np.stack([sample.model_input for sample in tensorized]).astype("<f4", copy=False),
+        ),
+        (
+            "legalPlayMask",
+            "uint8",
+            [CARD_COUNT],
+            np.stack([sample.legal_play_mask for sample in tensorized]).astype("u1", copy=False),
+        ),
+        (
+            "selectedCardIndex",
+            "uint8",
+            [],
+            np.asarray([sample.selected_card_index for sample in tensorized], dtype="u1"),
+        ),
+        (
+            "behaviorLogProbability",
+            "float32",
+            [],
+            np.asarray([sample.behavior_log_probability for sample in tensorized], dtype="<f4"),
+        ),
+        (
+            "terminalReward",
+            "int8",
+            [],
+            np.asarray([sample.terminal_reward for sample in tensorized], dtype="i1"),
+        ),
+        ("seed", "uint32", [], np.asarray([sample.seed for sample in tensorized], dtype="<u4")),
+        ("step", "uint16", [], np.asarray([sample.step for sample in tensorized], dtype="<u2")),
+        (
+            "actingPlayerIndex",
+            "uint8",
+            [],
+            np.asarray([sample.acting_player_index for sample in tensorized], dtype="u1"),
+        ),
+        (
+            "selfRoleIndex",
+            "uint8",
+            [],
+            np.asarray(
+                [sample["observation"]["selfRoleOneHot"].index(1) for sample in samples],
+                dtype="u1",
+            ),
+        ),
+    ]
+    fields: list[dict[str, Any]] = []
+    chunks: list[bytes] = []
+    offset = 0
+    for name, dtype, shape, array in arrays:
+        data = np.ascontiguousarray(array).tobytes()
+        fields.append(
+            {
+                "name": name,
+                "dtype": dtype,
+                "shape": shape,
+                "byteOffset": offset,
+                "byteLength": len(data),
+            }
+        )
+        offset += len(data)
+        chunks.append(data)
+    header = json.dumps(
+        {
+            "shardSchemaVersion": 1,
+            "sampleType": "playing-self-play-sample",
+            "sampleSchemaVersion": 4,
+            "sampleCount": sample_count,
+            "modelInputFeatureCount": MODEL_INPUT_FEATURE_COUNT,
+            "cardCount": CARD_COUNT,
+            "byteOrder": "little-endian",
+            "compression": "gzip",
+            "uncompressedByteLength": offset,
+            "fields": fields,
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return b"NPSPBD01" + struct.pack("<I", len(header)) + header + gzip.compress(b"".join(chunks))
 
 
 def _empty_bidding_history() -> dict[str, list[int]]:
@@ -481,6 +656,52 @@ def test_playing_self_play_dataloader_batches_rl_fields(tmp_path: Path) -> None:
     assert batch["seed"].tolist() == [1]
     assert batch["step"].tolist() == [1]
     assert batch["acting_player_index"].tolist() == [0]
+
+
+def test_binary_playing_self_play_dataloader_matches_legacy_json(tmp_path: Path) -> None:
+    samples = [
+        _self_play_sample(seed=0, step=1),
+        _self_play_sample(seed=0, step=2),
+        _self_play_sample(seed=1, step=1),
+        _self_play_sample(seed=1, step=2),
+    ]
+    json_dir = tmp_path / "json"
+    binary_dir = tmp_path / "binary"
+    json_dir.mkdir()
+    binary_dir.mkdir()
+    _write_self_play_dataset(json_dir, samples)
+    _write_binary_self_play_dataset(binary_dir, samples)
+
+    split_config = SplitConfig(train=1, validation=1, test=98)
+    json_batches = list(
+        create_playing_self_play_dataloader(
+            json_dir,
+            split=DatasetSplit.VALIDATION,
+            split_config=split_config,
+            batch_size=2,
+        )
+    )
+    binary_batches = list(
+        create_playing_self_play_dataloader(
+            binary_dir,
+            split=DatasetSplit.VALIDATION,
+            split_config=split_config,
+            batch_size=2,
+        )
+    )
+
+    assert len(json_batches) == len(binary_batches) == 1
+    for key in (
+        "model_input",
+        "legal_play_mask",
+        "selected_card_index",
+        "behavior_log_probability",
+        "terminal_reward",
+        "seed",
+        "step",
+        "acting_player_index",
+    ):
+        assert torch.equal(json_batches[0][key], binary_batches[0][key])
 
 
 def test_self_play_is_not_loaded_as_supervised_training_dataloader(tmp_path: Path) -> None:

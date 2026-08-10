@@ -16,13 +16,13 @@ import {
   loadPolicyOnnxModel
 } from "../../policy-onnx/src/index.js";
 import {
+  DATASET_FORMAT,
   PLAYING_SELF_PLAY_DATASET_GENERATOR_VERSION,
+  PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT,
   PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE,
-  PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION,
   PLAYING_SELF_PLAY_ROSTER_ASSIGNMENT,
   PLAYING_SELF_PLAY_REWARD_TYPE,
   PLAYING_SELF_PLAY_REWARD_VERSION,
-  PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION,
   PLAYING_SELF_PLAY_SAMPLING_ALGORITHM,
   assignRolloutRosterForSeed,
   calculatePlayingSelfPlayLogProbability,
@@ -55,6 +55,7 @@ describe("generatePlayingSelfPlayDataset", () => {
         startSeed: 11,
         gameCount: 2,
         gamesPerShard: 1,
+        format: DATASET_FORMAT,
         temperature: 1.25,
         onProgress: (progress: {
           completedGames: number;
@@ -83,10 +84,10 @@ describe("generatePlayingSelfPlayDataset", () => {
 
       expect(result.manifest).toEqual(manifest);
       validatePlayingSelfPlayDatasetManifest(manifest);
-      expect(manifest.datasetSchemaVersion).toBe(PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION);
+      expect(manifest.datasetSchemaVersion).toBe(3);
       expect(manifest.generatorVersion).toBe(PLAYING_SELF_PLAY_DATASET_GENERATOR_VERSION);
       expect(manifest.sampleType).toBe(PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE);
-      expect(manifest.sampleSchemaVersion).toBe(PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION);
+      expect(manifest.sampleSchemaVersion).toBe(3);
       expect(manifest.samplingAlgorithm).toBe(PLAYING_SELF_PLAY_SAMPLING_ALGORITHM);
       expect(manifest.temperature).toBe(1.25);
       expect(manifest.reward).toEqual({
@@ -172,6 +173,58 @@ describe("generatePlayingSelfPlayDataset", () => {
     });
   });
 
+  it("writes binary tensor-ready shards by default", async () => {
+    await withTempDir(async (directory) => {
+      const artifact = await createPlayingPolicyFixture(directory);
+      const policy = await loadPolicyOnnxModel(artifact);
+      const output = join(directory, "binary");
+
+      await generatePlayingSelfPlayDataset({
+        outputDirectory: output,
+        playingPolicy: policy,
+        playingPolicyArtifact: artifact,
+        startSeed: 50,
+        gameCount: 2,
+        gamesPerShard: 1
+      });
+
+      const manifest = await readManifest(output);
+      validatePlayingSelfPlayDatasetManifest(manifest);
+      expect(manifest.datasetSchemaVersion).toBe(4);
+      expect(manifest.format).toBe(PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT);
+      expect(manifest.sampleSchemaVersion).toBe(4);
+      expect(manifest.tensorSchema).toMatchObject({
+        shardSchemaVersion: 1,
+        byteOrder: "little-endian",
+        compression: "gzip"
+      });
+      expect(manifest.tensorSchema?.fields.map((field) => field.name)).toEqual([
+        "modelInput",
+        "legalPlayMask",
+        "selectedCardIndex",
+        "behaviorLogProbability",
+        "terminalReward",
+        "seed",
+        "step",
+        "actingPlayerIndex",
+        "selfRoleIndex"
+      ]);
+      expect(manifest.shards.every((shard) => shard.file.endsWith(".bin"))).toBe(true);
+
+      const rawFloat32Bytes = manifest.sampleCount * MODEL_INPUT_FEATURE_COUNT * 4;
+      const shardBytes = sum(manifest.shards.map((shard) => shard.byteLength));
+      expect(shardBytes).toBeLessThan(rawFloat32Bytes);
+
+      for (const shard of manifest.shards) {
+        const shardPath = join(output, shard.file);
+        const bytes = await readFile(shardPath);
+        const fileStat = await stat(shardPath);
+        expect(fileStat.size).toBe(shard.byteLength);
+        expect(createHash("sha256").update(bytes).digest("hex")).toBe(shard.sha256);
+      }
+    });
+  });
+
   it("samples only current-policy decisions with rule-based opponents and rotated seats", async () => {
     await withTempDir(async (directory) => {
       const artifact = await createPlayingPolicyFixture(directory);
@@ -194,7 +247,8 @@ describe("generatePlayingSelfPlayDataset", () => {
         rolloutRoster: roster,
         startSeed: 0,
         gameCount: 5,
-        gamesPerShard: 5
+        gamesPerShard: 5,
+        format: DATASET_FORMAT
       });
 
       const manifest = await readManifest(output);
@@ -257,7 +311,8 @@ describe("generatePlayingSelfPlayDataset", () => {
         },
         startSeed: 3,
         gameCount: 1,
-        gamesPerShard: 1
+        gamesPerShard: 1,
+        format: DATASET_FORMAT
       });
 
       const manifest = await readManifest(output);
@@ -342,6 +397,7 @@ describe("generatePlayingSelfPlayDataset", () => {
         startSeed: 21,
         gameCount: 4,
         gamesPerShard: 2,
+        format: DATASET_FORMAT,
         temperature: 0.9
       });
       await generatePlayingSelfPlayDataset({
@@ -354,6 +410,7 @@ describe("generatePlayingSelfPlayDataset", () => {
         gamesPerShard: 2,
         rolloutWorkers: 3,
         temperature: 0.9,
+        format: DATASET_FORMAT,
         gameRunner: runner
       });
 
@@ -400,6 +457,7 @@ describe("generatePlayingSelfPlayDataset", () => {
         gameCount: 3,
         gamesPerShard: 1,
         rolloutWorkers: 2,
+        format: DATASET_FORMAT,
         gameRunner: runner
       })).rejects.toThrow("worker failed");
 
@@ -437,6 +495,7 @@ describe("generatePlayingSelfPlayDataset", () => {
         gameCount: 2,
         gamesPerShard: 2,
         rolloutWorkers: 2,
+        format: DATASET_FORMAT,
         gameRunner: runner
       });
 
@@ -498,7 +557,8 @@ describe("generatePlayingSelfPlayDataset", () => {
         playingPolicyArtifact: artifact,
         startSeed: 0,
         gameCount: 1,
-        gamesPerShard: 1
+        gamesPerShard: 1,
+        format: DATASET_FORMAT
       })).rejects.toThrow("Output directory already exists");
 
       expect(await readFile(marker, "utf8")).toBe("keep\n");

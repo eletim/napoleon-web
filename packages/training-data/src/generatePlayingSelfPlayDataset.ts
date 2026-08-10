@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
+import { gzipSync } from "node:zlib";
 import { RuleBasedAgent, runAutomatedGame } from "@napoleon/ai";
 import type { Agent, AutomatedGameRecord, DecisionRecord, PlayerObservation } from "@napoleon/ai";
 import type { GameAction, PlayerId, WinningTeam } from "@napoleon/game-core";
 import {
   CARD_COUNT,
   CARD_IDS,
+  MODEL_INPUT_FEATURE_COUNT,
   MODEL_INPUT_SCHEMA_VERSION,
   PLAYER_COUNT,
   PLAYING_ENCODER_SCHEMA_VERSION,
@@ -23,17 +25,21 @@ import {
 import {
   DATASET_FORMAT,
   MAX_SHARD_COUNT,
+  PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT,
   RULE_BASED_AGENT_VERSION,
   UINT32_MAX
 } from "./schema.js";
 import type { DatasetGenerationProgress, DatasetShardManifest } from "./types.js";
-import { createJsonlShardWriter, type JsonlShardWriter } from "./shardWriter.js";
+import { createJsonlShardWriter } from "./shardWriter.js";
 import { calculateCardIdsSha256, serializeManifest } from "./serialization.js";
 
 export const PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE = "playing-self-play-sample" as const;
-export const PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION = 3 as const;
-export const PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION = 3 as const;
+export const PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION = 4 as const;
+export const PLAYING_SELF_PLAY_LEGACY_SAMPLE_SCHEMA_VERSION = 3 as const;
+export const PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION = 4 as const;
+export const PLAYING_SELF_PLAY_LEGACY_DATASET_SCHEMA_VERSION = 3 as const;
 export const PLAYING_SELF_PLAY_DATASET_GENERATOR_VERSION = 1 as const;
+export const PLAYING_SELF_PLAY_BINARY_SHARD_SCHEMA_VERSION = 1 as const;
 export const PLAYING_SELF_PLAY_REWARD_TYPE = "terminal-team-win" as const;
 export const PLAYING_SELF_PLAY_REWARD_VERSION = 1 as const;
 export const PLAYING_SELF_PLAY_SAMPLING_ALGORITHM = "masked-categorical" as const;
@@ -102,7 +108,7 @@ export interface PlayingSelfPlayOutcome {
 
 export interface PlayingSelfPlaySample {
   sampleType: typeof PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE;
-  schemaVersion: typeof PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION;
+  schemaVersion: typeof PLAYING_SELF_PLAY_LEGACY_SAMPLE_SCHEMA_VERSION;
   seed: number;
   step: number;
   actingPlayerId: PlayerId;
@@ -115,6 +121,20 @@ export interface PlayingSelfPlaySample {
   behaviorLogProbability: number;
   terminalReward: 1 | -1;
   outcome: PlayingSelfPlayOutcome;
+}
+
+export interface PlayingSelfPlayTensorSample {
+  sampleType: typeof PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE;
+  schemaVersion: typeof PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION;
+  seed: number;
+  step: number;
+  actingPlayerIndex: number;
+  selectedCardIndex: number;
+  behaviorLogProbability: number;
+  terminalReward: 1 | -1;
+  selfRoleIndex: number;
+  modelInput: Float32Array;
+  legalPlayMask: Uint8Array;
 }
 
 export interface PlayingSelfPlayPolicy {
@@ -153,6 +173,7 @@ export interface GeneratePlayingSelfPlayDatasetOptions {
   onProgress?: (progress: DatasetGenerationProgress) => void;
   maxDecisionSteps?: number;
   gameRunner?: PlayingSelfPlayGameRunner;
+  format?: typeof PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT | typeof DATASET_FORMAT;
 }
 
 export interface PlayingSelfPlayGameRunRequest {
@@ -169,6 +190,7 @@ export interface PlayingSelfPlayGameRunResult {
   seed: number;
   record?: AutomatedGameRecord;
   samples?: readonly PlayingSelfPlaySample[];
+  tensorSamples?: readonly PlayingSelfPlayTensorSample[];
 }
 
 export interface PlayingSelfPlayGameRunner {
@@ -179,11 +201,11 @@ export interface PlayingSelfPlayGameRunner {
 }
 
 export interface PlayingSelfPlayDatasetManifest {
-  datasetSchemaVersion: typeof PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION;
+  datasetSchemaVersion: typeof PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION | typeof PLAYING_SELF_PLAY_LEGACY_DATASET_SCHEMA_VERSION;
   generatorVersion: typeof PLAYING_SELF_PLAY_DATASET_GENERATOR_VERSION;
-  format: typeof DATASET_FORMAT;
+  format: typeof PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT | typeof DATASET_FORMAT;
   sampleType: typeof PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE;
-  sampleSchemaVersion: typeof PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION;
+  sampleSchemaVersion: typeof PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION | typeof PLAYING_SELF_PLAY_LEGACY_SAMPLE_SCHEMA_VERSION;
   startSeed: number;
   endSeed: number;
   gameCount: number;
@@ -220,11 +242,194 @@ export interface PlayingSelfPlayDatasetManifest {
     version: typeof RULE_BASED_AGENT_VERSION;
   };
   rolloutRoster: PlayingSelfPlayRolloutRosterManifest;
+  tensorSchema?: PlayingSelfPlayBinaryTensorSchema;
+}
+
+export interface PlayingSelfPlayBinaryTensorFieldSchema {
+  name: keyof PlayingSelfPlayBinaryTensorFieldTypes;
+  dtype: PlayingSelfPlayBinaryTensorFieldTypes[keyof PlayingSelfPlayBinaryTensorFieldTypes];
+  shape: readonly number[];
+}
+
+export interface PlayingSelfPlayBinaryTensorSchema {
+  shardSchemaVersion: typeof PLAYING_SELF_PLAY_BINARY_SHARD_SCHEMA_VERSION;
+  byteOrder: "little-endian";
+  compression: "gzip";
+  fields: readonly PlayingSelfPlayBinaryTensorFieldSchema[];
+}
+
+interface PlayingSelfPlayBinaryTensorFieldTypes {
+  modelInput: "float32";
+  legalPlayMask: "uint8";
+  selectedCardIndex: "uint8";
+  behaviorLogProbability: "float32";
+  terminalReward: "int8";
+  seed: "uint32";
+  step: "uint16";
+  actingPlayerIndex: "uint8";
+  selfRoleIndex: "uint8";
 }
 
 export interface GeneratePlayingSelfPlayDatasetResult {
   outputDirectory: string;
   manifest: PlayingSelfPlayDatasetManifest;
+}
+
+type PlayingSelfPlayWritableSample = PlayingSelfPlaySample | PlayingSelfPlayTensorSample;
+
+interface PlayingSelfPlayShardWriter {
+  readonly sampleCount: number;
+  writeSample: (sample: PlayingSelfPlayWritableSample) => Promise<void>;
+  close: (endSeed: number, gameCount: number) => Promise<DatasetShardManifest>;
+  abort: () => Promise<void>;
+}
+
+const BINARY_SHARD_MAGIC = Buffer.from("NPSPBD01", "ascii");
+
+const PLAYING_SELF_PLAY_BINARY_TENSOR_SCHEMA: PlayingSelfPlayBinaryTensorSchema = {
+  shardSchemaVersion: PLAYING_SELF_PLAY_BINARY_SHARD_SCHEMA_VERSION,
+  byteOrder: "little-endian",
+  compression: "gzip",
+  fields: [
+    { name: "modelInput", dtype: "float32", shape: [MODEL_INPUT_FEATURE_COUNT] },
+    { name: "legalPlayMask", dtype: "uint8", shape: [CARD_COUNT] },
+    { name: "selectedCardIndex", dtype: "uint8", shape: [] },
+    { name: "behaviorLogProbability", dtype: "float32", shape: [] },
+    { name: "terminalReward", dtype: "int8", shape: [] },
+    { name: "seed", dtype: "uint32", shape: [] },
+    { name: "step", dtype: "uint16", shape: [] },
+    { name: "actingPlayerIndex", dtype: "uint8", shape: [] },
+    { name: "selfRoleIndex", dtype: "uint8", shape: [] }
+  ]
+};
+
+function createPlayingSelfPlayShardWriter(
+  directory: string,
+  shardIndex: number,
+  startSeed: number,
+  format: typeof PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT | typeof DATASET_FORMAT
+): PlayingSelfPlayShardWriter {
+  if (format === DATASET_FORMAT) {
+    return createJsonlShardWriter(
+      directory,
+      shardIndex,
+      startSeed,
+      serializePlayingSelfPlaySample
+    ) as PlayingSelfPlayShardWriter;
+  }
+
+  return createBinaryPlayingSelfPlayShardWriter(directory, shardIndex, startSeed);
+}
+
+function createBinaryPlayingSelfPlayShardWriter(
+  directory: string,
+  shardIndex: number,
+  startSeed: number
+): PlayingSelfPlayShardWriter {
+  const fileName = binaryShardFileName(shardIndex);
+  const samples: PlayingSelfPlayTensorSample[] = [];
+  let closed = false;
+
+  return {
+    get sampleCount() {
+      return samples.length;
+    },
+    writeSample: async (sample) => {
+      if (closed) {
+        throw new Error(`Cannot write to closed shard ${fileName}.`);
+      }
+      if (!isPlayingSelfPlayTensorSample(sample)) {
+        throw new Error("Binary self-play shard writer requires tensor-ready samples.");
+      }
+      samples.push(sample);
+    },
+    close: async (endSeed, gameCount) => {
+      if (closed) {
+        throw new Error(`Cannot close shard ${fileName} more than once.`);
+      }
+      closed = true;
+      const bytes = serializeBinaryPlayingSelfPlayShard(samples);
+      await writeFile(join(directory, fileName), bytes);
+      return {
+        file: fileName,
+        startSeed,
+        endSeed,
+        gameCount,
+        sampleCount: samples.length,
+        byteLength: bytes.byteLength,
+        sha256: createHash("sha256").update(bytes).digest("hex")
+      };
+    },
+    abort: async () => {
+      closed = true;
+      samples.length = 0;
+    }
+  };
+}
+
+function serializeBinaryPlayingSelfPlayShard(samples: readonly PlayingSelfPlayTensorSample[]): Buffer {
+  const sampleCount = samples.length;
+  const modelInput = new Float32Array(sampleCount * MODEL_INPUT_FEATURE_COUNT);
+  const legalPlayMask = new Uint8Array(sampleCount * CARD_COUNT);
+  const selectedCardIndex = new Uint8Array(sampleCount);
+  const behaviorLogProbability = new Float32Array(sampleCount);
+  const terminalReward = new Int8Array(sampleCount);
+  const seed = new Uint32Array(sampleCount);
+  const step = new Uint16Array(sampleCount);
+  const actingPlayerIndex = new Uint8Array(sampleCount);
+  const selfRoleIndex = new Uint8Array(sampleCount);
+
+  samples.forEach((sample, index) => {
+    modelInput.set(sample.modelInput, index * MODEL_INPUT_FEATURE_COUNT);
+    legalPlayMask.set(sample.legalPlayMask, index * CARD_COUNT);
+    selectedCardIndex[index] = sample.selectedCardIndex;
+    behaviorLogProbability[index] = sample.behaviorLogProbability;
+    terminalReward[index] = sample.terminalReward;
+    seed[index] = sample.seed;
+    step[index] = sample.step;
+    actingPlayerIndex[index] = sample.actingPlayerIndex;
+    selfRoleIndex[index] = sample.selfRoleIndex;
+  });
+
+  const buffers = [
+    bufferFromTypedArray(modelInput),
+    bufferFromTypedArray(legalPlayMask),
+    bufferFromTypedArray(selectedCardIndex),
+    bufferFromTypedArray(behaviorLogProbability),
+    bufferFromTypedArray(terminalReward),
+    bufferFromTypedArray(seed),
+    bufferFromTypedArray(step),
+    bufferFromTypedArray(actingPlayerIndex),
+    bufferFromTypedArray(selfRoleIndex)
+  ];
+  let byteOffset = 0;
+  const fields = PLAYING_SELF_PLAY_BINARY_TENSOR_SCHEMA.fields.map((field, index) => {
+    const byteLength = buffers[index].byteLength;
+    const record = { ...field, byteOffset, byteLength };
+    byteOffset += byteLength;
+    return record;
+  });
+  const payload = gzipSync(Buffer.concat(buffers));
+  const header = Buffer.from(JSON.stringify({
+    shardSchemaVersion: PLAYING_SELF_PLAY_BINARY_SHARD_SCHEMA_VERSION,
+    sampleType: PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE,
+    sampleSchemaVersion: PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION,
+    sampleCount,
+    modelInputFeatureCount: MODEL_INPUT_FEATURE_COUNT,
+    cardCount: CARD_COUNT,
+    byteOrder: "little-endian",
+    compression: "gzip",
+    uncompressedByteLength: byteOffset,
+    fields
+  }), "utf8");
+  const headerLength = Buffer.alloc(4);
+  headerLength.writeUInt32LE(header.byteLength, 0);
+
+  return Buffer.concat([BINARY_SHARD_MAGIC, headerLength, header, payload]);
+}
+
+function bufferFromTypedArray(array: ArrayBufferView): Buffer {
+  return Buffer.from(array.buffer, array.byteOffset, array.byteLength);
 }
 
 export async function generatePlayingSelfPlayDataset(
@@ -234,6 +439,7 @@ export async function generatePlayingSelfPlayDataset(
   validatePlayingSelfPlayGenerationOptions({ ...options, temperature });
 
   const outputDirectory = resolve(options.outputDirectory);
+  const format = options.format ?? PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT;
   await ensureOutputDoesNotExist(outputDirectory);
   await mkdir(dirname(outputDirectory), { recursive: true });
 
@@ -250,7 +456,7 @@ export async function generatePlayingSelfPlayDataset(
   const tempDirectory = await mkdtemp(
     join(dirname(outputDirectory), `.${basenameForTemp(outputDirectory)}.tmp-`)
   );
-  let activeShard: JsonlShardWriter<PlayingSelfPlaySample> | null = null;
+  let activeShard: PlayingSelfPlayShardWriter | null = null;
   const gameRunner = options.gameRunner ?? defaultPlayingSelfPlayGameRunner;
   const rolloutWorkers = options.rolloutWorkers ?? 1;
 
@@ -325,22 +531,21 @@ export async function generatePlayingSelfPlayDataset(
       completedResults.delete(gameOffset);
 
       if (activeShard === null) {
-        activeShard = createJsonlShardWriter(
-          tempDirectory,
-          shards.length,
-          seed,
-          serializePlayingSelfPlaySample
-        );
+        activeShard = createPlayingSelfPlayShardWriter(tempDirectory, shards.length, seed, format);
         shardGameCount = 0;
       }
 
       const samples = await getSamplesForGameRunResult(result, options.playingPolicy, temperature, {
         behaviorPolicyArtifactId: artifact.artifactId,
         rolloutSeatSources: assignRolloutRosterForSeed(options.rolloutRoster, seed).map((seat) => seat.source)
-      });
+      }, format);
 
       for (const sample of samples) {
-        validatePlayingSelfPlaySample(sample, seed);
+        if (isPlayingSelfPlayTensorSample(sample)) {
+          validatePlayingSelfPlayTensorSample(sample, seed);
+        } else {
+          validatePlayingSelfPlaySample(sample, seed);
+        }
         await activeShard.writeSample(sample);
       }
 
@@ -373,7 +578,8 @@ export async function generatePlayingSelfPlayDataset(
       sampleCount: totalSampleCount,
       shards,
       artifact,
-      rolloutRoster
+      rolloutRoster,
+      format
     });
 
     validatePlayingSelfPlayDatasetManifest(manifest);
@@ -459,19 +665,32 @@ async function getSamplesForGameRunResult(
   metadata: {
     behaviorPolicyArtifactId: string;
     rolloutSeatSources: readonly PlayingSelfPlayRosterSource[];
-  }
-): Promise<readonly PlayingSelfPlaySample[]> {
+  },
+  format: typeof PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT | typeof DATASET_FORMAT
+): Promise<readonly PlayingSelfPlayWritableSample[]> {
   if (isPlayingSelfPlayGameRunResult(result)) {
+    if (format === PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT && result.tensorSamples !== undefined) {
+      return result.tensorSamples.map(normalizePlayingSelfPlayTensorSample);
+    }
     if (result.samples !== undefined) {
+      if (format === PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT) {
+        return result.samples.map(tensorSampleFromLegacySample);
+      }
       return result.samples;
     }
     if (result.record !== undefined) {
-      return createPlayingSelfPlaySamples(result.record, policy, temperature, metadata);
+      const samples = await createPlayingSelfPlaySamples(result.record, policy, temperature, metadata);
+      return format === PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT
+        ? samples.map(tensorSampleFromLegacySample)
+        : samples;
     }
     throw new Error("Game runner result must include samples or record.");
   }
 
-  return createPlayingSelfPlaySamples(result, policy, temperature, metadata);
+  const samples = await createPlayingSelfPlaySamples(result, policy, temperature, metadata);
+  return format === PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT
+    ? samples.map(tensorSampleFromLegacySample)
+    : samples;
 }
 
 function isPlayingSelfPlayGameRunResult(
@@ -509,7 +728,7 @@ export function validatePlayingSelfPlaySample(
   if (sample.sampleType !== PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE) {
     throw new Error(`Sample sampleType must be ${PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE}.`);
   }
-  if (sample.schemaVersion !== PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION) {
+  if (sample.schemaVersion !== PLAYING_SELF_PLAY_LEGACY_SAMPLE_SCHEMA_VERSION) {
     throw new Error(`Unexpected self-play sample schemaVersion: ${sample.schemaVersion}`);
   }
   if (sample.seed !== expectedSeed) {
@@ -563,21 +782,79 @@ export function validatePlayingSelfPlaySample(
   }
 }
 
+export function validatePlayingSelfPlayTensorSample(
+  sample: PlayingSelfPlayTensorSample,
+  expectedSeed: number
+): void {
+  if (sample.sampleType !== PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE) {
+    throw new Error(`Tensor sample sampleType must be ${PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE}.`);
+  }
+  if (sample.schemaVersion !== PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION) {
+    throw new Error(`Unexpected tensor self-play sample schemaVersion: ${sample.schemaVersion}`);
+  }
+  if (sample.seed !== expectedSeed) {
+    throw new Error(`Tensor sample seed must match current seed: ${sample.seed} !== ${expectedSeed}`);
+  }
+  validateUint32("Tensor sample seed", sample.seed);
+  validateUint16("Tensor sample step", sample.step);
+  validateCardIndex("selectedCardIndex", sample.selectedCardIndex);
+  validatePlayerIndex("actingPlayerIndex", sample.actingPlayerIndex);
+  validateSelfRoleIndex("selfRoleIndex", sample.selfRoleIndex);
+
+  if (!isFloat32ArrayLike(sample.modelInput) || sample.modelInput.length !== MODEL_INPUT_FEATURE_COUNT) {
+    throw new Error(`modelInput must be Float32Array-like(${MODEL_INPUT_FEATURE_COUNT}).`);
+  }
+  for (const [index, value] of sample.modelInput.entries()) {
+    if (!Number.isFinite(value)) {
+      throw new Error(`modelInput[${index}] must be finite.`);
+    }
+  }
+  if (!(sample.legalPlayMask instanceof Uint8Array) || sample.legalPlayMask.length !== CARD_COUNT) {
+    throw new Error(`legalPlayMask must be Uint8Array(${CARD_COUNT}).`);
+  }
+  let legalCount = 0;
+  for (const value of sample.legalPlayMask) {
+    if (value !== 0 && value !== 1) {
+      throw new Error("legalPlayMask values must be 0 or 1.");
+    }
+    legalCount += value;
+  }
+  if (legalCount === 0) {
+    throw new Error("legalPlayMask must contain at least one legal card.");
+  }
+  if (sample.legalPlayMask[sample.selectedCardIndex] !== 1) {
+    throw new Error("selectedCardIndex must be legal in legalPlayMask.");
+  }
+  if (!Number.isFinite(sample.behaviorLogProbability) || sample.behaviorLogProbability > 1e-12) {
+    throw new Error("behaviorLogProbability must be finite and <= 0.");
+  }
+  if (sample.terminalReward !== 1 && sample.terminalReward !== -1) {
+    throw new Error("terminalReward must be +1 or -1.");
+  }
+}
+
 export function validatePlayingSelfPlayDatasetManifest(
   manifest: PlayingSelfPlayDatasetManifest
 ): void {
-  if (manifest.datasetSchemaVersion !== PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION) {
+  if (
+    manifest.datasetSchemaVersion !== PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION &&
+    manifest.datasetSchemaVersion !== PLAYING_SELF_PLAY_LEGACY_DATASET_SCHEMA_VERSION
+  ) {
     throw new Error("Self-play manifest datasetSchemaVersion mismatch.");
   }
   if (manifest.generatorVersion !== PLAYING_SELF_PLAY_DATASET_GENERATOR_VERSION) {
     throw new Error("Self-play manifest generatorVersion mismatch.");
   }
   if (
-    manifest.format !== DATASET_FORMAT ||
     manifest.sampleType !== PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE ||
-    manifest.sampleSchemaVersion !== PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION
+    !isExpectedSelfPlayFormatAndSchema(manifest)
   ) {
     throw new Error("Self-play manifest format or sample type mismatch.");
+  }
+  if (manifest.format === PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT) {
+    validatePlayingSelfPlayBinaryTensorSchema(manifest.tensorSchema);
+  } else if (manifest.tensorSchema !== undefined) {
+    throw new Error("Legacy JSONL self-play manifest must not include tensorSchema.");
   }
   validateUint32("Manifest startSeed", manifest.startSeed);
   validateUint32("Manifest endSeed", manifest.endSeed);
@@ -642,6 +919,49 @@ export function validatePlayingSelfPlayDatasetManifest(
   validateRolloutRosterManifest(manifest.rolloutRoster);
 
   validateShards(manifest);
+}
+
+function isExpectedSelfPlayFormatAndSchema(manifest: PlayingSelfPlayDatasetManifest): boolean {
+  return (
+    (
+      manifest.datasetSchemaVersion === PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION &&
+      manifest.format === PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT &&
+      manifest.sampleSchemaVersion === PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION
+    ) ||
+    (
+      manifest.datasetSchemaVersion === PLAYING_SELF_PLAY_LEGACY_DATASET_SCHEMA_VERSION &&
+      manifest.format === DATASET_FORMAT &&
+      manifest.sampleSchemaVersion === PLAYING_SELF_PLAY_LEGACY_SAMPLE_SCHEMA_VERSION
+    )
+  );
+}
+
+function validatePlayingSelfPlayBinaryTensorSchema(
+  schema: PlayingSelfPlayBinaryTensorSchema | undefined
+): void {
+  if (schema === undefined) {
+    throw new Error("Binary self-play manifest tensorSchema is required.");
+  }
+  if (
+    schema.shardSchemaVersion !== PLAYING_SELF_PLAY_BINARY_SHARD_SCHEMA_VERSION ||
+    schema.byteOrder !== "little-endian" ||
+    schema.compression !== "gzip"
+  ) {
+    throw new Error("Binary self-play manifest tensorSchema metadata mismatch.");
+  }
+  if (schema.fields.length !== PLAYING_SELF_PLAY_BINARY_TENSOR_SCHEMA.fields.length) {
+    throw new Error("Binary self-play manifest tensorSchema field count mismatch.");
+  }
+  schema.fields.forEach((field, index) => {
+    const expected = PLAYING_SELF_PLAY_BINARY_TENSOR_SCHEMA.fields[index];
+    if (
+      field.name !== expected.name ||
+      field.dtype !== expected.dtype ||
+      !sameNumberArray(field.shape, expected.shape)
+    ) {
+      throw new Error(`Binary self-play manifest tensorSchema field ${index} mismatch.`);
+    }
+  });
 }
 
 function validateRolloutRosterManifest(roster: PlayingSelfPlayRolloutRosterManifest): void {
@@ -776,8 +1096,11 @@ export async function runPlayingSelfPlayGameWithSamples(options: {
     behaviorPolicyArtifactId: options.behaviorPolicyArtifactId,
     rolloutSeatSources: assignedRoster.map((seat) => seat.source)
   });
+  const tensorSamples = completePlayingSelfPlayTensorSamples(record, sampledDecisions, {
+    rolloutSeatSources: assignedRoster.map((seat) => seat.source)
+  });
 
-  return { seed: record.seed, samples };
+  return { seed: record.seed, samples, tensorSamples };
 }
 
 const defaultPlayingSelfPlayGameRunner: PlayingSelfPlayGameRunner = {
@@ -788,6 +1111,8 @@ interface PlayingSelfPlaySampleDraft {
   playerId: PlayerId;
   relativePlayerIds: readonly PlayerId[];
   observation: ReturnType<typeof encodePlayingObservation>;
+  modelInput: Float32Array;
+  legalPlayMask: Uint8Array;
   selectedCardIndex: number;
   behaviorLogProbability: number;
 }
@@ -834,6 +1159,8 @@ class PlayingSelfPlayAgent implements Agent {
       playerId: observation.playerId,
       relativePlayerIds: encodedObservation.relativePlayerIds,
       observation: encodedObservation,
+      modelInput: Float32Array.from(modelInput),
+      legalPlayMask: Uint8Array.from(legalPlayMask),
       selectedCardIndex: selection.selectedCardIndex,
       behaviorLogProbability: selection.logProbability
     });
@@ -1053,7 +1380,7 @@ function completePlayingSelfPlaySamples(
     const outcome = createOutcome(record, decision.playerId);
     samples.push({
       sampleType: PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE,
-      schemaVersion: PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION,
+      schemaVersion: PLAYING_SELF_PLAY_LEGACY_SAMPLE_SCHEMA_VERSION,
       seed: record.seed,
       step: decision.step,
       actingPlayerId: decision.playerId,
@@ -1074,6 +1401,101 @@ function completePlayingSelfPlaySamples(
   }
 
   return samples;
+}
+
+function completePlayingSelfPlayTensorSamples(
+  record: AutomatedGameRecord,
+  sampledDecisions: readonly PlayingSelfPlaySampleDraft[],
+  metadata: {
+    rolloutSeatSources: readonly PlayingSelfPlayRosterSource[];
+  }
+): readonly PlayingSelfPlayTensorSample[] {
+  const samples: PlayingSelfPlayTensorSample[] = [];
+  let sampledDecisionIndex = 0;
+
+  for (const decision of record.decisions) {
+    if (decision.phase !== "playing") {
+      continue;
+    }
+
+    const seatIndex = record.playerIds.indexOf(decision.playerId);
+    const source = metadata.rolloutSeatSources[seatIndex];
+
+    if (source !== CURRENT_POLICY_ROSTER_SOURCE) {
+      continue;
+    }
+
+    const sampledDecision = sampledDecisions[sampledDecisionIndex];
+    sampledDecisionIndex += 1;
+
+    if (sampledDecision === undefined) {
+      throw new Error("Missing sampled action for current-policy playing decision.");
+    }
+    if (sampledDecision.playerId !== decision.playerId) {
+      throw new Error(
+        `Sampled action player mismatch: ${sampledDecision.playerId} !== ${decision.playerId}.`
+      );
+    }
+    if (decision.action.type !== "play-card") {
+      throw new Error(`Playing self-play decision action must be play-card, got ${decision.action.type}.`);
+    }
+
+    const selectedCardIndex = getCardIndex(decision.action.cardId);
+    const outcome = createOutcome(record, decision.playerId);
+    const tensorSample: PlayingSelfPlayTensorSample = {
+      sampleType: PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE,
+      schemaVersion: PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION,
+      seed: record.seed,
+      step: decision.step,
+      actingPlayerIndex: record.playerIds.indexOf(decision.playerId),
+      selectedCardIndex,
+      behaviorLogProbability: sampledDecision.behaviorLogProbability,
+      terminalReward: outcome.actingPlayerTeam === outcome.winner ? 1 : -1,
+      selfRoleIndex: SELF_ROLE_ORDER.indexOf(outcome.actingPlayerRole),
+      modelInput: sampledDecision.modelInput,
+      legalPlayMask: sampledDecision.legalPlayMask
+    };
+    validatePlayingSelfPlayTensorSample(tensorSample, record.seed);
+    samples.push(tensorSample);
+  }
+
+  if (sampledDecisionIndex !== sampledDecisions.length) {
+    throw new Error("Unused sampled actions remain after completing self-play samples.");
+  }
+
+  return samples;
+}
+
+function tensorSampleFromLegacySample(sample: PlayingSelfPlaySample): PlayingSelfPlayTensorSample {
+  const { modelInput, legalPlayMask } = createPlayingModelInput(sample.observation);
+  const selfRoleIndex = sample.observation.selfRoleOneHot.indexOf(1);
+  const tensorSample: PlayingSelfPlayTensorSample = {
+    sampleType: PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE,
+    schemaVersion: PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION,
+    seed: sample.seed,
+    step: sample.step,
+    actingPlayerIndex: sample.relativePlayerIds.indexOf(sample.actingPlayerId),
+    selectedCardIndex: sample.selectedCardIndex,
+    behaviorLogProbability: sample.behaviorLogProbability,
+    terminalReward: sample.terminalReward,
+    selfRoleIndex,
+    modelInput: Float32Array.from(modelInput),
+    legalPlayMask: Uint8Array.from(legalPlayMask)
+  };
+  validatePlayingSelfPlayTensorSample(tensorSample, sample.seed);
+  return tensorSample;
+}
+
+function normalizePlayingSelfPlayTensorSample(
+  sample: PlayingSelfPlayTensorSample
+): PlayingSelfPlayTensorSample {
+  const normalized = {
+    ...sample,
+    modelInput: Float32Array.from(sample.modelInput as ArrayLike<number>),
+    legalPlayMask: Uint8Array.from(sample.legalPlayMask as ArrayLike<number>)
+  };
+  validatePlayingSelfPlayTensorSample(normalized, normalized.seed);
+  return normalized;
 }
 
 async function createPlayingSelfPlaySample(
@@ -1110,7 +1532,7 @@ async function createPlayingSelfPlaySample(
 
   return {
     sampleType: PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE,
-    schemaVersion: PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION,
+    schemaVersion: PLAYING_SELF_PLAY_LEGACY_SAMPLE_SCHEMA_VERSION,
     seed: record.seed,
     step: decision.step,
     actingPlayerId: decision.playerId,
@@ -1176,13 +1598,18 @@ function createPlayingSelfPlayManifest(input: {
     metadata: unknown;
   };
   rolloutRoster: PlayingSelfPlayRolloutRosterManifest;
+  format: typeof PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT | typeof DATASET_FORMAT;
 }): PlayingSelfPlayDatasetManifest {
-  return {
-    datasetSchemaVersion: PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION,
+  const manifest: PlayingSelfPlayDatasetManifest = {
+    datasetSchemaVersion: input.format === DATASET_FORMAT
+      ? PLAYING_SELF_PLAY_LEGACY_DATASET_SCHEMA_VERSION
+      : PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION,
     generatorVersion: PLAYING_SELF_PLAY_DATASET_GENERATOR_VERSION,
-    format: DATASET_FORMAT,
+    format: input.format,
     sampleType: PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE,
-    sampleSchemaVersion: PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION,
+    sampleSchemaVersion: input.format === DATASET_FORMAT
+      ? PLAYING_SELF_PLAY_LEGACY_SAMPLE_SCHEMA_VERSION
+      : PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION,
     startSeed: input.options.startSeed,
     endSeed: input.options.startSeed + input.options.gameCount - 1,
     gameCount: input.options.gameCount,
@@ -1210,8 +1637,14 @@ function createPlayingSelfPlayManifest(input: {
       type: "rule-based",
       version: RULE_BASED_AGENT_VERSION
     },
-    rolloutRoster: input.rolloutRoster
+    rolloutRoster: input.rolloutRoster,
   };
+
+  if (input.format === PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT) {
+    manifest.tensorSchema = PLAYING_SELF_PLAY_BINARY_TENSOR_SCHEMA;
+  }
+
+  return manifest;
 }
 
 function validatePlayingSelfPlayGenerationOptions(
@@ -1223,6 +1656,14 @@ function validatePlayingSelfPlayGenerationOptions(
   validatePositiveInteger("rolloutWorkers", options.rolloutWorkers ?? 1);
   validateTemperature(options.temperature);
   validateRolloutRosterOptions(options.rolloutRoster);
+
+  if (
+    options.format !== undefined &&
+    options.format !== DATASET_FORMAT &&
+    options.format !== PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT
+  ) {
+    throw new Error(`format must be ${PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT} or ${DATASET_FORMAT}.`);
+  }
 
   if (options.outputDirectory.length === 0) {
     throw new Error("outputDirectory must be a non-empty path.");
@@ -1365,7 +1806,9 @@ function validateShards(manifest: PlayingSelfPlayDatasetManifest): void {
   manifest.shards.forEach((shard, index) => {
     validateShard(shard);
 
-    const expectedFile = `shard-${index.toString().padStart(5, "0")}.jsonl`;
+    const expectedFile = manifest.format === PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT
+      ? binaryShardFileName(index)
+      : `shard-${index.toString().padStart(5, "0")}.jsonl`;
     if (shard.file !== expectedFile) {
       throw new Error(`Shard file must be ${expectedFile}, got ${shard.file}.`);
     }
@@ -1420,6 +1863,12 @@ function validateUint32(name: string, value: number): void {
   }
 }
 
+function validateUint16(name: string, value: number): void {
+  if (!Number.isSafeInteger(value) || value < 0 || value > 0xffff) {
+    throw new Error(`${name} must be an integer between 0 and ${0xffff}.`);
+  }
+}
+
 function validatePositiveInteger(name: string, value: number): void {
   if (!Number.isSafeInteger(value) || value <= 0) {
     throw new Error(`${name} must be a positive integer.`);
@@ -1429,6 +1878,18 @@ function validatePositiveInteger(name: string, value: number): void {
 function validateCardIndex(name: string, value: number): void {
   if (!Number.isSafeInteger(value) || value < 0 || value >= CARD_COUNT) {
     throw new Error(`${name} must be an integer between 0 and ${CARD_COUNT - 1}.`);
+  }
+}
+
+function validatePlayerIndex(name: string, value: number): void {
+  if (!Number.isSafeInteger(value) || value < 0 || value >= PLAYER_COUNT) {
+    throw new Error(`${name} must be an integer between 0 and ${PLAYER_COUNT - 1}.`);
+  }
+}
+
+function validateSelfRoleIndex(name: string, value: number): void {
+  if (!Number.isSafeInteger(value) || value < 0 || value >= SELF_ROLE_ORDER.length) {
+    throw new Error(`${name} must be an integer between 0 and ${SELF_ROLE_ORDER.length - 1}.`);
   }
 }
 
@@ -1517,12 +1978,43 @@ function basenameForTemp(outputDirectory: string): string {
   return parts.at(-1) ?? "dataset";
 }
 
+function binaryShardFileName(shardIndex: number): string {
+  if (shardIndex < 0 || shardIndex >= MAX_SHARD_COUNT) {
+    throw new Error(`shardIndex must be between 0 and ${MAX_SHARD_COUNT - 1}.`);
+  }
+  return `shard-${shardIndex.toString().padStart(5, "0")}.bin`;
+}
+
 function sameStringArray(left: readonly string[], right: readonly string[]): boolean {
   if (left.length !== right.length) {
     return false;
   }
 
   return left.every((value, index) => value === right[index]);
+}
+
+function sameNumberArray(left: readonly number[], right: readonly number[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((value, index) => value === right[index]);
+}
+
+function isPlayingSelfPlayTensorSample(
+  sample: PlayingSelfPlayWritableSample
+): sample is PlayingSelfPlayTensorSample {
+  return "modelInput" in sample && "legalPlayMask" in sample;
+}
+
+function isFloat32ArrayLike(value: unknown): value is Float32Array {
+  return (
+    value instanceof Float32Array ||
+    (
+      ArrayBuffer.isView(value) &&
+      value.constructor.name === "Float32Array"
+    )
+  );
 }
 
 function sum(values: readonly number[]): number {
