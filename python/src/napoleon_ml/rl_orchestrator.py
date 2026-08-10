@@ -17,10 +17,11 @@ from typing import TextIO, cast
 
 from napoleon_ml.cli._policy_common import configure_reproducibility, load_checked_manifest
 from napoleon_ml.dataset.constants import PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT, UINT32_MAX
-from napoleon_ml.dataset.manifest import DatasetManifest
+from napoleon_ml.dataset.manifest import DatasetManifest, parse_manifest
 from napoleon_ml.dataset.pytorch import create_playing_self_play_dataloader
 from napoleon_ml.dataset.reader import iter_raw_samples, load_manifest
 from napoleon_ml.dataset.split import DatasetSplit, SplitConfig
+from napoleon_ml.dataset.validation import validate_manifest
 from napoleon_ml.policy.actor_critic import (
     ACTOR_CRITIC_ALGORITHM,
     DEFAULT_VALUE_LOSS_COEFFICIENT,
@@ -60,6 +61,7 @@ DEFAULT_EVALUATION_INTERVAL = 10
 DEFAULT_EVALUATION_START_SEED = 1_000_000_000
 DEFAULT_EVALUATION_SEED_COUNT = 100
 DEFAULT_INFERENCE_DEVICE = "cpu"
+DEFAULT_RETAIN_SELF_PLAY_DATA = False
 PLAYING_RL_ALGORITHMS = (REINFORCE_ALGORITHM, ACTOR_CRITIC_ALGORITHM)
 SUPPORTED_INFERENCE_DEVICES = ("cpu", "auto", "cuda")
 
@@ -90,6 +92,7 @@ class PlayingRlRunConfig:
     evaluation_start_seed: int = DEFAULT_EVALUATION_START_SEED
     evaluation_seed_count: int = DEFAULT_EVALUATION_SEED_COUNT
     inference_device: str = DEFAULT_INFERENCE_DEVICE
+    retain_self_play_data: bool = DEFAULT_RETAIN_SELF_PLAY_DATA
     build_typescript: bool = True
 
     def normalized(self) -> PlayingRlRunConfig:
@@ -118,6 +121,7 @@ class PlayingRlRunConfig:
             evaluation_start_seed=self.evaluation_start_seed,
             evaluation_seed_count=self.evaluation_seed_count,
             inference_device=self.inference_device,
+            retain_self_play_data=self.retain_self_play_data,
             build_typescript=self.build_typescript,
         )
 
@@ -150,6 +154,7 @@ class PlayingRlRunConfig:
             "evaluationStartSeed": self.evaluation_start_seed,
             "evaluationSeedCount": self.evaluation_seed_count,
             "inferenceDevice": self.inference_device,
+            "retainSelfPlayData": self.retain_self_play_data,
         }
 
 
@@ -225,6 +230,7 @@ def _run_iteration(
     completed = _load_completed_iteration(iteration_dir)
     if completed is not None:
         _validate_iteration_artifacts(iteration_dir, completed)
+        _discard_completed_self_play_cache_if_due(completed)
         return state
 
     if iteration_dir.exists():
@@ -324,6 +330,8 @@ def _run_iteration(
         game_count=config.games_per_iteration,
     )
     self_play_manifest_sha256 = sha256_file(self_play_dir / "manifest.json")
+    self_play_shard_byte_length = sum(shard.byte_length for shard in manifest.shards)
+    self_play_tensor_compression = _self_play_tensor_compression(manifest)
     print(
         f"[iter {iteration}/{total}] self-play complete: {manifest.sample_count} samples",
         flush=True,
@@ -410,6 +418,11 @@ def _run_iteration(
         "behaviorMetadataSha256": behavior_metadata_sha256,
         "selfPlayDirectory": str(self_play_dir),
         "selfPlayManifestSha256": self_play_manifest_sha256,
+        "selfPlayFormat": manifest.format,
+        "selfPlayTensorCompression": self_play_tensor_compression,
+        "selfPlayShardCount": manifest.shard_count,
+        "selfPlayShardByteLength": self_play_shard_byte_length,
+        "selfPlayCacheRetained": config.retain_self_play_data,
         "selfPlayStartSeed": manifest.start_seed,
         "selfPlayEndSeed": manifest.end_seed,
         "gameCount": manifest.game_count,
@@ -449,6 +462,8 @@ def _run_iteration(
     }
     atomic_write_json(iteration_dir / "iteration.json", iteration_record)
     _validate_iteration_artifacts(iteration_dir, iteration_record)
+    if not config.retain_self_play_data:
+        _discard_self_play_shards(self_play_dir, manifest)
 
     summary = {
         "iteration": iteration,
@@ -457,6 +472,10 @@ def _run_iteration(
         "sampleCount": manifest.sample_count,
         "rolloutConcurrency": node_summary["rolloutConcurrency"],
         "inferenceMaxBatchSize": node_summary["inferenceMaxBatchSize"],
+        "selfPlayFormat": manifest.format,
+        "selfPlayTensorCompression": self_play_tensor_compression,
+        "selfPlayShardByteLength": self_play_shard_byte_length,
+        "selfPlayCacheRetained": config.retain_self_play_data,
         "diagnosticsPerformed": report.diagnostics_performed,
         "positiveRewardCount": report.positive_reward_count,
         "negativeRewardCount": report.negative_reward_count,
@@ -876,6 +895,7 @@ def _validate_completed_artifacts(config: PlayingRlRunConfig) -> None:
         if record is None:
             break
         _validate_iteration_artifacts(iteration_dir, record)
+        _discard_completed_self_play_cache_if_due(record)
         if record["inputCheckpointSha256"] != expected_input_sha256:
             raise PlayingRlOrchestratorError(
                 f"{iteration_dir}: input checkpoint chain mismatch: "
@@ -911,8 +931,13 @@ def _validate_iteration_artifacts(iteration_dir: Path, record: Mapping[str, obje
                 f"completed artifact SHA mismatch for {path}: {actual} != {record[sha_key]}"
             )
     self_play_dir = Path(cast(str, record["selfPlayDirectory"]))
-    manifest = load_manifest(self_play_dir)
-    _consume_samples_for_integrity(self_play_dir)
+    if bool(record.get("selfPlayCacheRetained", True)):
+        manifest = load_manifest(self_play_dir)
+        _consume_samples_for_integrity(self_play_dir)
+    else:
+        # Completed ephemeral-cache iterations may retain only manifest.json.
+        # Shard integrity was already verified before training consumed them.
+        manifest = _load_manifest_file(self_play_dir)
     if manifest.game_count != record["gameCount"]:
         raise PlayingRlOrchestratorError(f"{iteration_dir}: gameCount mismatch.")
     if manifest.sample_count != record["sampleCount"]:
@@ -924,6 +949,20 @@ def _validate_iteration_artifacts(iteration_dir: Path, record: Mapping[str, obje
     manifest_sha = sha256_file(self_play_dir / "manifest.json")
     if manifest_sha != record["selfPlayManifestSha256"]:
         raise PlayingRlOrchestratorError(f"{iteration_dir}: self-play manifest SHA mismatch.")
+    if record.get("selfPlayFormat", manifest.format) != manifest.format:
+        raise PlayingRlOrchestratorError(f"{iteration_dir}: self-play format mismatch.")
+    if record.get("selfPlayShardCount", manifest.shard_count) != manifest.shard_count:
+        raise PlayingRlOrchestratorError(f"{iteration_dir}: self-play shard count mismatch.")
+    if record.get("selfPlayShardByteLength", _manifest_shard_byte_length(manifest)) != (
+        _manifest_shard_byte_length(manifest)
+    ):
+        raise PlayingRlOrchestratorError(f"{iteration_dir}: self-play shard byte length mismatch.")
+    if record.get("selfPlayTensorCompression", _self_play_tensor_compression(manifest)) != (
+        _self_play_tensor_compression(manifest)
+    ):
+        raise PlayingRlOrchestratorError(
+            f"{iteration_dir}: self-play tensor compression mismatch."
+        )
     if int(cast(int, record["optimizerStepCount"])) <= 0:
         raise PlayingRlOrchestratorError(f"{iteration_dir}: optimizerStepCount must be > 0.")
     if float(cast(float, record["parameterDeltaNorm"])) <= 0:
@@ -1103,6 +1142,7 @@ def _config_from_file_dict(
         inference_device=_required_inference_device(
             _stored_config_value(data, "inferenceDevice")
         ),
+        retain_self_play_data=_required_bool(_stored_config_value(data, "retainSelfPlayData")),
         build_typescript=build_typescript,
     ).normalized()
 
@@ -1283,6 +1323,52 @@ def _consume_samples_for_integrity(directory: Path) -> None:
         pass
 
 
+def _load_manifest_file(directory: Path) -> DatasetManifest:
+    path = directory / "manifest.json"
+    if not path.is_file():
+        raise PlayingRlOrchestratorError(f"self-play manifest is missing: {path}")
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise PlayingRlOrchestratorError(f"self-play manifest is invalid JSON: {path}") from error
+    manifest = parse_manifest(raw)
+    validate_manifest(manifest)
+    return manifest
+
+
+def _discard_self_play_shards(directory: Path, manifest: DatasetManifest) -> None:
+    deleted_count = 0
+    deleted_bytes = 0
+    for shard in manifest.shards:
+        path = directory / shard.file
+        path.unlink(missing_ok=True)
+        deleted_count += 1
+        deleted_bytes += shard.byte_length
+    print(
+        f"[cache] discarded self-play shards: files={deleted_count} bytes={deleted_bytes}",
+        flush=True,
+    )
+
+
+def _discard_completed_self_play_cache_if_due(record: Mapping[str, object]) -> None:
+    if bool(record.get("selfPlayCacheRetained", True)):
+        return
+    self_play_dir = Path(cast(str, record["selfPlayDirectory"]))
+    manifest = _load_manifest_file(self_play_dir)
+    if any((self_play_dir / shard.file).exists() for shard in manifest.shards):
+        _discard_self_play_shards(self_play_dir, manifest)
+
+
+def _manifest_shard_byte_length(manifest: DatasetManifest) -> int:
+    return sum(shard.byte_length for shard in manifest.shards)
+
+
+def _self_play_tensor_compression(manifest: DatasetManifest) -> str | None:
+    if manifest.tensor_schema is None:
+        return None
+    return manifest.tensor_schema.compression
+
+
 def _self_play_start_seed(config: PlayingRlRunConfig, iteration: int) -> int:
     return config.self_play_seed_base + iteration * config.games_per_iteration
 
@@ -1347,6 +1433,8 @@ def _stored_config_value(data: Mapping[str, object], key: str) -> object:
         return "cpu"
     if key == "inferenceDevice":
         return DEFAULT_INFERENCE_DEVICE
+    if key == "retainSelfPlayData":
+        return DEFAULT_RETAIN_SELF_PLAY_DATA
     raise KeyError(key)
 
 
@@ -1389,6 +1477,12 @@ def _required_float(value: object) -> float:
 def _required_str(value: object) -> str:
     if not isinstance(value, str):
         raise PlayingRlOrchestratorError(f"expected string, got {value!r}")
+    return value
+
+
+def _required_bool(value: object) -> bool:
+    if not isinstance(value, bool):
+        raise PlayingRlOrchestratorError(f"expected boolean, got {value!r}")
     return value
 
 

@@ -513,7 +513,7 @@ def _validate_tensor_schema(manifest: DatasetManifest) -> None:
         raise ManifestValidationError("binary self-play tensorSchema.shardSchemaVersion mismatch.")
     if schema.byte_order != "little-endian":
         raise ManifestValidationError("binary self-play tensorSchema.byteOrder mismatch.")
-    if schema.compression != "gzip":
+    if schema.compression not in {"none", "gzip"}:
         raise ManifestValidationError("binary self-play tensorSchema.compression mismatch.")
 
     expected_fields = (

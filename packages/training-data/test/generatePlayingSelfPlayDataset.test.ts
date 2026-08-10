@@ -37,7 +37,8 @@ import type {
   PlayingSelfPlayGameRunner,
   PlayingSelfPlayPolicy,
   PlayingSelfPlayRolloutRosterOptions,
-  PlayingSelfPlaySample
+  PlayingSelfPlaySample,
+  PlayingSelfPlayTensorSample
 } from "../src/index.js";
 import { createConstantPolicyOnnx } from "../../policy-onnx/test/testOnnxFixture.js";
 
@@ -197,7 +198,7 @@ describe("generatePlayingSelfPlayDataset", () => {
       expect(manifest.tensorSchema).toMatchObject({
         shardSchemaVersion: 1,
         byteOrder: "little-endian",
-        compression: "gzip"
+        compression: "none"
       });
       expect(manifest.tensorSchema?.fields.map((field) => field.name)).toEqual([
         "modelInput",
@@ -214,7 +215,7 @@ describe("generatePlayingSelfPlayDataset", () => {
 
       const rawFloat32Bytes = manifest.sampleCount * MODEL_INPUT_FEATURE_COUNT * 4;
       const shardBytes = sum(manifest.shards.map((shard) => shard.byteLength));
-      expect(shardBytes).toBeLessThan(rawFloat32Bytes);
+      expect(shardBytes).toBeGreaterThan(rawFloat32Bytes);
 
       for (const shard of manifest.shards) {
         const shardPath = join(output, shard.file);
@@ -223,6 +224,28 @@ describe("generatePlayingSelfPlayDataset", () => {
         expect(fileStat.size).toBe(shard.byteLength);
         expect(createHash("sha256").update(bytes).digest("hex")).toBe(shard.sha256);
       }
+    });
+  });
+
+  it("can write legacy gzip binary shards when explicitly requested", async () => {
+    await withTempDir(async (directory) => {
+      const artifact = await createPlayingPolicyFixture(directory);
+      const policy = await loadPolicyOnnxModel(artifact);
+      const output = join(directory, "binary-gzip");
+
+      await generatePlayingSelfPlayDataset({
+        outputDirectory: output,
+        playingPolicy: policy,
+        playingPolicyArtifact: artifact,
+        startSeed: 52,
+        gameCount: 1,
+        gamesPerShard: 1,
+        binaryCompression: "gzip"
+      });
+
+      const manifest = await readManifest(output);
+      validatePlayingSelfPlayDatasetManifest(manifest);
+      expect(manifest.tensorSchema?.compression).toBe("gzip");
     });
   });
 
@@ -595,40 +618,28 @@ describe("generatePlayingSelfPlayDataset", () => {
   it("uses runner-provided tensor samples without parent policy inference", async () => {
     await withTempDir(async (directory) => {
       const artifact = await createPlayingPolicyFixture(directory);
-      const workerPolicy = await loadPolicyOnnxModel(artifact);
       const output = join(directory, "worker-tensor-samples");
       const parentPredictLogits = vi.fn(async () => {
         throw new Error("parent policy inference should not be called");
       });
       const runner: PlayingSelfPlayGameRunner = {
-        runGame: async (request) => {
-          const result = await runPlayingSelfPlayGameWithSamples({
-            seed: request.seed,
-            currentPolicy: workerPolicy,
-            behaviorPolicyArtifactId: request.behaviorPolicyArtifactId,
-            rolloutRoster: request.rolloutRoster,
-            temperature: request.temperature,
-            maxDecisionSteps: request.maxDecisionSteps
-          });
-
-          return {
-            seed: result.seed,
-            tensorSamples: result.tensorSamples,
-            rolloutInferenceStats: {
-              requestCount: 1,
-              sessionRunCount: 1,
-              meanBatchSize: 1,
-              maxObservedBatchSize: 1,
-              batchSizeHistogram: { "1": 1 }
-            }
-          };
-        }
+        runGame: async (request) => ({
+          seed: request.seed,
+          tensorSamples: [createTensorSample(request.seed, 0)],
+          rolloutInferenceStats: {
+            requestCount: 1,
+            sessionRunCount: 1,
+            meanBatchSize: 1,
+            maxObservedBatchSize: 1,
+            batchSizeHistogram: { "1": 1 }
+          }
+        })
       };
 
       const result = await generatePlayingSelfPlayDataset({
         outputDirectory: output,
         playingPolicy: {
-          metadata: workerPolicy.metadata,
+          metadata: {},
           predictLogits: parentPredictLogits
         },
         playingPolicyArtifact: artifact,
@@ -641,7 +652,7 @@ describe("generatePlayingSelfPlayDataset", () => {
       });
 
       expect(parentPredictLogits).not.toHaveBeenCalled();
-      expect(result.manifest.sampleCount).toBeGreaterThan(0);
+      expect(result.manifest.sampleCount).toBe(1);
       expect(result.rolloutTiming.inference).toMatchObject({
         requestCount: 1,
         sessionRunCount: 1,
@@ -649,7 +660,10 @@ describe("generatePlayingSelfPlayDataset", () => {
         maxObservedBatchSize: 1,
         batchSizeHistogram: { "1": 1 }
       });
-      await readManifest(output);
+      const manifest = await readManifest(output);
+      expect(manifest.sampleCount).toBe(1);
+      expect(manifest.tensorSchema?.compression).toBe("none");
+      expect(manifest.shards[0]?.sampleCount).toBe(1);
     });
   });
 
@@ -743,6 +757,29 @@ function fakeArtifact(artifactId: string) {
     onnxPath: `${artifactId}.onnx`,
     metadataPath: `${artifactId}.json`,
     artifactId
+  };
+}
+
+function createTensorSample(seed: number, step: number): PlayingSelfPlayTensorSample {
+  const selectedCardIndex = (seed + step) % CARD_COUNT;
+  const legalPlayMask = new Uint8Array(CARD_COUNT);
+  legalPlayMask[selectedCardIndex] = 1;
+  const modelInput = new Float32Array(MODEL_INPUT_FEATURE_COUNT);
+  modelInput[0] = seed;
+  modelInput[1] = step;
+
+  return {
+    sampleType: PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE,
+    schemaVersion: 4,
+    seed,
+    step,
+    actingPlayerIndex: 0,
+    selectedCardIndex,
+    behaviorLogProbability: 0,
+    terminalReward: 1,
+    selfRoleIndex: 0,
+    modelInput,
+    legalPlayMask
   };
 }
 

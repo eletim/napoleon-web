@@ -738,6 +738,12 @@ napoleon-run-playing-rl \
   --device cuda
 ```
 
+Completed orchestrator iterations treat generated playing self-play binary
+shards as an ephemeral raw cache: `iterations/iter-*/selfplay/manifest.json`
+keeps the dataset provenance, but the shard `.bin` files are deleted after
+training and diagnostics complete. Pass `--retain-self-play-data` when you
+need to keep those raw shard files for debugging or offline analysis.
+
 For a local CPU/CUDA timing comparison, run the same checkpoint and
 self-play dataset twice, changing only `--device`:
 

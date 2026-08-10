@@ -200,6 +200,7 @@ export interface GeneratePlayingSelfPlayDatasetOptions {
   maxDecisionSteps?: number;
   gameRunner?: PlayingSelfPlayGameRunner;
   format?: typeof PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT | typeof DATASET_FORMAT;
+  binaryCompression?: PlayingSelfPlayBinaryCompression;
 }
 
 export interface PlayingSelfPlayGameRunRequest {
@@ -281,9 +282,11 @@ export interface PlayingSelfPlayBinaryTensorFieldSchema {
 export interface PlayingSelfPlayBinaryTensorSchema {
   shardSchemaVersion: typeof PLAYING_SELF_PLAY_BINARY_SHARD_SCHEMA_VERSION;
   byteOrder: "little-endian";
-  compression: "gzip";
+  compression: PlayingSelfPlayBinaryCompression;
   fields: readonly PlayingSelfPlayBinaryTensorFieldSchema[];
 }
+
+export type PlayingSelfPlayBinaryCompression = "none" | "gzip";
 
 interface PlayingSelfPlayBinaryTensorFieldTypes {
   modelInput: "float32";
@@ -317,7 +320,7 @@ const BINARY_SHARD_MAGIC = Buffer.from("NPSPBD01", "ascii");
 const PLAYING_SELF_PLAY_BINARY_TENSOR_SCHEMA: PlayingSelfPlayBinaryTensorSchema = {
   shardSchemaVersion: PLAYING_SELF_PLAY_BINARY_SHARD_SCHEMA_VERSION,
   byteOrder: "little-endian",
-  compression: "gzip",
+  compression: "none",
   fields: [
     { name: "modelInput", dtype: "float32", shape: [MODEL_INPUT_FEATURE_COUNT] },
     { name: "legalPlayMask", dtype: "uint8", shape: [CARD_COUNT] },
@@ -335,7 +338,8 @@ function createPlayingSelfPlayShardWriter(
   directory: string,
   shardIndex: number,
   startSeed: number,
-  format: typeof PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT | typeof DATASET_FORMAT
+  format: typeof PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT | typeof DATASET_FORMAT,
+  binaryCompression: PlayingSelfPlayBinaryCompression
 ): PlayingSelfPlayShardWriter {
   if (format === DATASET_FORMAT) {
     return createJsonlShardWriter(
@@ -346,13 +350,19 @@ function createPlayingSelfPlayShardWriter(
     ) as PlayingSelfPlayShardWriter;
   }
 
-  return createBinaryPlayingSelfPlayShardWriter(directory, shardIndex, startSeed);
+  return createBinaryPlayingSelfPlayShardWriter(
+    directory,
+    shardIndex,
+    startSeed,
+    binaryCompression
+  );
 }
 
 function createBinaryPlayingSelfPlayShardWriter(
   directory: string,
   shardIndex: number,
-  startSeed: number
+  startSeed: number,
+  compression: PlayingSelfPlayBinaryCompression
 ): PlayingSelfPlayShardWriter {
   const fileName = binaryShardFileName(shardIndex);
   const samples: PlayingSelfPlayTensorSample[] = [];
@@ -376,7 +386,7 @@ function createBinaryPlayingSelfPlayShardWriter(
         throw new Error(`Cannot close shard ${fileName} more than once.`);
       }
       closed = true;
-      const bytes = serializeBinaryPlayingSelfPlayShard(samples);
+      const bytes = serializeBinaryPlayingSelfPlayShard(samples, compression);
       await writeFile(join(directory, fileName), bytes);
       return {
         file: fileName,
@@ -395,7 +405,10 @@ function createBinaryPlayingSelfPlayShardWriter(
   };
 }
 
-function serializeBinaryPlayingSelfPlayShard(samples: readonly PlayingSelfPlayTensorSample[]): Buffer {
+function serializeBinaryPlayingSelfPlayShard(
+  samples: readonly PlayingSelfPlayTensorSample[],
+  compression: PlayingSelfPlayBinaryCompression
+): Buffer {
   const sampleCount = samples.length;
   const modelInput = new Float32Array(sampleCount * MODEL_INPUT_FEATURE_COUNT);
   const legalPlayMask = new Uint8Array(sampleCount * CARD_COUNT);
@@ -437,7 +450,8 @@ function serializeBinaryPlayingSelfPlayShard(samples: readonly PlayingSelfPlayTe
     byteOffset += byteLength;
     return record;
   });
-  const payload = gzipSync(Buffer.concat(buffers));
+  const rawPayload = Buffer.concat(buffers);
+  const payload = compression === "gzip" ? gzipSync(rawPayload) : rawPayload;
   const header = Buffer.from(JSON.stringify({
     shardSchemaVersion: PLAYING_SELF_PLAY_BINARY_SHARD_SCHEMA_VERSION,
     sampleType: PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE,
@@ -446,7 +460,7 @@ function serializeBinaryPlayingSelfPlayShard(samples: readonly PlayingSelfPlayTe
     modelInputFeatureCount: MODEL_INPUT_FEATURE_COUNT,
     cardCount: CARD_COUNT,
     byteOrder: "little-endian",
-    compression: "gzip",
+    compression,
     uncompressedByteLength: byteOffset,
     fields
   }), "utf8");
@@ -468,6 +482,7 @@ export async function generatePlayingSelfPlayDataset(
 
   const outputDirectory = resolve(options.outputDirectory);
   const format = options.format ?? PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT;
+  const binaryCompression = options.binaryCompression ?? "none";
   await ensureOutputDoesNotExist(outputDirectory);
   await mkdir(dirname(outputDirectory), { recursive: true });
 
@@ -566,7 +581,13 @@ export async function generatePlayingSelfPlayDataset(
       }
 
       if (activeShard === null) {
-        activeShard = createPlayingSelfPlayShardWriter(tempDirectory, shards.length, seed, format);
+        activeShard = createPlayingSelfPlayShardWriter(
+          tempDirectory,
+          shards.length,
+          seed,
+          format,
+          binaryCompression
+        );
         shardGameCount = 0;
       }
 
@@ -993,7 +1014,7 @@ function validatePlayingSelfPlayBinaryTensorSchema(
   if (
     schema.shardSchemaVersion !== PLAYING_SELF_PLAY_BINARY_SHARD_SCHEMA_VERSION ||
     schema.byteOrder !== "little-endian" ||
-    schema.compression !== "gzip"
+    !isSupportedPlayingSelfPlayBinaryCompression(schema.compression)
   ) {
     throw new Error("Binary self-play manifest tensorSchema metadata mismatch.");
   }
@@ -1010,6 +1031,12 @@ function validatePlayingSelfPlayBinaryTensorSchema(
       throw new Error(`Binary self-play manifest tensorSchema field ${index} mismatch.`);
     }
   });
+}
+
+function isSupportedPlayingSelfPlayBinaryCompression(
+  value: string
+): value is PlayingSelfPlayBinaryCompression {
+  return value === "none" || value === "gzip";
 }
 
 function validateRolloutRosterManifest(roster: PlayingSelfPlayRolloutRosterManifest): void {
@@ -1689,7 +1716,10 @@ function createPlayingSelfPlayManifest(input: {
   };
 
   if (input.format === PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT) {
-    manifest.tensorSchema = PLAYING_SELF_PLAY_BINARY_TENSOR_SCHEMA;
+    manifest.tensorSchema = {
+      ...PLAYING_SELF_PLAY_BINARY_TENSOR_SCHEMA,
+      compression: input.options.binaryCompression ?? "none"
+    };
   }
 
   return manifest;
@@ -1738,6 +1768,15 @@ function validatePlayingSelfPlayGenerationOptions(
     options.format !== PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT
   ) {
     throw new Error(`format must be ${PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT} or ${DATASET_FORMAT}.`);
+  }
+  if (
+    options.binaryCompression !== undefined &&
+    !isSupportedPlayingSelfPlayBinaryCompression(options.binaryCompression)
+  ) {
+    throw new Error("binaryCompression must be none or gzip.");
+  }
+  if (options.format === DATASET_FORMAT && options.binaryCompression !== undefined) {
+    throw new Error("binaryCompression is only supported for binary self-play format.");
   }
 
   if (options.outputDirectory.length === 0) {
