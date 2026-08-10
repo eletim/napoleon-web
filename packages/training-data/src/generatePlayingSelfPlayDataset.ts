@@ -141,12 +141,36 @@ export interface PlayingSelfPlayPolicy {
   metadata: unknown;
   runtime?: PlayingSelfPlayPolicyRuntime;
   predictLogits: (modelInput: Float32Array | readonly number[]) => Promise<Float32Array>;
+  getInferenceStats?: () => PlayingSelfPlayInferenceStats;
+  resetInferenceStats?: () => void;
 }
 
 export interface PlayingSelfPlayPolicyRuntime {
   requestedInferenceDevice: "cpu" | "auto" | "cuda";
   resolvedInferenceDevice: "cpu" | "cuda";
   executionProvider: "cpu" | "cuda";
+}
+
+export interface PlayingSelfPlayInferenceStats {
+  requestCount: number;
+  sessionRunCount: number;
+  meanBatchSize: number;
+  maxObservedBatchSize: number;
+  batchSizeHistogram: Readonly<Record<string, number>>;
+}
+
+export interface PlayingSelfPlayRolloutTiming {
+  schemaVersion: 1;
+  rolloutElapsedSeconds: number;
+  rolloutWorkers: number;
+  rolloutConcurrency: number;
+  inferenceMaxBatchSize: number | null;
+  inference: PlayingSelfPlayInferenceStats;
+  policies: readonly {
+    label: string;
+    source: typeof CURRENT_POLICY_ROSTER_SOURCE | typeof FROZEN_ONNX_ROSTER_SOURCE;
+    stats: PlayingSelfPlayInferenceStats;
+  }[];
 }
 
 export interface PlayingSelfPlayPolicyArtifactOptions {
@@ -168,6 +192,8 @@ export interface GeneratePlayingSelfPlayDatasetOptions {
   gameCount: number;
   gamesPerShard: number;
   rolloutWorkers?: number;
+  rolloutConcurrency?: number;
+  inferenceMaxBatchSize?: number;
   temperature?: number;
   rolloutRoster?: PlayingSelfPlayRolloutRosterOptions;
   onProgress?: (progress: DatasetGenerationProgress) => void;
@@ -192,6 +218,7 @@ export interface PlayingSelfPlayGameRunResult {
   record?: AutomatedGameRecord;
   samples?: readonly PlayingSelfPlaySample[];
   tensorSamples?: readonly PlayingSelfPlayTensorSample[];
+  rolloutInferenceStats?: PlayingSelfPlayInferenceStats;
 }
 
 export interface PlayingSelfPlayGameRunner {
@@ -276,6 +303,7 @@ interface PlayingSelfPlayBinaryTensorFieldTypes {
 export interface GeneratePlayingSelfPlayDatasetResult {
   outputDirectory: string;
   manifest: PlayingSelfPlayDatasetManifest;
+  rolloutTiming: PlayingSelfPlayRolloutTiming;
 }
 
 type PlayingSelfPlayWritableSample = PlayingSelfPlaySample | PlayingSelfPlayTensorSample;
@@ -474,6 +502,9 @@ export async function generatePlayingSelfPlayDataset(
   let activeShard: PlayingSelfPlayShardWriter | null = null;
   const gameRunner = options.gameRunner ?? defaultPlayingSelfPlayGameRunner;
   const rolloutWorkers = options.rolloutWorkers ?? 1;
+  const rolloutConcurrency = options.rolloutConcurrency ?? rolloutWorkers;
+  const rolloutStartTime = process.hrtime.bigint();
+  resetRolloutInferenceStats(options);
 
   try {
     const shards: DatasetShardManifest[] = [];
@@ -484,6 +515,7 @@ export async function generatePlayingSelfPlayDataset(
     let pendingError: unknown = null;
     const inFlight = new Set<Promise<void>>();
     const completedResults = new Map<number, AutomatedGameRecord | PlayingSelfPlayGameRunResult>();
+    const runnerInferenceStats: PlayingSelfPlayInferenceStats[] = [];
 
     const startGame = (gameOffset: number): void => {
       const seed = options.startSeed + gameOffset;
@@ -521,7 +553,7 @@ export async function generatePlayingSelfPlayDataset(
       while (
         pendingError === null &&
         nextGameOffsetToStart < options.gameCount &&
-        inFlight.size < rolloutWorkers
+        inFlight.size < rolloutConcurrency
       ) {
         startGame(nextGameOffsetToStart);
         nextGameOffsetToStart += 1;
@@ -544,6 +576,9 @@ export async function generatePlayingSelfPlayDataset(
       }
 
       completedResults.delete(gameOffset);
+      if (isPlayingSelfPlayGameRunResult(result) && result.rolloutInferenceStats !== undefined) {
+        runnerInferenceStats.push(result.rolloutInferenceStats);
+      }
 
       if (activeShard === null) {
         activeShard = createPlayingSelfPlayShardWriter(
@@ -602,6 +637,13 @@ export async function generatePlayingSelfPlayDataset(
       rolloutRoster,
       format
     });
+    const rolloutTiming = createPlayingSelfPlayRolloutTiming({
+      options,
+      rolloutWorkers,
+      rolloutConcurrency,
+      runnerInferenceStats,
+      rolloutElapsedSeconds: elapsedSecondsSince(rolloutStartTime)
+    });
 
     validatePlayingSelfPlayDatasetManifest(manifest);
     await writeFile(join(tempDirectory, "manifest.json"), serializeManifest(manifest), "utf8");
@@ -609,7 +651,8 @@ export async function generatePlayingSelfPlayDataset(
 
     return {
       outputDirectory: options.outputDirectory,
-      manifest
+      manifest,
+      rolloutTiming
     };
   } catch (error) {
     if (activeShard !== null) {
@@ -717,7 +760,12 @@ async function getSamplesForGameRunResult(
 function isPlayingSelfPlayGameRunResult(
   result: AutomatedGameRecord | PlayingSelfPlayGameRunResult
 ): result is PlayingSelfPlayGameRunResult {
-  return "samples" in result || "tensorSamples" in result || "record" in result;
+  return (
+    "samples" in result ||
+    "record" in result ||
+    "tensorSamples" in result ||
+    "rolloutInferenceStats" in result
+  );
 }
 
 export function calculatePlayingSelfPlayLogProbability(options: {
@@ -1677,6 +1725,29 @@ function createPlayingSelfPlayManifest(input: {
   return manifest;
 }
 
+function createPlayingSelfPlayRolloutTiming(input: {
+  options: GeneratePlayingSelfPlayDatasetOptions;
+  rolloutWorkers: number;
+  rolloutConcurrency: number;
+  runnerInferenceStats: readonly PlayingSelfPlayInferenceStats[];
+  rolloutElapsedSeconds: number;
+}): PlayingSelfPlayRolloutTiming {
+  const policies = collectRolloutPolicyStats(input.options);
+
+  return {
+    schemaVersion: 1,
+    rolloutElapsedSeconds: input.rolloutElapsedSeconds,
+    rolloutWorkers: input.rolloutWorkers,
+    rolloutConcurrency: input.rolloutConcurrency,
+    inferenceMaxBatchSize: input.options.inferenceMaxBatchSize ?? null,
+    inference: combineInferenceStats([
+      ...policies.map((policy) => policy.stats),
+      ...input.runnerInferenceStats
+    ]),
+    policies
+  };
+}
+
 function validatePlayingSelfPlayGenerationOptions(
   options: GeneratePlayingSelfPlayDatasetOptions & { temperature: number }
 ): void {
@@ -1684,6 +1755,10 @@ function validatePlayingSelfPlayGenerationOptions(
   validatePositiveInteger("gameCount", options.gameCount);
   validatePositiveInteger("gamesPerShard", options.gamesPerShard);
   validatePositiveInteger("rolloutWorkers", options.rolloutWorkers ?? 1);
+  validatePositiveInteger("rolloutConcurrency", options.rolloutConcurrency ?? options.rolloutWorkers ?? 1);
+  if (options.inferenceMaxBatchSize !== undefined) {
+    validatePositiveInteger("inferenceMaxBatchSize", options.inferenceMaxBatchSize);
+  }
   validateTemperature(options.temperature);
   validateRolloutRosterOptions(options.rolloutRoster);
 
@@ -1719,6 +1794,91 @@ function validatePlayingSelfPlayGenerationOptions(
       `Dataset would require ${expectedShardCount} shards, exceeding the maximum ${MAX_SHARD_COUNT}.`
     );
   }
+}
+
+function resetRolloutInferenceStats(options: GeneratePlayingSelfPlayDatasetOptions): void {
+  for (const policy of collectRolloutPolicies(options)) {
+    policy.resetInferenceStats?.();
+  }
+}
+
+function collectRolloutPolicyStats(options: GeneratePlayingSelfPlayDatasetOptions): PlayingSelfPlayRolloutTiming["policies"] {
+  return collectRolloutPoliciesWithLabels(options).map((entry) => ({
+    label: entry.label,
+    source: entry.source,
+    stats: entry.policy.getInferenceStats?.() ?? emptyInferenceStats()
+  }));
+}
+
+function collectRolloutPolicies(options: GeneratePlayingSelfPlayDatasetOptions): readonly PlayingSelfPlayPolicy[] {
+  return collectRolloutPoliciesWithLabels(options).map((entry) => entry.policy);
+}
+
+function collectRolloutPoliciesWithLabels(options: GeneratePlayingSelfPlayDatasetOptions): readonly {
+  label: string;
+  source: typeof CURRENT_POLICY_ROSTER_SOURCE | typeof FROZEN_ONNX_ROSTER_SOURCE;
+  policy: PlayingSelfPlayPolicy;
+}[] {
+  const entries: {
+    label: string;
+    source: typeof CURRENT_POLICY_ROSTER_SOURCE | typeof FROZEN_ONNX_ROSTER_SOURCE;
+    policy: PlayingSelfPlayPolicy;
+  }[] = [{
+    label: "current-policy",
+    source: CURRENT_POLICY_ROSTER_SOURCE,
+    policy: options.playingPolicy
+  }];
+  const seen = new Set<PlayingSelfPlayPolicy>([options.playingPolicy]);
+
+  for (const [index, seat] of normalizeRolloutRosterOptions(options.rolloutRoster).seats.entries()) {
+    if (seat.source !== FROZEN_ONNX_ROSTER_SOURCE || seen.has(seat.policy)) {
+      continue;
+    }
+    seen.add(seat.policy);
+    entries.push({
+      label: `frozen-onnx:${seat.artifact.artifactId ?? basename(seat.artifact.metadataPath)}:seat-${index}`,
+      source: FROZEN_ONNX_ROSTER_SOURCE,
+      policy: seat.policy
+    });
+  }
+
+  return entries;
+}
+
+function emptyInferenceStats(): PlayingSelfPlayInferenceStats {
+  return {
+    requestCount: 0,
+    sessionRunCount: 0,
+    meanBatchSize: 0,
+    maxObservedBatchSize: 0,
+    batchSizeHistogram: {}
+  };
+}
+
+function combineInferenceStats(
+  statsList: readonly PlayingSelfPlayInferenceStats[]
+): PlayingSelfPlayInferenceStats {
+  const combined = emptyInferenceStats();
+
+  for (const stats of statsList) {
+    combined.requestCount += stats.requestCount;
+    combined.sessionRunCount += stats.sessionRunCount;
+    combined.maxObservedBatchSize = Math.max(combined.maxObservedBatchSize, stats.maxObservedBatchSize);
+    for (const [batchSize, count] of Object.entries(stats.batchSizeHistogram)) {
+      combined.batchSizeHistogram = {
+        ...combined.batchSizeHistogram,
+        [batchSize]: (combined.batchSizeHistogram[batchSize] ?? 0) + count
+      };
+    }
+  }
+
+  combined.meanBatchSize =
+    combined.sessionRunCount === 0 ? 0 : combined.requestCount / combined.sessionRunCount;
+  return combined;
+}
+
+function elapsedSecondsSince(startTime: bigint): number {
+  return Number(process.hrtime.bigint() - startTime) / 1_000_000_000;
 }
 
 async function createRolloutRosterManifest(

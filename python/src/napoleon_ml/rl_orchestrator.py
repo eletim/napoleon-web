@@ -51,6 +51,7 @@ DEFAULT_SELF_PLAY_SEED_BASE = 0
 DEFAULT_TEMPERATURE = 1.0
 DEFAULT_ROLLOUT_ROSTER = ",".join(["current-policy"] * 5)
 DEFAULT_ROLLOUT_WORKERS = 1
+DEFAULT_INFERENCE_MAX_BATCH_SIZE = 256
 DEFAULT_LEARNING_RATE = 1e-5
 DEFAULT_EPOCHS = 1
 DEFAULT_BATCH_SIZE = 128
@@ -77,6 +78,8 @@ class PlayingRlRunConfig:
     temperature: float = DEFAULT_TEMPERATURE
     rollout_roster: str = DEFAULT_ROLLOUT_ROSTER
     rollout_workers: int = DEFAULT_ROLLOUT_WORKERS
+    rollout_concurrency: int | None = None
+    inference_max_batch_size: int = DEFAULT_INFERENCE_MAX_BATCH_SIZE
     algorithm: str = REINFORCE_ALGORITHM
     learning_rate: float = DEFAULT_LEARNING_RATE
     value_loss_coefficient: float = DEFAULT_VALUE_LOSS_COEFFICIENT
@@ -104,6 +107,8 @@ class PlayingRlRunConfig:
             temperature=self.temperature,
             rollout_roster=self.rollout_roster,
             rollout_workers=self.rollout_workers,
+            rollout_concurrency=self.rollout_concurrency,
+            inference_max_batch_size=self.inference_max_batch_size,
             algorithm=self.algorithm,
             learning_rate=self.learning_rate,
             value_loss_coefficient=self.value_loss_coefficient,
@@ -135,6 +140,8 @@ class PlayingRlRunConfig:
             "temperature": self.temperature,
             "rolloutRoster": self.rollout_roster,
             "rolloutWorkers": self.rollout_workers,
+            "rolloutConcurrency": _effective_rollout_concurrency(self),
+            "inferenceMaxBatchSize": self.inference_max_batch_size,
             "algorithm": self.algorithm,
             "learningRate": self.learning_rate,
             "valueLossCoefficient": self.value_loss_coefficient,
@@ -253,7 +260,9 @@ def _run_iteration(
     print(
         f"[iter {iteration}/{total}] self-play "
         f"{config.games_per_iteration} games start_seed={start_seed} "
-        f"workers={config.rollout_workers}",
+        f"workers={config.rollout_workers} "
+        f"concurrency={_effective_rollout_concurrency(config)} "
+        f"max_batch={config.inference_max_batch_size}",
         flush=True,
     )
     node_summary = _run_node_json(
@@ -278,6 +287,10 @@ def _run_iteration(
             config.rollout_roster,
             "--rollout-workers",
             str(config.rollout_workers),
+            "--rollout-concurrency",
+            str(_effective_rollout_concurrency(config)),
+            "--inference-max-batch-size",
+            str(config.inference_max_batch_size),
             "--inference-device",
             config.inference_device,
             "--artifact-id",
@@ -286,6 +299,21 @@ def _run_iteration(
             f"[iter {iteration}/{total}] self-play ",
         ],
         cwd=_repo_root(),
+    )
+    atomic_write_json(
+        iteration_dir / "selfplay-rollout-timing.json",
+        {
+            "schemaVersion": ORCHESTRATOR_SCHEMA_VERSION,
+            "rolloutWorkers": node_summary["rolloutWorkers"],
+            "rolloutConcurrency": node_summary["rolloutConcurrency"],
+            "inferenceMaxBatchSize": node_summary["inferenceMaxBatchSize"],
+            "rolloutElapsedSeconds": node_summary["rolloutElapsedSeconds"],
+            "inferenceRequestCount": node_summary["inferenceRequestCount"],
+            "inferenceSessionRunCount": node_summary["inferenceSessionRunCount"],
+            "inferenceMeanBatchSize": node_summary["inferenceMeanBatchSize"],
+            "inferenceMaxObservedBatchSize": node_summary["inferenceMaxObservedBatchSize"],
+            "inferenceBatchSizeHistogram": node_summary["inferenceBatchSizeHistogram"],
+        },
     )
 
     manifest = load_manifest(self_play_dir)
@@ -400,12 +428,20 @@ def _run_iteration(
         "gameCount": manifest.game_count,
         "sampleCount": manifest.sample_count,
         "rolloutWorkers": config.rollout_workers,
+        "rolloutConcurrency": node_summary["rolloutConcurrency"],
+        "inferenceMaxBatchSize": node_summary["inferenceMaxBatchSize"],
         "trainingSeed": training_seed,
         "requestedDevice": report.requested_device,
         "resolvedDevice": report.resolved_device,
         "requestedInferenceDevice": node_summary["requestedInferenceDevice"],
         "resolvedInferenceDevice": node_summary["resolvedInferenceDevice"],
         "executionProvider": node_summary["executionProvider"],
+        "rolloutElapsedSeconds": node_summary["rolloutElapsedSeconds"],
+        "inferenceRequestCount": node_summary["inferenceRequestCount"],
+        "inferenceSessionRunCount": node_summary["inferenceSessionRunCount"],
+        "inferenceMeanBatchSize": node_summary["inferenceMeanBatchSize"],
+        "inferenceMaxObservedBatchSize": node_summary["inferenceMaxObservedBatchSize"],
+        "inferenceBatchSizeHistogram": node_summary["inferenceBatchSizeHistogram"],
         "cudaDeviceName": report.cuda_device_name,
         "diagnosticsPerformed": report.diagnostics_performed,
         "fullDiagnosticsInterval": config.full_diagnostics_interval,
@@ -434,6 +470,8 @@ def _run_iteration(
         "algorithm": config.algorithm,
         "selfPlayGameCount": manifest.game_count,
         "sampleCount": manifest.sample_count,
+        "rolloutConcurrency": node_summary["rolloutConcurrency"],
+        "inferenceMaxBatchSize": node_summary["inferenceMaxBatchSize"],
         "selfPlayFormat": manifest.format,
         "selfPlayTensorCompression": self_play_tensor_compression,
         "selfPlayShardByteLength": self_play_shard_byte_length,
@@ -449,6 +487,11 @@ def _run_iteration(
         "requestedInferenceDevice": node_summary["requestedInferenceDevice"],
         "resolvedInferenceDevice": node_summary["resolvedInferenceDevice"],
         "executionProvider": node_summary["executionProvider"],
+        "rolloutElapsedSeconds": node_summary["rolloutElapsedSeconds"],
+        "inferenceRequestCount": node_summary["inferenceRequestCount"],
+        "inferenceSessionRunCount": node_summary["inferenceSessionRunCount"],
+        "inferenceMeanBatchSize": node_summary["inferenceMeanBatchSize"],
+        "inferenceMaxObservedBatchSize": node_summary["inferenceMaxObservedBatchSize"],
         "cudaDeviceName": report.cuda_device_name,
         "safetyValidationElapsedSeconds": report.safety_validation_elapsed_seconds,
         "preEvalElapsedSeconds": report.pre_eval_elapsed_seconds,
@@ -1047,6 +1090,8 @@ def _validate_resume_config(
         "algorithm",
         "rolloutRoster",
         "inferenceDevice",
+        "rolloutConcurrency",
+        "inferenceMaxBatchSize",
     }
     for key in always_check | provided_config_keys:
         if requested_config.get(key) != _stored_config_value(stored_config, key):
@@ -1061,6 +1106,7 @@ def _config_from_file_dict(
     *,
     build_typescript: bool,
 ) -> PlayingRlRunConfig:
+    rollout_workers = _required_int(_stored_config_value(data, "rolloutWorkers"))
     return PlayingRlRunConfig(
         run_directory=Path(_required_str(data["runDirectory"])),
         initial_checkpoint=Path(_required_str(data["initialCheckpoint"])),
@@ -1071,7 +1117,13 @@ def _config_from_file_dict(
         self_play_seed_base=_required_int(data["selfPlaySeedBase"]),
         temperature=_required_float(data["temperature"]),
         rollout_roster=_required_str(_stored_config_value(data, "rolloutRoster")),
-        rollout_workers=_required_int(_stored_config_value(data, "rolloutWorkers")),
+        rollout_workers=rollout_workers,
+        rollout_concurrency=_required_int(
+            data.get("rolloutConcurrency", rollout_workers)
+        ),
+        inference_max_batch_size=_required_int(
+            _stored_config_value(data, "inferenceMaxBatchSize")
+        ),
         algorithm=_required_str(_stored_config_value(data, "algorithm")),
         learning_rate=_required_float(data["learningRate"]),
         value_loss_coefficient=_required_float(
@@ -1106,6 +1158,8 @@ def _validate_config(config: PlayingRlRunConfig) -> None:
         "evaluation_interval": config.evaluation_interval,
         "evaluation_seed_count": config.evaluation_seed_count,
         "rollout_workers": config.rollout_workers,
+        "rollout_concurrency": _effective_rollout_concurrency(config),
+        "inference_max_batch_size": config.inference_max_batch_size,
     }
     for name, value in positive_ints.items():
         if value <= 0:
@@ -1369,6 +1423,10 @@ def _stored_config_value(data: Mapping[str, object], key: str) -> object:
         return DEFAULT_ROLLOUT_ROSTER
     if key == "rolloutWorkers":
         return DEFAULT_ROLLOUT_WORKERS
+    if key == "rolloutConcurrency":
+        return data.get("rolloutWorkers", DEFAULT_ROLLOUT_WORKERS)
+    if key == "inferenceMaxBatchSize":
+        return DEFAULT_INFERENCE_MAX_BATCH_SIZE
     if key == "fullDiagnosticsInterval":
         return 1
     if key == "device":
@@ -1378,6 +1436,12 @@ def _stored_config_value(data: Mapping[str, object], key: str) -> object:
     if key == "retainSelfPlayData":
         return DEFAULT_RETAIN_SELF_PLAY_DATA
     raise KeyError(key)
+
+
+def _effective_rollout_concurrency(config: PlayingRlRunConfig) -> int:
+    if config.rollout_concurrency is None:
+        return config.rollout_workers
+    return config.rollout_concurrency
 
 
 def _object(value: object) -> dict[str, object]:

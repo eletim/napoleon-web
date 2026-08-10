@@ -35,6 +35,7 @@ import {
 import type {
   PlayingSelfPlayDatasetManifest,
   PlayingSelfPlayGameRunner,
+  PlayingSelfPlayPolicy,
   PlayingSelfPlayRolloutRosterOptions,
   PlayingSelfPlaySample,
   PlayingSelfPlayTensorSample
@@ -452,6 +453,85 @@ describe("generatePlayingSelfPlayDataset", () => {
     });
   });
 
+  it("separates logical rollout concurrency from worker count and writes rollout timing", async () => {
+    await withTempDir(async (directory) => {
+      const onnxPath = join(directory, "policy.onnx");
+      const metadataPath = join(directory, "policy.json");
+      const output = join(directory, "logical-concurrency");
+      await writeFile(onnxPath, "fake-onnx");
+      await writeFile(metadataPath, "fake-metadata");
+
+      let requestCount = 0;
+      let resetCount = 0;
+      const policy: PlayingSelfPlayPolicy = {
+        metadata: { policy: "fake" },
+        predictLogits: async () => {
+          requestCount += 1;
+          return new Float32Array(CARD_COUNT);
+        },
+        getInferenceStats: () => ({
+          requestCount,
+          sessionRunCount: Math.ceil(requestCount / 3),
+          meanBatchSize: requestCount / Math.ceil(requestCount / 3),
+          maxObservedBatchSize: Math.min(3, requestCount),
+          batchSizeHistogram: { "3": Math.floor(requestCount / 3) }
+        }),
+        resetInferenceStats: () => {
+          resetCount += 1;
+          requestCount = 0;
+        }
+      };
+      const activeOffsets = new Set<number>();
+      let maxInFlight = 0;
+      const runner: PlayingSelfPlayGameRunner = {
+        runGame: async (request) => {
+          activeOffsets.add(request.gameOffset);
+          maxInFlight = Math.max(maxInFlight, activeOffsets.size);
+          if (request.gameOffset === 0) {
+            await sleep(20);
+          }
+          try {
+            return await runPlayingSelfPlayGameWithSamples({
+              seed: request.seed,
+              currentPolicy: request.currentPolicy,
+              behaviorPolicyArtifactId: request.behaviorPolicyArtifactId,
+              rolloutRoster: request.rolloutRoster,
+              temperature: request.temperature,
+              maxDecisionSteps: request.maxDecisionSteps
+            });
+          } finally {
+            activeOffsets.delete(request.gameOffset);
+          }
+        }
+      };
+
+      const result = await generatePlayingSelfPlayDataset({
+        outputDirectory: output,
+        playingPolicy: policy,
+        playingPolicyArtifact: { onnxPath, metadataPath },
+        startSeed: 31,
+        gameCount: 4,
+        gamesPerShard: 2,
+        rolloutWorkers: 2,
+        rolloutConcurrency: 4,
+        inferenceMaxBatchSize: 3,
+        format: DATASET_FORMAT,
+        gameRunner: runner
+      });
+
+      expect(resetCount).toBe(1);
+      expect(maxInFlight).toBe(4);
+      expect(result.rolloutTiming).toMatchObject({
+        rolloutWorkers: 2,
+        rolloutConcurrency: 4,
+        inferenceMaxBatchSize: 3
+      });
+      expect(result.rolloutTiming.rolloutElapsedSeconds).toBeGreaterThanOrEqual(0);
+      expect(result.rolloutTiming.inference.requestCount).toBeGreaterThan(0);
+      expect(result.rolloutTiming.inference.sessionRunCount).toBeGreaterThan(0);
+    });
+  });
+
   it("propagates worker failures without publishing a completed dataset", async () => {
     await withTempDir(async (directory) => {
       const artifact = await createPlayingPolicyFixture(directory);
@@ -535,7 +615,7 @@ describe("generatePlayingSelfPlayDataset", () => {
     });
   });
 
-  it("uses runner-provided tensor samples without requiring a record wrapper", async () => {
+  it("uses runner-provided tensor samples without parent policy inference", async () => {
     await withTempDir(async (directory) => {
       const artifact = await createPlayingPolicyFixture(directory);
       const output = join(directory, "worker-tensor-samples");
@@ -545,11 +625,18 @@ describe("generatePlayingSelfPlayDataset", () => {
       const runner: PlayingSelfPlayGameRunner = {
         runGame: async (request) => ({
           seed: request.seed,
-          tensorSamples: [createTensorSample(request.seed, 0)]
+          tensorSamples: [createTensorSample(request.seed, 0)],
+          rolloutInferenceStats: {
+            requestCount: 1,
+            sessionRunCount: 1,
+            meanBatchSize: 1,
+            maxObservedBatchSize: 1,
+            batchSizeHistogram: { "1": 1 }
+          }
         })
       };
 
-      await generatePlayingSelfPlayDataset({
+      const result = await generatePlayingSelfPlayDataset({
         outputDirectory: output,
         playingPolicy: {
           metadata: {},
@@ -559,10 +646,20 @@ describe("generatePlayingSelfPlayDataset", () => {
         startSeed: 45,
         gameCount: 1,
         gamesPerShard: 1,
+        rolloutWorkers: 2,
+        format: PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT,
         gameRunner: runner
       });
 
       expect(parentPredictLogits).not.toHaveBeenCalled();
+      expect(result.manifest.sampleCount).toBe(1);
+      expect(result.rolloutTiming.inference).toMatchObject({
+        requestCount: 1,
+        sessionRunCount: 1,
+        meanBatchSize: 1,
+        maxObservedBatchSize: 1,
+        batchSizeHistogram: { "1": 1 }
+      });
       const manifest = await readManifest(output);
       expect(manifest.sampleCount).toBe(1);
       expect(manifest.tensorSchema?.compression).toBe("none");

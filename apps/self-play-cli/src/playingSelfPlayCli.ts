@@ -31,6 +31,8 @@ interface ParsedArgs {
   games: number;
   gamesPerShard: number;
   rolloutWorkers: number;
+  rolloutConcurrency: number;
+  inferenceMaxBatchSize: number;
   temperature: number;
   inferenceDevice: "cpu" | "auto" | "cuda";
   artifactId: string | undefined;
@@ -46,6 +48,8 @@ const optionNames = new Set([
   "--games",
   "--games-per-shard",
   "--rollout-workers",
+  "--rollout-concurrency",
+  "--inference-max-batch-size",
   "--temperature",
   "--inference-device",
   "--artifact-id",
@@ -66,10 +70,17 @@ export async function runPlayingSelfPlayCli(
     const policy = await loadPolicyOnnxModel({
       onnxPath: args.onnx,
       metadataPath: args.metadata,
-      inferenceDevice: args.inferenceDevice
+      inferenceDevice: args.inferenceDevice,
+      inferenceMaxBatchSize: args.inferenceMaxBatchSize
     });
-    const rolloutRoster = await loadRolloutRoster(args.rolloutRoster, args.inferenceDevice);
-    gameRunner = args.rolloutWorkers === 1
+    const rolloutRoster = await loadRolloutRoster(
+      args.rolloutRoster,
+      args.inferenceDevice,
+      args.inferenceMaxBatchSize
+    );
+    const useChildProcessRunner =
+      args.rolloutWorkers > 1 && policy.runtime?.resolvedInferenceDevice !== "cuda";
+    gameRunner = !useChildProcessRunner
       ? undefined
       : new ChildProcessPlayingSelfPlayGameRunner({
           workerCount: args.rolloutWorkers,
@@ -77,6 +88,7 @@ export async function runPlayingSelfPlayCli(
             onnxPath: args.onnx,
             metadataPath: args.metadata,
             inferenceDevice: args.inferenceDevice,
+            inferenceMaxBatchSize: args.inferenceMaxBatchSize,
             ...await createPolicyFingerprint(args.onnx, args.metadata)
           },
           rolloutRoster: rolloutRoster.workerSeats,
@@ -94,12 +106,17 @@ export async function runPlayingSelfPlayCli(
       gameCount: args.games,
       gamesPerShard: args.gamesPerShard,
       rolloutWorkers: args.rolloutWorkers,
+      rolloutConcurrency: args.rolloutConcurrency,
+      inferenceMaxBatchSize: args.inferenceMaxBatchSize,
       temperature: args.temperature,
       rolloutRoster: rolloutRoster.options,
       onProgress: createProgressReporter(
         args.games,
         (text) => io.stderr.write(`${args.progressPrefix}${text}`),
-        { rolloutWorkers: args.rolloutWorkers }
+        {
+          rolloutWorkers: args.rolloutWorkers,
+          rolloutConcurrency: args.rolloutConcurrency
+        }
       ),
       gameRunner
     });
@@ -112,12 +129,20 @@ export async function runPlayingSelfPlayCli(
       startSeed: result.manifest.startSeed,
       endSeed: result.manifest.endSeed,
       rolloutWorkers: args.rolloutWorkers,
+      rolloutConcurrency: args.rolloutConcurrency,
+      inferenceMaxBatchSize: args.inferenceMaxBatchSize,
       requestedInferenceDevice: result.manifest.behaviorPolicy.requestedInferenceDevice,
       resolvedInferenceDevice: result.manifest.behaviorPolicy.resolvedInferenceDevice,
       executionProvider: result.manifest.behaviorPolicy.executionProvider,
       behaviorOnnxSha256: result.manifest.behaviorPolicy.onnxSha256,
       behaviorMetadataSha256: result.manifest.behaviorPolicy.metadataSha256,
-      rolloutRoster: result.manifest.rolloutRoster
+      rolloutRoster: result.manifest.rolloutRoster,
+      rolloutElapsedSeconds: result.rolloutTiming.rolloutElapsedSeconds,
+      inferenceRequestCount: result.rolloutTiming.inference.requestCount,
+      inferenceSessionRunCount: result.rolloutTiming.inference.sessionRunCount,
+      inferenceMeanBatchSize: result.rolloutTiming.inference.meanBatchSize,
+      inferenceMaxObservedBatchSize: result.rolloutTiming.inference.maxObservedBatchSize,
+      inferenceBatchSizeHistogram: result.rolloutTiming.inference.batchSizeHistogram
     })}\n`);
     return 0;
   } catch (error) {
@@ -153,6 +178,16 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
       "--rollout-workers",
       optionalValue(values, "--rollout-workers") ?? "1"
     ),
+    rolloutConcurrency: parsePositiveInteger(
+      "--rollout-concurrency",
+      optionalValue(values, "--rollout-concurrency") ??
+        optionalValue(values, "--rollout-workers") ??
+        "1"
+    ),
+    inferenceMaxBatchSize: parsePositiveInteger(
+      "--inference-max-batch-size",
+      optionalValue(values, "--inference-max-batch-size") ?? "256"
+    ),
     temperature: parsePositiveNumber(
       "--temperature",
       optionalValue(values, "--temperature") ?? "1"
@@ -171,7 +206,8 @@ interface LoadedRolloutRoster {
 
 async function loadRolloutRoster(
   value: string | undefined,
-  inferenceDevice: "cpu" | "auto" | "cuda"
+  inferenceDevice: "cpu" | "auto" | "cuda",
+  inferenceMaxBatchSize: number
 ): Promise<LoadedRolloutRoster> {
   if (value === undefined) {
     return {
@@ -183,7 +219,8 @@ async function loadRolloutRoster(
   const rawSeats = parseRolloutRosterValue(value);
   const seats = await Promise.all(rawSeats.map((seat) => loadRolloutRosterSeat(
     seat,
-    inferenceDevice
+    inferenceDevice,
+    inferenceMaxBatchSize
   )));
 
   return {
@@ -218,7 +255,8 @@ function parseRolloutRosterValue(value: string): readonly unknown[] {
 
 async function loadRolloutRosterSeat(
   raw: unknown,
-  inferenceDevice: "cpu" | "auto" | "cuda"
+  inferenceDevice: "cpu" | "auto" | "cuda",
+  inferenceMaxBatchSize: number
 ): Promise<{
   option: RolloutRosterSeatOptions;
   workerSeat: WorkerRolloutRosterSeat;
@@ -261,7 +299,8 @@ async function loadRolloutRosterSeat(
   const policy: PlayingSelfPlayPolicy = await loadPolicyOnnxModel({
     onnxPath,
     metadataPath,
-    inferenceDevice
+    inferenceDevice,
+    inferenceMaxBatchSize
   });
   const artifactId = typeof raw.artifactId === "string" ? raw.artifactId : undefined;
   const fingerprint = await createPolicyFingerprint(onnxPath, metadataPath);

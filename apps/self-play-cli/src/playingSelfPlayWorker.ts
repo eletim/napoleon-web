@@ -5,6 +5,7 @@ import {
   CURRENT_POLICY_ROSTER_SOURCE,
   FROZEN_ONNX_ROSTER_SOURCE,
   RULE_BASED_ROSTER_SOURCE,
+  type PlayingSelfPlayInferenceStats,
   runPlayingSelfPlayGameWithSamples,
   type PlayingSelfPlayPolicy,
   type PlayingSelfPlayRolloutRosterOptions
@@ -34,7 +35,8 @@ async function handleMessage(message: PlayingSelfPlayWorkerMessage): Promise<voi
       currentPolicy = await loadPolicyOnnxModel(message.currentPolicy);
       rolloutRoster = await loadWorkerRolloutRoster(
         message.rolloutRoster,
-        message.currentPolicy.inferenceDevice
+        message.currentPolicy.inferenceDevice,
+        message.currentPolicy.inferenceMaxBatchSize
       );
       temperature = message.temperature;
       maxDecisionSteps = message.maxDecisionSteps;
@@ -52,6 +54,7 @@ async function handleMessage(message: PlayingSelfPlayWorkerMessage): Promise<voi
         throw new Error("Worker received run-game before init.");
       }
       try {
+        resetWorkerInferenceStats();
         const result = await runPlayingSelfPlayGameWithSamples({
           seed: message.seed,
           currentPolicy,
@@ -60,12 +63,16 @@ async function handleMessage(message: PlayingSelfPlayWorkerMessage): Promise<voi
           temperature,
           maxDecisionSteps
         });
+        const resultWithStats = {
+          ...result,
+          rolloutInferenceStats: collectWorkerInferenceStats()
+        };
         send({
           type: "game-complete",
           requestId: message.requestId,
           gameOffset: message.gameOffset,
           seed: message.seed,
-          result
+          result: resultWithStats
         });
       } catch (error: unknown) {
         sendError(message.requestId, error);
@@ -75,6 +82,68 @@ async function handleMessage(message: PlayingSelfPlayWorkerMessage): Promise<voi
       process.disconnect?.();
       return;
   }
+}
+
+function resetWorkerInferenceStats(): void {
+  for (const policy of collectWorkerPolicies()) {
+    policy.resetInferenceStats?.();
+  }
+}
+
+function collectWorkerInferenceStats(): PlayingSelfPlayInferenceStats {
+  return combineInferenceStats(
+    collectWorkerPolicies().map((policy) => policy.getInferenceStats?.() ?? emptyInferenceStats())
+  );
+}
+
+function collectWorkerPolicies(): readonly PlayingSelfPlayPolicy[] {
+  const policies: PlayingSelfPlayPolicy[] = [];
+  if (currentPolicy !== null) {
+    policies.push(currentPolicy);
+  }
+  const seen = new Set<PlayingSelfPlayPolicy>(policies);
+
+  for (const seat of rolloutRoster?.seats ?? []) {
+    if (seat.source !== FROZEN_ONNX_ROSTER_SOURCE || seen.has(seat.policy)) {
+      continue;
+    }
+    seen.add(seat.policy);
+    policies.push(seat.policy);
+  }
+
+  return policies;
+}
+
+function emptyInferenceStats(): PlayingSelfPlayInferenceStats {
+  return {
+    requestCount: 0,
+    sessionRunCount: 0,
+    meanBatchSize: 0,
+    maxObservedBatchSize: 0,
+    batchSizeHistogram: {}
+  };
+}
+
+function combineInferenceStats(
+  statsList: readonly PlayingSelfPlayInferenceStats[]
+): PlayingSelfPlayInferenceStats {
+  const combined = emptyInferenceStats();
+
+  for (const stats of statsList) {
+    combined.requestCount += stats.requestCount;
+    combined.sessionRunCount += stats.sessionRunCount;
+    combined.maxObservedBatchSize = Math.max(combined.maxObservedBatchSize, stats.maxObservedBatchSize);
+    for (const [batchSize, count] of Object.entries(stats.batchSizeHistogram)) {
+      combined.batchSizeHistogram = {
+        ...combined.batchSizeHistogram,
+        [batchSize]: (combined.batchSizeHistogram[batchSize] ?? 0) + count
+      };
+    }
+  }
+
+  combined.meanBatchSize =
+    combined.sessionRunCount === 0 ? 0 : combined.requestCount / combined.sessionRunCount;
+  return combined;
 }
 
 async function createPolicyFingerprint(
@@ -107,7 +176,8 @@ async function createRolloutRosterFingerprint(
 
 async function loadWorkerRolloutRoster(
   seats: readonly WorkerRolloutRosterSeat[] | undefined,
-  inferenceDevice: "cpu" | "auto" | "cuda"
+  inferenceDevice: "cpu" | "auto" | "cuda",
+  inferenceMaxBatchSize: number | undefined
 ): Promise<PlayingSelfPlayRolloutRosterOptions | undefined> {
   if (seats === undefined) {
     return undefined;
@@ -126,7 +196,8 @@ async function loadWorkerRolloutRoster(
             policy: await loadPolicyOnnxModel({
               onnxPath: seat.onnxPath,
               metadataPath: seat.metadataPath,
-              inferenceDevice
+              inferenceDevice,
+              inferenceMaxBatchSize
             }),
             artifact: {
               onnxPath: seat.onnxPath,
