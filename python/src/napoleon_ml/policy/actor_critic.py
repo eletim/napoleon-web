@@ -33,6 +33,7 @@ from napoleon_ml.policy.device import (
     ResolvedTorchDevice,
     cpu_state_dict,
     elapsed_seconds_since,
+    playing_self_play_batch_to_device,
     resolve_torch_device,
     start_timing,
 )
@@ -390,7 +391,10 @@ def train_policy_actor_critic(
     for _ in range(settings.epochs):
         for batch in dataloader:
             optimizer.zero_grad(set_to_none=True)
-            model_input, selected, legal_mask, reward, _ = _batch_to_device(batch, device)
+            model_input, selected, legal_mask, reward, _ = playing_self_play_batch_to_device(
+                batch,
+                device,
+            )
 
             logits, value_prediction = loaded.training_model.forward_actor_critic(model_input)
             selected_log_probability = masked_selected_log_probability(
@@ -538,7 +542,7 @@ def evaluate_actor_critic_policy(
             legal_mask,
             reward,
             behavior_log_probability,
-        ) = _batch_to_device(batch, device)
+        ) = playing_self_play_batch_to_device(batch, device)
 
         logits, value_prediction = model.forward_actor_critic(model_input)
         selected_log_probability = masked_selected_log_probability(
@@ -843,21 +847,6 @@ def _save_actor_critic_checkpoint(
         }
     torch.save(checkpoint, path)
 
-
-def _batch_to_device(
-    batch: PlayingSelfPlayTorchSample,
-    device: ResolvedTorchDevice,
-) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
-    return (
-        batch["model_input"].to(device=device.torch_device, dtype=torch.float32),
-        batch["selected_card_index"].to(device=device.torch_device, dtype=torch.long),
-        batch["legal_play_mask"].to(device=device.torch_device, dtype=torch.bool),
-        batch["terminal_reward"].to(device=device.torch_device, dtype=torch.float32),
-        batch["behavior_log_probability"].to(
-            device=device.torch_device,
-            dtype=torch.float32,
-        ),
-    )
 
 def _validate_settings(settings: ActorCriticTrainSettings) -> None:
     if settings.epochs <= 0:

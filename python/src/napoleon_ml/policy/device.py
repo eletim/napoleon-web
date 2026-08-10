@@ -9,6 +9,8 @@ from typing import Literal
 import torch
 from torch import Tensor, nn
 
+from napoleon_ml.dataset.pytorch import PlayingSelfPlayTorchSample
+
 RequestedTorchDevice = Literal["auto", "cpu", "cuda"]
 SUPPORTED_TORCH_DEVICES: tuple[RequestedTorchDevice, ...] = ("auto", "cpu", "cuda")
 
@@ -86,3 +88,19 @@ def elapsed_seconds_since(start: float, device: ResolvedTorchDevice) -> float:
 
 def cpu_state_dict(model: nn.Module) -> dict[str, Tensor]:
     return {name: value.detach().cpu() for name, value in model.state_dict().items()}
+
+
+def playing_self_play_batch_to_device(
+    batch: PlayingSelfPlayTorchSample,
+    device: ResolvedTorchDevice,
+) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
+    return (
+        batch["model_input"].to(device=device.torch_device, dtype=torch.float32),
+        batch["selected_card_index"].to(device=device.torch_device, dtype=torch.long),
+        batch["legal_play_mask"].to(device=device.torch_device, dtype=torch.bool),
+        batch["terminal_reward"].to(device=device.torch_device, dtype=torch.float32),
+        batch["behavior_log_probability"].to(
+            device=device.torch_device,
+            dtype=torch.float32,
+        ),
+    )
