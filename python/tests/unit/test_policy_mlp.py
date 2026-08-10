@@ -14,6 +14,7 @@ import torch
 import napoleon_ml.policy.onnx_export as onnx_export_module
 from napoleon_ml.cli.evaluate_policy_mlp import main as evaluate_main
 from napoleon_ml.cli.export_policy_onnx import main as export_main
+from napoleon_ml.cli.migrate_policy_architecture import main as migrate_architecture_main
 from napoleon_ml.cli.train_policy_mlp import main as train_main
 from napoleon_ml.dataset.constants import CARD_COUNT, EXPECTED_CARD_IDS
 from napoleon_ml.dataset.pytorch import create_playing_dataloader
@@ -24,6 +25,7 @@ from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 from napoleon_ml.policy.checkpoint import (
     PolicyCheckpointCompatibilityError,
     load_policy_checkpoint,
+    migrate_policy_checkpoint_to_hidden_dims,
     migrate_policy_checkpoint_v1_to_v2,
 )
 from napoleon_ml.policy.metrics import (
@@ -131,6 +133,44 @@ def test_seeded_policy_model_initialization_is_reproducible() -> None:
         assert first_parameter.equal(second_parameter)
 
 
+def test_policy_config_loads_legacy_and_roundtrips_hidden_dims() -> None:
+    legacy = PolicyMlpConfig.from_dict(
+        {
+            "input_dim": MODEL_INPUT_FEATURE_COUNT,
+            "hidden_dim": 8,
+            "hidden_layers": 2,
+            "dropout": 0.0,
+        }
+    )
+    assert legacy.hidden_widths == (8, 8)
+    assert legacy.to_dict()["hidden_dims"] == [8, 8]
+
+    large = PolicyMlpConfig(hidden_dims=(512, 512, 256, 256))
+    assert large.hidden_dim == 512
+    assert large.hidden_layers == 4
+    assert PolicyMlpConfig.from_dict(large.to_dict()).hidden_widths == (
+        512,
+        512,
+        256,
+        256,
+    )
+    assert PolicyMlpConfig.from_dict({"hidden_dims": [512, 512, 256, 256]}).hidden_widths == (
+        512,
+        512,
+        256,
+        256,
+    )
+    with pytest.raises(ValueError, match="hidden_layers"):
+        PolicyMlpConfig.from_dict({"hidden_dim": 512, "hidden_layers": 2, "hidden_dims": [512]})
+
+
+def test_large_policy_mlp_outputs_card_logits() -> None:
+    model = PolicyMlpModel(PolicyMlpConfig(hidden_dims=(512, 512, 256, 256)))
+    logits = model(torch.zeros((2, MODEL_INPUT_FEATURE_COUNT), dtype=torch.float32))
+
+    assert logits.shape == (2, CARD_COUNT)
+
+
 def test_policy_masking_loss_accuracy_and_inference_exclude_illegal_cards() -> None:
     logits = torch.zeros((2, CARD_COUNT), dtype=torch.float32)
     target = torch.tensor([1, 4], dtype=torch.long)
@@ -182,6 +222,9 @@ def test_policy_masking_rejects_rows_without_legal_cards(operation: Any) -> None
         lambda: PolicyMlpConfig(input_dim=0),
         lambda: PolicyMlpConfig(hidden_dim=0),
         lambda: PolicyMlpConfig(hidden_layers=0),
+        lambda: PolicyMlpConfig(hidden_dims=()),
+        lambda: PolicyMlpConfig(hidden_dims=(8, 0)),
+        lambda: PolicyMlpConfig(hidden_dims=(8, -1)),
         lambda: PolicyMlpConfig(dropout=1.0),
     ),
 )
@@ -479,6 +522,133 @@ def test_migrate_policy_checkpoint_v1_to_v2_preserves_logits_and_zeroes_new_role
     torch.testing.assert_close(migrated_logits, old_logits, rtol=0, atol=1e-7)
 
 
+def test_migrate_policy_checkpoint_to_hidden_dims_preserves_logits_and_reloads(
+    tmp_path: Path,
+) -> None:
+    _write_dataset(tmp_path, seeds=(0,))
+    source_path = tmp_path.parent / f"{tmp_path.name}-small-policy.pt"
+    migrated_path = tmp_path.parent / f"{tmp_path.name}-large-policy.pt"
+    source_model = create_seeded_policy_model(
+        PolicyMlpConfig(hidden_dim=8, hidden_layers=2),
+        seed=123,
+    )
+    _write_current_policy_checkpoint(source_path, source_model)
+    source_sha256 = hashlib.sha256(source_path.read_bytes()).hexdigest()
+
+    migrated = migrate_policy_checkpoint_to_hidden_dims(
+        source_path,
+        migrated_path,
+        target_hidden_dims=(16, 16, 12, 12),
+        seed=456,
+    )
+    migrated_model, checkpoint = load_policy_checkpoint(
+        migrated_path,
+        manifest=load_manifest(tmp_path),
+    )
+    provenance = cast(dict[str, object], migrated["architecture_migration_provenance"])
+    assert provenance["sourceCheckpointSha256"] == source_sha256
+    assert provenance["sourceModelConfig"] == source_model.config.to_dict()
+    assert cast(dict[str, object], provenance["targetModelConfig"])["hidden_dims"] == [
+        16,
+        16,
+        12,
+        12,
+    ]
+    assert checkpoint["architecture_migration_provenance"] == provenance
+    assert migrated_model.config.hidden_widths == (16, 16, 12, 12)
+
+    model_input = torch.randn(
+        (5, MODEL_INPUT_FEATURE_COUNT),
+        generator=torch.Generator().manual_seed(789),
+    )
+    source_model.eval()
+    migrated_model.eval()
+    with torch.no_grad():
+        source_logits = source_model(model_input)
+        migrated_logits = migrated_model(model_input)
+    torch.testing.assert_close(migrated_logits, source_logits, rtol=0, atol=1e-6)
+
+
+def test_migrated_policy_extra_capacity_receives_optimizer_update(tmp_path: Path) -> None:
+    _write_dataset(tmp_path, seeds=(0,))
+    source_path = tmp_path.parent / f"{tmp_path.name}-small-policy.pt"
+    migrated_path = tmp_path.parent / f"{tmp_path.name}-large-policy.pt"
+    source_model = create_seeded_policy_model(
+        PolicyMlpConfig(hidden_dim=8, hidden_layers=2),
+        seed=123,
+    )
+    _write_current_policy_checkpoint(source_path, source_model)
+    migrate_policy_checkpoint_to_hidden_dims(
+        source_path,
+        migrated_path,
+        target_hidden_dims=(16, 16, 12, 12),
+        seed=456,
+    )
+    model, _ = load_policy_checkpoint(migrated_path, manifest=load_manifest(tmp_path))
+    final_weight = cast(torch.nn.Linear, list(model.network.children())[-1]).weight
+    before_extra = final_weight[:, 8:].detach().clone()
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.01)
+    model.train()
+    model_input = torch.randn(
+        (32, MODEL_INPUT_FEATURE_COUNT),
+        generator=torch.Generator().manual_seed(789),
+    )
+    loss = model(model_input).pow(2).mean()
+    optimizer.zero_grad(set_to_none=True)
+    loss.backward()
+    assert final_weight.grad is not None
+    assert torch.count_nonzero(final_weight.grad[:, 8:]).item() > 0
+    optimizer.step()
+
+    assert torch.count_nonzero(final_weight[:, 8:].detach() - before_extra).item() > 0
+
+
+def test_migrated_policy_checkpoint_exports_to_onnx_with_source_logit_parity(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("onnxruntime")
+    _write_dataset(tmp_path, seeds=(0, 1))
+    source_path = tmp_path.parent / f"{tmp_path.name}-small-policy.pt"
+    migrated_path = tmp_path.parent / f"{tmp_path.name}-large-policy.pt"
+    onnx_path = tmp_path.parent / f"{tmp_path.name}-large-policy.onnx"
+    metadata_path = tmp_path.parent / f"{tmp_path.name}-large-policy.json"
+    source_model = create_seeded_policy_model(
+        PolicyMlpConfig(hidden_dim=8, hidden_layers=2),
+        seed=123,
+    )
+    _write_current_policy_checkpoint(source_path, source_model)
+    assert (
+        migrate_architecture_main(
+            [
+                "--input-checkpoint",
+                str(source_path),
+                "--output",
+                str(migrated_path),
+                "--target-hidden-dims",
+                "16,16,12,12",
+            ]
+        )
+        == 0
+    )
+    migrated_model, _ = load_policy_checkpoint(migrated_path, manifest=load_manifest(tmp_path))
+    report = export_policy_checkpoint_to_onnx(
+        dataset_directory=tmp_path,
+        checkpoint_path=migrated_path,
+        onnx_path=onnx_path,
+        metadata_path=metadata_path,
+        manifest=load_manifest(tmp_path),
+    )
+    assert report.max_abs_logit_diff <= 1e-4
+
+    sample = next(iter_tensorized_samples(tmp_path, verify_integrity=True))
+    model_input = torch.from_numpy(sample.model_input.copy().reshape(1, -1))
+    with torch.no_grad():
+        source_logits = source_model(model_input)
+        migrated_logits = migrated_model(model_input)
+    torch.testing.assert_close(migrated_logits, source_logits, rtol=0, atol=1e-6)
+
+
 def test_evaluate_cli_reports_missing_checkpoint_without_traceback(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -589,6 +759,7 @@ def test_policy_onnx_metadata_records_runtime_contract(tmp_path: Path) -> None:
         "input_dim": MODEL_INPUT_FEATURE_COUNT,
         "hidden_dim": 8,
         "hidden_layers": 1,
+        "hidden_dims": [8],
         "dropout": 0.0,
     }
     onnx_metadata = cast(dict[str, object], metadata["onnx"])
@@ -1043,3 +1214,19 @@ def test_policy_onnx_export_cli_writes_model_metadata_and_checks_runtime_parity(
     )
     batch_logits = session.run([ONNX_OUTPUT_NAME], {ONNX_INPUT_NAME: batch_input})[0]
     assert batch_logits.shape == (2, CARD_COUNT)
+
+
+def _write_current_policy_checkpoint(path: Path, model: PolicyMlpModel) -> None:
+    torch.save(
+        {
+            "checkpoint_schema_version": 1,
+            "model_state": model.state_dict(),
+            "model_config": model.config.to_dict(),
+            "training_config": {},
+            "dataset_schema_version": 1,
+            "playing_encoder_schema_version": 2,
+            "model_input_schema_version": 2,
+            "card_ids_sha256": calculate_card_ids_sha256(),
+        },
+        path,
+    )

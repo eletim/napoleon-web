@@ -34,6 +34,7 @@ class TrainSettings:
     learning_rate: float
     hidden_dim: int
     hidden_layers: int
+    hidden_dims: list[int] | None
     dropout: float
     train_ratio: int
     validation_ratio: int
@@ -51,6 +52,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--hidden-dim", type=int, default=128)
     parser.add_argument("--hidden-layers", type=int, default=2)
+    parser.add_argument(
+        "--hidden-dims",
+        help="Comma-separated hidden widths, e.g. 512,512,256,256. "
+        "Overrides --hidden-dim/--hidden-layers when set.",
+    )
     parser.add_argument("--dropout", type=float, default=0.0)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--no-integrity-check", action="store_true")
@@ -77,6 +83,7 @@ def _run(args: argparse.Namespace) -> int:
         raise ValueError(f"learning-rate must be positive, got {args.learning_rate}.")
 
     split_config = split_config_from_args(args)
+    hidden_dims = _parse_hidden_dims(args.hidden_dims) if args.hidden_dims is not None else None
     settings = TrainSettings(
         seed=args.seed,
         epochs=args.epochs,
@@ -84,6 +91,7 @@ def _run(args: argparse.Namespace) -> int:
         learning_rate=args.learning_rate,
         hidden_dim=args.hidden_dim,
         hidden_layers=args.hidden_layers,
+        hidden_dims=list(hidden_dims) if hidden_dims is not None else None,
         dropout=args.dropout,
         train_ratio=split_config.train,
         validation_ratio=split_config.validation,
@@ -96,6 +104,7 @@ def _run(args: argparse.Namespace) -> int:
     model_config = PolicyMlpConfig(
         hidden_dim=settings.hidden_dim,
         hidden_layers=settings.hidden_layers,
+        hidden_dims=hidden_dims,
         dropout=settings.dropout,
     )
     model = create_seeded_policy_model(model_config, seed=settings.seed)
@@ -190,6 +199,16 @@ def _train_one_epoch(
         raise ValueError("train split contains no policy samples.")
 
     return loss_sum / sample_total
+
+
+def _parse_hidden_dims(value: str) -> tuple[int, ...]:
+    try:
+        widths = tuple(int(part.strip()) for part in value.split(",") if part.strip())
+    except ValueError as error:
+        raise ValueError("hidden-dims must be comma-separated integers.") from error
+    if not widths:
+        raise ValueError("hidden-dims must contain at least one width.")
+    return widths
 
 
 if __name__ == "__main__":

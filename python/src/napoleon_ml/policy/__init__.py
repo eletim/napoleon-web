@@ -17,6 +17,7 @@ from .checkpoint import (
     PolicyCheckpointCompatibilityError,
     load_policy_checkpoint,
     load_policy_logits_checkpoint,
+    migrate_policy_checkpoint_to_hidden_dims,
     migrate_policy_checkpoint_v1_to_v2,
     save_policy_checkpoint,
 )
@@ -89,6 +90,7 @@ __all__ = [
     "load_policy_logits_checkpoint",
     "mask_illegal_policy_logits",
     "migrate_policy_checkpoint_v1_to_v2",
+    "migrate_policy_checkpoint_to_hidden_dims",
     "masked_selected_log_probability",
     "masked_policy_accuracy",
     "masked_policy_cross_entropy",
