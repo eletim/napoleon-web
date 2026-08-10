@@ -58,7 +58,9 @@ DEFAULT_TRAINING_SEED_BASE = 2_000_000_000
 DEFAULT_EVALUATION_INTERVAL = 10
 DEFAULT_EVALUATION_START_SEED = 1_000_000_000
 DEFAULT_EVALUATION_SEED_COUNT = 100
+DEFAULT_INFERENCE_DEVICE = "cpu"
 PLAYING_RL_ALGORITHMS = (REINFORCE_ALGORITHM, ACTOR_CRITIC_ALGORITHM)
+SUPPORTED_INFERENCE_DEVICES = ("cpu", "auto", "cuda")
 
 
 @dataclass(frozen=True)
@@ -84,6 +86,7 @@ class PlayingRlRunConfig:
     evaluation_interval: int = DEFAULT_EVALUATION_INTERVAL
     evaluation_start_seed: int = DEFAULT_EVALUATION_START_SEED
     evaluation_seed_count: int = DEFAULT_EVALUATION_SEED_COUNT
+    inference_device: str = DEFAULT_INFERENCE_DEVICE
     build_typescript: bool = True
 
     def normalized(self) -> PlayingRlRunConfig:
@@ -109,6 +112,7 @@ class PlayingRlRunConfig:
             evaluation_interval=self.evaluation_interval,
             evaluation_start_seed=self.evaluation_start_seed,
             evaluation_seed_count=self.evaluation_seed_count,
+            inference_device=self.inference_device,
             build_typescript=self.build_typescript,
         )
 
@@ -138,6 +142,7 @@ class PlayingRlRunConfig:
             "evaluationInterval": self.evaluation_interval,
             "evaluationStartSeed": self.evaluation_start_seed,
             "evaluationSeedCount": self.evaluation_seed_count,
+            "inferenceDevice": self.inference_device,
         }
 
 
@@ -245,7 +250,7 @@ def _run_iteration(
         f"workers={config.rollout_workers}",
         flush=True,
     )
-    _run_node_json(
+    node_summary = _run_node_json(
         [
             "node",
             str(_repo_root() / "apps/self-play-cli/dist/playingSelfPlayCli.js"),
@@ -267,6 +272,8 @@ def _run_iteration(
             config.rollout_roster,
             "--rollout-workers",
             str(config.rollout_workers),
+            "--inference-device",
+            config.inference_device,
             "--artifact-id",
             f"policy-v{iteration}",
             "--progress-prefix",
@@ -383,6 +390,9 @@ def _run_iteration(
         "trainingSeed": training_seed,
         "requestedDevice": report.requested_device,
         "resolvedDevice": report.resolved_device,
+        "requestedInferenceDevice": node_summary["requestedInferenceDevice"],
+        "resolvedInferenceDevice": node_summary["resolvedInferenceDevice"],
+        "executionProvider": node_summary["executionProvider"],
         "cudaDeviceName": report.cuda_device_name,
         "diagnosticsPerformed": report.diagnostics_performed,
         "fullDiagnosticsInterval": config.full_diagnostics_interval,
@@ -417,6 +427,9 @@ def _run_iteration(
         "nonForcedSampleCount": report.non_forced_sample_count,
         "requestedDevice": report.requested_device,
         "resolvedDevice": report.resolved_device,
+        "requestedInferenceDevice": node_summary["requestedInferenceDevice"],
+        "resolvedInferenceDevice": node_summary["resolvedInferenceDevice"],
+        "executionProvider": node_summary["executionProvider"],
         "cudaDeviceName": report.cuda_device_name,
         "safetyValidationElapsedSeconds": report.safety_validation_elapsed_seconds,
         "preEvalElapsedSeconds": report.pre_eval_elapsed_seconds,
@@ -565,6 +578,8 @@ def _ensure_evaluation(
             str(config.evaluation_start_seed),
             "--seed-count",
             str(config.evaluation_seed_count),
+            "--inference-device",
+            config.inference_device,
             "--progress-prefix",
             f"[eval v{generation}] ",
         ],
@@ -661,6 +676,11 @@ def _build_evaluation_summary(
         "evaluationStartSeed": run["startSeed"],
         "evaluationEndSeed": run["endSeed"],
         "evaluationSeedCount": run["gameCount"],
+        "requestedInferenceDevice": _policy_runtime_value(
+            result, "requestedInferenceDevice"
+        ),
+        "resolvedInferenceDevice": _policy_runtime_value(result, "resolvedInferenceDevice"),
+        "executionProvider": _policy_runtime_value(result, "executionProvider"),
         "scheduledGames": node_summary["scheduledGames"],
         "completedGames": node_summary["completedGames"],
         "failedGames": node_summary["failedGames"],
@@ -739,6 +759,16 @@ def _validate_evaluation_run(
         raise PlayingRlOrchestratorError(
             "evaluation completedCount + failedCount must equal scheduled games."
         )
+
+
+def _policy_runtime_value(result: dict[str, object], key: str) -> object:
+    configuration = _object(result["configuration"])
+    runtime = configuration.get("policyRuntime")
+    if runtime is None:
+        runtime = configuration.get("candidateRuntime")
+    if runtime is None:
+        raise PlayingRlOrchestratorError("evaluation result has no policy runtime metadata.")
+    return _object(runtime)[key]
 
 
 def _paired_comparison(
@@ -977,6 +1007,7 @@ def _validate_resume_config(
         "supervisedManifestSha256",
         "algorithm",
         "rolloutRoster",
+        "inferenceDevice",
     }
     for key in always_check | provided_config_keys:
         if requested_config.get(key) != _stored_config_value(stored_config, key):
@@ -1017,6 +1048,9 @@ def _config_from_file_dict(
         evaluation_interval=_required_int(data["evaluationInterval"]),
         evaluation_start_seed=_required_int(data["evaluationStartSeed"]),
         evaluation_seed_count=_required_int(data["evaluationSeedCount"]),
+        inference_device=_required_inference_device(
+            _stored_config_value(data, "inferenceDevice")
+        ),
         build_typescript=build_typescript,
     ).normalized()
 
@@ -1053,6 +1087,11 @@ def _validate_config(config: PlayingRlRunConfig) -> None:
         raise PlayingRlOrchestratorError(
             "device must be one of "
             f"{', '.join(SUPPORTED_TORCH_DEVICES)}, got {config.device!r}."
+        )
+    if config.inference_device not in SUPPORTED_INFERENCE_DEVICES:
+        raise PlayingRlOrchestratorError(
+            "inference_device must be one of "
+            f"{', '.join(SUPPORTED_INFERENCE_DEVICES)}, got {config.inference_device!r}."
         )
     if config.device == "cuda":
         try:
@@ -1235,6 +1274,8 @@ def _stored_config_value(data: Mapping[str, object], key: str) -> object:
         return 1
     if key == "device":
         return "cpu"
+    if key == "inferenceDevice":
+        return DEFAULT_INFERENCE_DEVICE
     raise KeyError(key)
 
 
@@ -1280,6 +1321,16 @@ def _required_device(value: object) -> RequestedTorchDevice:
         raise PlayingRlOrchestratorError(
             "device must be one of "
             f"{', '.join(SUPPORTED_TORCH_DEVICES)}, got {text!r}."
+        )
+    return text
+
+
+def _required_inference_device(value: object) -> str:
+    text = _required_str(value)
+    if text not in SUPPORTED_INFERENCE_DEVICES:
+        raise PlayingRlOrchestratorError(
+            "inferenceDevice must be one of "
+            f"{', '.join(SUPPORTED_INFERENCE_DEVICES)}, got {text!r}."
         )
     return text
 

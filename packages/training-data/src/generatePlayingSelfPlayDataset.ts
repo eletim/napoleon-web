@@ -82,6 +82,9 @@ export type PlayingSelfPlayRolloutRosterSeatManifest =
       metadataFileName: string;
       onnxSha256: string;
       metadataSha256: string;
+      requestedInferenceDevice: PlayingSelfPlayPolicyRuntime["requestedInferenceDevice"];
+      resolvedInferenceDevice: PlayingSelfPlayPolicyRuntime["resolvedInferenceDevice"];
+      executionProvider: PlayingSelfPlayPolicyRuntime["executionProvider"];
       metadata: unknown;
     };
 
@@ -116,7 +119,14 @@ export interface PlayingSelfPlaySample {
 
 export interface PlayingSelfPlayPolicy {
   metadata: unknown;
+  runtime?: PlayingSelfPlayPolicyRuntime;
   predictLogits: (modelInput: Float32Array | readonly number[]) => Promise<Float32Array>;
+}
+
+export interface PlayingSelfPlayPolicyRuntime {
+  requestedInferenceDevice: "cpu" | "auto" | "cuda";
+  resolvedInferenceDevice: "cpu" | "cuda";
+  executionProvider: "cpu" | "cuda";
 }
 
 export interface PlayingSelfPlayPolicyArtifactOptions {
@@ -194,6 +204,9 @@ export interface PlayingSelfPlayDatasetManifest {
     metadataFileName: string;
     onnxSha256: string;
     metadataSha256: string;
+    requestedInferenceDevice: PlayingSelfPlayPolicyRuntime["requestedInferenceDevice"];
+    resolvedInferenceDevice: PlayingSelfPlayPolicyRuntime["resolvedInferenceDevice"];
+    executionProvider: PlayingSelfPlayPolicyRuntime["executionProvider"];
     metadata: unknown;
   };
   samplingAlgorithm: typeof PLAYING_SELF_PLAY_SAMPLING_ALGORITHM;
@@ -230,6 +243,7 @@ export async function generatePlayingSelfPlayDataset(
     metadataFileName: basename(options.playingPolicyArtifact.metadataPath),
     onnxSha256: await sha256File(options.playingPolicyArtifact.onnxPath),
     metadataSha256: await sha256File(options.playingPolicyArtifact.metadataPath),
+    ...runtimeInfoForPolicy(options.playingPolicy),
     metadata: options.playingPolicy.metadata
   };
   const rolloutRoster = await createRolloutRosterManifest(options.rolloutRoster);
@@ -602,7 +616,10 @@ export function validatePlayingSelfPlayDatasetManifest(
   if (
     manifest.behaviorPolicy.type !== "playing-onnx" ||
     !sha256Pattern.test(manifest.behaviorPolicy.onnxSha256) ||
-    !sha256Pattern.test(manifest.behaviorPolicy.metadataSha256)
+    !sha256Pattern.test(manifest.behaviorPolicy.metadataSha256) ||
+    !isRequestedInferenceDevice(manifest.behaviorPolicy.requestedInferenceDevice) ||
+    !isResolvedInferenceDevice(manifest.behaviorPolicy.resolvedInferenceDevice) ||
+    !isResolvedInferenceDevice(manifest.behaviorPolicy.executionProvider)
   ) {
     throw new Error("Self-play manifest behavior policy metadata mismatch.");
   }
@@ -655,7 +672,10 @@ function validateRolloutRosterManifest(roster: PlayingSelfPlayRolloutRosterManif
         seat.onnxFileName.length === 0 ||
         seat.metadataFileName.length === 0 ||
         !sha256Pattern.test(seat.onnxSha256) ||
-        !sha256Pattern.test(seat.metadataSha256)
+        !sha256Pattern.test(seat.metadataSha256) ||
+        !isRequestedInferenceDevice(seat.requestedInferenceDevice) ||
+        !isResolvedInferenceDevice(seat.resolvedInferenceDevice) ||
+        !isResolvedInferenceDevice(seat.executionProvider)
       ) {
         throw new Error(`Self-play manifest rolloutRoster.seats[${index}] frozen-onnx metadata mismatch.`);
       }
@@ -1150,6 +1170,9 @@ function createPlayingSelfPlayManifest(input: {
     metadataFileName: string;
     onnxSha256: string;
     metadataSha256: string;
+    requestedInferenceDevice: PlayingSelfPlayPolicyRuntime["requestedInferenceDevice"];
+    resolvedInferenceDevice: PlayingSelfPlayPolicyRuntime["resolvedInferenceDevice"];
+    executionProvider: PlayingSelfPlayPolicyRuntime["executionProvider"];
     metadata: unknown;
   };
   rolloutRoster: PlayingSelfPlayRolloutRosterManifest;
@@ -1239,6 +1262,7 @@ async function createRolloutRosterManifest(
             metadataFileName: basename(seat.artifact.metadataPath),
             onnxSha256: await sha256File(seat.artifact.onnxPath),
             metadataSha256: await sha256File(seat.artifact.metadataPath),
+            ...runtimeInfoForPolicy(seat.policy),
             metadata: seat.policy.metadata
           };
       }
@@ -1256,6 +1280,26 @@ function normalizeRolloutRosterOptions(
 
 function defaultRolloutSeatSources(): readonly PlayingSelfPlayRosterSource[] {
   return normalizeRolloutRosterOptions(undefined).seats.map((seat) => seat.source);
+}
+
+function runtimeInfoForPolicy(policy: PlayingSelfPlayPolicy): PlayingSelfPlayPolicyRuntime {
+  return policy.runtime ?? {
+    requestedInferenceDevice: "cpu",
+    resolvedInferenceDevice: "cpu",
+    executionProvider: "cpu"
+  };
+}
+
+function isRequestedInferenceDevice(
+  value: unknown
+): value is PlayingSelfPlayPolicyRuntime["requestedInferenceDevice"] {
+  return value === "cpu" || value === "auto" || value === "cuda";
+}
+
+function isResolvedInferenceDevice(
+  value: unknown
+): value is PlayingSelfPlayPolicyRuntime["resolvedInferenceDevice"] {
+  return value === "cpu" || value === "cuda";
 }
 
 function validateRolloutRosterOptions(

@@ -36,6 +36,10 @@ _BEHAVIOR_POLICY_KEYS = frozenset(
         "metadata",
     }
 )
+_INFERENCE_RUNTIME_KEYS = frozenset(
+    {"requestedInferenceDevice", "resolvedInferenceDevice", "executionProvider"}
+)
+_BEHAVIOR_POLICY_KEYS_WITH_RUNTIME = _BEHAVIOR_POLICY_KEYS | _INFERENCE_RUNTIME_KEYS
 _REWARD_KEYS = frozenset({"type", "version"})
 _ROLLOUT_ROSTER_KEYS = frozenset({"assignment", "seats"})
 _CURRENT_POLICY_ROSTER_SEAT_KEYS = frozenset({"source"})
@@ -50,6 +54,9 @@ _FROZEN_ONNX_ROSTER_SEAT_KEYS = frozenset(
         "metadataSha256",
         "metadata",
     }
+)
+_FROZEN_ONNX_ROSTER_SEAT_KEYS_WITH_RUNTIME = (
+    _FROZEN_ONNX_ROSTER_SEAT_KEYS | _INFERENCE_RUNTIME_KEYS
 )
 _MANIFEST_BASE_KEYS = frozenset(
     {
@@ -117,6 +124,9 @@ class DatasetBehaviorPolicyInfo:
     onnx_sha256: str
     metadata_sha256: str
     metadata: object
+    requested_inference_device: str | None = None
+    resolved_inference_device: str | None = None
+    execution_provider: str | None = None
 
 
 @dataclass(frozen=True)
@@ -135,6 +145,9 @@ class DatasetRolloutRosterSeat:
     onnx_sha256: str | None = None
     metadata_sha256: str | None = None
     metadata: object | None = None
+    requested_inference_device: str | None = None
+    resolved_inference_device: str | None = None
+    execution_provider: str | None = None
 
 
 @dataclass(frozen=True)
@@ -218,7 +231,12 @@ def _parse_non_playing_agent(raw: object) -> DatasetAgentInfo:
 def _parse_behavior_policy(raw: object) -> DatasetBehaviorPolicyInfo:
     path = "manifest.behaviorPolicy"
     obj = require_dict(raw, path=path, error=_error)
-    require_exact_keys(obj, _BEHAVIOR_POLICY_KEYS, path=path, error=_error)
+    require_exact_keys(
+        obj,
+        _select_runtime_key_set(obj, _BEHAVIOR_POLICY_KEYS, _BEHAVIOR_POLICY_KEYS_WITH_RUNTIME),
+        path=path,
+        error=_error,
+    )
 
     return DatasetBehaviorPolicyInfo(
         type=require_str(obj["type"], path=f"{path}.type", error=_error),
@@ -234,6 +252,11 @@ def _parse_behavior_policy(raw: object) -> DatasetBehaviorPolicyInfo:
             obj["metadataSha256"], path=f"{path}.metadataSha256", error=_error
         ),
         metadata=obj["metadata"],
+        requested_inference_device=_optional_str(
+            obj, "requestedInferenceDevice", path=path
+        ),
+        resolved_inference_device=_optional_str(obj, "resolvedInferenceDevice", path=path),
+        execution_provider=_optional_str(obj, "executionProvider", path=path),
     )
 
 
@@ -280,7 +303,16 @@ def _parse_rollout_roster_seat(raw: object, *, index: int) -> DatasetRolloutRost
         )
 
     if source == "frozen-onnx":
-        require_exact_keys(obj, _FROZEN_ONNX_ROSTER_SEAT_KEYS, path=path, error=_error)
+        require_exact_keys(
+            obj,
+            _select_runtime_key_set(
+                obj,
+                _FROZEN_ONNX_ROSTER_SEAT_KEYS,
+                _FROZEN_ONNX_ROSTER_SEAT_KEYS_WITH_RUNTIME,
+            ),
+            path=path,
+            error=_error,
+        )
         return DatasetRolloutRosterSeat(
             source=source,
             artifact_id=require_str(obj["artifactId"], path=f"{path}.artifactId", error=_error),
@@ -295,9 +327,31 @@ def _parse_rollout_roster_seat(raw: object, *, index: int) -> DatasetRolloutRost
                 obj["metadataSha256"], path=f"{path}.metadataSha256", error=_error
             ),
             metadata=obj["metadata"],
+            requested_inference_device=_optional_str(
+                obj, "requestedInferenceDevice", path=path
+            ),
+            resolved_inference_device=_optional_str(obj, "resolvedInferenceDevice", path=path),
+            execution_provider=_optional_str(obj, "executionProvider", path=path),
         )
 
     raise _error(f"{path}.source is invalid: {source!r}.")
+
+
+def _select_runtime_key_set(
+    obj: dict[str, object],
+    base_keys: frozenset[str],
+    keys_with_runtime: frozenset[str],
+) -> frozenset[str]:
+    runtime_key_count = sum(1 for key in _INFERENCE_RUNTIME_KEYS if key in obj)
+    if runtime_key_count == 0:
+        return base_keys
+    return keys_with_runtime
+
+
+def _optional_str(obj: dict[str, object], key: str, *, path: str) -> str | None:
+    if key not in obj:
+        return None
+    return require_str(obj[key], path=f"{path}.{key}", error=_error)
 
 
 def parse_manifest(raw: object) -> DatasetManifest:

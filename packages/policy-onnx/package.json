@@ -27,7 +27,7 @@
     "@napoleon/ai-observation": "workspace:*",
     "@napoleon/game-core": "workspace:*",
     "@napoleon/training-data": "workspace:*",
-    "onnxruntime-node": "1.27.0"
+    "onnxruntime-node": "1.26.0"
   },
   "devDependencies": {
     "typescript": "^5.7.2",

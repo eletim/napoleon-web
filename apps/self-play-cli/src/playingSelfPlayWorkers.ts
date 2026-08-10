@@ -19,6 +19,7 @@ export interface ChildProcessPlayingSelfPlayGameRunnerOptions {
   currentPolicy: {
     onnxPath: string;
     metadataPath: string;
+    inferenceDevice: "cpu" | "auto" | "cuda";
     onnxSha256: string;
     metadataSha256: string;
   };

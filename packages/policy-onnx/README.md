@@ -4,7 +4,7 @@ TypeScript inference wrapper for the policy ONNX artifact exported by
 `python/src/napoleon_ml/policy/onnx_export.py`.
 
 The package loads a `.onnx` file plus its `.json` metadata, validates the
-runtime contract before inference, then runs CPU ONNX Runtime from Node.js.
+runtime contract before inference, then runs ONNX Runtime from Node.js.
 
 ```ts
 import {
@@ -16,7 +16,8 @@ import { runAutomatedGame } from "@napoleon/ai";
 
 const policy = await loadPolicyOnnxModel({
   onnxPath: "./artifacts/policy.onnx",
-  metadataPath: "./artifacts/policy.json"
+  metadataPath: "./artifacts/policy.json",
+  inferenceDevice: "cpu"
 });
 
 const logits = await policy.predictLogits(modelInput);
@@ -30,6 +31,17 @@ const record = await runAutomatedGame({
   createAgent: ({ rng }) => new PolicyOnnxAgent({ policy, rng })
 });
 ```
+
+`inferenceDevice` accepts:
+
+- `cpu`: create a CPU Execution Provider session only.
+- `auto`: try CUDA first, then fall back to CPU if CUDA session creation fails.
+- `cuda`: require CUDA Execution Provider and fail fast if it cannot be used.
+
+The default is `cpu` for existing CI and development compatibility. Loaded
+models expose `policy.runtime.requestedInferenceDevice`,
+`policy.runtime.resolvedInferenceDevice`, and `policy.runtime.executionProvider`
+so callers can verify that an explicit CUDA request did not silently run on CPU.
 
 `modelInput` must be a 6246-element `float32` feature vector using model input
 schema version 2. `legalPlayMask` must contain 53 entries and at least one
@@ -103,6 +115,62 @@ expected contract:
 The tests create a temporary ONNX model at runtime and compare a fixed sample's
 logits and masked selection against expected ONNX-side values without committing
 an ONNX model file.
+
+## CUDA 12 Node runtime
+
+`onnxruntime-node` is pinned to `1.26.0` so fresh installs stay on the CUDA 12
+Node artifact line. Do not upgrade this package to a CUDA 13-only release while
+the Python training environment is pinned to CUDA 12.
+
+The npm package install script downloads the Linux x64 CUDA EP artifact into
+`node_modules`; no manual binary copying is required. On CUDA machines, make
+sure CUDA and cuDNN shared libraries are visible to Node, usually through
+`LD_LIBRARY_PATH`. If `inferenceDevice: "cuda"` cannot load CUDA/cuDNN libraries,
+the loader fails with the underlying ONNX Runtime error included in the message.
+
+CUDA 12 smoke commands:
+
+```sh
+pnpm install
+pnpm --filter @napoleon/self-play-cli... build
+
+node apps/self-play-cli/dist/policyEvaluationCli.js \
+  --onnx /path/to/policy.onnx \
+  --metadata /path/to/policy.json \
+  --output /tmp/napoleon-policy-eval.json \
+  --start-seed 900 \
+  --seed-count 2 \
+  --benchmark standard \
+  --inference-device cuda
+
+node apps/self-play-cli/dist/playingSelfPlayCli.js \
+  --onnx /path/to/policy.onnx \
+  --metadata /path/to/policy.json \
+  --output /tmp/napoleon-selfplay-cuda \
+  --start-seed 1000 \
+  --games 2 \
+  --games-per-shard 1 \
+  --rollout-workers 2 \
+  --inference-device cuda
+```
+
+For RL orchestration:
+
+```sh
+napoleon-run-playing-rl \
+  --run-directory /tmp/napoleon-rl-cuda \
+  --initial-checkpoint /path/to/initial-playing.pt \
+  --supervised-dataset /path/to/supervised-dataset \
+  --iterations 1 \
+  --games-per-iteration 2 \
+  --games-per-shard 1 \
+  --device cuda \
+  --inference-device cuda
+```
+
+Confirm the JSON outputs contain `resolvedInferenceDevice: "cuda"` and
+`executionProvider: "cuda"`, and watch `nvidia-smi` while the Node commands are
+running.
 
 To smoke-test an externally trained artifact without committing it, set both
 paths before running this package's tests:

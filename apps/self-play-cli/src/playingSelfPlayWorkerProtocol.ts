@@ -10,11 +10,14 @@ export type WorkerRolloutRosterSeat =
       artifactId?: string;
     };
 
+export type WorkerInferenceDevice = "cpu" | "auto" | "cuda";
+
 export interface PlayingSelfPlayWorkerInitMessage {
   type: "init";
   currentPolicy: {
     onnxPath: string;
     metadataPath: string;
+    inferenceDevice: WorkerInferenceDevice;
   };
   rolloutRoster: readonly WorkerRolloutRosterSeat[] | undefined;
   temperature: number;

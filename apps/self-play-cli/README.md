@@ -37,6 +37,7 @@ node apps/self-play-cli/dist/playingSelfPlayCli.js \
   --start-seed 0 \
   --games 200 \
   --games-per-shard 20 \
+  --inference-device cpu \
   --rollout-workers 4
 ```
 
@@ -45,6 +46,13 @@ Values above `1` start child-process rollout workers. The coordinator still
 assigns seeds as `startSeed + gameOffset` and writes samples in seed order, so
 changing worker count does not change generated dataset bytes for the same
 policy, roster, seed range, and temperature.
+
+`--inference-device` accepts `cpu`, `auto`, or `cuda` and defaults to `cpu`.
+The value is used consistently for the current policy, frozen ONNX roster
+policies, worker processes, and policy evaluation. `cuda` fails instead of
+silently falling back to CPU; `auto` tries CUDA first and records CPU fallback
+when CUDA is unavailable. Generated manifests and CLI JSON output include
+`requestedInferenceDevice`, `resolvedInferenceDevice`, and `executionProvider`.
 
 Seeds are processed as `startSeed`, `startSeed + 1`, through `startSeed + games - 1`.
 The final seed must fit in uint32. Games are never split across shards.
@@ -56,3 +64,16 @@ fails instead of overwriting an existing dataset.
 Progress is printed to stderr and does not affect `manifest.json` or JSONL bytes.
 On success the CLI prints a short summary to stdout. On input errors it prints a
 message to stderr and exits with code `1`.
+
+Policy evaluation uses the same option:
+
+```bash
+node apps/self-play-cli/dist/policyEvaluationCli.js \
+  --onnx ./policy.onnx \
+  --metadata ./policy.json \
+  --output ./evaluation.json \
+  --start-seed 0 \
+  --seed-count 10 \
+  --benchmark standard \
+  --inference-device cuda
+```

@@ -1,5 +1,13 @@
 export type PolicyOnnxDimension = string | number;
 export type NonPlayingPolicyType = "bidding" | "exchange" | "adjutant";
+export type PolicyOnnxInferenceDevice = "cpu" | "auto" | "cuda";
+export type PolicyOnnxExecutionProvider = "cpu" | "cuda";
+
+export interface PolicyOnnxRuntimeInfo {
+  requestedInferenceDevice: PolicyOnnxInferenceDevice;
+  resolvedInferenceDevice: PolicyOnnxExecutionProvider;
+  executionProvider: PolicyOnnxExecutionProvider;
+}
 
 export interface PolicyOnnxIoMetadata {
   name: string;
@@ -54,7 +62,14 @@ export interface NonPlayingPolicyOnnxMetadata {
 export interface PolicyOnnxLoadOptions {
   onnxPath: string;
   metadataPath: string;
+  inferenceDevice?: PolicyOnnxInferenceDevice;
+  sessionFactory?: PolicyOnnxSessionFactory;
 }
+
+export type PolicyOnnxSessionFactory = (
+  onnxPath: string,
+  options: { executionProviders: readonly PolicyOnnxExecutionProvider[] }
+) => Promise<unknown>;
 
 export interface SelectLegalPlayInput {
   modelInput: Float32Array | readonly number[];

@@ -61,6 +61,7 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
 
     stored_config = _load_json(run_directory / "config.json")
     assert stored_config["device"] == "cpu"
+    assert stored_config["inferenceDevice"] == "cpu"
     assert stored_config["fullDiagnosticsInterval"] == 1
     iter0 = _load_json(run_directory / "iterations" / "iter-000" / "iteration.json")
     iter1 = _load_json(run_directory / "iterations" / "iter-001" / "iteration.json")
@@ -70,6 +71,9 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
     assert iter0["behaviorOnnxSha256"] != iter1["behaviorOnnxSha256"]
     assert iter0["rolloutWorkers"] == 2
     assert iter1["rolloutWorkers"] == 2
+    assert iter0["requestedInferenceDevice"] == "cpu"
+    assert iter0["resolvedInferenceDevice"] == "cpu"
+    assert iter0["executionProvider"] == "cpu"
     assert iter0["requestedDevice"] == "cpu"
     assert iter0["resolvedDevice"] == "cpu"
     assert iter0["cudaDeviceName"] is None
@@ -94,6 +98,9 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
         _required_object(manifest0["behaviorPolicy"])["onnxSha256"]
         == iter0["behaviorOnnxSha256"]
     )
+    assert _required_object(manifest0["behaviorPolicy"])["requestedInferenceDevice"] == "cpu"
+    assert _required_object(manifest0["behaviorPolicy"])["resolvedInferenceDevice"] == "cpu"
+    assert _required_object(manifest0["behaviorPolicy"])["executionProvider"] == "cpu"
     assert (
         _required_object(manifest1["behaviorPolicy"])["onnxSha256"]
         == iter1["behaviorOnnxSha256"]
@@ -109,6 +116,9 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
         for generation in (0, 1, 2)
     ]
     assert [evaluation["scheduledGames"] for evaluation in evaluations] == [5, 5, 5]
+    assert evaluations[0]["requestedInferenceDevice"] == "cpu"
+    assert evaluations[0]["resolvedInferenceDevice"] == "cpu"
+    assert evaluations[0]["executionProvider"] == "cpu"
     assert evaluations[1]["pairedComparisonVsV0"] is not None
     assert evaluations[2]["winRateDeltaVsV0"] is not None
 
@@ -134,6 +144,7 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
 
     legacy_config = _load_json(run_directory / "config.json")
     legacy_config.pop("device")
+    legacy_config.pop("inferenceDevice")
     legacy_config.pop("fullDiagnosticsInterval")
     (run_directory / "config.json").write_text(
         json.dumps(legacy_config, indent=2, sort_keys=True) + "\n",
@@ -176,6 +187,17 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
             worker_mismatch,
             resume=True,
             provided_config_keys={"rolloutWorkers"},
+        )
+
+    inference_mismatch = replace(config, inference_device="cuda")
+    with pytest.raises(
+        PlayingRlOrchestratorError,
+        match="resume config mismatch for inferenceDevice",
+    ):
+        run_playing_rl_experiment(
+            inference_mismatch,
+            resume=True,
+            provided_config_keys={"inferenceDevice"},
         )
 
     device_mismatch = replace(config, device="auto")
@@ -362,11 +384,14 @@ def test_run_playing_rl_cli_parses_full_diagnostics_interval(tmp_path: Path) -> 
             str(tmp_path / "supervised"),
             "--full-diagnostics-interval",
             "7",
+            "--inference-device",
+            "auto",
         ]
     )
     config = _config_from_args(args, parser)
 
     assert config.full_diagnostics_interval == 7
+    assert config.inference_device == "auto"
 
 
 def _small_config(

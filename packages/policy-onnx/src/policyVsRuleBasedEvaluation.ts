@@ -31,8 +31,10 @@ import type {
 import type { NonPlayingPolicyOnnxModel, PolicyOnnxModel } from "./policyOnnx.js";
 import type {
   NonPlayingPolicyOnnxMetadata,
+  PolicyOnnxInferenceDevice,
   NonPlayingPolicyType,
-  PolicyOnnxMetadata
+  PolicyOnnxMetadata,
+  PolicyOnnxRuntimeInfo
 } from "./types.js";
 import {
   RL_V740_BENCHMARK_POLICY_ID,
@@ -111,6 +113,7 @@ export interface RunStandardPlayingPolicyBenchmarksOptions {
   rotationOffsets?: readonly number[];
   maxDecisionSteps?: number;
   candidateAgentName?: string;
+  inferenceDevice?: PolicyOnnxInferenceDevice;
 }
 
 export interface RunFullPolicyVsRuleBasedEvaluationOptions {
@@ -136,6 +139,7 @@ export interface PolicyVsRuleBasedEvaluationConfiguration {
   policyAgentName: string;
   ruleBasedAgentName: string;
   policyMetadata: PolicyOnnxMetadata;
+  policyRuntime: PolicyOnnxRuntimeInfo;
 }
 
 export interface PlayingPolicyOpponentRosterEntry {
@@ -143,6 +147,7 @@ export interface PlayingPolicyOpponentRosterEntry {
   type: PlayingPolicyEvaluationOpponent["type"];
   agentName: string;
   artifact?: PlayingPolicyArtifactReference;
+  runtime?: PolicyOnnxRuntimeInfo;
 }
 
 export interface PlayingPolicyRosterEvaluationConfiguration {
@@ -153,6 +158,7 @@ export interface PlayingPolicyRosterEvaluationConfiguration {
   playerIds: readonly PlayerId[];
   candidateAgentName: string;
   candidateMetadata: PolicyOnnxMetadata;
+  candidateRuntime: PolicyOnnxRuntimeInfo;
   opponentRoster: readonly PlayingPolicyOpponentRosterEntry[];
   agentOrders: readonly (readonly number[])[];
 }
@@ -170,6 +176,12 @@ export interface FullPolicyVsRuleBasedEvaluationConfiguration {
     bidding: NonPlayingPolicyOnnxMetadata;
     adjutant: NonPlayingPolicyOnnxMetadata;
     exchange: NonPlayingPolicyOnnxMetadata;
+  };
+  policyRuntime: {
+    playing: PolicyOnnxRuntimeInfo;
+    bidding: PolicyOnnxRuntimeInfo;
+    adjutant: PolicyOnnxRuntimeInfo;
+    exchange: PolicyOnnxRuntimeInfo;
   };
 }
 
@@ -291,7 +303,8 @@ export async function runPolicyVsRuleBasedEvaluation(
       playerIds: run.playerIds,
       policyAgentName,
       ruleBasedAgentName,
-      policyMetadata: options.policy.metadata
+      policyMetadata: options.policy.metadata,
+      policyRuntime: options.policy.runtime
     },
     run,
     report,
@@ -343,6 +356,7 @@ export async function runPlayingPolicyRosterEvaluation(
       playerIds: run.playerIds,
       candidateAgentName,
       candidateMetadata: options.candidatePolicy.metadata,
+      candidateRuntime: options.candidatePolicy.runtime,
       opponentRoster: options.opponentRoster.map((opponent, index) =>
         toOpponentRosterEntry(opponent, index + 1)
       ),
@@ -366,7 +380,9 @@ export async function runStandardPlayingPolicyBenchmarks(
     "rule-based-x2-rl-v740-x2"
   ];
   const rlV740 = benchmarkIds.some((benchmarkId) => benchmarkId.includes("rl-v740"))
-    ? await loadRepoManagedPlayingPolicyBenchmark(RL_V740_BENCHMARK_POLICY_ID)
+    ? await loadRepoManagedPlayingPolicyBenchmark(RL_V740_BENCHMARK_POLICY_ID, {
+        inferenceDevice: options.inferenceDevice
+      })
     : null;
   const benchmarks: StandardPlayingPolicyBenchmarkResult[] = [];
 
@@ -458,6 +474,12 @@ export async function runFullPolicyVsRuleBasedEvaluation(
         bidding: options.biddingPolicy.metadata,
         adjutant: options.adjutantPolicy.metadata,
         exchange: options.exchangePolicy.metadata
+      },
+      policyRuntime: {
+        playing: options.playingPolicy.runtime,
+        bidding: options.biddingPolicy.runtime,
+        adjutant: options.adjutantPolicy.runtime,
+        exchange: options.exchangePolicy.runtime
       }
     },
     run,
@@ -571,7 +593,8 @@ function toOpponentRosterEntry(
     sourceAgentIndex,
     type: opponent.type,
     agentName: opponent.agentName ?? opponent.artifact?.displayName ?? "FrozenPolicyOnnxAgent",
-    artifact: opponent.artifact
+    artifact: opponent.artifact,
+    runtime: opponent.policy.runtime
   };
 }
 
