@@ -148,6 +148,13 @@ def test_actor_critic_training_migrates_policy_logits_and_saves_checkpoint(
     assert report.role_stats_before["napoleon"]["sampleCount"] == 2
     assert report.positive_reward_count == 1
     assert report.negative_reward_count == 1
+    assert report.requested_device == "cpu"
+    assert report.resolved_device == "cpu"
+    assert report.cuda_device_name is None
+    assert report.pre_eval_elapsed_seconds >= 0.0
+    assert report.optimizer_training_elapsed_seconds >= 0.0
+    assert report.post_eval_elapsed_seconds >= 0.0
+    assert report.total_elapsed_seconds >= 0.0
 
     raw = torch.load(output_path, map_location="cpu", weights_only=True)
     assert raw["model_architecture"] == ACTOR_CRITIC_MODEL_ARCHITECTURE
@@ -155,6 +162,9 @@ def test_actor_critic_training_migrates_policy_logits_and_saves_checkpoint(
     assert provenance["algorithm"] == ACTOR_CRITIC_ALGORITHM
     assert provenance["migratedFromPolicyCheckpoint"] is True
     assert provenance["valueHeadInitializationSeed"] == 0
+    assert provenance["requestedDevice"] == "cpu"
+    assert provenance["resolvedDevice"] == "cpu"
+    assert provenance["cudaDeviceName"] is None
     migration = cast(dict[str, object], raw["actor_critic_migration_provenance"])
     assert migration["policyLogitsPreserved"] is True
 

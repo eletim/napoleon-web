@@ -4,7 +4,7 @@ A strict Python consumer for the self-play datasets that
 `packages/training-data` (TypeScript) generates. It validates a generated
 dataset directory end to end — `manifest.json`, every shard's raw bytes,
 and every individual sample — and converts validated samples into
-fixed-shape, fixed-dtype NumPy tensors. It also includes first CPU-only
+fixed-shape, fixed-dtype NumPy tensors. It also includes first
 PyTorch MLP baselines for predicting hidden card ownership, selecting a
 legal play, selecting a legal bidding action, choosing exchange discards,
 and choosing an adjutant card from `model_input`.
@@ -13,9 +13,10 @@ This package covers the boundary from a generated dataset directory to
 validated NumPy arrays, an optional PyTorch `IterableDataset` adapter for
 fixed-shape training batches, and the first supervised ownership-belief,
 legal-play policy, legal-bidding policy, exchange-discard, and
-adjutant-card MLP baselines. It does not include TensorFlow, JAX, ONNX export, reinforcement
-learning, a parallel `DataLoader`, dataset caching, or compression. See
-[Not implemented](#not-implemented) below.
+adjutant-card MLP baselines, ONNX export for playing policies, and playing
+self-play RL updates for REINFORCE v1 and Actor-Critic v1. It does not
+include TensorFlow, JAX, a parallel `DataLoader`, dataset caching, or
+compression. See [Not implemented](#not-implemented) below.
 
 ## Requirements
 
@@ -667,6 +668,68 @@ does not match the current package and dataset. For reproducibility,
 `--seed` fixes model initialization and the DataLoader keeps the
 deterministic shard/seed sample order; no shuffle option is exposed.
 
+## Playing self-play RL
+
+Playing self-play RL updates support REINFORCE v1 and Actor-Critic v1 on
+CPU or CUDA:
+
+```bash
+napoleon-train-policy-reinforce ./datasets/playing-self-play-v1 \
+  --input-checkpoint ./models/policy-v0.pt \
+  --output ./models/policy-v1.pt \
+  --algorithm actor-critic-v1 \
+  --batch-size 128 \
+  --device auto \
+  --json
+```
+
+`--device cpu` keeps the legacy CPU path. `--device auto` uses CUDA when
+`torch.cuda.is_available()` is true and CPU otherwise. `--device cuda`
+fails before training if CUDA is unavailable. Reports and checkpoint
+`rl_provenance` record the requested device, resolved device, optional CUDA
+device name, and elapsed seconds for pre-eval, optimizer training,
+post-eval, and total trainer time.
+
+The iterative orchestrator forwards the same option:
+
+```bash
+napoleon-run-playing-rl \
+  --run-directory ./runs/playing-rl-ac-cuda \
+  --initial-checkpoint ./models/policy-v0.pt \
+  --supervised-dataset ./datasets/rule-based-v1 \
+  --algorithm actor-critic-v1 \
+  --iterations 1 \
+  --games-per-iteration 60000 \
+  --batch-size 128 \
+  --device cuda
+```
+
+For a local CPU/CUDA timing comparison, run the same checkpoint and
+self-play dataset twice, changing only `--device`:
+
+```bash
+napoleon-train-policy-reinforce ./datasets/playing-self-play-60000 \
+  --input-checkpoint ./models/policy-v0.pt \
+  --output ./models/policy-v1-cpu.pt \
+  --algorithm actor-critic-v1 \
+  --batch-size 128 \
+  --device cpu \
+  --json
+
+napoleon-train-policy-reinforce ./datasets/playing-self-play-60000 \
+  --input-checkpoint ./models/policy-v0.pt \
+  --output ./models/policy-v1-cuda.pt \
+  --algorithm actor-critic-v1 \
+  --batch-size 128 \
+  --device cuda \
+  --json
+```
+
+Compare `totalElapsedSeconds`, `preEvalElapsedSeconds`,
+`optimizerTrainingElapsedSeconds`, and `postEvalElapsedSeconds` in the JSON
+reports. CUDA checkpoints are saved with CPU tensors, so CPU-only
+environments can still load them and export ONNX artifacts.
+
 ## Tests
 
 ```bash
@@ -698,6 +761,6 @@ output is committed.
 
 ## Not implemented
 
-TensorFlow, JAX, behavior cloning, actor-critic or other reinforcement
-learning, GPU code, TensorBoard, shuffle, a parallel
-`DataLoader`, dataset caching, gzip/compression, and a database or web UI.
+TensorFlow, JAX, mixed precision / AMP, multi-GPU / DDP, TensorBoard,
+shuffle, a parallel `DataLoader`, dataset caching, gzip/compression, and a
+database or web UI.

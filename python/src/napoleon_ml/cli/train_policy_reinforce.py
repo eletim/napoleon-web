@@ -20,6 +20,7 @@ from napoleon_ml.policy.actor_critic import (
     ActorCriticTrainSettings,
     train_policy_actor_critic,
 )
+from napoleon_ml.policy.device import SUPPORTED_TORCH_DEVICES
 from napoleon_ml.policy.reinforce import (
     REINFORCE_ALGORITHM,
     ReinforceTrainReport,
@@ -42,6 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--value-loss-coefficient", type=float, default=0.5)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--device", choices=SUPPORTED_TORCH_DEVICES, default="cpu")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--no-integrity-check", action="store_true")
     parser.add_argument("--json", action="store_true")
@@ -80,6 +82,7 @@ def _run(args: argparse.Namespace) -> int:
             batch_size=args.batch_size,
             learning_rate=args.learning_rate,
             verify_integrity=not args.no_integrity_check,
+            device=args.device,
             value_loss_coefficient=args.value_loss_coefficient,
         )
         report = train_policy_actor_critic(
@@ -97,6 +100,7 @@ def _run(args: argparse.Namespace) -> int:
             batch_size=args.batch_size,
             learning_rate=args.learning_rate,
             verify_integrity=not args.no_integrity_check,
+            device=args.device,
         )
         report = train_policy_reinforce(
             input_checkpoint=args.input_checkpoint,
@@ -114,6 +118,17 @@ def _run(args: argparse.Namespace) -> int:
         print(f"samples: {report.sample_count}")
         print(f"batches: {report.batch_count}")
         print(f"optimizer_steps: {report.optimizer_step_count}")
+        print(f"requested_device: {report.requested_device}")
+        print(f"resolved_device: {report.resolved_device}")
+        if report.cuda_device_name is not None:
+            print(f"cuda_device_name: {report.cuda_device_name}")
+        print(f"pre_eval_elapsed_seconds: {report.pre_eval_elapsed_seconds:.6f}")
+        print(
+            "optimizer_training_elapsed_seconds: "
+            f"{report.optimizer_training_elapsed_seconds:.6f}"
+        )
+        print(f"post_eval_elapsed_seconds: {report.post_eval_elapsed_seconds:.6f}")
+        print(f"total_elapsed_seconds: {report.total_elapsed_seconds:.6f}")
         report_dict = report.to_dict()
         if "meanPolicyLoss" in report_dict:
             print(f"mean_policy_loss: {report_dict['meanPolicyLoss']:.8f}")

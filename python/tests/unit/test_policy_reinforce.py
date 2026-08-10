@@ -110,6 +110,8 @@ def test_reinforce_cli_updates_checkpoint_and_is_reproducible(
             "2",
             "--batch-size",
             "1",
+            "--device",
+            "cpu",
             "--seed",
             "123",
             "--json",
@@ -124,6 +126,18 @@ def test_reinforce_cli_updates_checkpoint_and_is_reproducible(
     assert first_report["maxBehaviorLogProbabilityParityError"] == pytest.approx(0.0)
     assert first_report["parameterDeltaNorm"] > 0
     assert first_report["changedParameterCount"] > 0
+    assert first_report["requestedDevice"] == "cpu"
+    assert first_report["resolvedDevice"] == "cpu"
+    assert first_report["cudaDeviceName"] is None
+    for key in (
+        "preEvalElapsedSeconds",
+        "optimizerTrainingElapsedSeconds",
+        "postEvalElapsedSeconds",
+        "totalElapsedSeconds",
+    ):
+        value = first_report[key]
+        assert isinstance(value, int | float)
+        assert float(value) >= 0.0
 
     second_exit = reinforce_main(
         [
@@ -152,6 +166,9 @@ def test_reinforce_cli_updates_checkpoint_and_is_reproducible(
     first_provenance = cast(dict[str, object], first_raw["rl_provenance"])
     assert first_provenance["algorithm"] == "reinforce-v1"
     assert first_provenance["optimizerSteps"] == 4
+    assert first_provenance["requestedDevice"] == "cpu"
+    assert first_provenance["resolvedDevice"] == "cpu"
+    assert first_provenance["cudaDeviceName"] is None
 
     loaded_model, loaded_checkpoint = load_policy_checkpoint(
         output_a,
