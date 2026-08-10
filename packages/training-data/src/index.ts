@@ -84,6 +84,7 @@ export type {
   PlayingSelfPlayGameRunner,
   PlayingSelfPlayGameRunRequest,
   PlayingSelfPlayGameRunResult,
+  PlayingSelfPlayBinaryCompression,
   PlayingSelfPlayDatasetManifest,
   PlayingSelfPlayOutcome,
   PlayingSelfPlayPolicy,
