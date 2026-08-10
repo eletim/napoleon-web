@@ -29,6 +29,12 @@ from napoleon_ml.dataset.constants import (
 from napoleon_ml.dataset.manifest import DatasetManifest
 from napoleon_ml.dataset.pytorch import PlayingSelfPlayTorchSample
 from napoleon_ml.dataset.tensors import MODEL_INPUT_FEATURE_COUNT, MODEL_INPUT_SCHEMA_VERSION
+from napoleon_ml.policy.behavior_parity import (
+    BehaviorParityDiagnostics,
+    BehaviorPolicyProvenanceDiagnostic,
+    select_behavior_parity_tolerance,
+    validate_behavior_policy_provenance,
+)
 from napoleon_ml.policy.checkpoint import (
     ACTOR_CRITIC_MODEL_ARCHITECTURE,
     CHECKPOINT_SCHEMA_VERSION,
@@ -45,7 +51,6 @@ from napoleon_ml.policy.device import (
     start_timing,
 )
 from napoleon_ml.policy.model import PolicyMlpConfig, PolicyMlpModel
-from napoleon_ml.policy.onnx_export import build_policy_onnx_metadata
 
 BEHAVIOR_LOG_PROB_PARITY_RTOL = 1e-4
 BEHAVIOR_LOG_PROB_PARITY_ATOL = 1e-5
@@ -64,6 +69,8 @@ class ReinforceTrainSettings:
     optimizer: str = "AdamW"
     full_diagnostics: bool = True
     behavior_parity_subset_size: int = DEFAULT_BEHAVIOR_PARITY_SUBSET_SIZE
+    behavior_parity_execution_provider: str | None = None
+    behavior_parity_max_observed_batch_size: int | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -76,6 +83,8 @@ class ReinforceTrainSettings:
             "optimizer": self.optimizer,
             "fullDiagnostics": self.full_diagnostics,
             "behaviorParitySubsetSize": self.behavior_parity_subset_size,
+            "behaviorParityExecutionProvider": self.behavior_parity_execution_provider,
+            "behaviorParityMaxObservedBatchSize": self.behavior_parity_max_observed_batch_size,
         }
 
 
@@ -98,6 +107,8 @@ class ReinforceTrainReport:
     forced_sample_count: int
     non_forced_sample_count: int
     max_behavior_log_probability_parity_error: float
+    behavior_parity_diagnostics: BehaviorParityDiagnostics
+    behavior_policy_provenance: BehaviorPolicyProvenanceDiagnostic
     parameter_delta_norm: float
     changed_parameter_count: int
     requested_device: str
@@ -131,6 +142,8 @@ class ReinforceTrainReport:
             "maxBehaviorLogProbabilityParityError": (
                 self.max_behavior_log_probability_parity_error
             ),
+            "behaviorParityDiagnostics": self.behavior_parity_diagnostics.to_dict(),
+            "behaviorPolicyProvenance": self.behavior_policy_provenance.to_dict(),
             "parameterDeltaNorm": self.parameter_delta_norm,
             "changedParameterCount": self.changed_parameter_count,
             "requestedDevice": self.requested_device,
@@ -161,8 +174,7 @@ class _EvaluationAccumulator:
     negative_reward_count: int = 0
     forced_sample_count: int = 0
     non_forced_sample_count: int = 0
-    max_behavior_error: float = 0.0
-    behavior_parity_failed: bool = False
+    behavior_parity_diagnostics: BehaviorParityDiagnostics | None = None
 
     def update(
         self,
@@ -187,18 +199,12 @@ class _EvaluationAccumulator:
         self.non_forced_sample_count += int(legal_counts.gt(1).sum().item())
 
         if behavior_log_probability is not None:
-            batch_error = torch.abs(
-                selected_log_probability.detach() - behavior_log_probability
-            ).max()
-            self.max_behavior_error = max(self.max_behavior_error, float(batch_error.item()))
-            close = torch.isclose(
-                selected_log_probability.detach(),
-                behavior_log_probability,
-                rtol=BEHAVIOR_LOG_PROB_PARITY_RTOL,
-                atol=BEHAVIOR_LOG_PROB_PARITY_ATOL,
+            if self.behavior_parity_diagnostics is None:
+                raise AssertionError("behavior_parity_diagnostics must be initialized.")
+            self.behavior_parity_diagnostics.update(
+                selected_log_probability=selected_log_probability,
+                behavior_log_probability=behavior_log_probability,
             )
-            if bool((~close).any().item()):
-                self.behavior_parity_failed = True
 
     def mean_loss(self) -> float:
         if self.sample_count == 0:
@@ -256,7 +262,13 @@ def train_policy_reinforce(
     _validate_settings(settings)
     _validate_self_play_manifest(manifest)
     loaded = load_policy_checkpoint_for_reinforce(input_checkpoint, manifest=manifest)
-    _validate_behavior_metadata(loaded.model, loaded.checkpoint, manifest=manifest)
+    behavior_provenance = validate_behavior_policy_provenance(
+        model=loaded.model,
+        checkpoint=loaded.checkpoint,
+        manifest=manifest,
+        self_play_dataset_directory=Path(self_play_dataset_directory),
+        source_checkpoint_sha256=loaded.sha256,
+    )
     loaded.model.to(device.torch_device)
 
     temperature = _require_manifest_temperature(manifest)
@@ -268,6 +280,10 @@ def train_policy_reinforce(
         require_behavior_parity=True,
         device=device,
         max_samples=None if settings.full_diagnostics else settings.behavior_parity_subset_size,
+        behavior_parity_execution_provider=settings.behavior_parity_execution_provider,
+        behavior_parity_max_observed_batch_size=(
+            settings.behavior_parity_max_observed_batch_size
+        ),
     )
     safety_elapsed = elapsed_seconds_since(safety_start, device)
     _assert_behavior_parity(parity)
@@ -354,7 +370,11 @@ def train_policy_reinforce(
         negative_reward_count=sample_stats.negative_reward_count,
         forced_sample_count=sample_stats.forced_sample_count,
         non_forced_sample_count=sample_stats.non_forced_sample_count,
-        max_behavior_log_probability_parity_error=parity.max_behavior_error,
+        max_behavior_log_probability_parity_error=(
+            _require_behavior_parity_diagnostics(parity).max_abs_error
+        ),
+        behavior_parity_diagnostics=_require_behavior_parity_diagnostics(parity),
+        behavior_policy_provenance=behavior_provenance,
         parameter_delta_norm=parameter_delta_norm,
         changed_parameter_count=changed_parameter_count,
         requested_device=device.requested,
@@ -397,6 +417,8 @@ def evaluate_reinforce_policy(
     require_behavior_parity: bool,
     device: ResolvedTorchDevice | None = None,
     max_samples: int | None = None,
+    behavior_parity_execution_provider: str | None = None,
+    behavior_parity_max_observed_batch_size: int | None = None,
 ) -> _EvaluationAccumulator:
     if device is None:
         device = resolve_torch_device("cpu")
@@ -404,7 +426,19 @@ def evaluate_reinforce_policy(
         raise ValueError(f"max_samples must be positive, got {max_samples}.")
     model.to(device.torch_device)
     model.eval()
-    accumulator = _EvaluationAccumulator()
+    parity_tolerance = select_behavior_parity_tolerance(
+        execution_provider=behavior_parity_execution_provider,
+        max_observed_batch_size=behavior_parity_max_observed_batch_size,
+    )
+    accumulator = _EvaluationAccumulator(
+        behavior_parity_diagnostics=BehaviorParityDiagnostics(
+            tolerance=parity_tolerance,
+            execution_provider=behavior_parity_execution_provider,
+            max_observed_batch_size=behavior_parity_max_observed_batch_size,
+        )
+        if require_behavior_parity
+        else None
+    )
 
     for batch in dataloader:
         if max_samples is not None:
@@ -629,34 +663,27 @@ def _validate_self_play_manifest(manifest: DatasetManifest) -> None:
     _require_manifest_temperature(manifest)
 
 
-def _validate_behavior_metadata(
-    model: PolicyMlpModel,
-    checkpoint: dict[str, object],
-    *,
-    manifest: DatasetManifest,
-) -> None:
-    if manifest.behavior_policy is None:
-        raise ValueError("self-play manifest behaviorPolicy metadata is required.")
-
-    expected_metadata = build_policy_onnx_metadata(model=model, checkpoint=checkpoint)
-    if manifest.behavior_policy.metadata != expected_metadata:
-        raise PolicyCheckpointCompatibilityError(
-            "self-play behaviorPolicy.metadata does not match the input checkpoint. "
-            "このtrajectoryは別policyから生成された可能性がある"
-        )
-
-
 def _assert_behavior_parity(parity: _EvaluationAccumulator) -> None:
-    max_error = parity.max_behavior_error
+    diagnostics = _require_behavior_parity_diagnostics(parity)
+    max_error = diagnostics.max_abs_error
     if not math.isfinite(max_error):
         raise ValueError("behavior log probability parity error is not finite.")
-    if parity.behavior_parity_failed:
+    if diagnostics.failed():
         raise PolicyCheckpointCompatibilityError(
             "behavior log probability parity failed: "
-            f"max abs error {max_error:.8g} exceeds rtol={BEHAVIOR_LOG_PROB_PARITY_RTOL} "
-            f"and atol={BEHAVIOR_LOG_PROB_PARITY_ATOL}. "
+            f"{diagnostics.failure_detail()}; "
+            f"max abs error {max_error:.8g}; diagnostics={diagnostics.to_dict()}. "
             "このtrajectoryは別policyから生成された可能性がある"
         )
+
+
+def _require_behavior_parity_diagnostics(
+    parity: _EvaluationAccumulator,
+) -> BehaviorParityDiagnostics:
+    diagnostics = parity.behavior_parity_diagnostics
+    if diagnostics is None:
+        raise AssertionError("behavior parity diagnostics were not collected.")
+    return diagnostics
 
 
 def _validate_reinforce_shapes(
@@ -690,6 +717,14 @@ def _validate_settings(settings: ReinforceTrainSettings) -> None:
         raise ValueError(
             "behavior_parity_subset_size must be positive, "
             f"got {settings.behavior_parity_subset_size}."
+        )
+    if (
+        settings.behavior_parity_max_observed_batch_size is not None
+        and settings.behavior_parity_max_observed_batch_size <= 0
+    ):
+        raise ValueError(
+            "behavior_parity_max_observed_batch_size must be positive when set, "
+            f"got {settings.behavior_parity_max_observed_batch_size}."
         )
 
 

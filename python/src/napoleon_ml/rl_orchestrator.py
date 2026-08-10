@@ -359,6 +359,11 @@ def _run_iteration(
             verify_integrity=True,
             device=config.device,
             full_diagnostics=diagnostics_performed,
+            behavior_parity_execution_provider=cast(str, node_summary["executionProvider"]),
+            behavior_parity_max_observed_batch_size=cast(
+                int,
+                node_summary["inferenceMaxObservedBatchSize"],
+            ),
         )
         report = train_policy_actor_critic(
             input_checkpoint=input_checkpoint,
@@ -377,6 +382,11 @@ def _run_iteration(
             verify_integrity=True,
             device=config.device,
             full_diagnostics=diagnostics_performed,
+            behavior_parity_execution_provider=cast(str, node_summary["executionProvider"]),
+            behavior_parity_max_observed_batch_size=cast(
+                int,
+                node_summary["inferenceMaxObservedBatchSize"],
+            ),
         )
         report = train_policy_reinforce(
             input_checkpoint=input_checkpoint,
@@ -454,6 +464,8 @@ def _run_iteration(
             config.value_loss_coefficient if config.algorithm == ACTOR_CRITIC_ALGORITHM else None
         ),
         "optimizerStepCount": report.optimizer_step_count,
+        "behaviorParityDiagnostics": train_report["behaviorParityDiagnostics"],
+        "behaviorPolicyProvenance": train_report["behaviorPolicyProvenance"],
         "parameterDeltaNorm": report.parameter_delta_norm,
         "changedParameterCount": report.changed_parameter_count,
         "outputCheckpointPath": str(output_checkpoint),
@@ -504,6 +516,8 @@ def _run_iteration(
         "maxBehaviorLogProbabilityParityError": (
             report.max_behavior_log_probability_parity_error
         ),
+        "behaviorParityDiagnostics": train_report["behaviorParityDiagnostics"],
+        "behaviorPolicyProvenance": train_report["behaviorPolicyProvenance"],
         "parameterDeltaNorm": report.parameter_delta_norm,
         "changedParameterCount": report.changed_parameter_count,
         "inputCheckpointSha256": input_checkpoint_sha256,

@@ -45,6 +45,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--device", choices=SUPPORTED_TORCH_DEVICES, default="cpu")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--behavior-parity-execution-provider",
+        choices=("cpu", "cuda"),
+        default=None,
+        help="Runtime provider used to generate behavior log probabilities.",
+    )
+    parser.add_argument(
+        "--behavior-parity-max-observed-batch-size",
+        type=int,
+        default=None,
+        help="Maximum ONNX batch size observed during rollout.",
+    )
     parser.add_argument("--no-integrity-check", action="store_true")
     parser.add_argument("--json", action="store_true")
     return parser
@@ -84,6 +96,10 @@ def _run(args: argparse.Namespace) -> int:
             verify_integrity=not args.no_integrity_check,
             device=args.device,
             value_loss_coefficient=args.value_loss_coefficient,
+            behavior_parity_execution_provider=args.behavior_parity_execution_provider,
+            behavior_parity_max_observed_batch_size=(
+                args.behavior_parity_max_observed_batch_size
+            ),
         )
         report = train_policy_actor_critic(
             input_checkpoint=args.input_checkpoint,
@@ -101,6 +117,10 @@ def _run(args: argparse.Namespace) -> int:
             learning_rate=args.learning_rate,
             verify_integrity=not args.no_integrity_check,
             device=args.device,
+            behavior_parity_execution_provider=args.behavior_parity_execution_provider,
+            behavior_parity_max_observed_batch_size=(
+                args.behavior_parity_max_observed_batch_size
+            ),
         )
         report = train_policy_reinforce(
             input_checkpoint=args.input_checkpoint,
