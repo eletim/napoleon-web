@@ -121,6 +121,8 @@ def test_reinforce_cli_updates_checkpoint_and_is_reproducible(
     first_report = json.loads(capsys.readouterr().out)
     assert first_report["optimizerStepCount"] == 4
     assert first_report["sampleCount"] == 2
+    assert first_report["diagnosticsPerformed"] is True
+    assert first_report["behaviorParitySampleCount"] == 2
     assert first_report["forcedSampleCount"] == 1
     assert first_report["nonForcedSampleCount"] == 1
     assert first_report["maxBehaviorLogProbabilityParityError"] == pytest.approx(0.0)
@@ -138,6 +140,7 @@ def test_reinforce_cli_updates_checkpoint_and_is_reproducible(
         value = first_report[key]
         assert isinstance(value, int | float)
         assert float(value) >= 0.0
+    assert first_report["safetyValidationElapsedSeconds"] >= 0.0
 
     second_exit = reinforce_main(
         [
@@ -177,6 +180,58 @@ def test_reinforce_cli_updates_checkpoint_and_is_reproducible(
     assert isinstance(loaded_model, PolicyMlpModel)
     loaded_provenance = cast(dict[str, object], loaded_checkpoint["rl_provenance"])
     assert loaded_provenance["sampleCount"] == 2
+
+
+def test_reinforce_can_skip_full_diagnostics_and_save_checkpoint(tmp_path: Path) -> None:
+    self_play_dataset = tmp_path / "self-play"
+    self_play_dataset.mkdir()
+    model = PolicyMlpModel(PolicyMlpConfig(hidden_dim=8, hidden_layers=1))
+    checkpoint_path = tmp_path / "input.pt"
+    output_path = tmp_path / "output.pt"
+    checkpoint = _write_checkpoint(checkpoint_path, model)
+    _write_self_play_dataset(
+        self_play_dataset,
+        model=model,
+        checkpoint=checkpoint,
+        rewards=(1, -1),
+    )
+
+    loader = create_playing_self_play_dataloader(
+        self_play_dataset,
+        split=DatasetSplit.TRAIN,
+        split_config=SplitConfig(train=100, validation=0, test=0),
+        batch_size=2,
+    )
+    report = train_policy_reinforce(
+        input_checkpoint=checkpoint_path,
+        self_play_dataset_directory=self_play_dataset,
+        output_checkpoint=output_path,
+        manifest=load_manifest(self_play_dataset),
+        dataloader=loader,
+        settings=ReinforceTrainSettings(
+            seed=0,
+            epochs=1,
+            batch_size=2,
+            learning_rate=0.01,
+            verify_integrity=True,
+            full_diagnostics=False,
+            behavior_parity_subset_size=1,
+        ),
+    )
+
+    assert report.diagnostics_performed is False
+    assert report.behavior_parity_sample_count == 1
+    assert report.sample_count == 2
+    assert report.optimizer_step_count == 1
+    assert report.parameter_delta_norm > 0
+    assert report.mean_policy_loss_before is None
+    assert report.mean_policy_loss_after is None
+    assert report.mean_selected_log_probability_before is None
+    assert report.mean_selected_log_probability_after is None
+    assert report.pre_eval_elapsed_seconds is None
+    assert report.post_eval_elapsed_seconds is None
+    assert report.safety_validation_elapsed_seconds >= 0.0
+    assert output_path.is_file()
 
 
 def test_reinforce_wrong_checkpoint_fails_before_optimizer_step(tmp_path: Path) -> None:
@@ -222,6 +277,53 @@ def test_reinforce_wrong_checkpoint_fails_before_optimizer_step(tmp_path: Path) 
         )
 
     assert not (tmp_path / "should-not-exist.pt").exists()
+
+
+def test_reinforce_subset_parity_fails_before_optimizer_step(tmp_path: Path) -> None:
+    self_play_dataset = tmp_path / "self-play"
+    self_play_dataset.mkdir()
+    behavior_model = PolicyMlpModel(PolicyMlpConfig(hidden_dim=8, hidden_layers=1))
+    checkpoint_path = tmp_path / "wrong.pt"
+    checkpoint = _write_checkpoint(checkpoint_path, behavior_model)
+    _write_self_play_dataset(
+        self_play_dataset,
+        model=behavior_model,
+        checkpoint=checkpoint,
+        rewards=(1, -1),
+    )
+
+    wrong_raw = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    state = cast(dict[str, torch.Tensor], wrong_raw["model_state"])
+    final_bias_key = "network.2.bias"
+    state[final_bias_key] = state[final_bias_key].clone()
+    state[final_bias_key][16] += 5.0
+    torch.save(wrong_raw, checkpoint_path)
+
+    loader = create_playing_self_play_dataloader(
+        self_play_dataset,
+        split=DatasetSplit.TRAIN,
+        split_config=SplitConfig(train=100, validation=0, test=0),
+        batch_size=2,
+    )
+    with pytest.raises(PolicyCheckpointCompatibilityError, match="別policy"):
+        train_policy_reinforce(
+            input_checkpoint=checkpoint_path,
+            self_play_dataset_directory=self_play_dataset,
+            output_checkpoint=tmp_path / "subset-should-not-exist.pt",
+            manifest=load_manifest(self_play_dataset),
+            dataloader=loader,
+            settings=ReinforceTrainSettings(
+                seed=0,
+                epochs=1,
+                batch_size=2,
+                learning_rate=0.01,
+                verify_integrity=True,
+                full_diagnostics=False,
+                behavior_parity_subset_size=2,
+            ),
+        )
+
+    assert not (tmp_path / "subset-should-not-exist.pt").exists()
 
 
 def test_reinforce_does_not_save_when_report_validation_fails(

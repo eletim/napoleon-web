@@ -48,6 +48,7 @@ from napoleon_ml.policy.onnx_export import build_policy_onnx_metadata
 
 BEHAVIOR_LOG_PROB_PARITY_RTOL = 1e-4
 BEHAVIOR_LOG_PROB_PARITY_ATOL = 1e-5
+DEFAULT_BEHAVIOR_PARITY_SUBSET_SIZE = 4096
 REINFORCE_ALGORITHM = "reinforce-v1"
 
 
@@ -60,6 +61,8 @@ class ReinforceTrainSettings:
     verify_integrity: bool
     device: RequestedTorchDevice = "cpu"
     optimizer: str = "AdamW"
+    full_diagnostics: bool = True
+    behavior_parity_subset_size: int = DEFAULT_BEHAVIOR_PARITY_SUBSET_SIZE
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -70,6 +73,8 @@ class ReinforceTrainSettings:
             "verifyIntegrity": self.verify_integrity,
             "device": self.device,
             "optimizer": self.optimizer,
+            "fullDiagnostics": self.full_diagnostics,
+            "behaviorParitySubsetSize": self.behavior_parity_subset_size,
         }
 
 
@@ -79,10 +84,13 @@ class ReinforceTrainReport:
     batch_count: int
     optimizer_step_count: int
     mean_policy_loss: float
-    mean_policy_loss_before: float
-    mean_policy_loss_after: float
-    mean_selected_log_probability_before: float
-    mean_selected_log_probability_after: float
+    diagnostics_performed: bool
+    behavior_parity_sample_count: int
+    behavior_parity_subset_size: int
+    mean_policy_loss_before: float | None
+    mean_policy_loss_after: float | None
+    mean_selected_log_probability_before: float | None
+    mean_selected_log_probability_after: float | None
     mean_reward: float
     positive_reward_count: int
     negative_reward_count: int
@@ -94,9 +102,10 @@ class ReinforceTrainReport:
     requested_device: str
     resolved_device: str
     cuda_device_name: str | None
-    pre_eval_elapsed_seconds: float
+    safety_validation_elapsed_seconds: float
+    pre_eval_elapsed_seconds: float | None
     optimizer_training_elapsed_seconds: float
-    post_eval_elapsed_seconds: float
+    post_eval_elapsed_seconds: float | None
     total_elapsed_seconds: float
     output_checkpoint_path: Path
 
@@ -106,6 +115,9 @@ class ReinforceTrainReport:
             "batchCount": self.batch_count,
             "optimizerStepCount": self.optimizer_step_count,
             "meanPolicyLoss": self.mean_policy_loss,
+            "diagnosticsPerformed": self.diagnostics_performed,
+            "behaviorParitySampleCount": self.behavior_parity_sample_count,
+            "behaviorParitySubsetSize": self.behavior_parity_subset_size,
             "meanPolicyLossBefore": self.mean_policy_loss_before,
             "meanPolicyLossAfter": self.mean_policy_loss_after,
             "meanSelectedLogProbabilityBefore": self.mean_selected_log_probability_before,
@@ -123,6 +135,7 @@ class ReinforceTrainReport:
             "requestedDevice": self.requested_device,
             "resolvedDevice": self.resolved_device,
             "cudaDeviceName": self.cuda_device_name,
+            "safetyValidationElapsedSeconds": self.safety_validation_elapsed_seconds,
             "preEvalElapsedSeconds": self.pre_eval_elapsed_seconds,
             "optimizerTrainingElapsedSeconds": self.optimizer_training_elapsed_seconds,
             "postEvalElapsedSeconds": self.post_eval_elapsed_seconds,
@@ -202,6 +215,30 @@ class _EvaluationAccumulator:
         return self.reward_sum / self.sample_count
 
 
+@dataclass
+class _TrainingSampleStats:
+    sample_count: int = 0
+    reward_sum: float = 0.0
+    positive_reward_count: int = 0
+    negative_reward_count: int = 0
+    forced_sample_count: int = 0
+    non_forced_sample_count: int = 0
+
+    def update(self, *, reward: Tensor, legal_mask: Tensor) -> None:
+        legal_counts = legal_mask.to(dtype=torch.int64).sum(dim=1)
+        self.sample_count += int(reward.shape[0])
+        self.reward_sum += float(reward.detach().sum().item())
+        self.positive_reward_count += int(reward.eq(1.0).sum().item())
+        self.negative_reward_count += int(reward.eq(-1.0).sum().item())
+        self.forced_sample_count += int(legal_counts.eq(1).sum().item())
+        self.non_forced_sample_count += int(legal_counts.gt(1).sum().item())
+
+    def mean_reward(self) -> float:
+        if self.sample_count == 0:
+            raise ValueError("self-play dataset contains no training samples.")
+        return self.reward_sum / self.sample_count
+
+
 def train_policy_reinforce(
     *,
     input_checkpoint: Path | str,
@@ -222,16 +259,18 @@ def train_policy_reinforce(
     loaded.model.to(device.torch_device)
 
     temperature = _require_manifest_temperature(manifest)
-    pre_eval_start = start_timing(device)
+    safety_start = start_timing(device)
     parity = evaluate_reinforce_policy(
         loaded.model,
         dataloader,
         temperature=temperature,
         require_behavior_parity=True,
         device=device,
+        max_samples=None if settings.full_diagnostics else settings.behavior_parity_subset_size,
     )
-    pre_eval_elapsed = elapsed_seconds_since(pre_eval_start, device)
+    safety_elapsed = elapsed_seconds_since(safety_start, device)
     _assert_behavior_parity(parity)
+    pre_eval_elapsed = safety_elapsed if settings.full_diagnostics else None
 
     before_parameters = _clone_parameters(loaded.model)
     optimizer = optim.AdamW(loaded.model.parameters(), lr=settings.learning_rate)
@@ -239,16 +278,19 @@ def train_policy_reinforce(
     optimizer_step_count = 0
     loss_sum = 0.0
     trained_sample_count = 0
+    sample_stats = _TrainingSampleStats()
 
     loaded.model.train()
     training_start = start_timing(device)
-    for _ in range(settings.epochs):
+    for epoch_index in range(settings.epochs):
         for batch in dataloader:
             optimizer.zero_grad(set_to_none=True)
             model_input, selected, legal_mask, reward, _ = playing_self_play_batch_to_device(
                 batch,
                 device,
             )
+            if epoch_index == 0:
+                sample_stats.update(reward=reward, legal_mask=legal_mask)
 
             logits = loaded.model(model_input)
             selected_log_probability = masked_selected_log_probability(
@@ -272,15 +314,18 @@ def train_policy_reinforce(
     if optimizer_step_count == 0:
         raise ValueError("optimizer.step() was not executed; self-play dataset may be empty.")
 
-    post_eval_start = start_timing(device)
-    after = evaluate_reinforce_policy(
-        loaded.model,
-        dataloader,
-        temperature=temperature,
-        require_behavior_parity=False,
-        device=device,
-    )
-    post_eval_elapsed = elapsed_seconds_since(post_eval_start, device)
+    after: _EvaluationAccumulator | None = None
+    post_eval_elapsed: float | None = None
+    if settings.full_diagnostics:
+        post_eval_start = start_timing(device)
+        after = evaluate_reinforce_policy(
+            loaded.model,
+            dataloader,
+            temperature=temperature,
+            require_behavior_parity=False,
+            device=device,
+        )
+        post_eval_elapsed = elapsed_seconds_since(post_eval_start, device)
     parameter_delta_norm, changed_parameter_count = _parameter_delta(
         before_parameters, loaded.model
     )
@@ -288,25 +333,33 @@ def train_policy_reinforce(
 
     output = Path(output_checkpoint)
     report = ReinforceTrainReport(
-        sample_count=parity.sample_count,
+        sample_count=sample_stats.sample_count,
         batch_count=batch_count,
         optimizer_step_count=optimizer_step_count,
         mean_policy_loss=loss_sum / trained_sample_count,
-        mean_policy_loss_before=parity.mean_loss(),
-        mean_policy_loss_after=after.mean_loss(),
-        mean_selected_log_probability_before=parity.mean_selected_log_probability(),
-        mean_selected_log_probability_after=after.mean_selected_log_probability(),
-        mean_reward=parity.mean_reward(),
-        positive_reward_count=parity.positive_reward_count,
-        negative_reward_count=parity.negative_reward_count,
-        forced_sample_count=parity.forced_sample_count,
-        non_forced_sample_count=parity.non_forced_sample_count,
+        diagnostics_performed=settings.full_diagnostics,
+        behavior_parity_sample_count=parity.sample_count,
+        behavior_parity_subset_size=settings.behavior_parity_subset_size,
+        mean_policy_loss_before=parity.mean_loss() if settings.full_diagnostics else None,
+        mean_policy_loss_after=after.mean_loss() if after is not None else None,
+        mean_selected_log_probability_before=(
+            parity.mean_selected_log_probability() if settings.full_diagnostics else None
+        ),
+        mean_selected_log_probability_after=(
+            after.mean_selected_log_probability() if after is not None else None
+        ),
+        mean_reward=sample_stats.mean_reward(),
+        positive_reward_count=sample_stats.positive_reward_count,
+        negative_reward_count=sample_stats.negative_reward_count,
+        forced_sample_count=sample_stats.forced_sample_count,
+        non_forced_sample_count=sample_stats.non_forced_sample_count,
         max_behavior_log_probability_parity_error=parity.max_behavior_error,
         parameter_delta_norm=parameter_delta_norm,
         changed_parameter_count=changed_parameter_count,
         requested_device=device.requested,
         resolved_device=device.resolved,
         cuda_device_name=device.cuda_device_name,
+        safety_validation_elapsed_seconds=safety_elapsed,
         pre_eval_elapsed_seconds=pre_eval_elapsed,
         optimizer_training_elapsed_seconds=training_elapsed,
         post_eval_elapsed_seconds=post_eval_elapsed,
@@ -321,7 +374,7 @@ def train_policy_reinforce(
         manifest=manifest,
         settings=settings,
         optimizer_step_count=optimizer_step_count,
-        sample_count=parity.sample_count,
+        sample_count=sample_stats.sample_count,
         device=device,
     )
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -342,14 +395,24 @@ def evaluate_reinforce_policy(
     temperature: float,
     require_behavior_parity: bool,
     device: ResolvedTorchDevice | None = None,
+    max_samples: int | None = None,
 ) -> _EvaluationAccumulator:
     if device is None:
         device = resolve_torch_device("cpu")
+    if max_samples is not None and max_samples <= 0:
+        raise ValueError(f"max_samples must be positive, got {max_samples}.")
     model.to(device.torch_device)
     model.eval()
     accumulator = _EvaluationAccumulator()
 
     for batch in dataloader:
+        if max_samples is not None:
+            # The safety subset is the deterministic shard-order prefix capped by
+            # behavior_parity_subset_size; full diagnostics pass max_samples=None.
+            remaining = max_samples - accumulator.sample_count
+            if remaining <= 0:
+                break
+            batch = _slice_playing_self_play_batch(batch, remaining)
         (
             model_input,
             selected,
@@ -373,6 +436,9 @@ def evaluate_reinforce_policy(
             legal_mask=legal_mask,
             behavior_log_probability=behavior_log_probability if require_behavior_parity else None,
         )
+
+        if max_samples is not None and accumulator.sample_count >= max_samples:
+            break
 
     if accumulator.sample_count == 0:
         raise ValueError("self-play dataset contains no training samples.")
@@ -407,6 +473,24 @@ def masked_selected_log_probability(
     selected_log_probability = log_probabilities.gather(1, selected.unsqueeze(1)).squeeze(1)
     forced_zero = torch.zeros_like(selected_log_probability)
     return torch.where(legal_counts.eq(1), forced_zero, selected_log_probability)
+
+
+def _slice_playing_self_play_batch(
+    batch: PlayingSelfPlayTorchSample,
+    max_count: int,
+) -> PlayingSelfPlayTorchSample:
+    batch_size = int(batch["model_input"].shape[0])
+    count = min(max_count, batch_size)
+    sliced: dict[str, Tensor] = {}
+    for key, value in batch.items():
+        if not isinstance(value, Tensor):
+            raise TypeError(f"playing self-play batch {key} must be a Tensor.")
+        if int(value.shape[0]) != batch_size:
+            raise ValueError(
+                f"playing self-play batch {key} has inconsistent batch dimension."
+            )
+        sliced[key] = value[:count]
+    return cast(PlayingSelfPlayTorchSample, sliced)
 
 
 def reinforce_policy_loss(selected_log_probability: Tensor, terminal_reward: Tensor) -> Tensor:
@@ -598,6 +682,11 @@ def _validate_settings(settings: ReinforceTrainSettings) -> None:
         raise ValueError(f"batch-size must be positive, got {settings.batch_size}.")
     if settings.learning_rate <= 0.0:
         raise ValueError(f"learning-rate must be positive, got {settings.learning_rate}.")
+    if settings.behavior_parity_subset_size <= 0:
+        raise ValueError(
+            "behavior_parity_subset_size must be positive, "
+            f"got {settings.behavior_parity_subset_size}."
+        )
 
 
 def _clone_parameters(model: PolicyMlpModel) -> dict[str, Tensor]:
@@ -644,6 +733,8 @@ def _build_rl_provenance(
         "optimizerSteps": optimizer_step_count,
         "trainingSeed": settings.seed,
         "sampleCount": sample_count,
+        "fullDiagnostics": settings.full_diagnostics,
+        "behaviorParitySubsetSize": settings.behavior_parity_subset_size,
         **device.to_metadata(),
     }
 

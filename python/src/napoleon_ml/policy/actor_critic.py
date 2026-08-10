@@ -47,7 +47,10 @@ from napoleon_ml.policy.onnx_export import build_policy_onnx_metadata
 from napoleon_ml.policy.reinforce import (
     BEHAVIOR_LOG_PROB_PARITY_ATOL,
     BEHAVIOR_LOG_PROB_PARITY_RTOL,
+    DEFAULT_BEHAVIOR_PARITY_SUBSET_SIZE,
     _require_manifest_temperature,
+    _slice_playing_self_play_batch,
+    _TrainingSampleStats,
     _validate_self_play_manifest,
     masked_selected_log_probability,
 )
@@ -66,6 +69,8 @@ class ActorCriticTrainSettings:
     device: RequestedTorchDevice = "cpu"
     value_loss_coefficient: float = DEFAULT_VALUE_LOSS_COEFFICIENT
     optimizer: str = "AdamW"
+    full_diagnostics: bool = True
+    behavior_parity_subset_size: int = DEFAULT_BEHAVIOR_PARITY_SUBSET_SIZE
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -77,6 +82,8 @@ class ActorCriticTrainSettings:
             "device": self.device,
             "valueLossCoefficient": self.value_loss_coefficient,
             "optimizer": self.optimizer,
+            "fullDiagnostics": self.full_diagnostics,
+            "behaviorParitySubsetSize": self.behavior_parity_subset_size,
         }
 
 
@@ -86,25 +93,28 @@ class ActorCriticTrainReport:
     batch_count: int
     optimizer_step_count: int
     mean_actor_loss: float
-    actor_loss_before: float
-    actor_loss_after: float
-    value_loss_before: float
-    value_loss_after: float
-    total_loss_before: float
-    total_loss_after: float
-    mean_selected_log_probability_before: float
-    mean_selected_log_probability_after: float
+    diagnostics_performed: bool
+    behavior_parity_sample_count: int
+    behavior_parity_subset_size: int
+    actor_loss_before: float | None
+    actor_loss_after: float | None
+    value_loss_before: float | None
+    value_loss_after: float | None
+    total_loss_before: float | None
+    total_loss_after: float | None
+    mean_selected_log_probability_before: float | None
+    mean_selected_log_probability_after: float | None
     mean_reward: float
-    mean_value_prediction_before: float
-    mean_value_prediction_after: float
-    mean_advantage_before: float
-    mean_advantage_after: float
-    advantage_std_before: float
-    advantage_std_after: float
-    min_value_prediction_before: float
-    max_value_prediction_before: float
-    min_value_prediction_after: float
-    max_value_prediction_after: float
+    mean_value_prediction_before: float | None
+    mean_value_prediction_after: float | None
+    mean_advantage_before: float | None
+    mean_advantage_after: float | None
+    advantage_std_before: float | None
+    advantage_std_after: float | None
+    min_value_prediction_before: float | None
+    max_value_prediction_before: float | None
+    min_value_prediction_after: float | None
+    max_value_prediction_after: float | None
     positive_reward_count: int
     negative_reward_count: int
     forced_sample_count: int
@@ -116,14 +126,15 @@ class ActorCriticTrainReport:
     critic_parameter_delta_norm: float
     changed_actor_parameter_count: int
     changed_critic_parameter_count: int
-    role_stats_before: dict[str, dict[str, float | int]]
-    role_stats_after: dict[str, dict[str, float | int]]
+    role_stats_before: dict[str, dict[str, float | int]] | None
+    role_stats_after: dict[str, dict[str, float | int]] | None
     requested_device: str
     resolved_device: str
     cuda_device_name: str | None
-    pre_eval_elapsed_seconds: float
+    safety_validation_elapsed_seconds: float
+    pre_eval_elapsed_seconds: float | None
     optimizer_training_elapsed_seconds: float
-    post_eval_elapsed_seconds: float
+    post_eval_elapsed_seconds: float | None
     total_elapsed_seconds: float
     output_checkpoint_path: Path
 
@@ -133,6 +144,9 @@ class ActorCriticTrainReport:
             "batchCount": self.batch_count,
             "optimizerStepCount": self.optimizer_step_count,
             "meanActorLoss": self.mean_actor_loss,
+            "diagnosticsPerformed": self.diagnostics_performed,
+            "behaviorParitySampleCount": self.behavior_parity_sample_count,
+            "behaviorParitySubsetSize": self.behavior_parity_subset_size,
             "actorLossBefore": self.actor_loss_before,
             "actorLossAfter": self.actor_loss_after,
             "valueLossBefore": self.value_loss_before,
@@ -172,6 +186,7 @@ class ActorCriticTrainReport:
             "requestedDevice": self.requested_device,
             "resolvedDevice": self.resolved_device,
             "cudaDeviceName": self.cuda_device_name,
+            "safetyValidationElapsedSeconds": self.safety_validation_elapsed_seconds,
             "preEvalElapsedSeconds": self.pre_eval_elapsed_seconds,
             "optimizerTrainingElapsedSeconds": self.optimizer_training_elapsed_seconds,
             "postEvalElapsedSeconds": self.post_eval_elapsed_seconds,
@@ -367,7 +382,7 @@ def train_policy_actor_critic(
     loaded.training_model.to(device.torch_device)
 
     temperature = _require_manifest_temperature(manifest)
-    pre_eval_start = start_timing(device)
+    safety_start = start_timing(device)
     parity = evaluate_actor_critic_policy(
         loaded.training_model,
         dataloader,
@@ -375,9 +390,11 @@ def train_policy_actor_critic(
         value_loss_coefficient=settings.value_loss_coefficient,
         require_behavior_parity=True,
         device=device,
+        max_samples=None if settings.full_diagnostics else settings.behavior_parity_subset_size,
     )
-    pre_eval_elapsed = elapsed_seconds_since(pre_eval_start, device)
+    safety_elapsed = elapsed_seconds_since(safety_start, device)
     _assert_behavior_parity(parity)
+    pre_eval_elapsed = safety_elapsed if settings.full_diagnostics else None
 
     before_parameters = _clone_parameters(loaded.training_model)
     optimizer = optim.AdamW(loaded.training_model.parameters(), lr=settings.learning_rate)
@@ -385,16 +402,19 @@ def train_policy_actor_critic(
     optimizer_step_count = 0
     actor_loss_sum = 0.0
     trained_sample_count = 0
+    sample_stats = _TrainingSampleStats()
 
     loaded.training_model.train()
     training_start = start_timing(device)
-    for _ in range(settings.epochs):
+    for epoch_index in range(settings.epochs):
         for batch in dataloader:
             optimizer.zero_grad(set_to_none=True)
             model_input, selected, legal_mask, reward, _ = playing_self_play_batch_to_device(
                 batch,
                 device,
             )
+            if epoch_index == 0:
+                sample_stats.update(reward=reward, legal_mask=legal_mask)
 
             logits, value_prediction = loaded.training_model.forward_actor_critic(model_input)
             selected_log_probability = masked_selected_log_probability(
@@ -423,16 +443,19 @@ def train_policy_actor_critic(
     if optimizer_step_count == 0:
         raise ValueError("optimizer.step() was not executed; self-play dataset may be empty.")
 
-    post_eval_start = start_timing(device)
-    after = evaluate_actor_critic_policy(
-        loaded.training_model,
-        dataloader,
-        temperature=temperature,
-        value_loss_coefficient=settings.value_loss_coefficient,
-        require_behavior_parity=False,
-        device=device,
-    )
-    post_eval_elapsed = elapsed_seconds_since(post_eval_start, device)
+    after: _EvaluationAccumulator | None = None
+    post_eval_elapsed: float | None = None
+    if settings.full_diagnostics:
+        post_eval_start = start_timing(device)
+        after = evaluate_actor_critic_policy(
+            loaded.training_model,
+            dataloader,
+            temperature=temperature,
+            value_loss_coefficient=settings.value_loss_coefficient,
+            require_behavior_parity=False,
+            device=device,
+        )
+        post_eval_elapsed = elapsed_seconds_since(post_eval_start, device)
     parameter_delta_norm, changed_parameter_count = _parameter_delta(
         before_parameters, loaded.training_model
     )
@@ -450,33 +473,40 @@ def train_policy_actor_critic(
 
     output = Path(output_checkpoint)
     report = ActorCriticTrainReport(
-        sample_count=parity.sample_count,
+        sample_count=sample_stats.sample_count,
         batch_count=batch_count,
         optimizer_step_count=optimizer_step_count,
         mean_actor_loss=actor_loss_sum / trained_sample_count,
-        actor_loss_before=parity.mean_actor_loss(),
-        actor_loss_after=after.mean_actor_loss(),
-        value_loss_before=parity.mean_value_loss(),
-        value_loss_after=after.mean_value_loss(),
-        total_loss_before=parity.mean_total_loss(),
-        total_loss_after=after.mean_total_loss(),
-        mean_selected_log_probability_before=parity.mean_selected_log_probability(),
-        mean_selected_log_probability_after=after.mean_selected_log_probability(),
-        mean_reward=parity.mean_reward(),
-        mean_value_prediction_before=parity.mean_value(),
-        mean_value_prediction_after=after.mean_value(),
-        mean_advantage_before=parity.mean_advantage(),
-        mean_advantage_after=after.mean_advantage(),
-        advantage_std_before=parity.advantage_std(),
-        advantage_std_after=after.advantage_std(),
-        min_value_prediction_before=parity.min_value,
-        max_value_prediction_before=parity.max_value,
-        min_value_prediction_after=after.min_value,
-        max_value_prediction_after=after.max_value,
-        positive_reward_count=parity.positive_reward_count,
-        negative_reward_count=parity.negative_reward_count,
-        forced_sample_count=parity.forced_sample_count,
-        non_forced_sample_count=parity.non_forced_sample_count,
+        diagnostics_performed=settings.full_diagnostics,
+        behavior_parity_sample_count=parity.sample_count,
+        behavior_parity_subset_size=settings.behavior_parity_subset_size,
+        actor_loss_before=parity.mean_actor_loss() if settings.full_diagnostics else None,
+        actor_loss_after=after.mean_actor_loss() if after is not None else None,
+        value_loss_before=parity.mean_value_loss() if settings.full_diagnostics else None,
+        value_loss_after=after.mean_value_loss() if after is not None else None,
+        total_loss_before=parity.mean_total_loss() if settings.full_diagnostics else None,
+        total_loss_after=after.mean_total_loss() if after is not None else None,
+        mean_selected_log_probability_before=(
+            parity.mean_selected_log_probability() if settings.full_diagnostics else None
+        ),
+        mean_selected_log_probability_after=(
+            after.mean_selected_log_probability() if after is not None else None
+        ),
+        mean_reward=sample_stats.mean_reward(),
+        mean_value_prediction_before=parity.mean_value() if settings.full_diagnostics else None,
+        mean_value_prediction_after=after.mean_value() if after is not None else None,
+        mean_advantage_before=parity.mean_advantage() if settings.full_diagnostics else None,
+        mean_advantage_after=after.mean_advantage() if after is not None else None,
+        advantage_std_before=parity.advantage_std() if settings.full_diagnostics else None,
+        advantage_std_after=after.advantage_std() if after is not None else None,
+        min_value_prediction_before=parity.min_value if settings.full_diagnostics else None,
+        max_value_prediction_before=parity.max_value if settings.full_diagnostics else None,
+        min_value_prediction_after=after.min_value if after is not None else None,
+        max_value_prediction_after=after.max_value if after is not None else None,
+        positive_reward_count=sample_stats.positive_reward_count,
+        negative_reward_count=sample_stats.negative_reward_count,
+        forced_sample_count=sample_stats.forced_sample_count,
+        non_forced_sample_count=sample_stats.non_forced_sample_count,
         max_behavior_log_probability_parity_error=parity.max_behavior_error,
         parameter_delta_norm=parameter_delta_norm,
         changed_parameter_count=changed_parameter_count,
@@ -484,11 +514,12 @@ def train_policy_actor_critic(
         critic_parameter_delta_norm=critic_delta_norm,
         changed_actor_parameter_count=changed_actor_parameter_count,
         changed_critic_parameter_count=changed_critic_parameter_count,
-        role_stats_before=parity.role_stats(),
-        role_stats_after=after.role_stats(),
+        role_stats_before=parity.role_stats() if settings.full_diagnostics else None,
+        role_stats_after=after.role_stats() if after is not None else None,
         requested_device=device.requested,
         resolved_device=device.resolved,
         cuda_device_name=device.cuda_device_name,
+        safety_validation_elapsed_seconds=safety_elapsed,
         pre_eval_elapsed_seconds=pre_eval_elapsed,
         optimizer_training_elapsed_seconds=training_elapsed,
         post_eval_elapsed_seconds=post_eval_elapsed,
@@ -503,7 +534,7 @@ def train_policy_actor_critic(
         manifest=manifest,
         settings=settings,
         optimizer_step_count=optimizer_step_count,
-        sample_count=parity.sample_count,
+        sample_count=sample_stats.sample_count,
         migrated_from_policy=loaded.migrated_from_policy,
         device=device,
     )
@@ -528,14 +559,24 @@ def evaluate_actor_critic_policy(
     value_loss_coefficient: float,
     require_behavior_parity: bool,
     device: ResolvedTorchDevice | None = None,
+    max_samples: int | None = None,
 ) -> _EvaluationAccumulator:
     if device is None:
         device = resolve_torch_device("cpu")
+    if max_samples is not None and max_samples <= 0:
+        raise ValueError(f"max_samples must be positive, got {max_samples}.")
     model.to(device.torch_device)
     model.eval()
     accumulator = _EvaluationAccumulator()
 
     for batch in dataloader:
+        if max_samples is not None:
+            # The safety subset is the deterministic shard-order prefix capped by
+            # behavior_parity_subset_size; full diagnostics pass max_samples=None.
+            remaining = max_samples - accumulator.sample_count
+            if remaining <= 0:
+                break
+            batch = _slice_playing_self_play_batch(batch, remaining)
         (
             model_input,
             selected,
@@ -570,6 +611,9 @@ def evaluate_actor_critic_policy(
                 behavior_log_probability if require_behavior_parity else None
             ),
         )
+
+        if max_samples is not None and accumulator.sample_count >= max_samples:
+            break
 
     if accumulator.sample_count == 0:
         raise ValueError("self-play dataset contains no training samples.")
@@ -813,6 +857,8 @@ def _build_rl_provenance(
         "optimizerSteps": optimizer_step_count,
         "trainingSeed": settings.seed,
         "sampleCount": sample_count,
+        "fullDiagnostics": settings.full_diagnostics,
+        "behaviorParitySubsetSize": settings.behavior_parity_subset_size,
         "migratedFromPolicyCheckpoint": migrated_from_policy,
         "valueHeadInitializationSeed": settings.seed if migrated_from_policy else None,
         **device.to_metadata(),
@@ -862,6 +908,11 @@ def _validate_settings(settings: ActorCriticTrainSettings) -> None:
         raise ValueError(
             "value-loss-coefficient must be finite and non-negative, "
             f"got {settings.value_loss_coefficient}."
+        )
+    if settings.behavior_parity_subset_size <= 0:
+        raise ValueError(
+            "behavior_parity_subset_size must be positive, "
+            f"got {settings.behavior_parity_subset_size}."
         )
 
 
