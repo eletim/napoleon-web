@@ -758,6 +758,23 @@ def test_binary_playing_self_play_dataloader_rejects_out_of_range_selected_card(
         binary_module._validate_arrays(arrays, shard)
 
 
+def test_binary_playing_self_play_dataloader_rejects_empty_binary_arrays(
+    tmp_path: Path,
+) -> None:
+    _write_binary_self_play_dataset(tmp_path, [_self_play_sample(seed=0, step=1)])
+    manifest = reader_module.load_manifest(tmp_path)
+    shard = manifest.shards[0]
+    arrays = binary_module._read_shard(
+        tmp_path / shard.file,
+        shard,
+        verify_integrity=True,
+    )
+    empty_arrays = {name: value[:0] for name, value in arrays.items()}
+
+    with pytest.raises(ShardIntegrityError, match="at least one sample"):
+        binary_module._validate_arrays(empty_arrays, shard)
+
+
 def test_self_play_is_not_loaded_as_supervised_training_dataloader(tmp_path: Path) -> None:
     _write_self_play_dataset(tmp_path, [_self_play_sample()])
 

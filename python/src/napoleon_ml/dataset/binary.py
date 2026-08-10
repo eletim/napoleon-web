@@ -227,6 +227,8 @@ def _validate_arrays(arrays: dict[str, np.ndarray], shard: DatasetShardManifest)
     required = set(_FIELD_DTYPES)
     if set(arrays) != required:
         raise ShardIntegrityError(f"{shard.file}: binary fields mismatch.")
+    if int(arrays["seed"].shape[0]) <= 0:
+        raise ShardIntegrityError(f"{shard.file}: binary shard must contain at least one sample.")
     if int(arrays["seed"][0]) != shard.start_seed or int(arrays["seed"][-1]) != shard.end_seed:
         raise ShardIntegrityError(f"{shard.file}: seed range mismatch.")
 
