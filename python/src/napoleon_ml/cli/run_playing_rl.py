@@ -16,6 +16,7 @@ from napoleon_ml.rl_orchestrator import (
     DEFAULT_EVALUATION_INTERVAL,
     DEFAULT_EVALUATION_SEED_COUNT,
     DEFAULT_EVALUATION_START_SEED,
+    DEFAULT_FULL_DIAGNOSTICS_INTERVAL,
     DEFAULT_GAMES_PER_ITERATION,
     DEFAULT_GAMES_PER_SHARD,
     DEFAULT_ITERATIONS,
@@ -44,6 +45,7 @@ _OPTION_TO_CONFIG_KEY = {
     "--value-loss-coefficient": "valueLossCoefficient",
     "--epochs": "epochs",
     "--batch-size": "batchSize",
+    "--full-diagnostics-interval": "fullDiagnosticsInterval",
     "--device": "device",
     "--training-seed-base": "trainingSeedBase",
     "--evaluation-interval": "evaluationInterval",
@@ -77,6 +79,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS)
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
+    parser.add_argument(
+        "--full-diagnostics-interval",
+        type=int,
+        default=DEFAULT_FULL_DIAGNOSTICS_INTERVAL,
+    )
     parser.add_argument("--device", choices=SUPPORTED_TORCH_DEVICES, default="cpu")
     parser.add_argument("--training-seed-base", type=int, default=DEFAULT_TRAINING_SEED_BASE)
     parser.add_argument("--evaluation-interval", type=int, default=DEFAULT_EVALUATION_INTERVAL)
@@ -133,6 +140,7 @@ def _config_from_args(
         value_loss_coefficient=args.value_loss_coefficient,
         epochs=args.epochs,
         batch_size=args.batch_size,
+        full_diagnostics_interval=args.full_diagnostics_interval,
         device=args.device,
         training_seed_base=args.training_seed_base,
         evaluation_interval=args.evaluation_interval,

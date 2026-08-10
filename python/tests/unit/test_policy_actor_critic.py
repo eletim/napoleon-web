@@ -138,6 +138,7 @@ def test_actor_critic_training_migrates_policy_logits_and_saves_checkpoint(
         self_play_dataset=self_play_dataset,
         output_checkpoint=output_path,
     )
+    assert report.diagnostics_performed is True
     assert report.sample_count == 2
     assert report.optimizer_step_count == 1
     assert report.max_behavior_log_probability_parity_error == pytest.approx(0.0)
@@ -145,14 +146,17 @@ def test_actor_critic_training_migrates_policy_logits_and_saves_checkpoint(
     assert report.critic_parameter_delta_norm > 0
     assert report.changed_actor_parameter_count > 0
     assert report.changed_critic_parameter_count > 0
+    assert report.role_stats_before is not None
     assert report.role_stats_before["napoleon"]["sampleCount"] == 2
     assert report.positive_reward_count == 1
     assert report.negative_reward_count == 1
     assert report.requested_device == "cpu"
     assert report.resolved_device == "cpu"
     assert report.cuda_device_name is None
+    assert report.pre_eval_elapsed_seconds is not None
     assert report.pre_eval_elapsed_seconds >= 0.0
     assert report.optimizer_training_elapsed_seconds >= 0.0
+    assert report.post_eval_elapsed_seconds is not None
     assert report.post_eval_elapsed_seconds >= 0.0
     assert report.total_elapsed_seconds >= 0.0
 
@@ -198,6 +202,48 @@ def test_actor_critic_training_migrates_policy_logits_and_saves_checkpoint(
         )
 
 
+def test_actor_critic_can_skip_full_diagnostics_and_still_update_critic(
+    tmp_path: Path,
+) -> None:
+    self_play_dataset = tmp_path / "self-play"
+    self_play_dataset.mkdir()
+    policy_model = PolicyMlpModel(PolicyMlpConfig(hidden_dim=8, hidden_layers=1))
+    checkpoint_path = tmp_path / "input.pt"
+    output_path = tmp_path / "output.pt"
+    checkpoint = _write_checkpoint(checkpoint_path, policy_model)
+    _write_self_play_dataset(
+        self_play_dataset,
+        model=policy_model,
+        checkpoint=checkpoint,
+        rewards=(1, -1),
+    )
+
+    report = _run_actor_critic(
+        input_checkpoint=checkpoint_path,
+        self_play_dataset=self_play_dataset,
+        output_checkpoint=output_path,
+        full_diagnostics=False,
+        behavior_parity_subset_size=1,
+    )
+
+    assert report.diagnostics_performed is False
+    assert report.behavior_parity_sample_count == 1
+    assert report.sample_count == 2
+    assert report.optimizer_step_count == 1
+    assert report.critic_parameter_delta_norm > 0
+    assert report.changed_critic_parameter_count > 0
+    assert report.actor_loss_before is None
+    assert report.actor_loss_after is None
+    assert report.value_loss_before is None
+    assert report.value_loss_after is None
+    assert report.role_stats_before is None
+    assert report.role_stats_after is None
+    assert report.pre_eval_elapsed_seconds is None
+    assert report.post_eval_elapsed_seconds is None
+    assert report.safety_validation_elapsed_seconds >= 0.0
+    assert output_path.is_file()
+
+
 def test_actor_critic_wrong_behavior_checkpoint_fails_before_save(tmp_path: Path) -> None:
     self_play_dataset = tmp_path / "self-play"
     self_play_dataset.mkdir()
@@ -228,11 +274,45 @@ def test_actor_critic_wrong_behavior_checkpoint_fails_before_save(tmp_path: Path
     assert not (tmp_path / "should-not-exist.pt").exists()
 
 
+def test_actor_critic_subset_parity_fails_before_save(tmp_path: Path) -> None:
+    self_play_dataset = tmp_path / "self-play"
+    self_play_dataset.mkdir()
+    behavior_model = PolicyMlpModel(PolicyMlpConfig(hidden_dim=8, hidden_layers=1))
+    checkpoint_path = tmp_path / "wrong.pt"
+    checkpoint = _write_checkpoint(checkpoint_path, behavior_model)
+    _write_self_play_dataset(
+        self_play_dataset,
+        model=behavior_model,
+        checkpoint=checkpoint,
+        rewards=(1, -1),
+    )
+
+    wrong_raw = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    state = cast(dict[str, torch.Tensor], wrong_raw["model_state"])
+    final_bias_key = "network.2.bias"
+    state[final_bias_key] = state[final_bias_key].clone()
+    state[final_bias_key][16] += 5.0
+    torch.save(wrong_raw, checkpoint_path)
+
+    with pytest.raises(PolicyCheckpointCompatibilityError, match="別policy"):
+        _run_actor_critic(
+            input_checkpoint=checkpoint_path,
+            self_play_dataset=self_play_dataset,
+            output_checkpoint=tmp_path / "subset-should-not-exist.pt",
+            full_diagnostics=False,
+            behavior_parity_subset_size=2,
+        )
+
+    assert not (tmp_path / "subset-should-not-exist.pt").exists()
+
+
 def _run_actor_critic(
     *,
     input_checkpoint: Path,
     self_play_dataset: Path,
     output_checkpoint: Path,
+    full_diagnostics: bool = True,
+    behavior_parity_subset_size: int = 4096,
 ) -> ActorCriticTrainReport:
     settings = ActorCriticTrainSettings(
         seed=0,
@@ -241,6 +321,8 @@ def _run_actor_critic(
         learning_rate=0.01,
         value_loss_coefficient=0.5,
         verify_integrity=True,
+        full_diagnostics=full_diagnostics,
+        behavior_parity_subset_size=behavior_parity_subset_size,
     )
     loader = create_playing_self_play_dataloader(
         self_play_dataset,

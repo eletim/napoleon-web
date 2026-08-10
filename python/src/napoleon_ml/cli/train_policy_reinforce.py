@@ -122,33 +122,66 @@ def _run(args: argparse.Namespace) -> int:
         print(f"resolved_device: {report.resolved_device}")
         if report.cuda_device_name is not None:
             print(f"cuda_device_name: {report.cuda_device_name}")
-        print(f"pre_eval_elapsed_seconds: {report.pre_eval_elapsed_seconds:.6f}")
+        print(
+            "safety_validation_elapsed_seconds: "
+            f"{report.safety_validation_elapsed_seconds:.6f}"
+        )
+        print(
+            "pre_eval_elapsed_seconds: "
+            f"{_format_optional_float(report.pre_eval_elapsed_seconds)}"
+        )
         print(
             "optimizer_training_elapsed_seconds: "
             f"{report.optimizer_training_elapsed_seconds:.6f}"
         )
-        print(f"post_eval_elapsed_seconds: {report.post_eval_elapsed_seconds:.6f}")
+        print(
+            "post_eval_elapsed_seconds: "
+            f"{_format_optional_float(report.post_eval_elapsed_seconds)}"
+        )
         print(f"total_elapsed_seconds: {report.total_elapsed_seconds:.6f}")
-        report_dict = report.to_dict()
-        if "meanPolicyLoss" in report_dict:
-            print(f"mean_policy_loss: {report_dict['meanPolicyLoss']:.8f}")
-            print(f"mean_policy_loss_before: {report_dict['meanPolicyLossBefore']:.8f}")
-            print(f"mean_policy_loss_after: {report_dict['meanPolicyLossAfter']:.8f}")
+        if isinstance(report, ReinforceTrainReport):
+            print(f"mean_policy_loss: {report.mean_policy_loss:.8f}")
+            print(
+                "mean_policy_loss_before: "
+                f"{_format_optional_float(report.mean_policy_loss_before, precision=8)}"
+            )
+            print(
+                "mean_policy_loss_after: "
+                f"{_format_optional_float(report.mean_policy_loss_after, precision=8)}"
+            )
         else:
-            print(f"mean_actor_loss: {report_dict['meanActorLoss']:.8f}")
-            print(f"actor_loss_before: {report_dict['actorLossBefore']:.8f}")
-            print(f"actor_loss_after: {report_dict['actorLossAfter']:.8f}")
-            print(f"value_loss_before: {report_dict['valueLossBefore']:.8f}")
-            print(f"value_loss_after: {report_dict['valueLossAfter']:.8f}")
-            print(f"total_loss_before: {report_dict['totalLossBefore']:.8f}")
-            print(f"total_loss_after: {report_dict['totalLossAfter']:.8f}")
+            print(f"mean_actor_loss: {report.mean_actor_loss:.8f}")
+            print(
+                "actor_loss_before: "
+                f"{_format_optional_float(report.actor_loss_before, precision=8)}"
+            )
+            print(
+                "actor_loss_after: "
+                f"{_format_optional_float(report.actor_loss_after, precision=8)}"
+            )
+            print(
+                "value_loss_before: "
+                f"{_format_optional_float(report.value_loss_before, precision=8)}"
+            )
+            print(
+                "value_loss_after: "
+                f"{_format_optional_float(report.value_loss_after, precision=8)}"
+            )
+            print(
+                "total_loss_before: "
+                f"{_format_optional_float(report.total_loss_before, precision=8)}"
+            )
+            print(
+                "total_loss_after: "
+                f"{_format_optional_float(report.total_loss_after, precision=8)}"
+            )
         print(
             "mean_selected_log_probability_before: "
-            f"{report.mean_selected_log_probability_before:.8f}"
+            f"{_format_optional_float(report.mean_selected_log_probability_before, precision=8)}"
         )
         print(
             "mean_selected_log_probability_after: "
-            f"{report.mean_selected_log_probability_after:.8f}"
+            f"{_format_optional_float(report.mean_selected_log_probability_after, precision=8)}"
         )
         print(f"mean_reward: {report.mean_reward:.8f}")
         print(f"positive_reward_count: {report.positive_reward_count}")
@@ -163,6 +196,12 @@ def _run(args: argparse.Namespace) -> int:
         print(f"changed_parameter_count: {report.changed_parameter_count}")
 
     return 0
+
+
+def _format_optional_float(value: float | None, *, precision: int = 6) -> str:
+    if value is None:
+        return "null"
+    return f"{value:.{precision}f}"
 
 
 if __name__ == "__main__":

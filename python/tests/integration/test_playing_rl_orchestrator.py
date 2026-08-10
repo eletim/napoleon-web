@@ -11,14 +11,17 @@ from typing import cast
 import pytest
 import torch
 
+from napoleon_ml.cli.run_playing_rl import _config_from_args, build_parser
 from napoleon_ml.cli.train_policy_mlp import main as train_supervised_main
 from napoleon_ml.dataset.constants import CARD_COUNT, EXPECTED_CARD_IDS
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 from napoleon_ml.policy.actor_critic import ACTOR_CRITIC_ALGORITHM
 from napoleon_ml.policy.reinforce import REINFORCE_ALGORITHM
 from napoleon_ml.rl_orchestrator import (
+    DEFAULT_FULL_DIAGNOSTICS_INTERVAL,
     PlayingRlOrchestratorError,
     PlayingRlRunConfig,
+    _full_diagnostics_is_due,
     _validate_config,
     run_playing_rl_experiment,
 )
@@ -58,6 +61,7 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
 
     stored_config = _load_json(run_directory / "config.json")
     assert stored_config["device"] == "cpu"
+    assert stored_config["fullDiagnosticsInterval"] == 1
     iter0 = _load_json(run_directory / "iterations" / "iter-000" / "iteration.json")
     iter1 = _load_json(run_directory / "iterations" / "iter-001" / "iteration.json")
     assert iter0["inputCheckpointSha256"] == _sha256_file(initial_checkpoint)
@@ -69,6 +73,8 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
     assert iter0["requestedDevice"] == "cpu"
     assert iter0["resolvedDevice"] == "cpu"
     assert iter0["cudaDeviceName"] is None
+    assert iter0["diagnosticsPerformed"] is True
+    assert _required_float(iter0["safetyValidationElapsedSeconds"]) >= 0.0
     assert _required_float(iter0["preEvalElapsedSeconds"]) >= 0.0
     assert _required_float(iter0["optimizerTrainingElapsedSeconds"]) >= 0.0
     assert _required_float(iter0["postEvalElapsedSeconds"]) >= 0.0
@@ -128,6 +134,7 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
 
     legacy_config = _load_json(run_directory / "config.json")
     legacy_config.pop("device")
+    legacy_config.pop("fullDiagnosticsInterval")
     (run_directory / "config.json").write_text(
         json.dumps(legacy_config, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -265,6 +272,7 @@ def test_playing_rl_orchestrator_actor_critic_two_iteration_resume_and_safety(
         )
         assert report["requestedDevice"] == "cpu"
         assert report["resolvedDevice"] == "cpu"
+        assert report["diagnosticsPerformed"] is True
         assert _required_float(report["totalElapsedSeconds"]) >= 0.0
         assert report["actorLossBefore"] is not None
         assert report["valueLossBefore"] is not None
@@ -316,6 +324,51 @@ def test_playing_rl_orchestrator_explicit_cuda_fails_during_config_validation(
         _validate_config(config)
 
 
+def test_playing_rl_full_diagnostics_interval_uses_output_generation(
+    tmp_path: Path,
+) -> None:
+    config = PlayingRlRunConfig(
+        run_directory=tmp_path / "run",
+        initial_checkpoint=tmp_path / "missing.pt",
+        supervised_dataset=tmp_path / "missing-dataset",
+    )
+    assert config.full_diagnostics_interval == DEFAULT_FULL_DIAGNOSTICS_INTERVAL
+    assert not _full_diagnostics_is_due(config, generation=1)
+    assert _full_diagnostics_is_due(config, generation=10)
+    assert not _full_diagnostics_is_due(config, generation=19)
+    assert _full_diagnostics_is_due(config, generation=20)
+
+    twelve_iterations = replace(config, iterations=12)
+    assert not _full_diagnostics_is_due(twelve_iterations, generation=12)
+
+    every_iteration = replace(config, full_diagnostics_interval=1)
+    assert _full_diagnostics_is_due(every_iteration, generation=1)
+    assert _full_diagnostics_is_due(every_iteration, generation=2)
+
+    invalid = replace(config, full_diagnostics_interval=0)
+    with pytest.raises(PlayingRlOrchestratorError, match="full_diagnostics_interval"):
+        _validate_config(invalid)
+
+
+def test_run_playing_rl_cli_parses_full_diagnostics_interval(tmp_path: Path) -> None:
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "--run-directory",
+            str(tmp_path / "run"),
+            "--initial-checkpoint",
+            str(tmp_path / "initial.pt"),
+            "--supervised-dataset",
+            str(tmp_path / "supervised"),
+            "--full-diagnostics-interval",
+            "7",
+        ]
+    )
+    config = _config_from_args(args, parser)
+
+    assert config.full_diagnostics_interval == 7
+
+
 def _small_config(
     *,
     run_directory: Path,
@@ -337,6 +390,7 @@ def _small_config(
         learning_rate=0.001,
         epochs=1,
         batch_size=16,
+        full_diagnostics_interval=1,
         training_seed_base=201,
         evaluation_interval=1,
         evaluation_start_seed=301,

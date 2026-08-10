@@ -53,6 +53,7 @@ DEFAULT_ROLLOUT_WORKERS = 1
 DEFAULT_LEARNING_RATE = 1e-5
 DEFAULT_EPOCHS = 1
 DEFAULT_BATCH_SIZE = 128
+DEFAULT_FULL_DIAGNOSTICS_INTERVAL = 10
 DEFAULT_TRAINING_SEED_BASE = 2_000_000_000
 DEFAULT_EVALUATION_INTERVAL = 10
 DEFAULT_EVALUATION_START_SEED = 1_000_000_000
@@ -77,6 +78,7 @@ class PlayingRlRunConfig:
     value_loss_coefficient: float = DEFAULT_VALUE_LOSS_COEFFICIENT
     epochs: int = DEFAULT_EPOCHS
     batch_size: int = DEFAULT_BATCH_SIZE
+    full_diagnostics_interval: int = DEFAULT_FULL_DIAGNOSTICS_INTERVAL
     device: RequestedTorchDevice = "cpu"
     training_seed_base: int = DEFAULT_TRAINING_SEED_BASE
     evaluation_interval: int = DEFAULT_EVALUATION_INTERVAL
@@ -101,6 +103,7 @@ class PlayingRlRunConfig:
             value_loss_coefficient=self.value_loss_coefficient,
             epochs=self.epochs,
             batch_size=self.batch_size,
+            full_diagnostics_interval=self.full_diagnostics_interval,
             device=self.device,
             training_seed_base=self.training_seed_base,
             evaluation_interval=self.evaluation_interval,
@@ -129,6 +132,7 @@ class PlayingRlRunConfig:
             "valueLossCoefficient": self.value_loss_coefficient,
             "epochs": self.epochs,
             "batchSize": self.batch_size,
+            "fullDiagnosticsInterval": self.full_diagnostics_interval,
             "device": self.device,
             "trainingSeedBase": self.training_seed_base,
             "evaluationInterval": self.evaluation_interval,
@@ -292,6 +296,7 @@ def _run_iteration(
 
     print(f"[iter {iteration}/{total}] {config.algorithm}", flush=True)
     training_seed = _training_seed(config, iteration)
+    diagnostics_performed = _full_diagnostics_is_due(config, generation=iteration + 1)
     configure_reproducibility(training_seed)
     dataloader = create_playing_self_play_dataloader(
         self_play_dir,
@@ -310,6 +315,7 @@ def _run_iteration(
             value_loss_coefficient=config.value_loss_coefficient,
             verify_integrity=True,
             device=config.device,
+            full_diagnostics=diagnostics_performed,
         )
         report = train_policy_actor_critic(
             input_checkpoint=input_checkpoint,
@@ -327,6 +333,7 @@ def _run_iteration(
             learning_rate=config.learning_rate,
             verify_integrity=True,
             device=config.device,
+            full_diagnostics=diagnostics_performed,
         )
         report = train_policy_reinforce(
             input_checkpoint=input_checkpoint,
@@ -377,6 +384,9 @@ def _run_iteration(
         "requestedDevice": report.requested_device,
         "resolvedDevice": report.resolved_device,
         "cudaDeviceName": report.cuda_device_name,
+        "diagnosticsPerformed": report.diagnostics_performed,
+        "fullDiagnosticsInterval": config.full_diagnostics_interval,
+        "safetyValidationElapsedSeconds": report.safety_validation_elapsed_seconds,
         "preEvalElapsedSeconds": report.pre_eval_elapsed_seconds,
         "optimizerTrainingElapsedSeconds": report.optimizer_training_elapsed_seconds,
         "postEvalElapsedSeconds": report.post_eval_elapsed_seconds,
@@ -399,6 +409,7 @@ def _run_iteration(
         "algorithm": config.algorithm,
         "selfPlayGameCount": manifest.game_count,
         "sampleCount": manifest.sample_count,
+        "diagnosticsPerformed": report.diagnostics_performed,
         "positiveRewardCount": report.positive_reward_count,
         "negativeRewardCount": report.negative_reward_count,
         "meanReward": report.mean_reward,
@@ -407,6 +418,7 @@ def _run_iteration(
         "requestedDevice": report.requested_device,
         "resolvedDevice": report.resolved_device,
         "cudaDeviceName": report.cuda_device_name,
+        "safetyValidationElapsedSeconds": report.safety_validation_elapsed_seconds,
         "preEvalElapsedSeconds": report.pre_eval_elapsed_seconds,
         "optimizerTrainingElapsedSeconds": report.optimizer_training_elapsed_seconds,
         "postEvalElapsedSeconds": report.post_eval_elapsed_seconds,
@@ -494,6 +506,12 @@ def _ensure_due_evaluations(
 
 def _evaluation_is_due(config: PlayingRlRunConfig, generation: int) -> bool:
     return generation % config.evaluation_interval == 0 or generation == config.iterations
+
+
+def _full_diagnostics_is_due(config: PlayingRlRunConfig, generation: int) -> bool:
+    # Full diagnostics follow output generation cadence exactly: interval=10
+    # means v10, v20, ... and does not force an extra final-generation pass.
+    return generation % config.full_diagnostics_interval == 0
 
 
 def _ensure_evaluation(
@@ -991,6 +1009,9 @@ def _config_from_file_dict(
         ),
         epochs=_required_int(data["epochs"]),
         batch_size=_required_int(data["batchSize"]),
+        full_diagnostics_interval=_required_int(
+            _stored_config_value(data, "fullDiagnosticsInterval")
+        ),
         device=_required_device(_stored_config_value(data, "device")),
         training_seed_base=_required_int(data["trainingSeedBase"]),
         evaluation_interval=_required_int(data["evaluationInterval"]),
@@ -1007,6 +1028,7 @@ def _validate_config(config: PlayingRlRunConfig) -> None:
         "games_per_shard": config.games_per_shard,
         "epochs": config.epochs,
         "batch_size": config.batch_size,
+        "full_diagnostics_interval": config.full_diagnostics_interval,
         "evaluation_interval": config.evaluation_interval,
         "evaluation_seed_count": config.evaluation_seed_count,
         "rollout_workers": config.rollout_workers,
@@ -1209,6 +1231,8 @@ def _stored_config_value(data: Mapping[str, object], key: str) -> object:
         return DEFAULT_ROLLOUT_ROSTER
     if key == "rolloutWorkers":
         return DEFAULT_ROLLOUT_WORKERS
+    if key == "fullDiagnosticsInterval":
+        return 1
     if key == "device":
         return "cpu"
     raise KeyError(key)
