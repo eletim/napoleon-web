@@ -46,7 +46,7 @@ describe("SelfHandPanel", () => {
     expect(buttonMarkup(html, "K♥")).toContain("現在は操作できないカード");
   });
 
-  it("keeps original order as the default view", () => {
+  it("uses riipai order as the default view", () => {
     const hand = [
       standardCard("clubs", "2"),
       standardCard("spades", "A"),
@@ -68,8 +68,10 @@ describe("SelfHandPanel", () => {
     );
 
     expect(html).toContain("aria-pressed=\"true\"");
-    expect(indexOfCard(html, "2♣")).toBeLessThan(indexOfCard(html, "A♠"));
     expect(indexOfCard(html, "A♠")).toBeLessThan(indexOfCard(html, "K♥"));
+    expect(indexOfCard(html, "K♥")).toBeLessThan(indexOfCard(html, "2♣"));
+    expect(html).toContain("aria-label=\"理牌\"");
+    expect(html).not.toContain("aria-label=\"配札順\"");
   });
 
   it("keeps the self hand compact without visible ids or legend text", () => {
@@ -98,7 +100,7 @@ describe("SelfHandPanel", () => {
     expect(html).toContain("aria-label=\"自分の獲得得点札は0枚\"");
   });
 
-  it("switches order from the sort controls without sending a card action", () => {
+  it("toggles riipai from one sort control without sending a card action", () => {
     const hand = [
       standardCard("clubs", "2"),
       jokerCard,
@@ -126,13 +128,19 @@ describe("SelfHandPanel", () => {
       );
     });
 
-    expect(cardLabels(container)).toEqual(["2♣", "JOKER", "2♠", "K♥", "A♠"]);
+    expect(cardLabels(container)).toEqual(["A♠", "2♠", "K♥", "2♣", "JOKER"]);
 
     act(() => {
       getButtonByAriaLabel(container, "理牌").click();
     });
 
     expect(onPlay).not.toHaveBeenCalled();
+    expect(cardLabels(container)).toEqual(["2♣", "JOKER", "2♠", "K♥", "A♠"]);
+
+    act(() => {
+      getButtonByAriaLabel(container, "理牌").click();
+    });
+
     expect(cardLabels(container)).toEqual(["A♠", "2♠", "K♥", "2♣", "JOKER"]);
 
     act(() => {

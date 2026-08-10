@@ -26,7 +26,7 @@ export function SelfHandPanel({
   legalCardIds,
   selectedDiscardCardIds,
   canExchange,
-  defaultHandOrderMode = "original",
+  defaultHandOrderMode = "riipai",
   onPlay
 }: SelfHandPanelProps) {
   const [handOrderMode, setHandOrderMode] = useState<HandOrderMode>(defaultHandOrderMode);
@@ -72,21 +72,14 @@ export function SelfHandPanel({
           ) : null}
         </div>
 
-        <div className="hand-sort-toggle" aria-label="手札表示順">
-          <button
-            aria-label="配札順"
-            aria-pressed={handOrderMode === "original"}
-            className={getHandSortButtonClassName(handOrderMode, "original")}
-            onClick={() => setHandOrderMode("original")}
-            type="button"
-          >
-            配
-          </button>
+        <div className="hand-sort-toggle" aria-label="理牌切り替え">
           <button
             aria-label="理牌"
             aria-pressed={handOrderMode === "riipai"}
-            className={getHandSortButtonClassName(handOrderMode, "riipai")}
-            onClick={() => setHandOrderMode("riipai")}
+            className={getHandSortButtonClassName(handOrderMode)}
+            onClick={() =>
+              setHandOrderMode((current) => (current === "riipai" ? "original" : "riipai"))
+            }
             type="button"
           >
             理
@@ -148,11 +141,8 @@ function getCardInteractionState(
   return "blocked";
 }
 
-function getHandSortButtonClassName(
-  currentMode: HandOrderMode,
-  buttonMode: HandOrderMode
-): string {
-  return currentMode === buttonMode
+function getHandSortButtonClassName(currentMode: HandOrderMode): string {
+  return currentMode === "riipai"
     ? "hand-sort-button hand-sort-button-active"
     : "hand-sort-button";
 }

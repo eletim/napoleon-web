@@ -943,7 +943,6 @@ input:focus-visible {
   border-radius: 8px;
   display: inline-grid;
   gap: 2px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   padding: 2px;
 }
 
@@ -1349,7 +1348,31 @@ input:focus-visible {
 }
 
 @media (max-width: 560px) {
+  .app-shell {
+    padding: 6px;
+  }
+
+  .top-bar-compact {
+    display: grid;
+    gap: 6px;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .top-bar-compact p {
+    font-size: 0.74rem;
+  }
+
+  .mode-switch-compact {
+    margin-bottom: 4px;
+  }
+
+  .table {
+    gap: 6px;
+    padding: 6px;
+  }
+
   .table-grid {
+    gap: 6px;
     grid-template-areas:
       "top-left top-right"
       "left right"
@@ -1357,7 +1380,76 @@ input:focus-visible {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .player-seat {
+    gap: 4px;
+    min-height: 68px;
+    padding: 5px;
+  }
+
+  .seat-main-row,
+  .self-heading {
+    gap: 5px;
+  }
+
+  .seat-title h2,
+  .self-heading h2 {
+    font-size: 0.78rem;
+  }
+
+  .compact-hand {
+    gap: 4px;
+  }
+
+  .compact-hand strong {
+    font-size: 0.78rem;
+  }
+
+  .small-card-back {
+    height: 22px;
+    width: 16px;
+  }
+
+  .role-badges {
+    gap: 3px;
+    min-height: 16px;
+  }
+
+  .role-badge,
+  .turn-dot {
+    font-size: 0.54rem;
+    height: 16px;
+    width: 16px;
+  }
+
+  .latest-bid-declaration {
+    min-height: 24px;
+    min-width: 36px;
+    padding: 3px 5px;
+  }
+
+  .latest-bid-declaration strong {
+    font-size: 0.72rem;
+  }
+
+  .captured-compact,
+  .self-points-row {
+    gap: 3px;
+  }
+
+  .captured-compact > span,
+  .self-points-row > span {
+    font-size: 0.68rem;
+  }
+
+  .mini-card {
+    border-radius: 4px;
+    font-size: 0.64rem;
+    min-width: 22px;
+    padding: 3px 4px;
+  }
+
   .trick-board {
+    gap: 6px;
     grid-template-areas:
       "top-left top-right"
       "left right"
@@ -1367,75 +1459,155 @@ input:focus-visible {
 
   .compact-status-row {
     justify-content: flex-start;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    padding-bottom: 2px;
-    scrollbar-color: rgb(219 234 254 / 48%) transparent;
-    scrollbar-width: thin;
-    touch-action: pan-x;
+    flex-wrap: wrap;
     text-align: left;
     width: 100%;
   }
 
-  .compact-status-row::-webkit-scrollbar {
-    height: 5px;
-  }
-
-  .compact-status-row::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .compact-status-row::-webkit-scrollbar-thumb {
-    background: rgb(219 234 254 / 42%);
-    border-radius: 999px;
-  }
-
   .status-chip {
-    white-space: nowrap;
+    font-size: 0.68rem;
+    min-height: 22px;
+    padding: 3px 6px;
+    white-space: normal;
+  }
+
+  .trick-message {
+    min-height: 54px;
+    padding: 8px;
+  }
+
+  .trick-message strong {
+    font-size: 0.86rem;
+  }
+
+  .played-card,
+  .empty-played-card {
+    border-radius: 8px;
+    height: 82px;
+    padding: 6px;
+    width: 58px;
+  }
+
+  .played-card .red-text,
+  .played-card .black-text {
+    font-size: 1.35rem;
+  }
+
+  .joker-text {
+    font-size: 0.78rem;
   }
 
   .hand {
-    gap: 7px;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    padding-bottom: 4px;
+    display: grid;
+    gap: 4px;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    min-height: 0;
   }
 
   .card {
-    height: 88px;
-    width: 60px;
-  }
-
-  .bidding-panel {
-    padding: 12px;
-  }
-
-  .bidding-panel-header {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .bidding-pass-count {
-    align-items: center;
-    display: flex;
-    justify-content: space-between;
+    border-radius: 6px;
+    height: 58px;
+    padding: 3px;
     width: 100%;
   }
 
+  .card-suit {
+    font-size: 1rem;
+  }
+
+  .card-joker {
+    font-size: 0.52rem;
+  }
+
+  .bidding-panel {
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .bidding-panel-header {
+    align-items: center;
+    flex-direction: row;
+    gap: 6px;
+  }
+
+  .bidding-panel-header h2 {
+    font-size: 0.9rem;
+  }
+
+  .bidding-pass-count {
+    gap: 4px;
+    min-width: 42px;
+    padding: 4px 6px;
+  }
+
+  .bidding-pass-count strong {
+    font-size: 0.95rem;
+  }
+
   .bid-suit-buttons {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .bid-suit-button {
-    min-height: 56px;
+    min-height: 42px;
+    padding: 4px;
+  }
+
+  .bid-suit-button span {
+    font-size: 1.25rem;
   }
 
   .bid-stepper {
-    grid-template-columns: 54px minmax(0, 1fr) 54px;
+    gap: 5px;
+    grid-template-columns: 42px minmax(0, 1fr) 42px;
+  }
+
+  .stepper-button,
+  .bid-target-output {
+    min-height: 40px;
+  }
+
+  .stepper-button {
+    font-size: 1rem;
+  }
+
+  .bid-target-output {
+    font-size: 1rem;
+  }
+
+  .bid-submit-row {
+    gap: 5px;
+    grid-template-columns: minmax(0, 1fr) minmax(76px, 0.6fr);
+  }
+
+  .bid-submit-button,
+  .pass-button {
+    min-height: 40px;
+  }
+
+  .primary-button,
+  .secondary-button {
+    min-height: 36px;
+    padding: 0 10px;
   }
 
   .self-heading {
     align-items: stretch;
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+
+  .self-panel {
+    padding: 6px;
+  }
+
+  .self-points-row {
+    margin-bottom: 6px;
+    padding-top: 6px;
+  }
+
+  .hand-sort-button {
+    min-height: 26px;
+    padding: 4px 7px;
   }
 }
