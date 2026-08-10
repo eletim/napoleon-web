@@ -28,7 +28,12 @@ from napoleon_ml.policy.actor_critic import (
     ActorCriticTrainSettings,
     train_policy_actor_critic,
 )
-from napoleon_ml.policy.device import SUPPORTED_TORCH_DEVICES, RequestedTorchDevice
+from napoleon_ml.policy.device import (
+    SUPPORTED_TORCH_DEVICES,
+    RequestedTorchDevice,
+    TorchDeviceResolutionError,
+    resolve_torch_device,
+)
 from napoleon_ml.policy.onnx_export import export_policy_checkpoint_to_onnx
 from napoleon_ml.policy.reinforce import (
     REINFORCE_ALGORITHM,
@@ -1027,6 +1032,11 @@ def _validate_config(config: PlayingRlRunConfig) -> None:
             "device must be one of "
             f"{', '.join(SUPPORTED_TORCH_DEVICES)}, got {config.device!r}."
         )
+    if config.device == "cuda":
+        try:
+            resolve_torch_device(config.device)
+        except TorchDeviceResolutionError as error:
+            raise PlayingRlOrchestratorError(str(error)) from error
     if (
         not math.isfinite(config.value_loss_coefficient)
         or config.value_loss_coefficient < 0.0

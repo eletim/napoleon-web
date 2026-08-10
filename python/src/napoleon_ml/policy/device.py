@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 import torch
+from torch import Tensor, nn
 
 RequestedTorchDevice = Literal["auto", "cpu", "cuda"]
 SUPPORTED_TORCH_DEVICES: tuple[RequestedTorchDevice, ...] = ("auto", "cpu", "cuda")
@@ -81,3 +82,7 @@ def start_timing(device: ResolvedTorchDevice) -> float:
 def elapsed_seconds_since(start: float, device: ResolvedTorchDevice) -> float:
     synchronize_device(device)
     return time.perf_counter() - start
+
+
+def cpu_state_dict(model: nn.Module) -> dict[str, Tensor]:
+    return {name: value.detach().cpu() for name, value in model.state_dict().items()}

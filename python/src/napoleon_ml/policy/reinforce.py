@@ -37,6 +37,7 @@ from napoleon_ml.policy.checkpoint import (
 from napoleon_ml.policy.device import (
     RequestedTorchDevice,
     ResolvedTorchDevice,
+    cpu_state_dict,
     elapsed_seconds_since,
     resolve_torch_device,
     start_timing,
@@ -651,7 +652,7 @@ def _save_reinforce_checkpoint(
     rl_provenance: dict[str, object],
 ) -> None:
     checkpoint = dict(parent_checkpoint)
-    checkpoint["model_state"] = _cpu_state_dict(model)
+    checkpoint["model_state"] = cpu_state_dict(model)
     checkpoint["rl_provenance"] = rl_provenance
     torch.save(checkpoint, path)
 
@@ -670,11 +671,6 @@ def _batch_to_device(
             dtype=torch.float32,
         ),
     )
-
-
-def _cpu_state_dict(model: PolicyMlpModel) -> dict[str, Tensor]:
-    return {name: value.detach().cpu() for name, value in model.state_dict().items()}
-
 
 def _require_manifest_temperature(manifest: DatasetManifest) -> float:
     temperature = manifest.temperature

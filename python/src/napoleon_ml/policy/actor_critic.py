@@ -31,6 +31,7 @@ from napoleon_ml.policy.checkpoint import (
 from napoleon_ml.policy.device import (
     RequestedTorchDevice,
     ResolvedTorchDevice,
+    cpu_state_dict,
     elapsed_seconds_since,
     resolve_torch_device,
     start_timing,
@@ -825,7 +826,7 @@ def _save_actor_critic_checkpoint(
 ) -> None:
     checkpoint = dict(parent_checkpoint)
     checkpoint["model_architecture"] = ACTOR_CRITIC_MODEL_ARCHITECTURE
-    checkpoint["model_state"] = _cpu_state_dict(model)
+    checkpoint["model_state"] = cpu_state_dict(model)
     checkpoint["model_config"] = model.config.to_dict()
     checkpoint["rl_provenance"] = rl_provenance
     if migrated_from_policy:
@@ -857,11 +858,6 @@ def _batch_to_device(
             dtype=torch.float32,
         ),
     )
-
-
-def _cpu_state_dict(model: PolicyActorCriticModel) -> dict[str, Tensor]:
-    return {name: value.detach().cpu() for name, value in model.state_dict().items()}
-
 
 def _validate_settings(settings: ActorCriticTrainSettings) -> None:
     if settings.epochs <= 0:

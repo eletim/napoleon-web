@@ -19,6 +19,7 @@ from napoleon_ml.policy.reinforce import REINFORCE_ALGORITHM
 from napoleon_ml.rl_orchestrator import (
     PlayingRlOrchestratorError,
     PlayingRlRunConfig,
+    _validate_config,
     run_playing_rl_experiment,
 )
 
@@ -297,6 +298,22 @@ def test_playing_rl_orchestrator_actor_critic_two_iteration_resume_and_safety(
             resume=True,
             provided_config_keys={"algorithm"},
         )
+
+
+def test_playing_rl_orchestrator_explicit_cuda_fails_during_config_validation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    config = PlayingRlRunConfig(
+        run_directory=tmp_path / "run",
+        initial_checkpoint=tmp_path / "missing.pt",
+        supervised_dataset=tmp_path / "missing-dataset",
+        device="cuda",
+    )
+
+    with pytest.raises(PlayingRlOrchestratorError, match="explicitly requested"):
+        _validate_config(config)
 
 
 def _small_config(
