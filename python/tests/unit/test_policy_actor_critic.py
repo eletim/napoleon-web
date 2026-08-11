@@ -630,7 +630,7 @@ def test_actor_critic_batched_cuda_large_numeric_drift_fails(tmp_path: Path) -> 
         checkpoint=checkpoint,
         checkpoint_path=checkpoint_path,
         rewards=(1,),
-        behavior_log_probability_offset=0.01,
+        behavior_log_probability_offset=0.011,
     )
 
     with pytest.raises(PolicyCheckpointCompatibilityError, match="max abs error"):

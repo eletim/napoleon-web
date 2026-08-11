@@ -377,7 +377,57 @@ def test_reinforce_batched_cuda_numeric_drift_passes_with_diagnostics(
         0.001,
         abs=1e-7,
     )
+    assert report.behavior_parity_diagnostics.to_dict()["severity"] == "pass"
     assert report.max_behavior_log_probability_parity_error == pytest.approx(0.001, abs=1e-7)
+    assert report.output_checkpoint_path.is_file()
+
+
+def test_reinforce_batched_cuda_max_outlier_warning_is_reported(
+    tmp_path: Path,
+) -> None:
+    self_play_dataset = tmp_path / "self-play"
+    self_play_dataset.mkdir()
+    model = PolicyMlpModel(PolicyMlpConfig(hidden_dim=8, hidden_layers=1))
+    checkpoint_path = tmp_path / "input.pt"
+    checkpoint = _write_checkpoint(checkpoint_path, model)
+    _write_self_play_dataset(
+        self_play_dataset,
+        model=model,
+        checkpoint=checkpoint,
+        checkpoint_path=checkpoint_path,
+        rewards=(1,),
+        behavior_log_probability_offset=-0.006,
+    )
+    loader = create_playing_self_play_dataloader(
+        self_play_dataset,
+        split=DatasetSplit.TRAIN,
+        split_config=SplitConfig(train=100, validation=0, test=0),
+        batch_size=1,
+    )
+
+    report = train_policy_reinforce(
+        input_checkpoint=checkpoint_path,
+        self_play_dataset_directory=self_play_dataset,
+        output_checkpoint=tmp_path / "output.pt",
+        manifest=load_manifest(self_play_dataset),
+        dataloader=loader,
+        settings=ReinforceTrainSettings(
+            seed=0,
+            epochs=1,
+            batch_size=1,
+            learning_rate=0.01,
+            verify_integrity=True,
+            behavior_parity_execution_provider="cuda",
+            behavior_parity_max_observed_batch_size=32,
+        ),
+    )
+
+    report_artifact = report.to_dict()
+    diagnostics = cast(dict[str, object], report_artifact["behaviorParityDiagnostics"])
+    assert diagnostics["passed"] is True
+    assert diagnostics["severity"] == "warning"
+    assert diagnostics["warningCount"] == 1
+    assert diagnostics["hardFailureCount"] == 0
     assert report.output_checkpoint_path.is_file()
 
 
@@ -393,7 +443,7 @@ def test_reinforce_batched_cuda_large_numeric_drift_fails(tmp_path: Path) -> Non
         checkpoint=checkpoint,
         checkpoint_path=checkpoint_path,
         rewards=(1,),
-        behavior_log_probability_offset=0.01,
+        behavior_log_probability_offset=0.011,
     )
     loader = create_playing_self_play_dataloader(
         self_play_dataset,
