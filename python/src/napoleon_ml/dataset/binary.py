@@ -29,6 +29,7 @@ class PlayingSelfPlayBinaryBatch(TypedDict):
     seed: Tensor
     step: Tensor
     acting_player_index: Tensor
+    self_role_index: Tensor
 
 
 _MAGIC = b"NPSPBD01"
@@ -323,6 +324,9 @@ def _torch_batch(
         "step": torch.from_numpy(arrays["step"].astype(np.int64, copy=False)),
         "acting_player_index": torch.from_numpy(
             arrays["actingPlayerIndex"].astype(np.int64, copy=False)
+        ),
+        "self_role_index": torch.from_numpy(
+            arrays["selfRoleIndex"].astype(np.int64, copy=False)
         ),
     }
 
