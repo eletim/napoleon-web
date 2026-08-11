@@ -10,6 +10,7 @@
     "typecheck": "tsc -b --noEmit"
   },
   "dependencies": {
+    "@napoleon/game-core": "workspace:*",
     "@napoleon/protocol": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

@@ -68,12 +68,7 @@ describe("display text", () => {
         tone: "contract"
       }
     ]);
-    expect(display.secondary.map((chip) => chip.label)).toEqual([
-      "オ",
-      "よ",
-      "正",
-      "裏"
-    ]);
+    expect(display.secondary).toEqual([]);
     expect(display.secondary.some((chip) => chip.label === "副")).toBe(false);
   });
 
@@ -136,7 +131,7 @@ describe("display text", () => {
     expect(display.secondary.some((chip) => chip.label === "副")).toBe(false);
   });
 
-  it("shows play status as compact trick, contract, adjutant, and special-card marks", () => {
+  it("shows play status as compact trick, contract, and adjutant without special-card marks", () => {
     const state = createPublicState({
       phase: "playing",
       trickNumber: 4,
@@ -179,11 +174,7 @@ describe("display text", () => {
         value: "A♥・?",
         ariaLabel: "副官札: A♥ / 未判明",
         tone: "role"
-      },
-      { label: "オ", value: "A♠", ariaLabel: "オルマ: A♠", tone: "special" },
-      { label: "よ", value: "Q♥", ariaLabel: "よろめき: Q♥", tone: "special" },
-      { label: "正", value: "J♦", ariaLabel: "正ジャック: J♦", tone: "special" },
-      { label: "裏", value: "J♥", ariaLabel: "裏ジャック: J♥", tone: "special" }
+      }
     ]);
   });
 
@@ -209,6 +200,8 @@ describe("display text", () => {
       ariaLabel: "副官札: A♥ / 奥左AI",
       tone: "role"
     });
+    expect(display.secondary.some((chip) => chip.label === "オ")).toBe(false);
+    expect(display.secondary.some((chip) => chip.label === "よ")).toBe(false);
     expect(display.secondary.some((chip) => chip.label === "正")).toBe(false);
     expect(display.secondary.some((chip) => chip.label === "裏")).toBe(false);
   });

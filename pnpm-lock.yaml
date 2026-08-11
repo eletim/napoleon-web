@@ -67,6 +67,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@napoleon/game-core':
+        specifier: workspace:*
+        version: link:../../packages/game-core
       '@napoleon/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol

@@ -49,10 +49,7 @@ export function createGameStatusDisplay(
           { label: "交換", ariaLabel: "埋札交換", tone: "phase" },
           ...createContractSetupChips(state, players)
         ],
-        secondary: [
-          ...createAdjutantChip(state, players),
-          ...createSpecialCardChips(state)
-        ]
+        secondary: createAdjutantChip(state, players)
       };
     case "choosing-adjutant":
       return {
@@ -60,7 +57,7 @@ export function createGameStatusDisplay(
           { label: "副官", ariaLabel: "副官指定", tone: "phase" },
           ...createContractSetupChips(state, players)
         ],
-        secondary: createSpecialCardChips(state)
+        secondary: []
       };
     case "playing":
       return {
@@ -72,10 +69,7 @@ export function createGameStatusDisplay(
           },
           ...createContractSummaryChips(state, players)
         ],
-        secondary: [
-          ...createAdjutantChip(state, players),
-          ...createSpecialCardChips(state)
-        ]
+        secondary: createAdjutantChip(state, players)
       };
     case "finished":
       return {
@@ -92,10 +86,7 @@ export function createGameStatusDisplay(
               ]),
           ...createContractSummaryChips(state, players)
         ],
-        secondary: [
-          ...createAdjutantChip(state, players),
-          ...createSpecialCardChips(state)
-        ]
+        secondary: createAdjutantChip(state, players)
       };
   }
 }
@@ -295,46 +286,6 @@ function createAdjutantChip(
       tone: "role"
     }
   ];
-}
-
-function createSpecialCardChips(state: PublicGameState): readonly StatusChip[] {
-  if (state.trumpSuit === null) {
-    return [];
-  }
-
-  return [
-    {
-      label: "オ",
-      value: formatCardId(state.specialCards.orumaCardId),
-      ariaLabel: `オルマ: ${formatCardId(state.specialCards.orumaCardId)}`,
-      tone: "special"
-    },
-    {
-      label: "よ",
-      value: formatCardId(state.specialCards.yoromekiCardId),
-      ariaLabel: `よろめき: ${formatCardId(state.specialCards.yoromekiCardId)}`,
-      tone: "special"
-    },
-    ...createOptionalCardChip("正", "正ジャック", state.specialCards.seiJackCardId),
-    ...createOptionalCardChip("裏", "裏ジャック", state.specialCards.uraJackCardId)
-  ];
-}
-
-function createOptionalCardChip(
-  label: string,
-  ariaName: string,
-  cardId: string | null
-): readonly StatusChip[] {
-  return cardId === null
-    ? []
-    : [
-        {
-          label,
-          value: formatCardId(cardId),
-          ariaLabel: `${ariaName}: ${formatCardId(cardId)}`,
-          tone: "special"
-        }
-      ];
 }
 
 function isPublicSuit(value: string | undefined): value is PublicSuit {
