@@ -1,4 +1,5 @@
 #include "napoleon_core.hpp"
+#include "napoleon_observation.hpp"
 
 #include <cstdint>
 #include <iostream>
@@ -47,7 +48,10 @@ int main(int argc, char** argv) {
       napoleon::apply_action(state, napoleon::parse_action_line(line));
     }
 
-    std::cout << napoleon::canonical_snapshot_json(state) << '\n';
+    std::cout
+        << napoleon::observation::
+               canonical_snapshot_with_current_player_playing_model_input_json(state)
+        << '\n';
     return 0;
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';

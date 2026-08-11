@@ -1,6 +1,4 @@
 #include "napoleon_core.hpp"
-#include "napoleon_observation.hpp"
-
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -1032,9 +1030,7 @@ std::string canonical_snapshot_json(const GameState& state) {
   write_result(out, state.result);
   out << ",\"trickNumber\":" << state.trick_number;
   out << ",\"isTrickComplete\":" << (state.is_trick_complete ? "true" : "false");
-  out << ",\"isGameOver\":" << (state.is_game_over ? "true" : "false");
-  out << ",\"playingModelInput\":"
-      << observation::current_player_playing_model_input_json(state) << '}';
+  out << ",\"isGameOver\":" << (state.is_game_over ? "true" : "false") << '}';
   return out.str();
 }
 

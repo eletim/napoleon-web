@@ -67,5 +67,6 @@ struct PlayingModelInput {
 std::optional<PlayingModelInput> create_current_player_playing_model_input(const GameState& state);
 PlayingModelInput create_playing_model_input(const GameState& state, int player_index);
 std::string current_player_playing_model_input_json(const GameState& state);
+std::string canonical_snapshot_with_current_player_playing_model_input_json(const GameState& state);
 
 }  // namespace napoleon::observation

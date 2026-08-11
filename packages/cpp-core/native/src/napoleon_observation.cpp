@@ -604,4 +604,17 @@ std::string current_player_playing_model_input_json(const GameState& state) {
   return out.str();
 }
 
+std::string canonical_snapshot_with_current_player_playing_model_input_json(const GameState& state) {
+  std::string snapshot = canonical_snapshot_json(state);
+  if (snapshot.empty() || snapshot.back() != '}') {
+    throw std::runtime_error("canonical snapshot must be a JSON object");
+  }
+
+  snapshot.pop_back();
+  snapshot += ",\"playingModelInput\":";
+  snapshot += current_player_playing_model_input_json(state);
+  snapshot += '}';
+  return snapshot;
+}
+
 }  // namespace napoleon::observation
