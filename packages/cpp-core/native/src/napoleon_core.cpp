@@ -534,6 +534,50 @@ void write_played_card(std::ostream& out, const PlayedCard& played) {
   out << '}';
 }
 
+void write_action(std::ostream& out, const Action& action) {
+  out << "{\"type\":";
+  switch (action.type) {
+    case Action::Type::Bid:
+      json_escape(out, "bid");
+      out << ",\"playerId\":";
+      json_escape(out, player_id(action.player_index));
+      out << ",\"suit\":";
+      json_escape(out, suit_id(*action.suit));
+      out << ",\"targetPointCards\":" << action.target_point_cards;
+      break;
+    case Action::Type::Pass:
+      json_escape(out, "pass");
+      out << ",\"playerId\":";
+      json_escape(out, player_id(action.player_index));
+      break;
+    case Action::Type::ChooseAdjutant:
+      json_escape(out, "choose-adjutant");
+      out << ",\"playerId\":";
+      json_escape(out, player_id(action.player_index));
+      out << ",\"cardId\":";
+      write_card(out, action.card);
+      break;
+    case Action::Type::DiscardCards:
+      json_escape(out, "discard-cards");
+      out << ",\"playerId\":";
+      json_escape(out, player_id(action.player_index));
+      out << ",\"cardIds\":";
+      write_array(out, action.cards, write_card);
+      break;
+    case Action::Type::PlayCard:
+      json_escape(out, "play-card");
+      out << ",\"playerId\":";
+      json_escape(out, player_id(action.player_index));
+      out << ",\"cardId\":";
+      write_card(out, action.card);
+      break;
+    case Action::Type::AdvanceToNextTrick:
+      json_escape(out, "next-trick");
+      break;
+  }
+  out << '}';
+}
+
 void write_completed_trick(std::ostream& out, const CompletedTrick& trick) {
   out << "{\"trickNumber\":" << trick.trick_number << ",\"winnerId\":";
   json_escape(out, player_id(trick.winner_index));
@@ -956,6 +1000,8 @@ std::string canonical_snapshot_json(const GameState& state) {
   }
   out << "],\"currentTrick\":";
   write_array(out, state.current_trick, write_played_card);
+  out << ",\"currentPlayerLegalActions\":";
+  write_array(out, get_legal_actions(state, state.current_player_index), write_action);
   out << ",\"completedTricks\":";
   write_array(out, state.completed_tricks, write_completed_trick);
   out << ",\"trumpSuit\":";

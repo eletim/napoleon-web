@@ -17,6 +17,7 @@ interface CanonicalSnapshot {
   currentPlayerId: string;
   players: readonly { id: string; handIds: readonly string[] }[];
   currentTrick: readonly { playerId: string; cardId: string }[];
+  currentPlayerLegalActions: readonly CanonicalAction[];
   completedTricks: readonly {
     trickNumber: number;
     winnerId: string;
@@ -40,6 +41,13 @@ interface CanonicalSnapshot {
   isTrickComplete: boolean;
   isGameOver: boolean;
 }
+
+type CanonicalAction =
+  | { type: "bid"; playerId: string; suit: Suit; targetPointCards: number }
+  | { type: "pass"; playerId: string }
+  | { type: "choose-adjutant"; playerId: string; cardId: string }
+  | { type: "discard-cards"; playerId: string; cardIds: readonly string[] }
+  | { type: "play-card"; playerId: string; cardId: string };
 
 function createSeededRandom(seed: number): () => number {
   let state = normalizeSeed(seed);
@@ -77,6 +85,7 @@ function toCanonicalSnapshot(state: GameState): CanonicalSnapshot {
       playerId: played.playerId,
       cardId: played.card.id
     })),
+    currentPlayerLegalActions: getLegalActions(state, state.currentPlayerId).map(toCanonicalAction),
     completedTricks: state.completedTricks.map((trick) => ({
       trickNumber: trick.trickNumber,
       winnerId: trick.winnerId,
@@ -109,6 +118,41 @@ function toCanonicalSnapshot(state: GameState): CanonicalSnapshot {
     isTrickComplete: state.isTrickComplete,
     isGameOver: state.isGameOver
   };
+}
+
+function toCanonicalAction(action: GameAction): CanonicalAction {
+  switch (action.type) {
+    case "bid":
+      return {
+        type: action.type,
+        playerId: action.playerId,
+        suit: action.suit,
+        targetPointCards: action.targetPointCards
+      };
+    case "pass":
+      return {
+        type: action.type,
+        playerId: action.playerId
+      };
+    case "choose-adjutant":
+      return {
+        type: action.type,
+        playerId: action.playerId,
+        cardId: action.cardId
+      };
+    case "discard-cards":
+      return {
+        type: action.type,
+        playerId: action.playerId,
+        cardIds: action.cardIds
+      };
+    case "play-card":
+      return {
+        type: action.type,
+        playerId: action.playerId,
+        cardId: action.cardId
+      };
+  }
 }
 
 function applyScriptToTs(seed: number, script: readonly string[]): GameState {
