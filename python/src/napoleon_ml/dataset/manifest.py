@@ -11,9 +11,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ._strict import (
+    reject_unknown_keys,
     require_dict,
     require_exact_keys,
     require_int,
+    require_key,
     require_list,
     require_number,
     require_str,
@@ -96,7 +98,21 @@ _SELF_PLAY_MANIFEST_KEYS = (
         }
     )
 )
-_BINARY_SELF_PLAY_MANIFEST_KEYS = _SELF_PLAY_MANIFEST_KEYS | frozenset({"tensorSchema"})
+_BINARY_SELF_PLAY_EXTENSION_KEYS = frozenset(
+    {
+        "simulationBackend",
+        "runtime",
+        "inference",
+        "policyArtifacts",
+        "provenance",
+        "opponentPool",
+        "seatRotation",
+    }
+)
+_BINARY_SELF_PLAY_REQUIRED_KEYS = _SELF_PLAY_MANIFEST_KEYS | frozenset({"tensorSchema"})
+_BINARY_SELF_PLAY_MANIFEST_KEYS = (
+    _BINARY_SELF_PLAY_REQUIRED_KEYS | _BINARY_SELF_PLAY_EXTENSION_KEYS
+)
 _TENSOR_SCHEMA_KEYS = frozenset({"shardSchemaVersion", "byteOrder", "compression", "fields"})
 _TENSOR_FIELD_SCHEMA_KEYS = frozenset({"name", "dtype", "shape"})
 
@@ -203,6 +219,13 @@ class DatasetManifest:
     non_playing_agent: DatasetAgentInfo | None = None
     rollout_roster: DatasetRolloutRoster | None = None
     tensor_schema: DatasetTensorSchema | None = None
+    simulation_backend: str | None = None
+    runtime: object | None = None
+    inference: object | None = None
+    policy_artifacts: object | None = None
+    provenance: object | None = None
+    opponent_pool: object | None = None
+    seat_rotation: object | None = None
 
 
 def _error(message: str) -> ManifestValidationError:
@@ -486,7 +509,9 @@ def parse_manifest(raw: object) -> DatasetManifest:
         rollout_roster = _parse_rollout_roster(obj["rolloutRoster"])
         tensor_schema = None
     elif dataset_schema_version == 4:
-        require_exact_keys(obj, _BINARY_SELF_PLAY_MANIFEST_KEYS, path="manifest", error=_error)
+        for key in sorted(_BINARY_SELF_PLAY_REQUIRED_KEYS):
+            require_key(obj, key, path="manifest", error=_error)
+        reject_unknown_keys(obj, _BINARY_SELF_PLAY_MANIFEST_KEYS, path="manifest", error=_error)
         playing_encoder_schema_version = require_int(
             obj["playingEncoderSchemaVersion"],
             path="manifest.playingEncoderSchemaVersion",
@@ -513,11 +538,30 @@ def parse_manifest(raw: object) -> DatasetManifest:
         non_playing_agent = _parse_non_playing_agent(obj["nonPlayingAgent"])
         rollout_roster = _parse_rollout_roster(obj["rolloutRoster"])
         tensor_schema = _parse_tensor_schema(obj["tensorSchema"])
+        simulation_backend = (
+            require_str(obj["simulationBackend"], path="manifest.simulationBackend", error=_error)
+            if "simulationBackend" in obj
+            else None
+        )
+        runtime = obj.get("runtime")
+        inference = obj.get("inference")
+        policy_artifacts = obj.get("policyArtifacts")
+        provenance = obj.get("provenance")
+        opponent_pool = obj.get("opponentPool")
+        seat_rotation = obj.get("seatRotation")
     else:
         raise _error(
             "manifest.datasetSchemaVersion must be 1, 2, 3, or 4, "
             f"got {dataset_schema_version}."
         )
+    if dataset_schema_version != 4:
+        simulation_backend = None
+        runtime = None
+        inference = None
+        policy_artifacts = None
+        provenance = None
+        opponent_pool = None
+        seat_rotation = None
 
     shards_raw = require_list(obj["shards"], path="manifest.shards", error=_error)
 
@@ -555,4 +599,11 @@ def parse_manifest(raw: object) -> DatasetManifest:
         non_playing_agent=non_playing_agent,
         rollout_roster=rollout_roster,
         tensor_schema=tensor_schema,
+        simulation_backend=simulation_backend,
+        runtime=runtime,
+        inference=inference,
+        policy_artifacts=policy_artifacts,
+        provenance=provenance,
+        opponent_pool=opponent_pool,
+        seat_rotation=seat_rotation,
     )

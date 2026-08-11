@@ -16,6 +16,9 @@ from napoleon_ml.rl_orchestrator import (
     DEFAULT_EVALUATION_INTERVAL,
     DEFAULT_EVALUATION_SEED_COUNT,
     DEFAULT_EVALUATION_START_SEED,
+    DEFAULT_FROZEN_POLICY_ARTIFACT_ID,
+    DEFAULT_FROZEN_POLICY_METADATA,
+    DEFAULT_FROZEN_POLICY_ONNX,
     DEFAULT_FULL_DIAGNOSTICS_INTERVAL,
     DEFAULT_GAMES_PER_ITERATION,
     DEFAULT_GAMES_PER_SHARD,
@@ -27,10 +30,12 @@ from napoleon_ml.rl_orchestrator import (
     DEFAULT_ROLLOUT_ROSTER,
     DEFAULT_ROLLOUT_WORKERS,
     DEFAULT_SELF_PLAY_SEED_BASE,
+    DEFAULT_SIMULATION_BACKEND,
     DEFAULT_TEMPERATURE,
     DEFAULT_TRAINING_SEED_BASE,
     PLAYING_RL_ALGORITHMS,
     SUPPORTED_INFERENCE_DEVICES,
+    SUPPORTED_SIMULATION_BACKENDS,
     PlayingRlOrchestratorError,
     PlayingRlRunConfig,
     run_playing_rl_experiment,
@@ -59,6 +64,10 @@ _OPTION_TO_CONFIG_KEY = {
     "--evaluation-seed-count": "evaluationSeedCount",
     "--inference-device": "inferenceDevice",
     "--retain-self-play-data": "retainSelfPlayData",
+    "--simulation-backend": "simulationBackend",
+    "--frozen-policy-onnx": "frozenPolicyOnnxSha256",
+    "--frozen-policy-metadata": "frozenPolicyMetadataSha256",
+    "--frozen-policy-artifact-id": "frozenPolicyArtifactId",
 }
 
 
@@ -117,8 +126,20 @@ def build_parser() -> argparse.ArgumentParser:
             "By default completed iterations keep manifest provenance and delete the raw cache."
         ),
     )
+    parser.add_argument(
+        "--simulation-backend",
+        choices=SUPPORTED_SIMULATION_BACKENDS,
+        default=DEFAULT_SIMULATION_BACKEND,
+    )
+    parser.add_argument("--frozen-policy-onnx", type=Path)
+    parser.add_argument("--frozen-policy-metadata", type=Path)
+    parser.add_argument(
+        "--frozen-policy-artifact-id",
+        default=DEFAULT_FROZEN_POLICY_ARTIFACT_ID,
+    )
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--no-typescript-build", action="store_true")
+    parser.add_argument("--no-cpp-build", action="store_true")
     return parser
 
 
@@ -152,6 +173,15 @@ def _config_from_args(
     if args.supervised_dataset is None:
         parser.error("--supervised-dataset is required.")
 
+    default_frozen_onnx = _repo_root() / DEFAULT_FROZEN_POLICY_ONNX
+    default_frozen_metadata = _repo_root() / DEFAULT_FROZEN_POLICY_METADATA
+    frozen_policy_onnx = args.frozen_policy_onnx
+    if frozen_policy_onnx is None and args.simulation_backend == "cpp":
+        frozen_policy_onnx = default_frozen_onnx
+    frozen_policy_metadata = args.frozen_policy_metadata
+    if frozen_policy_metadata is None and args.simulation_backend == "cpp":
+        frozen_policy_metadata = default_frozen_metadata
+
     return PlayingRlRunConfig(
         run_directory=args.run_directory,
         initial_checkpoint=args.initial_checkpoint,
@@ -178,8 +208,17 @@ def _config_from_args(
         evaluation_seed_count=args.evaluation_seed_count,
         inference_device=args.inference_device,
         retain_self_play_data=args.retain_self_play_data,
+        simulation_backend=args.simulation_backend,
+        frozen_policy_onnx=frozen_policy_onnx,
+        frozen_policy_metadata=frozen_policy_metadata,
+        frozen_policy_artifact_id=args.frozen_policy_artifact_id,
         build_typescript=not args.no_typescript_build,
+        build_cpp=not args.no_cpp_build,
     )
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[4]
 
 
 def _provided_config_keys(argv: Sequence[str]) -> set[str]:

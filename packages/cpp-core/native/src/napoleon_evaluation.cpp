@@ -1,9 +1,11 @@
 #include "napoleon_evaluation.hpp"
+#include "napoleon_onnx_policy.hpp"
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <fstream>
+#include <memory>
 #include <map>
 #include <numeric>
 #include <ostream>
@@ -214,7 +216,8 @@ void submit_policy_requests(
     SimulationRuntime& runtime,
     const std::vector<AgentRequest>& requests,
     std::size_t max_batch,
-    DriverMetrics& metrics) {
+    DriverMetrics& metrics,
+    onnx_policy::BatchedPolicyExecutor& executor) {
   std::map<std::string, std::vector<AgentRequest>> grouped;
   for (const AgentRequest& request : requests) {
     grouped[agent_key(request.agent)].push_back(request);
@@ -228,9 +231,28 @@ void submit_policy_requests(
 
       std::vector<AgentResult> results;
       results.reserve(batch_size);
+      std::vector<AgentRequest> playing_requests;
+      playing_requests.reserve(batch_size);
       for (std::size_t index = 0; index < batch_size; ++index) {
         const AgentRequest& request = policy_requests[offset + index];
-        results.push_back(AgentResult{request.request_id, deterministic_policy_action(request)});
+        if (request.phase == Phase::Playing) {
+          playing_requests.push_back(request);
+        } else {
+          AgentResult result;
+          result.request_id = request.request_id;
+          result.action = deterministic_policy_action(request);
+          results.push_back(result);
+        }
+      }
+      if (!playing_requests.empty()) {
+        std::vector<onnx_policy::PolicyActionResult> policy_results =
+            executor.run(playing_requests);
+        if (policy_results.size() != playing_requests.size()) {
+          throw std::runtime_error("policy executor returned a mismatched result count");
+        }
+        for (const onnx_policy::PolicyActionResult& result : policy_results) {
+          results.push_back(result.result);
+        }
       }
       runtime.submit_agent_results(results);
 
@@ -257,13 +279,82 @@ void submit_policy_requests(
   }
 }
 
+onnx_policy::InferenceDevice policy_inference_device(const EvaluationOptions& options) {
+  return options.inference_device == "cuda" ? onnx_policy::InferenceDevice::Cuda
+                                            : onnx_policy::InferenceDevice::Cpu;
+}
+
+std::unique_ptr<onnx_policy::PolicySession> create_policy_session(
+    const EvaluationOptions& options,
+    onnx_policy::PolicyKey key,
+    const std::string& onnx_path) {
+  if (options.policy_backend == "onnx") {
+    return onnx_policy::create_onnxruntime_policy_session(onnx_policy::PolicySessionConfig{
+        key,
+        onnx_path,
+        "model_input",
+        "logits",
+        policy_inference_device(options)});
+  }
+  return std::make_unique<onnx_policy::DeterministicPolicySession>(
+      onnx_policy::DeterministicPolicySession::default_logits(),
+      options.inference_device == "cuda" ? onnx_policy::ExecutionProvider::Cuda
+                                         : onnx_policy::ExecutionProvider::Cpu);
+}
+
+std::unique_ptr<onnx_policy::BatchedPolicyExecutor> create_policy_executor(
+    const EvaluationOptions& options) {
+  auto executor = std::make_unique<onnx_policy::BatchedPolicyExecutor>(
+      onnx_policy::BatchedPolicyConfig{
+          std::max<std::size_t>(1, options.inference_max_batch_size),
+          1.0,
+          options.roster_seed});
+  const onnx_policy::PolicyKey candidate_key{AgentType::CurrentPolicy, options.candidate_id};
+  const onnx_policy::PolicyKey frozen_key{AgentType::FrozenPolicy, options.frozen_id};
+  const onnx_policy::PolicyKey frozen_alt_key{AgentType::FrozenPolicy, options.frozen_id + "-alt"};
+  executor->add_policy(
+      candidate_key,
+      create_policy_session(options, candidate_key, options.candidate_onnx_path));
+  executor->add_policy(
+      frozen_key,
+      create_policy_session(options, frozen_key, options.frozen_onnx_path));
+  executor->add_policy(
+      frozen_alt_key,
+      create_policy_session(options, frozen_alt_key, options.frozen_onnx_path));
+  return executor;
+}
+
+void copy_executor_stats(
+    const onnx_policy::BatchedPolicyStats& stats,
+    DriverMetrics& metrics) {
+  metrics.inference_request_count = stats.request_count;
+  metrics.session_run_count = stats.session_run_count;
+  metrics.mean_batch_numerator = stats.request_count;
+  metrics.max_batch = stats.max_observed_batch_size;
+  metrics.inference_elapsed_ns = stats.inference_elapsed_ns;
+  metrics.per_policy.clear();
+  for (const auto& [key, policy_stats] : stats.policy_stats) {
+    PolicyInferenceStats out;
+    out.policy_id = key;
+    out.policy_type = key.substr(0, key.find(':'));
+    out.request_count = policy_stats.request_count;
+    out.session_run_count = policy_stats.session_run_count;
+    out.batch_item_total = policy_stats.request_count;
+    out.max_batch = policy_stats.max_observed_batch_size;
+    out.elapsed_ns = policy_stats.inference_elapsed_ns;
+    metrics.per_policy[key] = out;
+  }
+}
+
 EvaluationRun drive_schedule(const EvaluationOptions& options, const std::vector<ScheduledGame>& schedule) {
   const auto total_started = std::chrono::steady_clock::now();
   SimulationRuntime runtime(SimulationRuntimeConfig{
       fixed_roster({rule_based_agent(), rule_based_agent(), rule_based_agent(), rule_based_agent(), rule_based_agent()}),
       options.start_seed,
       options.roster_seed,
-      options.max_concurrent_games});
+      options.max_concurrent_games,
+      onnx_policy::attach_playing_model_input});
+  auto executor = create_policy_executor(options);
 
   EvaluationRun run;
   std::size_t next_schedule_index = 0;
@@ -283,7 +374,12 @@ EvaluationRun drive_schedule(const EvaluationOptions& options, const std::vector
     runtime.advance_runnable_games();
     std::vector<AgentRequest> requests = runtime.collect_agent_requests();
     if (!requests.empty()) {
-      submit_policy_requests(runtime, requests, std::max<std::size_t>(1, options.inference_max_batch_size), run.metrics);
+      submit_policy_requests(
+          runtime,
+          requests,
+          std::max<std::size_t>(1, options.inference_max_batch_size),
+          run.metrics,
+          *executor);
     }
 
     for (FinishedGame& finished : runtime.collect_finished_games()) {
@@ -295,6 +391,7 @@ EvaluationRun drive_schedule(const EvaluationOptions& options, const std::vector
     }
   }
 
+  copy_executor_stats(executor->stats(), run.metrics);
   run.metrics.runtime = runtime.metrics();
   const auto total_ended = std::chrono::steady_clock::now();
   run.metrics.total_elapsed_ns = static_cast<std::uint64_t>(
@@ -488,6 +585,24 @@ std::string create_artifact_json(const EvaluationOptions& options, const Evaluat
   json_escape(out, options.candidate_id);
   out << ",\"frozenPolicyId\":";
   json_escape(out, options.frozen_id);
+  out << ",\"candidateRuntime\":{\"requestedInferenceDevice\":";
+  json_escape(out, options.inference_device);
+  out << ",\"resolvedInferenceDevice\":";
+  json_escape(out, options.inference_device == "cuda" ? "cuda" : "cpu");
+  out << ",\"executionProvider\":";
+  json_escape(out, options.inference_device == "cuda" ? "cuda" : "cpu");
+  out << ",\"policyBackend\":";
+  json_escape(out, options.policy_backend);
+  out << "}";
+  out << ",\"frozenRuntime\":{\"requestedInferenceDevice\":";
+  json_escape(out, options.inference_device);
+  out << ",\"resolvedInferenceDevice\":";
+  json_escape(out, options.inference_device == "cuda" ? "cuda" : "cpu");
+  out << ",\"executionProvider\":";
+  json_escape(out, options.inference_device == "cuda" ? "cuda" : "cpu");
+  out << ",\"policyBackend\":";
+  json_escape(out, options.policy_backend);
+  out << "}";
   out << ",\"baseline\":{\"tsCudaBatch1Workers4SecondsPer2000Games\":11.2"
       << ",\"tsBatchedPathSecondsPer2000Games\":{\"min\":18,\"max\":22}}"
       << ",\"usesRlDatasetGeneration\":false"

@@ -30,6 +30,20 @@ std::size_t parse_size(const std::string& name, const std::string& value) {
   return parsed;
 }
 
+std::string parse_inference_device(const std::string& value) {
+  if (value == "cpu" || value == "auto" || value == "cuda") {
+    return value;
+  }
+  throw std::runtime_error("--inference-device must be one of cpu, auto, cuda");
+}
+
+std::string parse_policy_backend(const std::string& value) {
+  if (value == "deterministic" || value == "onnx") {
+    return value;
+  }
+  throw std::runtime_error("--policy-backend must be one of deterministic, onnx");
+}
+
 napoleon::evaluation::EvaluationScenario parse_scenario(const std::string& value) {
   using napoleon::evaluation::EvaluationScenario;
   if (value == "candidate-vs-rule-based" || value == "rule-based-x4") {
@@ -88,6 +102,18 @@ int main(int argc, char** argv) {
         options.candidate_id = argv[++index];
       } else if (arg == "--frozen-policy-id" && index + 1 < argc) {
         options.frozen_id = argv[++index];
+      } else if (arg == "--candidate-onnx" && index + 1 < argc) {
+        options.candidate_onnx_path = argv[++index];
+      } else if (arg == "--candidate-metadata" && index + 1 < argc) {
+        options.candidate_metadata_path = argv[++index];
+      } else if (arg == "--frozen-onnx" && index + 1 < argc) {
+        options.frozen_onnx_path = argv[++index];
+      } else if (arg == "--frozen-metadata" && index + 1 < argc) {
+        options.frozen_metadata_path = argv[++index];
+      } else if (arg == "--inference-device" && index + 1 < argc) {
+        options.inference_device = parse_inference_device(argv[++index]);
+      } else if (arg == "--policy-backend" && index + 1 < argc) {
+        options.policy_backend = parse_policy_backend(argv[++index]);
       } else if (arg == "--output" && index + 1 < argc) {
         output = argv[++index];
       } else {
@@ -95,8 +121,15 @@ int main(int argc, char** argv) {
             "usage: napoleon_eval_cli --scenario <name> --start-seed <uint32> "
             "--seed-count <N> [--roster-seed <uint32>] "
             "[--max-concurrent-games <N>] [--inference-max-batch-size <N>] "
-            "[--candidate-id <id>] [--frozen-policy-id <id>] [--output <path>|-]");
+            "[--candidate-id <id>] [--frozen-policy-id <id>] "
+            "[--candidate-onnx <path>] [--candidate-metadata <path>] "
+            "[--frozen-onnx <path>] [--frozen-metadata <path>] "
+            "[--inference-device cpu|auto|cuda] [--policy-backend deterministic|onnx] "
+            "[--output <path>|-]");
       }
+    }
+    if (options.inference_device == "cuda" && options.policy_backend != "onnx") {
+      throw std::runtime_error("--inference-device cuda requires --policy-backend onnx");
     }
 
     const napoleon::evaluation::EvaluationArtifact artifact =
@@ -105,6 +138,16 @@ int main(int argc, char** argv) {
     if (output != "-") {
       std::cerr << "completed " << artifact.completed_games << "/"
                 << artifact.scheduled_games << '\n';
+    }
+    if (output != "-") {
+      const std::string resolved = options.inference_device == "cuda" ? "cuda" : "cpu";
+      std::cout << "{\"scheduledGames\":" << artifact.scheduled_games
+                << ",\"completedGames\":" << artifact.completed_games
+                << ",\"failedGames\":" << artifact.failed_games
+                << ",\"illegalActionCount\":0"
+                << ",\"requestedInferenceDevice\":\"" << options.inference_device << "\""
+                << ",\"resolvedInferenceDevice\":\"" << resolved << "\""
+                << ",\"executionProvider\":\"" << resolved << "\"}\n";
     }
     return artifact.failed_games == 0 ? 0 : 1;
   } catch (const std::exception& error) {

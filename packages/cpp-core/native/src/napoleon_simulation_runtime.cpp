@@ -193,6 +193,7 @@ std::size_t SimulationRuntime::advance_runnable_games(std::size_t max_transition
         request.game_id = game.game_id;
         request.game_index = game.game_index;
         request.sequence = next_request_sequence_++;
+        request.game_decision_count = game.agent_decision_count + 1;
         request.player_index = player_index;
         request.agent = agent;
         request.phase = game.state.phase;

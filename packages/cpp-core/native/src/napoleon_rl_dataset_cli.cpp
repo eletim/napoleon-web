@@ -1,9 +1,11 @@
 #include "napoleon_core.hpp"
 #include "napoleon_observation.hpp"
+#include "napoleon_onnx_policy.hpp"
 #include "napoleon_roster.hpp"
 #include "napoleon_rule_based.hpp"
 
 #include <array>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -14,11 +16,13 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <unordered_map>
 #include <vector>
 
 namespace {
@@ -183,7 +187,11 @@ struct CliOptions {
   std::uint32_t game_count = 0;
   std::uint32_t games_per_shard = 0;
   std::uint32_t roster_seed = 0;
+  std::uint32_t max_concurrent_games = 1;
+  std::uint32_t inference_max_batch_size = 1;
   double temperature = 1.0;
+  std::string inference_device = "cpu";
+  std::string policy_backend = "deterministic";
   bool all_current = false;
 };
 
@@ -463,6 +471,20 @@ double parse_temperature(const std::string& value) {
   return parsed;
 }
 
+std::string parse_inference_device(const std::string& value) {
+  if (value == "cpu" || value == "auto" || value == "cuda") {
+    return value;
+  }
+  throw std::runtime_error("--inference-device must be one of cpu, auto, cuda");
+}
+
+std::string parse_policy_backend(const std::string& value) {
+  if (value == "deterministic" || value == "onnx") {
+    return value;
+  }
+  throw std::runtime_error("--policy-backend must be one of deterministic, onnx");
+}
+
 CliOptions parse_args(int argc, char** argv) {
   CliOptions options;
   for (int index = 1; index < argc; ++index) {
@@ -496,6 +518,14 @@ CliOptions parse_args(int argc, char** argv) {
       options.games_per_shard = parse_uint32(require_value(arg), "games-per-shard");
     } else if (arg == "--roster-seed") {
       options.roster_seed = parse_uint32(require_value(arg), "roster-seed");
+    } else if (arg == "--max-concurrent-games" || arg == "--rollout-concurrency") {
+      options.max_concurrent_games = parse_uint32(require_value(arg), "max-concurrent-games");
+    } else if (arg == "--inference-max-batch-size") {
+      options.inference_max_batch_size = parse_uint32(require_value(arg), "inference-max-batch-size");
+    } else if (arg == "--inference-device") {
+      options.inference_device = parse_inference_device(require_value(arg));
+    } else if (arg == "--policy-backend") {
+      options.policy_backend = parse_policy_backend(require_value(arg));
     } else if (arg == "--temperature") {
       options.temperature = parse_temperature(require_value(arg));
     } else if (arg == "--all-current") {
@@ -506,7 +536,10 @@ CliOptions parse_args(int argc, char** argv) {
           "--games <n> --games-per-shard <n> --policy-onnx <path> "
           "--policy-metadata <path> [--policy-artifact-id <id>] "
           "[--frozen-onnx <path>] [--frozen-metadata <path>] [--frozen-artifact-id <id>] "
-          "[--roster-seed <uint32>] [--temperature <positive>] [--all-current]");
+          "[--roster-seed <uint32>] [--temperature <positive>] "
+          "[--max-concurrent-games <n>] [--inference-max-batch-size <n>] "
+          "[--inference-device cpu|auto|cuda] [--policy-backend deterministic|onnx] "
+          "[--all-current]");
     }
   }
 
@@ -537,112 +570,64 @@ CliOptions parse_args(int argc, char** argv) {
   if (options.games_per_shard == 0) {
     throw std::runtime_error("--games-per-shard must be positive");
   }
+  if (options.max_concurrent_games == 0) {
+    throw std::runtime_error("--max-concurrent-games must be positive");
+  }
+  if (options.inference_max_batch_size == 0) {
+    throw std::runtime_error("--inference-max-batch-size must be positive");
+  }
+  if (options.inference_device == "cuda" && options.policy_backend != "onnx") {
+    throw std::runtime_error("--inference-device cuda requires --policy-backend onnx");
+  }
   if (options.start_seed > std::numeric_limits<std::uint32_t>::max() - options.game_count + 1u) {
     throw std::runtime_error("start-seed + games exceeds uint32 range");
   }
   return options;
 }
 
-int card_model_index(Card card) {
-  if (card.id == 52) {
-    return 52;
-  }
-  const int suit_index = static_cast<int>(card.id / 13);
-  const int rank_id = static_cast<int>(card.id % 13);
-  static constexpr std::array<int, 13> rank_to_model{0, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
-  return suit_index * 13 + rank_to_model[static_cast<std::size_t>(rank_id)];
-}
-
-std::vector<Action> legal_actions_with_exchange(const GameState& state, int player_index) {
-  std::vector<Action> actions = napoleon::get_legal_actions(state, player_index);
-  if (!actions.empty() || state.phase != napoleon::Phase::Exchanging ||
-      state.current_player_index != player_index || state.is_game_over) {
-    return actions;
-  }
-
-  const auto& hand = state.hands[static_cast<std::size_t>(player_index)];
-  if (hand.size() < 3) {
-    return actions;
-  }
-
-  for (std::size_t first = 0; first + 2 < hand.size(); ++first) {
-    for (std::size_t second = first + 1; second + 1 < hand.size(); ++second) {
-      for (std::size_t third = second + 1; third < hand.size(); ++third) {
-        Action action;
-        action.type = Action::Type::DiscardCards;
-        action.player_index = player_index;
-        action.cards = {hand[first], hand[second], hand[third]};
-        actions.push_back(action);
-      }
-    }
-  }
-  return actions;
-}
-
-Action select_non_current_action(
-    const AgentIdentity& agent,
-    const GameState& state,
-    int player_index,
-    std::uint32_t seed,
-    std::uint32_t step) {
-  if (state.phase == napoleon::Phase::Playing && !state.is_trick_complete) {
-    napoleon::SeededRandom rng(seed ^ (step + 0x9e3779b9u));
-    if (agent.type == AgentType::RuleBased || agent.type == AgentType::FrozenPolicy) {
-      return napoleon::select_rule_based_action(state, player_index, rng);
-    }
-  }
-
-  std::vector<Action> actions = legal_actions_with_exchange(state, player_index);
-  if (actions.empty()) {
-    throw std::runtime_error("no legal action available");
-  }
-  return actions.front();
-}
-
-int self_role_index(const napoleon::observation::PlayingModelInput& input) {
-  for (int index = 0; index < kSelfRoleCount; ++index) {
-    if (input.observation.self_role_one_hot[static_cast<std::size_t>(index)] == 1) {
-      return index;
-    }
-  }
-  throw std::runtime_error("playing model input has no self role");
-}
-
 TensorSample create_current_policy_sample(
-    const GameState& state,
-    const Action& selected_action,
-    std::uint32_t seed,
-    std::uint32_t step) {
-  const auto input = napoleon::observation::create_playing_model_input(
-      state, state.current_player_index);
-  const int selected_index = card_model_index(selected_action.card);
-  if (selected_index < 0 || selected_index >= kCardCount) {
+    const napoleon::AgentRequest& request,
+    const napoleon::AgentResult& result,
+    std::uint32_t seed) {
+  if (request.playing_model_input.size() != static_cast<std::size_t>(kModelInputFeatureCount)) {
+    throw std::runtime_error("playing request model input must contain 6246 features");
+  }
+  if (request.legal_play_mask.size() != static_cast<std::size_t>(kCardCount)) {
+    throw std::runtime_error("playing request legal mask must contain 53 entries");
+  }
+  if (result.selected_card_index < 0 || result.selected_card_index >= kCardCount) {
     throw std::runtime_error("selected card index out of range");
   }
-  if (input.legal_play_mask[static_cast<std::size_t>(selected_index)] != 1) {
+  if (request.legal_play_mask[static_cast<std::size_t>(result.selected_card_index)] != 1) {
     throw std::runtime_error("selected current-policy card is not legal");
   }
+  if (request.game_decision_count > std::numeric_limits<std::uint16_t>::max()) {
+    throw std::runtime_error("game step exceeds uint16 dataset field range");
+  }
 
-  int legal_count = 0;
   TensorSample sample;
-  for (std::size_t index = 0; index < input.legal_play_mask.size(); ++index) {
-    sample.legal_play_mask[index] =
-        static_cast<std::uint8_t>(input.legal_play_mask[index] == 0 ? 0 : 1);
-    legal_count += sample.legal_play_mask[index] == 1 ? 1 : 0;
+  std::copy(request.playing_model_input.begin(), request.playing_model_input.end(), sample.model_input.begin());
+  for (std::size_t index = 0; index < request.legal_play_mask.size(); ++index) {
+    const int value = request.legal_play_mask[index];
+    if (value != 0 && value != 1) {
+      throw std::runtime_error("legal play mask must contain only 0/1 values");
+    }
+    sample.legal_play_mask[index] = static_cast<std::uint8_t>(value);
   }
-  if (legal_count <= 0) {
-    throw std::runtime_error("current-policy playing decision has no legal cards");
-  }
-
-  sample.model_input = input.model_input;
-  sample.selected_card_index = static_cast<std::uint8_t>(selected_index);
-  sample.behavior_log_probability =
-      legal_count == 1 ? 0.0F : static_cast<float>(-std::log(static_cast<double>(legal_count)));
+  sample.selected_card_index = static_cast<std::uint8_t>(result.selected_card_index);
+  sample.behavior_log_probability = static_cast<float>(result.behavior_log_probability);
   sample.seed = seed;
-  sample.step = static_cast<std::uint16_t>(step);
-  sample.acting_player_index = static_cast<std::uint8_t>(state.current_player_index);
-  sample.self_role_index = static_cast<std::uint8_t>(self_role_index(input));
-  return sample;
+  sample.step = static_cast<std::uint16_t>(request.game_decision_count);
+  sample.acting_player_index = static_cast<std::uint8_t>(request.player_index);
+  for (int index = 0; index < kSelfRoleCount; ++index) {
+    const float value = sample.model_input[
+        static_cast<std::size_t>(kModelInputFeatureCount - kSelfRoleCount + index)];
+    if (value == 1.0F) {
+      sample.self_role_index = static_cast<std::uint8_t>(index);
+      return sample;
+    }
+  }
+  throw std::runtime_error("playing request model input has no self role");
 }
 
 int terminal_reward_for_role(const GameResult& result, std::uint8_t role_index) {
@@ -651,53 +636,118 @@ int terminal_reward_for_role(const GameResult& result, std::uint8_t role_index) 
   return acting_team == result.winner ? 1 : -1;
 }
 
-std::vector<TensorSample> run_game_samples(
-    std::uint32_t seed,
-    const RosterAssignment& roster) {
-  GameState state = napoleon::create_initial_game(seed);
-  std::uint32_t step = 0;
-  std::vector<TensorSample> samples;
-  samples.reserve(16);
+napoleon::onnx_policy::InferenceDevice policy_inference_device(const CliOptions& options) {
+  return options.inference_device == "cuda"
+             ? napoleon::onnx_policy::InferenceDevice::Cuda
+             : napoleon::onnx_policy::InferenceDevice::Cpu;
+}
 
-  while (!state.is_game_over && state.phase != napoleon::Phase::Finished) {
-    if (state.is_trick_complete) {
-      Action advance;
-      advance.type = Action::Type::AdvanceToNextTrick;
-      napoleon::apply_action(state, advance);
+std::unique_ptr<napoleon::onnx_policy::PolicySession> create_policy_session(
+    const CliOptions& options,
+    napoleon::onnx_policy::PolicyKey key,
+    const std::filesystem::path& onnx_path) {
+  if (options.policy_backend == "onnx") {
+    return napoleon::onnx_policy::create_onnxruntime_policy_session(
+        napoleon::onnx_policy::PolicySessionConfig{
+            key,
+            onnx_path.string(),
+            "model_input",
+            "logits",
+            policy_inference_device(options)});
+  }
+
+  return std::make_unique<napoleon::onnx_policy::DeterministicPolicySession>(
+      napoleon::onnx_policy::DeterministicPolicySession::default_logits(),
+      options.inference_device == "cuda"
+          ? napoleon::onnx_policy::ExecutionProvider::Cuda
+          : napoleon::onnx_policy::ExecutionProvider::Cpu);
+}
+
+std::unique_ptr<napoleon::onnx_policy::BatchedPolicyExecutor> create_policy_executor(
+    const CliOptions& options) {
+  auto executor = std::make_unique<napoleon::onnx_policy::BatchedPolicyExecutor>(
+      napoleon::onnx_policy::BatchedPolicyConfig{
+          std::max<std::size_t>(1, options.inference_max_batch_size),
+          options.temperature,
+          options.roster_seed});
+  const napoleon::onnx_policy::PolicyKey current_key{
+      AgentType::CurrentPolicy,
+      "current"};
+  const napoleon::onnx_policy::PolicyKey frozen_key{
+      AgentType::FrozenPolicy,
+      options.frozen_artifact_id};
+  executor->add_policy(
+      current_key,
+      create_policy_session(options, current_key, options.policy_onnx_path));
+  executor->add_policy(
+      frozen_key,
+      create_policy_session(options, frozen_key, options.frozen_onnx_path));
+  return executor;
+}
+
+void submit_dataset_policy_requests(
+    napoleon::SimulationRuntime& runtime,
+    napoleon::onnx_policy::BatchedPolicyExecutor& executor,
+    const std::vector<napoleon::AgentRequest>& requests,
+    std::vector<std::vector<TensorSample>>& samples_by_game,
+    std::uint32_t start_seed,
+    std::size_t max_batch_size) {
+  std::vector<napoleon::AgentResult> results;
+  results.reserve(requests.size());
+
+  std::map<std::string, std::vector<napoleon::AgentRequest>> playing_by_policy;
+  for (const napoleon::AgentRequest& request : requests) {
+    if (
+        (request.agent.type == AgentType::CurrentPolicy ||
+         request.agent.type == AgentType::FrozenPolicy) &&
+        request.phase == napoleon::Phase::Playing) {
+      playing_by_policy[napoleon::onnx_policy::policy_key_id(
+          napoleon::onnx_policy::policy_key_from_agent(request.agent))].push_back(request);
       continue;
     }
 
-    const int player_index = state.current_player_index;
-    const AgentIdentity& agent = roster.agents[static_cast<std::size_t>(player_index)];
-    std::vector<Action> actions = legal_actions_with_exchange(state, player_index);
-    if (actions.empty()) {
-      throw std::runtime_error("game reached a decision state with no legal actions");
-    }
+    napoleon::AgentResult result;
+    result.request_id = request.request_id;
+    result.action = request.legal_actions.front();
+    results.push_back(result);
+  }
 
-    Action action;
-    const std::uint32_t next_step = step + 1u;
-    if (agent.type == AgentType::CurrentPolicy && state.phase == napoleon::Phase::Playing) {
-      action = actions.front();
-      samples.push_back(create_current_policy_sample(state, action, seed, next_step));
-    } else {
-      action = select_non_current_action(agent, state, player_index, seed, next_step);
-    }
-
-    napoleon::apply_action(state, action);
-    step = next_step;
-    if (step > std::numeric_limits<std::uint16_t>::max()) {
-      throw std::runtime_error("game step exceeds uint16 dataset field range");
+  for (const auto& [_, policy_requests] : playing_by_policy) {
+    std::size_t offset = 0;
+    while (offset < policy_requests.size()) {
+      const std::size_t batch_size = std::min(max_batch_size, policy_requests.size() - offset);
+      std::vector<napoleon::AgentRequest> batch(
+          policy_requests.begin() + static_cast<std::ptrdiff_t>(offset),
+          policy_requests.begin() + static_cast<std::ptrdiff_t>(offset + batch_size));
+      std::vector<napoleon::onnx_policy::PolicyActionResult> policy_results =
+          executor.run(batch);
+      if (policy_results.size() != batch.size()) {
+        throw std::runtime_error("policy executor returned a mismatched result count");
+      }
+      std::unordered_map<std::uint64_t, const napoleon::AgentRequest*> request_by_id;
+      for (const napoleon::AgentRequest& request : batch) {
+        request_by_id[request.request_id] = &request;
+      }
+      for (const napoleon::onnx_policy::PolicyActionResult& policy_result : policy_results) {
+        const auto request_it = request_by_id.find(policy_result.result.request_id);
+        if (request_it == request_by_id.end()) {
+          throw std::runtime_error("policy result request id was not in the submitted batch");
+        }
+        const napoleon::AgentRequest& request = *request_it->second;
+        if (request.agent.type == AgentType::CurrentPolicy) {
+          samples_by_game[request.game_index].push_back(
+              create_current_policy_sample(
+                  request,
+                  policy_result.result,
+                  start_seed + request.game_index));
+        }
+        results.push_back(policy_result.result);
+      }
+      offset += batch_size;
     }
   }
 
-  if (!state.result.has_value()) {
-    throw std::runtime_error("finished game has no result");
-  }
-  for (TensorSample& sample : samples) {
-    sample.terminal_reward =
-        static_cast<std::int8_t>(terminal_reward_for_role(*state.result, sample.self_role_index));
-  }
-  return samples;
+  runtime.submit_agent_results(results);
 }
 
 std::string card_ids_json() {
@@ -747,12 +797,30 @@ std::string base_name(const std::filesystem::path& path) {
   return path.filename().string();
 }
 
+std::string read_text_file(const std::filesystem::path& path) {
+  std::ifstream in(path);
+  if (!in.is_open()) {
+    throw std::runtime_error("failed opening metadata JSON: " + path.string());
+  }
+  std::ostringstream buffer;
+  buffer << in.rdbuf();
+  if (!in.good() && !in.eof()) {
+    throw std::runtime_error("failed reading metadata JSON: " + path.string());
+  }
+  return buffer.str();
+}
+
+std::string resolved_inference_device(const CliOptions& options) {
+  return options.inference_device == "cuda" ? "cuda" : "cpu";
+}
+
 void write_roster_seat_manifest(
     std::ostream& out,
     const std::string& source,
     const CliOptions& options,
     const std::string& frozen_onnx_sha256,
-    const std::string& frozen_metadata_sha256) {
+    const std::string& frozen_metadata_sha256,
+    const std::string& frozen_metadata_json) {
   if (source == "current-policy") {
     out << "{\"source\":\"current-policy\"}";
   } else if (source == "rule-based") {
@@ -767,10 +835,13 @@ void write_roster_seat_manifest(
     json_escape(out, base_name(options.frozen_metadata_path));
     out << ",\"onnxSha256\":\"" << frozen_onnx_sha256 << "\","
         << "\"metadataSha256\":\"" << frozen_metadata_sha256 << "\","
-        << "\"requestedInferenceDevice\":\"cpu\","
-        << "\"resolvedInferenceDevice\":\"cpu\","
-        << "\"executionProvider\":\"cpu\","
-        << "\"metadata\":{\"metadataSchemaVersion\":1,\"producer\":\"cpp-rl-dataset-smoke\"}}";
+        << "\"requestedInferenceDevice\":";
+    json_escape(out, options.inference_device);
+    out << ",\"resolvedInferenceDevice\":";
+    json_escape(out, resolved_inference_device(options));
+    out << ",\"executionProvider\":";
+    json_escape(out, resolved_inference_device(options));
+    out << ",\"metadata\":" << frozen_metadata_json << '}';
   } else {
     throw std::runtime_error("invalid roster source");
   }
@@ -780,12 +851,15 @@ void write_manifest(
     const std::filesystem::path& output_directory,
     const CliOptions& options,
     const std::vector<ShardManifest>& shards,
-    std::uint64_t sample_count) {
+    std::uint64_t sample_count,
+    const napoleon::onnx_policy::BatchedPolicyStats& inference_stats) {
   const std::string card_ids = card_ids_json();
   const std::string policy_onnx_sha256 = sha256_file(options.policy_onnx_path);
   const std::string policy_metadata_sha256 = sha256_file(options.policy_metadata_path);
   const std::string frozen_onnx_sha256 = sha256_file(options.frozen_onnx_path);
   const std::string frozen_metadata_sha256 = sha256_file(options.frozen_metadata_path);
+  const std::string policy_metadata_json = read_text_file(options.policy_metadata_path);
+  const std::string frozen_metadata_json = read_text_file(options.frozen_metadata_path);
   const std::uint32_t end_seed = options.start_seed + options.game_count - 1u;
   std::ofstream out(output_directory / "manifest.json");
   if (!out.is_open()) {
@@ -803,6 +877,31 @@ void write_manifest(
   out << "  \"sampleCount\": " << sample_count << ",\n";
   out << "  \"gamesPerShard\": " << options.games_per_shard << ",\n";
   out << "  \"shardCount\": " << shards.size() << ",\n";
+  out << "  \"simulationBackend\": \"cpp\",\n";
+  out << "  \"runtime\": {\"requestedInferenceDevice\": ";
+  json_escape(out, options.inference_device);
+  out << ", \"resolvedInferenceDevice\": ";
+  json_escape(out, resolved_inference_device(options));
+  out << ", \"executionProvider\": ";
+  json_escape(out, resolved_inference_device(options));
+  out << ", \"policyBackend\": ";
+  json_escape(out, options.policy_backend);
+  out << ", \"rolloutConcurrency\": " << options.max_concurrent_games
+      << ", \"inferenceMaxBatchSize\": " << options.inference_max_batch_size << "},\n";
+  out << "  \"inference\": {\"requestCount\": " << inference_stats.request_count
+      << ", \"sessionRunCount\": " << inference_stats.session_run_count
+      << ", \"meanBatchSize\": " << inference_stats.mean_batch_size
+      << ", \"maxObservedBatchSize\": " << inference_stats.max_observed_batch_size
+      << ", \"batchSizeHistogram\": {";
+  bool first_bucket = true;
+  for (const auto& [batch_size, count] : inference_stats.batch_size_histogram) {
+    if (!first_bucket) {
+      out << ", ";
+    }
+    first_bucket = false;
+    out << "\"" << batch_size << "\": " << count;
+  }
+  out << "}},\n";
   out << "  \"playerCount\": 5,\n";
   out << "  \"cardCount\": 53,\n";
   out << "  \"cardIds\": " << card_ids << ",\n";
@@ -836,15 +935,52 @@ void write_manifest(
   out << ",\n";
   out << "    \"onnxSha256\": \"" << policy_onnx_sha256 << "\",\n";
   out << "    \"metadataSha256\": \"" << policy_metadata_sha256 << "\",\n";
-  out << "    \"requestedInferenceDevice\": \"cpu\",\n";
-  out << "    \"resolvedInferenceDevice\": \"cpu\",\n";
-  out << "    \"executionProvider\": \"cpu\",\n";
-  out << "    \"metadata\": {\"metadataSchemaVersion\": 1, \"producer\": \"cpp-rl-dataset-cli\", "
-      << "\"sampleAttribution\": \"current-policy-only\", \"rawCacheCompatible\": true, "
+  out << "    \"requestedInferenceDevice\": ";
+  json_escape(out, options.inference_device);
+  out << ",\n";
+  out << "    \"resolvedInferenceDevice\": ";
+  json_escape(out, resolved_inference_device(options));
+  out << ",\n";
+  out << "    \"executionProvider\": ";
+  json_escape(out, resolved_inference_device(options));
+  out << ",\n";
+  out << "    \"metadata\": " << policy_metadata_json << "\n";
+  out << "  },\n";
+  out << "  \"policyArtifacts\": {\"current\": {\"artifactId\": ";
+  json_escape(out, options.policy_artifact_id);
+  out << ", \"onnxFileName\": ";
+  json_escape(out, base_name(options.policy_onnx_path));
+  out << ", \"metadataFileName\": ";
+  json_escape(out, base_name(options.policy_metadata_path));
+  out << ", \"onnxSha256\": \"" << policy_onnx_sha256
+      << "\", \"metadataSha256\": \"" << policy_metadata_sha256
+      << "\"}, \"frozen\": {\"artifactId\": ";
+  json_escape(out, options.frozen_artifact_id);
+  out << ", \"onnxFileName\": ";
+  json_escape(out, base_name(options.frozen_onnx_path));
+  out << ", \"metadataFileName\": ";
+  json_escape(out, base_name(options.frozen_metadata_path));
+  out << ", \"onnxSha256\": \"" << frozen_onnx_sha256
+      << "\", \"metadataSha256\": \"" << frozen_metadata_sha256 << "\"}},\n";
+  out << "  \"provenance\": {\"currentArtifactId\": ";
+  json_escape(out, options.policy_artifact_id);
+  out << ", \"currentOnnxSha256\": \"" << policy_onnx_sha256
+      << "\", \"currentMetadataSha256\": \"" << policy_metadata_sha256
+      << "\", \"frozenArtifactId\": ";
+  json_escape(out, options.frozen_artifact_id);
+  out << ", \"frozenOnnxSha256\": \"" << frozen_onnx_sha256
+      << "\", \"frozenMetadataSha256\": \"" << frozen_metadata_sha256
+      << "\", \"behaviorSamples\": \"current-policy-only\", \"rawCacheCompatible\": true, "
       << "\"rosterSpec\": {\"kind\": \"current-plus-opponent-pool\", "
       << "\"currentSeatRotation\": \"game-index-mod-player-count\", "
-      << "\"opponentPool\": [\"rule-based\", \"frozen-onnx\"]}}\n";
-  out << "  },\n";
+      << "\"opponentPool\": [\"rule-based\", \"frozen-onnx\"]}},\n";
+  out << "  \"opponentPool\": {\"weighted\": ["
+      << "{\"source\": \"rule-based\", \"weight\": 1}, "
+      << "{\"source\": \"frozen-onnx\", \"artifactId\": ";
+  json_escape(out, options.frozen_artifact_id);
+  out << ", \"weight\": 1}]},\n";
+  out << "  \"seatRotation\": {\"current\": \"game-index-mod-player-count\", "
+      << "\"rosterSeed\": " << options.roster_seed << "},\n";
   out << "  \"samplingAlgorithm\": \"masked-categorical\",\n";
   out << "  \"temperature\": " << options.temperature << ",\n";
   out << "  \"reward\": {\"type\": \"terminal-team-win\", \"version\": " << kRewardVersion << "},\n";
@@ -856,7 +992,8 @@ void write_manifest(
       if (index != 0) {
         out << ',';
       }
-      write_roster_seat_manifest(out, "current-policy", options, frozen_onnx_sha256, frozen_metadata_sha256);
+      write_roster_seat_manifest(
+          out, "current-policy", options, frozen_onnx_sha256, frozen_metadata_sha256, frozen_metadata_json);
     }
   } else {
     const std::array<std::string, napoleon::kPlayerCount> seat_sources{
@@ -865,7 +1002,8 @@ void write_manifest(
       if (index != 0) {
         out << ',';
       }
-      write_roster_seat_manifest(out, seat_sources[index], options, frozen_onnx_sha256, frozen_metadata_sha256);
+      write_roster_seat_manifest(
+          out, seat_sources[index], options, frozen_onnx_sha256, frozen_metadata_sha256, frozen_metadata_json);
     }
   }
   out << "]},\n";
@@ -896,7 +1034,7 @@ RosterSpec create_roster_spec(const CliOptions& options) {
       napoleon::current_policy_agent(),
       {
           napoleon::WeightedAgent{napoleon::rule_based_agent(), 1},
-          napoleon::WeightedAgent{napoleon::frozen_policy_agent("rl-v740"), 1},
+          napoleon::WeightedAgent{napoleon::frozen_policy_agent(options.frozen_artifact_id), 1},
       },
       true,
       0);
@@ -915,6 +1053,7 @@ void generate_dataset(const CliOptions& options) {
   std::filesystem::create_directories(temp);
 
   const RosterSpec roster_spec = create_roster_spec(options);
+  auto policy_executor = create_policy_executor(options);
   std::vector<ShardManifest> shards;
   std::uint64_t total_samples = 0;
 
@@ -925,35 +1064,89 @@ void generate_dataset(const CliOptions& options) {
     std::uint32_t shard_start_seed = options.start_seed;
     std::uint32_t shard_game_count = 0;
 
-    for (std::uint32_t game_offset = 0; game_offset < options.game_count; ++game_offset) {
-      const std::uint32_t seed = options.start_seed + game_offset;
-      if (!writer.has_value()) {
-        shard_start_seed = seed;
-        writer.emplace(output, temp, shard_index, shard_start_seed);
-        shard_game_count = 0;
+    napoleon::SimulationRuntime runtime(napoleon::SimulationRuntimeConfig{
+        roster_spec,
+        options.start_seed,
+        options.roster_seed,
+        std::max<std::size_t>(1, options.max_concurrent_games),
+        napoleon::onnx_policy::attach_playing_model_input});
+    std::vector<std::vector<TensorSample>> samples_by_game(options.game_count);
+    std::vector<bool> completed(options.game_count, false);
+    std::uint32_t next_game_to_add = 0;
+    std::uint32_t next_game_to_write = 0;
+
+    while (next_game_to_write < options.game_count) {
+      const std::vector<napoleon::RuntimeGameSnapshot> snapshots = runtime.game_snapshots();
+      const std::size_t active_count = static_cast<std::size_t>(std::count_if(
+          snapshots.begin(),
+          snapshots.end(),
+          [](const napoleon::RuntimeGameSnapshot& snapshot) {
+            return snapshot.status != napoleon::RuntimeGameStatus::Finished;
+          }));
+      const std::size_t open_slots =
+          options.max_concurrent_games > active_count ? options.max_concurrent_games - active_count : 0;
+      if (open_slots > 0 && next_game_to_add < options.game_count) {
+        const std::size_t add_count = std::min<std::size_t>(
+            open_slots,
+            options.game_count - next_game_to_add);
+        runtime.add_games(add_count);
+        next_game_to_add += static_cast<std::uint32_t>(add_count);
       }
 
-      const RosterAssignment roster =
-          napoleon::sample_roster(roster_spec, options.roster_seed, game_offset);
-      const std::vector<TensorSample> samples = run_game_samples(seed, roster);
-      if (samples.empty()) {
-        throw std::runtime_error("current-policy roster produced no samples for seed " + std::to_string(seed));
+      runtime.advance_runnable_games();
+      const std::vector<napoleon::AgentRequest> requests = runtime.collect_agent_requests();
+      if (!requests.empty()) {
+        submit_dataset_policy_requests(
+            runtime,
+            *policy_executor,
+            requests,
+            samples_by_game,
+            options.start_seed,
+            std::max<std::size_t>(1, options.inference_max_batch_size));
       }
-      for (const TensorSample& sample : samples) {
-        writer->write_sample(sample);
-      }
-      total_samples += samples.size();
-      shard_game_count += 1;
 
-      if (shard_game_count == options.games_per_shard ||
-          game_offset + 1u == options.game_count) {
-        shards.push_back(writer->close(seed, shard_game_count));
-        writer.reset();
-        shard_index += 1;
+      for (const napoleon::FinishedGame& finished : runtime.collect_finished_games()) {
+        if (finished.game_index >= options.game_count) {
+          throw std::runtime_error("finished game index out of range");
+        }
+        std::vector<TensorSample>& samples = samples_by_game[finished.game_index];
+        if (samples.empty()) {
+          throw std::runtime_error(
+              "current-policy roster produced no samples for seed " +
+              std::to_string(finished.seed));
+        }
+        for (TensorSample& sample : samples) {
+          sample.terminal_reward = static_cast<std::int8_t>(
+              terminal_reward_for_role(finished.result, sample.self_role_index));
+        }
+        completed[finished.game_index] = true;
+      }
+
+      while (next_game_to_write < options.game_count && completed[next_game_to_write]) {
+        const std::uint32_t seed = options.start_seed + next_game_to_write;
+        if (!writer.has_value()) {
+          shard_start_seed = seed;
+          writer.emplace(output, temp, shard_index, shard_start_seed);
+          shard_game_count = 0;
+        }
+        for (const TensorSample& sample : samples_by_game[next_game_to_write]) {
+          writer->write_sample(sample);
+        }
+        total_samples += samples_by_game[next_game_to_write].size();
+        samples_by_game[next_game_to_write].clear();
+        shard_game_count += 1;
+
+        if (shard_game_count == options.games_per_shard ||
+            next_game_to_write + 1u == options.game_count) {
+          shards.push_back(writer->close(seed, shard_game_count));
+          writer.reset();
+          shard_index += 1;
+        }
+        next_game_to_write += 1;
       }
     }
 
-    write_manifest(output, options, shards, total_samples);
+    write_manifest(output, options, shards, total_samples, policy_executor->stats());
     std::filesystem::remove_all(temp);
   } catch (...) {
     std::filesystem::remove_all(temp);
@@ -961,11 +1154,32 @@ void generate_dataset(const CliOptions& options) {
     throw;
   }
 
+  const napoleon::onnx_policy::BatchedPolicyStats inference_stats = policy_executor->stats();
   std::cout << "{\"outputDirectory\":" << json_string(output.string())
             << ",\"gameCount\":" << options.game_count
             << ",\"sampleCount\":" << total_samples
             << ",\"shardCount\":" << shards.size()
-            << ",\"format\":\"playing-self-play-binary-v1\"}\n";
+            << ",\"format\":\"playing-self-play-binary-v1\""
+            << ",\"requestedInferenceDevice\":" << json_string(options.inference_device)
+            << ",\"resolvedInferenceDevice\":" << json_string(resolved_inference_device(options))
+            << ",\"executionProvider\":" << json_string(resolved_inference_device(options))
+            << ",\"policyBackend\":" << json_string(options.policy_backend)
+            << ",\"rolloutConcurrency\":" << options.max_concurrent_games
+            << ",\"inferenceMaxBatchSize\":" << options.inference_max_batch_size
+            << ",\"inference\":{\"requestCount\":" << inference_stats.request_count
+            << ",\"sessionRunCount\":" << inference_stats.session_run_count
+            << ",\"meanBatchSize\":" << inference_stats.mean_batch_size
+            << ",\"maxObservedBatchSize\":" << inference_stats.max_observed_batch_size
+            << ",\"batchSizeHistogram\":{";
+  bool first_bucket = true;
+  for (const auto& [batch_size, count] : inference_stats.batch_size_histogram) {
+    if (!first_bucket) {
+      std::cout << ',';
+    }
+    first_bucket = false;
+    std::cout << "\"" << batch_size << "\":" << count;
+  }
+  std::cout << "}}}\n";
 }
 
 }  // namespace
