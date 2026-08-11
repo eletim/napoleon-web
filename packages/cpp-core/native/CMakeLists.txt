@@ -35,6 +35,13 @@ add_executable(napoleon_core_cli
 target_link_libraries(napoleon_core_cli PRIVATE napoleon_observation)
 target_compile_options(napoleon_core_cli PRIVATE -Wall -Wextra -Wpedantic)
 
+add_executable(napoleon_rl_dataset_cli
+  src/napoleon_rl_dataset_cli.cpp
+)
+
+target_link_libraries(napoleon_rl_dataset_cli PRIVATE napoleon_observation napoleon_core)
+target_compile_options(napoleon_rl_dataset_cli PRIVATE -Wall -Wextra -Wpedantic)
+
 add_executable(napoleon_core_self_test
   src/napoleon_core_self_test.cpp
 )
