@@ -62,6 +62,7 @@ def test_playing_rl_orchestrator_two_iteration_resume_and_safety(tmp_path: Path)
     stored_config = _load_json(run_directory / "config.json")
     assert stored_config["device"] == "cpu"
     assert stored_config["inferenceDevice"] == "cpu"
+    assert stored_config["simulationBackend"] == "typescript"
     assert stored_config["rolloutConcurrency"] == 2
     assert stored_config["inferenceMaxBatchSize"] == 256
     assert stored_config["retainSelfPlayData"] is False
@@ -487,6 +488,15 @@ def test_run_playing_rl_cli_parses_rollout_diagnostic_and_cache_options(
             "--inference-max-batch-size",
             "128",
             "--retain-self-play-data",
+            "--simulation-backend",
+            "cpp",
+            "--frozen-policy-onnx",
+            str(tmp_path / "frozen.onnx"),
+            "--frozen-policy-metadata",
+            str(tmp_path / "frozen.json"),
+            "--frozen-policy-artifact-id",
+            "rl-v-test",
+            "--no-cpp-build",
         ]
     )
     config = _config_from_args(args, parser)
@@ -496,6 +506,11 @@ def test_run_playing_rl_cli_parses_rollout_diagnostic_and_cache_options(
     assert config.rollout_concurrency == 64
     assert config.inference_max_batch_size == 128
     assert config.retain_self_play_data is True
+    assert config.simulation_backend == "cpp"
+    assert config.frozen_policy_onnx == tmp_path / "frozen.onnx"
+    assert config.frozen_policy_metadata == tmp_path / "frozen.json"
+    assert config.frozen_policy_artifact_id == "rl-v-test"
+    assert config.build_cpp is False
 
 
 def _small_config(

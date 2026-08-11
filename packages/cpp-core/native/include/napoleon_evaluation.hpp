@@ -26,6 +26,12 @@ struct EvaluationOptions {
   std::vector<std::uint32_t> rotation_offsets = {0, 1, 2, 3, 4};
   std::string candidate_id = "candidate";
   std::string frozen_id = "rl-v740";
+  std::string candidate_onnx_path;
+  std::string candidate_metadata_path;
+  std::string frozen_onnx_path;
+  std::string frozen_metadata_path;
+  std::string inference_device = "cpu";
+  std::string policy_backend = "deterministic";
 };
 
 struct EvaluationArtifact {
