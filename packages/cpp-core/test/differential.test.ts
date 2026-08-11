@@ -265,6 +265,107 @@ function makeFirstLegalPlayScript(seed: number, maxPlayedCards: number): string[
   return script;
 }
 
+function makeRandomGameScript(seed: number, actionSeed: number): string[] {
+  const script: string[] = [];
+  let state = createSeededGame(seed);
+  const rng = createSeededRandom(actionSeed);
+
+  while (!state.isGameOver) {
+    if (state.isTrickComplete) {
+      script.push("next-trick");
+      state = advanceToNextTrick(state);
+      continue;
+    }
+
+    if (state.phase === "exchanging") {
+      const napoleon = state.players.find((player) => player.id === state.currentPlayerId);
+
+      if (napoleon === undefined) {
+        throw new Error("Napoleon player not found.");
+      }
+
+      const cardIds = sampleDistinct(napoleon.hand.map(cardId), 3, rng);
+      script.push(`discard ${state.currentPlayerId} ${cardIds.join(" ")}`);
+      state = applyAction(state, {
+        type: "discard-cards",
+        playerId: state.currentPlayerId,
+        cardIds
+      });
+      continue;
+    }
+
+    const actions = getLegalActions(state, state.currentPlayerId);
+
+    if (actions.length === 0) {
+      throw new Error(`Expected legal actions in phase ${state.phase}.`);
+    }
+
+    const action = actions[randomInt(actions.length, rng)];
+    script.push(actionToLine(action));
+    state = applyAction(state, action);
+  }
+
+  return script;
+}
+
+function sampleDistinct<T>(values: readonly T[], count: number, rng: () => number): T[] {
+  const remaining = [...values];
+  const result: T[] = [];
+
+  for (let index = 0; index < count; index += 1) {
+    const selected = randomInt(remaining.length, rng);
+    result.push(remaining[selected]);
+    remaining.splice(selected, 1);
+  }
+
+  return result;
+}
+
+function randomInt(exclusiveMax: number, rng: () => number): number {
+  if (exclusiveMax <= 0) {
+    throw new Error("exclusiveMax must be positive.");
+  }
+
+  return Math.floor(rng() * exclusiveMax);
+}
+
+function actionToLine(action: GameAction): string {
+  switch (action.type) {
+    case "bid":
+      return `bid ${action.playerId} ${action.suit} ${action.targetPointCards}`;
+    case "pass":
+      return `pass ${action.playerId}`;
+    case "choose-adjutant":
+      return `choose-adjutant ${action.playerId} ${action.cardId}`;
+    case "discard-cards":
+      return `discard ${action.playerId} ${action.cardIds.join(" ")}`;
+    case "play-card":
+      return `play ${action.playerId} ${action.cardId}`;
+  }
+}
+
+function writeRandomizedGameCases(index: number): string[] {
+  const seed = 100000 + index * 7919;
+  const actionSeed = 0x9e3779b9 ^ (index * 2654435761);
+  const script = makeRandomGameScript(seed, actionSeed >>> 0);
+  const checkpointLengths = new Set<number>();
+
+  for (let length = 8; length < script.length; length += 8) {
+    checkpointLengths.add(length);
+  }
+  checkpointLengths.add(script.length);
+
+  return [...checkpointLengths].map((length) =>
+    writeDifferentialCase(
+      length === script.length
+        ? `randomized full game ${index} terminal`
+        : `randomized full game ${index} step ${length}`,
+      seed,
+      script.slice(0, length)
+    )
+  );
+}
+
 function cardId(card: Card): string {
   return card.id;
 }
@@ -275,7 +376,8 @@ const cases = [
   writeDifferentialCase("initial max uint32 seed", 0xffffffff, []),
   writeDifferentialCase("exchange snapshot", 424242, makeReadyToPlayScript(424242)),
   writeDifferentialCase("playing snapshot", 98765, makeFirstLegalPlayScript(98765, 20)),
-  writeDifferentialCase("terminal snapshot", 13579, makeFirstLegalPlayScript(13579, 50))
+  writeDifferentialCase("terminal snapshot", 13579, makeFirstLegalPlayScript(13579, 50)),
+  ...Array.from({ length: 32 }, (_, index) => writeRandomizedGameCases(index)).flat()
 ];
 
 writeFileSync(resolve(".differential", "cases.txt"), `${cases.join("\n")}\n`);
