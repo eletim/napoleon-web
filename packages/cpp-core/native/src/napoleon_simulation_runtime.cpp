@@ -118,6 +118,34 @@ std::vector<std::uint32_t> SimulationRuntime::add_games(std::size_t count) {
   return game_ids;
 }
 
+std::vector<std::uint32_t> SimulationRuntime::add_scheduled_games(
+    const std::vector<ScheduledGame>& schedule) {
+  const std::size_t active_count = static_cast<std::size_t>(std::count_if(
+      games_.begin(), games_.end(), [](const RuntimeGame& game) {
+        return game.status != RuntimeGameStatus::Finished;
+      }));
+  if (active_count + schedule.size() > config_.max_concurrent_games) {
+    throw std::runtime_error("add_scheduled_games exceeds max_concurrent_games");
+  }
+
+  std::vector<std::uint32_t> game_ids;
+  game_ids.reserve(schedule.size());
+  for (const ScheduledGame& scheduled : schedule) {
+    RuntimeGame game;
+    game.game_id = next_game_id_++;
+    game.game_index = next_game_index_++;
+    game.seed = scheduled.seed;
+    game.state = create_initial_game(scheduled.seed);
+    game.roster = scheduled.roster;
+    games_.push_back(std::move(game));
+
+    game_ids.push_back(games_.back().game_id);
+  }
+
+  metrics_.added_games += schedule.size();
+  return game_ids;
+}
+
 std::size_t SimulationRuntime::advance_runnable_games(std::size_t max_transitions) {
   const auto started = std::chrono::steady_clock::now();
   std::size_t transitions = 0;

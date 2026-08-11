@@ -2,6 +2,15 @@
 set -euo pipefail
 
 node dist/test/differential.test.js
+./build/napoleon_eval_cli \
+  --scenario candidate-vs-opponent-pool \
+  --start-seed 200 \
+  --seed-count 2 \
+  --roster-seed 77 \
+  --max-concurrent-games 8 \
+  --inference-max-batch-size 3 \
+  --output .differential/cpp_evaluation.json
+node dist/test/evaluationArtifact.test.js .differential/cpp_evaluation.json
 
 while IFS= read -r case_name; do
   if [[ -z "$case_name" ]]; then
