@@ -23,7 +23,13 @@ select {
 
 .app-shell {
   min-height: 100vh;
+  min-height: 100dvh;
   padding: 20px;
+  padding:
+    max(20px, env(safe-area-inset-top))
+    max(20px, env(safe-area-inset-right))
+    max(20px, env(safe-area-inset-bottom))
+    max(20px, env(safe-area-inset-left));
 }
 
 .top-bar {
@@ -1332,6 +1338,11 @@ input:focus-visible {
 @media (max-width: 920px) {
   .app-shell {
     padding: 12px;
+    padding:
+      max(12px, env(safe-area-inset-top))
+      max(12px, env(safe-area-inset-right))
+      max(12px, env(safe-area-inset-bottom))
+      max(12px, env(safe-area-inset-left));
   }
 
   .top-bar,
@@ -1398,6 +1409,11 @@ input:focus-visible {
 @media (max-width: 560px) {
   .app-shell {
     padding: 6px;
+    padding:
+      max(6px, env(safe-area-inset-top))
+      max(6px, env(safe-area-inset-right))
+      max(6px, env(safe-area-inset-bottom))
+      max(6px, env(safe-area-inset-left));
   }
 
   .top-bar-compact {
