@@ -342,7 +342,7 @@ input:focus-visible {
 }
 
 .latest-bid-declaration strong {
-  color: #172033;
+  color: #ffffff;
   font-size: 0.88rem;
   font-weight: 900;
   white-space: nowrap;
@@ -363,17 +363,23 @@ input:focus-visible {
   font-size: 1.18rem;
 }
 
-.latest-bid-red strong {
-  color: #b91c1c;
+.latest-bid-red {
+  background: #b91c1c;
+  border-color: #991b1b;
 }
 
-.latest-bid-black strong {
-  color: #111827;
+.latest-bid-black {
+  background: #111827;
+  border-color: #020617;
 }
 
 .latest-bid-pass {
   background: #f1f5f9;
   border-color: #cbd5e1;
+}
+
+.latest-bid-pass strong {
+  color: #172033;
 }
 
 .latest-bid-none {
