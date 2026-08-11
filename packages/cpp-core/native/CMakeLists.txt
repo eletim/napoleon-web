@@ -8,6 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_library(napoleon_core
   src/napoleon_core.cpp
+  src/napoleon_roster.cpp
 )
 
 target_include_directories(napoleon_core
