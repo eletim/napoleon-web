@@ -1,4 +1,5 @@
 const CACHE_NAME = "napoleon-web-v1";
+const IS_DEV_SERVICE_WORKER = new URL(self.location.href).searchParams.has("dev-sw");
 const APP_SHELL_URLS = [
   "/",
   "/index.html",
@@ -10,6 +11,11 @@ const APP_SHELL_URLS = [
 const MAX_RUNTIME_CACHE_ENTRIES = 64;
 
 self.addEventListener("install", (event) => {
+  if (IS_DEV_SERVICE_WORKER) {
+    event.waitUntil(self.skipWaiting());
+    return;
+  }
+
   event.waitUntil(
     caches
       .open(CACHE_NAME)
@@ -24,9 +30,17 @@ self.addEventListener("activate", (event) => {
       .keys()
       .then((cacheNames) =>
         Promise.all(
-          cacheNames
-            .filter((cacheName) => cacheName !== CACHE_NAME)
-            .map((cacheName) => caches.delete(cacheName))
+          cacheNames.map((cacheName) => {
+            if (IS_DEV_SERVICE_WORKER) {
+              return cacheName.startsWith("napoleon-web-")
+                ? caches.delete(cacheName)
+                : Promise.resolve(false);
+            }
+
+            return cacheName !== CACHE_NAME
+              ? caches.delete(cacheName)
+              : Promise.resolve(false);
+          })
         )
       )
       .then(() => self.clients.claim())
@@ -40,6 +54,10 @@ self.addEventListener("message", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
+  if (IS_DEV_SERVICE_WORKER) {
+    return;
+  }
+
   const request = event.request;
 
   if (request.method !== "GET") {
