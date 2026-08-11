@@ -186,6 +186,57 @@ class PolicyActorCriticModel(nn.Module):
         return cast(Tensor, logits), cast(Tensor, value)
 
 
+class PolicySeparatedActorCriticModel(nn.Module):
+    """Independent playing Actor and Critic MLPs with logits-only forward()."""
+
+    def __init__(self, config: PolicyMlpConfig) -> None:
+        super().__init__()
+        self.config = config
+        self.actor = PolicyMlpModel(config)
+        self.critic = _ValueMlp(config)
+
+    def forward(self, model_input: Tensor) -> Tensor:
+        return cast(Tensor, self.actor(model_input))
+
+    def forward_actor_critic(self, model_input: Tensor) -> tuple[Tensor, Tensor]:
+        logits = self.actor(model_input)
+        value = self.critic(model_input)
+        return logits, value
+
+
+class _ValueMlp(nn.Module):
+    def __init__(self, config: PolicyMlpConfig) -> None:
+        super().__init__()
+        self.config = config
+
+        layers: list[nn.Module] = []
+        input_dim = config.input_dim
+
+        for hidden_dim in config.hidden_widths:
+            layers.append(nn.Linear(input_dim, hidden_dim))
+            layers.append(nn.ReLU())
+            if config.dropout > 0.0:
+                layers.append(nn.Dropout(config.dropout))
+            input_dim = hidden_dim
+
+        layers.append(nn.Linear(input_dim, 1))
+        self.network = nn.Sequential(*layers)
+
+    def forward(self, model_input: Tensor) -> Tensor:
+        if model_input.ndim != 2:
+            raise ValueError(
+                f"model_input must have shape (batch, features), got {model_input.shape}."
+            )
+
+        if model_input.shape[1] != self.config.input_dim:
+            raise ValueError(
+                f"model_input feature count must be {self.config.input_dim}, "
+                f"got {model_input.shape[1]}."
+            )
+
+        return cast(Tensor, self.network(model_input).squeeze(1))
+
+
 def create_seeded_policy_model(config: PolicyMlpConfig, *, seed: int) -> PolicyMlpModel:
     """Create a model after setting PyTorch's CPU RNG seed."""
 
@@ -227,6 +278,20 @@ def create_actor_critic_from_policy_model(
     return actor_critic
 
 
+def create_separated_actor_critic_from_policy_model(
+    policy_model: PolicyMlpModel,
+    *,
+    seed: int | None = None,
+) -> PolicySeparatedActorCriticModel:
+    """Copy a policy MLP into an independent Actor and newly initialize Critic."""
+
+    if seed is not None:
+        torch.manual_seed(seed)
+    actor_critic = PolicySeparatedActorCriticModel(policy_model.config)
+    actor_critic.actor.load_state_dict(policy_model.state_dict())
+    return actor_critic
+
+
 def create_seeded_actor_critic_model(
     config: PolicyMlpConfig,
     *,
@@ -239,6 +304,20 @@ def create_seeded_actor_critic_model(
 
     torch.manual_seed(seed)
     return PolicyActorCriticModel(config)
+
+
+def create_seeded_separated_actor_critic_model(
+    config: PolicyMlpConfig,
+    *,
+    seed: int,
+) -> PolicySeparatedActorCriticModel:
+    """Create a separated Actor-Critic model after setting PyTorch's CPU RNG seed."""
+
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise ValueError(f"seed must be an integer, got {type(seed).__name__}.")
+
+    torch.manual_seed(seed)
+    return PolicySeparatedActorCriticModel(config)
 
 
 def _require_int(value: dict[str, Any], key: str) -> int:

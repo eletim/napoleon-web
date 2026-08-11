@@ -36,7 +36,7 @@ from napoleon_ml.policy.behavior_parity import (
     validate_behavior_policy_provenance,
 )
 from napoleon_ml.policy.checkpoint import (
-    ACTOR_CRITIC_MODEL_ARCHITECTURE,
+    ACTOR_CRITIC_MODEL_ARCHITECTURES,
     CHECKPOINT_SCHEMA_VERSION,
     POLICY_MODEL_ARCHITECTURE,
     PolicyCheckpointCompatibilityError,
@@ -612,7 +612,7 @@ def _validate_checkpoint_for_reinforce(
     if not isinstance(model_config, dict):
         raise PolicyCheckpointCompatibilityError("checkpoint model_config must be a dictionary.")
     architecture = checkpoint.get("model_architecture", POLICY_MODEL_ARCHITECTURE)
-    if architecture == ACTOR_CRITIC_MODEL_ARCHITECTURE:
+    if architecture in ACTOR_CRITIC_MODEL_ARCHITECTURES:
         raise PolicyCheckpointCompatibilityError(
             "REINFORCE training cannot resume from an Actor-Critic checkpoint."
         )
@@ -621,7 +621,10 @@ def _validate_checkpoint_for_reinforce(
             f"checkpoint model_architecture is unsupported: {architecture!r}."
         )
     rl_provenance = checkpoint.get("rl_provenance")
-    if isinstance(rl_provenance, dict) and rl_provenance.get("algorithm") == "actor-critic-v1":
+    if (
+        isinstance(rl_provenance, dict)
+        and str(rl_provenance.get("algorithm", "")).startswith("actor-critic")
+    ):
         raise PolicyCheckpointCompatibilityError(
             "REINFORCE training cannot resume from an Actor-Critic checkpoint."
         )

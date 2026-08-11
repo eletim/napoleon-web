@@ -17,6 +17,7 @@ from napoleon_ml.dataset.split import DatasetSplit, SplitConfig
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 from napoleon_ml.policy.actor_critic import (
     ACTOR_CRITIC_ALGORITHM,
+    SEPARATED_ACTOR_CRITIC_ALGORITHM,
     ActorCriticTrainReport,
     ActorCriticTrainSettings,
     actor_critic_losses,
@@ -25,10 +26,16 @@ from napoleon_ml.policy.actor_critic import (
 )
 from napoleon_ml.policy.checkpoint import (
     ACTOR_CRITIC_MODEL_ARCHITECTURE,
+    SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE,
     PolicyCheckpointCompatibilityError,
     migrate_policy_checkpoint_to_hidden_dims,
 )
-from napoleon_ml.policy.model import PolicyActorCriticModel, PolicyMlpConfig, PolicyMlpModel
+from napoleon_ml.policy.model import (
+    PolicyActorCriticModel,
+    PolicyMlpConfig,
+    PolicyMlpModel,
+    PolicySeparatedActorCriticModel,
+)
 from napoleon_ml.policy.onnx_export import build_policy_onnx_metadata
 from napoleon_ml.policy.reinforce import (
     ReinforceTrainSettings,
@@ -121,19 +128,22 @@ def test_actor_critic_training_migrates_policy_logits_and_saves_checkpoint(
     )
     assert loaded.migrated_from_policy
     assert isinstance(loaded.training_model, PolicyActorCriticModel)
+    loaded_model = loaded.training_model
     model_input = _first_model_input(self_play_dataset)
     with torch.no_grad():
         source_logits = policy_model(model_input)
-        migrated_logits = loaded.training_model(model_input)
+        migrated_logits = loaded_model(model_input)
     torch.testing.assert_close(migrated_logits, source_logits)
     other_seed = load_checkpoint_for_actor_critic(
         checkpoint_path,
         manifest=load_manifest(self_play_dataset),
         value_head_seed=456,
     )
+    assert isinstance(other_seed.training_model, PolicyActorCriticModel)
+    other_seed_model = other_seed.training_model
     assert not torch.equal(
-        loaded.training_model.value_head.weight,
-        other_seed.training_model.value_head.weight,
+        loaded_model.value_head.weight,
+        other_seed_model.value_head.weight,
     )
 
     report = _run_actor_critic(
@@ -202,6 +212,177 @@ def test_actor_critic_training_migrates_policy_logits_and_saves_checkpoint(
                 learning_rate=0.01,
                 verify_integrity=True,
             ),
+        )
+
+
+def test_separated_actor_critic_has_no_shared_actor_critic_parameters() -> None:
+    model = PolicySeparatedActorCriticModel(PolicyMlpConfig(hidden_dim=8, hidden_layers=2))
+
+    actor_parameter_ids = {parameter.data_ptr() for parameter in model.actor.parameters()}
+    critic_parameter_ids = {parameter.data_ptr() for parameter in model.critic.parameters()}
+
+    assert actor_parameter_ids
+    assert critic_parameter_ids
+    assert actor_parameter_ids.isdisjoint(critic_parameter_ids)
+    actor_modules = {id(module) for module in model.actor.modules()}
+    critic_modules = {id(module) for module in model.critic.modules()}
+    assert actor_modules.isdisjoint(critic_modules)
+
+
+def test_separated_actor_critic_migrates_policy_logits_and_saves_checkpoint(
+    tmp_path: Path,
+) -> None:
+    self_play_dataset = tmp_path / "self-play"
+    self_play_dataset.mkdir()
+    policy_model = PolicyMlpModel(PolicyMlpConfig(hidden_dim=8, hidden_layers=1))
+    checkpoint_path = tmp_path / "input.pt"
+    output_path = tmp_path / "output.pt"
+    checkpoint = _write_checkpoint(checkpoint_path, policy_model)
+    _write_self_play_dataset(
+        self_play_dataset,
+        model=policy_model,
+        checkpoint=checkpoint,
+        checkpoint_path=checkpoint_path,
+        rewards=(1, -1),
+    )
+
+    loaded = load_checkpoint_for_actor_critic(
+        checkpoint_path,
+        manifest=load_manifest(self_play_dataset),
+        value_head_seed=123,
+        target_model_architecture=SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+    )
+    assert loaded.migrated_from_policy
+    assert isinstance(loaded.training_model, PolicySeparatedActorCriticModel)
+    loaded_model = loaded.training_model
+    model_input = _first_model_input(self_play_dataset)
+    with torch.no_grad():
+        source_logits = policy_model(model_input)
+        migrated_logits = loaded_model(model_input)
+    torch.testing.assert_close(migrated_logits, source_logits)
+    other_seed = load_checkpoint_for_actor_critic(
+        checkpoint_path,
+        manifest=load_manifest(self_play_dataset),
+        value_head_seed=456,
+        target_model_architecture=SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+    )
+    assert isinstance(other_seed.training_model, PolicySeparatedActorCriticModel)
+    other_seed_model = other_seed.training_model
+    loaded_critic_first = cast(torch.nn.Linear, loaded_model.critic.network[0])
+    other_critic_first = cast(torch.nn.Linear, other_seed_model.critic.network[0])
+    assert not torch.equal(
+        loaded_critic_first.weight,
+        other_critic_first.weight,
+    )
+
+    report = _run_actor_critic(
+        input_checkpoint=checkpoint_path,
+        self_play_dataset=self_play_dataset,
+        output_checkpoint=output_path,
+        algorithm=SEPARATED_ACTOR_CRITIC_ALGORITHM,
+    )
+    assert report.actor_parameter_delta_norm > 0
+    assert report.critic_parameter_delta_norm > 0
+    assert report.changed_actor_parameter_count > 0
+    assert report.changed_critic_parameter_count > 0
+
+    raw = torch.load(output_path, map_location="cpu", weights_only=True)
+    assert raw["model_architecture"] == SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE
+    provenance = cast(dict[str, object], raw["rl_provenance"])
+    assert provenance["algorithm"] == SEPARATED_ACTOR_CRITIC_ALGORITHM
+    assert provenance["modelArchitecture"] == SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE
+    migration = cast(dict[str, object], raw["actor_critic_migration_provenance"])
+    assert migration["copiedParameters"] == ["actor"]
+    assert migration["newParameters"] == ["critic"]
+    assert migration["policyLogitsPreserved"] is True
+
+    reloaded = load_checkpoint_for_actor_critic(
+        output_path,
+        manifest=load_manifest(self_play_dataset),
+        target_model_architecture=SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+    )
+    assert not reloaded.migrated_from_policy
+    assert isinstance(reloaded.training_model, PolicySeparatedActorCriticModel)
+    metadata = build_policy_onnx_metadata(
+        model=reloaded.training_model,
+        checkpoint=raw,
+        source_checkpoint_sha256=_sha256_file(output_path),
+    )
+    assert metadata["modelArchitecture"] == SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE
+    assert cast(dict[str, object], metadata["onnx"])["outputs"] == [
+        {"name": "logits", "shape": ["batch", CARD_COUNT], "dtype": "float32"}
+    ]
+
+
+def test_separated_actor_critic_actor_and_critic_updates_are_isolated() -> None:
+    torch.manual_seed(123)
+    model = PolicySeparatedActorCriticModel(PolicyMlpConfig(hidden_dim=8, hidden_layers=1))
+    model_input = torch.randn((2, 6246))
+    selected = torch.tensor([0, 1])
+    legal_mask = torch.zeros((2, CARD_COUNT), dtype=torch.bool)
+    legal_mask[0, [0, 2]] = True
+    legal_mask[1, [1, 3]] = True
+    reward = torch.tensor([1.0, -1.0])
+
+    actor_before = _clone_module_parameters(model.actor)
+    critic_before = _clone_module_parameters(model.critic)
+    actor_optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+    actor_optimizer.zero_grad(set_to_none=True)
+    logits, value_prediction = model.forward_actor_critic(model_input)
+    selected_logp = masked_selected_log_probability(logits, selected, legal_mask, temperature=1.0)
+    actor_loss, value_loss, _ = actor_critic_losses(
+        selected_logp,
+        reward,
+        value_prediction,
+        value_loss_coefficient=0.5,
+    )
+    actor_loss.backward()  # type: ignore[no-untyped-call]
+    actor_optimizer.step()
+
+    _assert_module_parameters_changed(model.actor, actor_before)
+    _assert_module_parameters_unchanged(model.critic, critic_before)
+    assert all(parameter.grad is None for parameter in model.critic.parameters())
+    assert value_loss.item() >= 0.0
+
+    actor_before = _clone_module_parameters(model.actor)
+    critic_before = _clone_module_parameters(model.critic)
+    critic_optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+    critic_optimizer.zero_grad(set_to_none=True)
+    _, value_prediction = model.forward_actor_critic(model_input)
+    value_loss = torch.nn.functional.mse_loss(value_prediction, reward)
+    value_loss.backward()  # type: ignore[no-untyped-call]
+    critic_optimizer.step()
+
+    _assert_module_parameters_unchanged(model.actor, actor_before)
+    _assert_module_parameters_changed(model.critic, critic_before)
+    assert all(parameter.grad is None for parameter in model.actor.parameters())
+
+
+def test_actor_critic_architecture_mismatch_fails_close(tmp_path: Path) -> None:
+    self_play_dataset = tmp_path / "self-play"
+    self_play_dataset.mkdir()
+    policy_model = PolicyMlpModel(PolicyMlpConfig(hidden_dim=8, hidden_layers=1))
+    checkpoint_path = tmp_path / "input.pt"
+    shared_output = tmp_path / "shared-output.pt"
+    checkpoint = _write_checkpoint(checkpoint_path, policy_model)
+    _write_self_play_dataset(
+        self_play_dataset,
+        model=policy_model,
+        checkpoint=checkpoint,
+        checkpoint_path=checkpoint_path,
+        rewards=(1, -1),
+    )
+    _run_actor_critic(
+        input_checkpoint=checkpoint_path,
+        self_play_dataset=self_play_dataset,
+        output_checkpoint=shared_output,
+    )
+
+    with pytest.raises(PolicyCheckpointCompatibilityError, match="model_architecture mismatch"):
+        load_checkpoint_for_actor_critic(
+            shared_output,
+            manifest=load_manifest(self_play_dataset),
+            target_model_architecture=SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE,
         )
 
 
@@ -278,6 +459,51 @@ def test_actor_critic_hidden_dims_migration_preserves_policy_and_value(
     raw = torch.load(migrated_path, map_location="cpu", weights_only=True)
     migrated_config = PolicyMlpConfig.from_dict(cast(dict[str, Any], raw["model_config"]))
     migrated_model = PolicyActorCriticModel(migrated_config)
+    migrated_model.load_state_dict(raw["model_state"])
+
+    model_input = torch.randn((4, 6246), generator=torch.Generator().manual_seed(456))
+    source_model.eval()
+    migrated_model.eval()
+    with torch.no_grad():
+        source_logits, source_value = source_model.forward_actor_critic(model_input)
+        migrated_logits, migrated_value = migrated_model.forward_actor_critic(model_input)
+
+    torch.testing.assert_close(migrated_logits, source_logits, rtol=0, atol=1e-6)
+    torch.testing.assert_close(migrated_value, source_value, rtol=0, atol=1e-6)
+    provenance = cast(dict[str, object], migrated["architecture_migration_provenance"])
+    assert provenance["valuePredictionPreserved"] is True
+
+
+def test_separated_actor_critic_hidden_dims_migration_preserves_policy_and_value(
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "small-separated-ac.pt"
+    migrated_path = tmp_path / "large-separated-ac.pt"
+    source_model = PolicySeparatedActorCriticModel(PolicyMlpConfig(hidden_dim=8, hidden_layers=2))
+    torch.save(
+        {
+            "checkpoint_schema_version": 1,
+            "model_architecture": SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+            "model_state": source_model.state_dict(),
+            "model_config": source_model.config.to_dict(),
+            "training_config": {},
+            "dataset_schema_version": 1,
+            "playing_encoder_schema_version": 2,
+            "model_input_schema_version": 2,
+            "card_ids_sha256": calculate_card_ids_sha256(),
+        },
+        source_path,
+    )
+
+    migrated = migrate_policy_checkpoint_to_hidden_dims(
+        source_path,
+        migrated_path,
+        target_hidden_dims=(16, 16, 12, 12),
+        seed=123,
+    )
+    raw = torch.load(migrated_path, map_location="cpu", weights_only=True)
+    migrated_config = PolicyMlpConfig.from_dict(cast(dict[str, Any], raw["model_config"]))
+    migrated_model = PolicySeparatedActorCriticModel(migrated_config)
     migrated_model.load_state_dict(raw["model_state"])
 
     model_input = torch.randn((4, 6246), generator=torch.Generator().manual_seed(456))
@@ -484,6 +710,7 @@ def _run_actor_critic(
     behavior_parity_subset_size: int = 4096,
     behavior_parity_execution_provider: str | None = None,
     behavior_parity_max_observed_batch_size: int | None = None,
+    algorithm: str = ACTOR_CRITIC_ALGORITHM,
 ) -> ActorCriticTrainReport:
     settings = ActorCriticTrainSettings(
         seed=0,
@@ -496,6 +723,7 @@ def _run_actor_critic(
         behavior_parity_subset_size=behavior_parity_subset_size,
         behavior_parity_execution_provider=behavior_parity_execution_provider,
         behavior_parity_max_observed_batch_size=behavior_parity_max_observed_batch_size,
+        algorithm=algorithm,
     )
     loader = create_playing_self_play_dataloader(
         self_play_dataset,
@@ -698,3 +926,25 @@ def _write_dataset_manifest(
 
 def _sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _clone_module_parameters(module: torch.nn.Module) -> dict[str, torch.Tensor]:
+    return {name: parameter.detach().clone() for name, parameter in module.named_parameters()}
+
+
+def _assert_module_parameters_unchanged(
+    module: torch.nn.Module,
+    before: dict[str, torch.Tensor],
+) -> None:
+    for name, parameter in module.named_parameters():
+        torch.testing.assert_close(parameter.detach(), before[name])
+
+
+def _assert_module_parameters_changed(
+    module: torch.nn.Module,
+    before: dict[str, torch.Tensor],
+) -> None:
+    changed = False
+    for name, parameter in module.named_parameters():
+        changed = changed or bool(torch.ne(parameter.detach(), before[name]).any().item())
+    assert changed

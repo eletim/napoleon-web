@@ -23,7 +23,7 @@ from napoleon_ml.dataset.reader import iter_raw_samples, load_manifest
 from napoleon_ml.dataset.split import DatasetSplit, SplitConfig
 from napoleon_ml.dataset.validation import validate_manifest
 from napoleon_ml.policy.actor_critic import (
-    ACTOR_CRITIC_ALGORITHM,
+    ACTOR_CRITIC_ALGORITHMS,
     DEFAULT_VALUE_LOSS_COEFFICIENT,
     ActorCriticTrainReport,
     ActorCriticTrainSettings,
@@ -66,7 +66,7 @@ DEFAULT_SIMULATION_BACKEND = "typescript"
 DEFAULT_FROZEN_POLICY_ARTIFACT_ID = "rl-v740"
 DEFAULT_FROZEN_POLICY_ONNX = Path("benchmarks/playing-policies/rl-v740/policy.onnx")
 DEFAULT_FROZEN_POLICY_METADATA = Path("benchmarks/playing-policies/rl-v740/policy.json")
-PLAYING_RL_ALGORITHMS = (REINFORCE_ALGORITHM, ACTOR_CRITIC_ALGORITHM)
+PLAYING_RL_ALGORITHMS = (REINFORCE_ALGORITHM, *ACTOR_CRITIC_ALGORITHMS)
 SUPPORTED_INFERENCE_DEVICES = ("cpu", "auto", "cuda")
 SUPPORTED_SIMULATION_BACKENDS = ("typescript", "cpp")
 
@@ -373,7 +373,7 @@ def _run_iteration(
         verify_integrity=True,
     )
     report: ActorCriticTrainReport | ReinforceTrainReport
-    if config.algorithm == ACTOR_CRITIC_ALGORITHM:
+    if config.algorithm in ACTOR_CRITIC_ALGORITHMS:
         actor_critic_settings = ActorCriticTrainSettings(
             seed=training_seed,
             epochs=config.epochs,
@@ -388,6 +388,7 @@ def _run_iteration(
                 int,
                 rollout_summary["inferenceMaxObservedBatchSize"],
             ),
+            algorithm=config.algorithm,
         )
         report = train_policy_actor_critic(
             input_checkpoint=input_checkpoint,
@@ -426,7 +427,7 @@ def _run_iteration(
         raise PlayingRlOrchestratorError("parameterDeltaNorm must be > 0.")
     if report.changed_parameter_count <= 0:
         raise PlayingRlOrchestratorError("changedParameterCount must be > 0.")
-    if config.algorithm == ACTOR_CRITIC_ALGORITHM:
+    if config.algorithm in ACTOR_CRITIC_ALGORITHMS:
         actor_critic_report = cast(ActorCriticTrainReport, report)
         if actor_critic_report.critic_parameter_delta_norm <= 0:
             raise PlayingRlOrchestratorError("criticParameterDeltaNorm must be > 0.")
@@ -486,7 +487,7 @@ def _run_iteration(
         "postEvalElapsedSeconds": report.post_eval_elapsed_seconds,
         "totalElapsedSeconds": report.total_elapsed_seconds,
         "valueLossCoefficient": (
-            config.value_loss_coefficient if config.algorithm == ACTOR_CRITIC_ALGORITHM else None
+            config.value_loss_coefficient if config.algorithm in ACTOR_CRITIC_ALGORITHMS else None
         ),
         "optimizerStepCount": report.optimizer_step_count,
         "behaviorParityDiagnostics": train_report["behaviorParityDiagnostics"],
@@ -550,7 +551,7 @@ def _run_iteration(
         "behaviorOnnxSha256": behavior_onnx_sha256,
         "outputCheckpointSha256": output_checkpoint_sha256,
     }
-    if config.algorithm == ACTOR_CRITIC_ALGORITHM:
+    if config.algorithm in ACTOR_CRITIC_ALGORITHMS:
         actor_critic_report = cast(ActorCriticTrainReport, report)
         summary.update(
             {
