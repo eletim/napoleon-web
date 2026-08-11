@@ -1,4 +1,5 @@
 #include "napoleon_core.hpp"
+#include "napoleon_evaluation.hpp"
 #include "napoleon_rule_based.hpp"
 #include "napoleon_roster.hpp"
 #include "napoleon_simulation_runtime.hpp"
@@ -281,6 +282,62 @@ int main() {
     assert(napoleon::roster_assignment_manifest_json(finished_a[index].roster) ==
            napoleon::roster_assignment_manifest_json(finished_b[index].roster));
   }
+
+  napoleon::SimulationRuntime scheduled_runtime(napoleon::SimulationRuntimeConfig{
+      napoleon::self_play_roster(rule),
+      1,
+      2,
+      2});
+  scheduled_runtime.add_scheduled_games({
+      napoleon::ScheduledGame{
+          900,
+          napoleon::sample_roster(napoleon::fixed_roster({current, rule, rule, rule, rule}), 0, 0)},
+      napoleon::ScheduledGame{
+          900,
+          napoleon::sample_roster(napoleon::fixed_roster({rule, current, rule, rule, rule}), 0, 1)}});
+  scheduled_runtime.advance_runnable_games();
+  const std::vector<napoleon::AgentRequest> scheduled_requests =
+      scheduled_runtime.collect_agent_requests();
+  assert(scheduled_requests.size() == 2);
+  assert(scheduled_runtime.game_snapshots()[0].seed == 900);
+  assert(scheduled_runtime.game_snapshots()[1].seed == 900);
+
+  const napoleon::evaluation::EvaluationArtifact eval_artifact =
+      napoleon::evaluation::run_evaluation(napoleon::evaluation::EvaluationOptions{
+          napoleon::evaluation::EvaluationScenario::CandidateVsRuleBased,
+          12,
+          2,
+          34,
+          8,
+          3,
+          {0, 1, 2, 3, 4},
+          "candidate",
+          "rl-v740"});
+  assert(eval_artifact.scheduled_games == 10);
+  assert(eval_artifact.completed_games == 10);
+  assert(eval_artifact.failed_games == 0);
+  assert(eval_artifact.json.find("\"candidate-vs-rule-based\"") != std::string::npos);
+  assert(eval_artifact.json.find("\"requestCount\"") != std::string::npos);
+  assert(eval_artifact.json.find("\"policyStats\"") != std::string::npos);
+  assert(eval_artifact.json.find("\"tsCudaBatch1Workers4SecondsPer2000Games\":11.2") !=
+         std::string::npos);
+  assert(eval_artifact.json.find("\"usesRlDatasetGeneration\":false") != std::string::npos);
+
+  const napoleon::evaluation::EvaluationArtifact tournament_artifact =
+      napoleon::evaluation::run_evaluation(napoleon::evaluation::EvaluationOptions{
+          napoleon::evaluation::EvaluationScenario::Tournament,
+          22,
+          1,
+          44,
+          8,
+          4,
+          {0, 1, 2, 3, 4},
+          "candidate",
+          "rl-v740"});
+  assert(tournament_artifact.scheduled_games == 5);
+  assert(tournament_artifact.completed_games == 5);
+  assert(tournament_artifact.json.find("\"tournament\"") != std::string::npos);
+  assert(tournament_artifact.json.find("RuleBasedAgent-A") != std::string::npos);
 
   std::cout << "napoleon_core_self_test ok\n";
   return 0;

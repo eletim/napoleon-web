@@ -49,6 +49,35 @@ Node IPC part of the per-decision hot path.
 `RuntimeMetrics` records added/finished games, request/result counts, internal
 CPU transitions, elapsed CPU nanoseconds, and throughput estimates.
 
+## Evaluation / Benchmark / Tournament CLI
+
+`napoleon_eval_cli` runs the native simulation runtime as an AI-development
+application. It is intentionally outside the browser and normal Web runtime.
+The first backend consumes policy `AgentRequest` batches deterministically so
+candidate, frozen-policy, opponent-pool, and tournament schedules can be tested
+without depending on RL dataset generation.
+
+```sh
+./build/napoleon_eval_cli \
+  --scenario candidate-vs-rule-based \
+  --start-seed 0 \
+  --seed-count 400 \
+  --max-concurrent-games 256 \
+  --inference-max-batch-size 32 \
+  --output cpp-evaluation.json
+```
+
+The JSON artifact includes completed game records, candidate and per-policy
+stats, contract success, average point cards, total/simulation/inference
+elapsed time, games/sec, decisions/sec, request count, session-run count,
+mean/max batch size, policy-specific batch stats, and the known TypeScript
+2000-game baselines:
+
+```text
+TS CUDA batch=1 / workers=4: 11.20 sec / 2000 games
+TS batched path:            18-22 sec / 2000 games
+```
+
 ## Local Commands
 
 ```sh
