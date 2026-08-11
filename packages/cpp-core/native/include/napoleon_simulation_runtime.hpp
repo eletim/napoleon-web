@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -18,11 +19,16 @@ enum class RuntimeGameStatus : std::uint8_t {
   Finished
 };
 
+struct AgentRequest;
+using AgentRequestPayloadBuilder =
+    std::function<void(const GameState& state, int player_index, AgentRequest& request)>;
+
 struct SimulationRuntimeConfig {
   RosterSpec roster;
   std::uint32_t base_seed = 0;
   std::uint32_t roster_seed = 0;
   std::size_t max_concurrent_games = 1024;
+  AgentRequestPayloadBuilder build_agent_request_payload;
 };
 
 struct RuntimeGameSnapshot {
@@ -46,11 +52,16 @@ struct AgentRequest {
   Phase phase = Phase::Bidding;
   std::vector<Action> legal_actions;
   std::string snapshot_json;
+  std::vector<float> playing_model_input;
+  std::vector<int> legal_play_mask;
 };
 
 struct AgentResult {
   std::uint64_t request_id = 0;
   Action action;
+  int selected_card_index = -1;
+  double behavior_log_probability = 0.0;
+  std::string policy_key;
 };
 
 struct FinishedGame {
