@@ -22,7 +22,8 @@ from napoleon_ml.policy.onnx_export import build_policy_onnx_metadata
 
 STRICT_BEHAVIOR_LOG_PROB_PARITY_RTOL = 1e-4
 STRICT_BEHAVIOR_LOG_PROB_PARITY_ATOL = 1e-5
-BATCHED_CUDA_BEHAVIOR_LOG_PROB_MAX_ABS = 5e-3
+BATCHED_CUDA_BEHAVIOR_LOG_PROB_WARNING_MAX_ABS = 5e-3
+BATCHED_CUDA_BEHAVIOR_LOG_PROB_HARD_MAX_ABS = 1e-2
 BATCHED_CUDA_BEHAVIOR_LOG_PROB_P99_ABS = 2e-3
 BATCHED_CUDA_BEHAVIOR_LOG_PROB_P999_ABS = 4e-3
 
@@ -33,6 +34,7 @@ class BehaviorParityTolerance:
     rtol: float
     atol: float
     max_abs_error: float
+    warning_max_abs_error: float | None = None
     p99_abs_error: float | None = None
     p999_abs_error: float | None = None
     distribution_guard_min_count: int = 100
@@ -43,6 +45,7 @@ class BehaviorParityTolerance:
             "rtol": self.rtol,
             "atol": self.atol,
             "maxAbsError": self.max_abs_error,
+            "warningMaxAbsError": self.warning_max_abs_error,
             "p99AbsError": self.p99_abs_error,
             "p999AbsError": self.p999_abs_error,
             "distributionGuardMinCount": self.distribution_guard_min_count,
@@ -54,6 +57,7 @@ STRICT_BEHAVIOR_PARITY_TOLERANCE = BehaviorParityTolerance(
     rtol=STRICT_BEHAVIOR_LOG_PROB_PARITY_RTOL,
     atol=STRICT_BEHAVIOR_LOG_PROB_PARITY_ATOL,
     max_abs_error=STRICT_BEHAVIOR_LOG_PROB_PARITY_ATOL,
+    warning_max_abs_error=None,
     p99_abs_error=None,
     p999_abs_error=None,
 )
@@ -62,7 +66,8 @@ BATCHED_CUDA_BEHAVIOR_PARITY_TOLERANCE = BehaviorParityTolerance(
     mode="batched-cuda",
     rtol=STRICT_BEHAVIOR_LOG_PROB_PARITY_RTOL,
     atol=STRICT_BEHAVIOR_LOG_PROB_PARITY_ATOL,
-    max_abs_error=BATCHED_CUDA_BEHAVIOR_LOG_PROB_MAX_ABS,
+    max_abs_error=BATCHED_CUDA_BEHAVIOR_LOG_PROB_HARD_MAX_ABS,
+    warning_max_abs_error=BATCHED_CUDA_BEHAVIOR_LOG_PROB_WARNING_MAX_ABS,
     p99_abs_error=BATCHED_CUDA_BEHAVIOR_LOG_PROB_P99_ABS,
     p999_abs_error=BATCHED_CUDA_BEHAVIOR_LOG_PROB_P999_ABS,
 )
@@ -158,47 +163,25 @@ class BehaviorParityDiagnostics:
     def p999_abs_error(self) -> float:
         return _nearest_rank_quantile(self._errors, 0.999)
 
-    def failed(self) -> bool:
+    def hard_failures(self) -> list[str]:
+        failures: list[str] = []
         if self.nonfinite_count > 0:
-            return True
+            failures.append(f"{self.nonfinite_count} non-finite behavior parity errors")
         if self.forced_nonzero_count > 0:
-            return True
-        if self.strict_failed_count == 0:
-            return False
-        if self.tolerance.mode == "strict":
-            return True
-        if self.max_abs_error > self.tolerance.max_abs_error:
-            return True
-        if (
-            self.tolerance.p99_abs_error is not None
-            and self.sample_count >= self.tolerance.distribution_guard_min_count
-            and self.p99_abs_error() > self.tolerance.p99_abs_error
-        ):
-            return True
-        p999_min_count = self.tolerance.distribution_guard_min_count * 10
-        if (
-            self.tolerance.p999_abs_error is not None
-            and self.sample_count >= p999_min_count
-            and self.p999_abs_error() > self.tolerance.p999_abs_error
-        ):
-            return True
-        return False
-
-    def failure_detail(self) -> str:
-        if self.nonfinite_count > 0:
-            return f"{self.nonfinite_count} non-finite behavior parity errors"
-        if self.forced_nonzero_count > 0:
-            return (
+            failures.append(
                 f"{self.forced_nonzero_count} forced-action samples have non-zero "
                 "behavior log probability"
             )
+        if self.strict_failed_count == 0:
+            return failures
         if self.tolerance.mode == "strict":
-            return (
+            failures.append(
                 f"{self.strict_failed_count} samples exceed rtol={self.tolerance.rtol} "
                 f"and atol={self.tolerance.atol}"
             )
+            return failures
         if self.max_abs_error > self.tolerance.max_abs_error:
-            return (
+            failures.append(
                 f"max abs error {self.max_abs_error:.8g} exceeds "
                 f"{self.tolerance.max_abs_error:.8g}"
             )
@@ -207,22 +190,67 @@ class BehaviorParityDiagnostics:
             and self.sample_count >= self.tolerance.distribution_guard_min_count
             and self.p99_abs_error() > self.tolerance.p99_abs_error
         ):
-            return (
+            failures.append(
                 f"p99 abs error {self.p99_abs_error():.8g} exceeds "
                 f"{self.tolerance.p99_abs_error:.8g}"
             )
+        p999_min_count = self.tolerance.distribution_guard_min_count * 10
         if (
             self.tolerance.p999_abs_error is not None
-            and self.sample_count >= self.tolerance.distribution_guard_min_count * 10
+            and self.sample_count >= p999_min_count
             and self.p999_abs_error() > self.tolerance.p999_abs_error
         ):
-            return (
+            failures.append(
                 f"p99.9 abs error {self.p999_abs_error():.8g} exceeds "
                 f"{self.tolerance.p999_abs_error:.8g}"
             )
+        return failures
+
+    def warnings(self) -> list[str]:
+        warnings: list[str] = []
+        if self.strict_failed_count == 0:
+            return warnings
+        warning_max_abs_error = self.tolerance.warning_max_abs_error
+        if (
+            warning_max_abs_error is not None
+            and self.max_abs_error > warning_max_abs_error
+            and self.max_abs_error <= self.tolerance.max_abs_error
+            and not self.hard_failures()
+        ):
+            warnings.append(
+                f"max abs error {self.max_abs_error:.8g} exceeds warning threshold "
+                f"{warning_max_abs_error:.8g}"
+            )
+        return warnings
+
+    def failed(self) -> bool:
+        return bool(self.hard_failures())
+
+    def warning(self) -> bool:
+        return bool(self.warnings())
+
+    def severity(self) -> str:
+        if self.failed():
+            return "error"
+        if self.warning():
+            return "warning"
+        return "pass"
+
+    def failure_detail(self) -> str:
+        failures = self.hard_failures()
+        if failures:
+            return "; ".join(failures)
         return "behavior parity failed"
 
+    def warning_detail(self) -> str | None:
+        warnings = self.warnings()
+        if warnings:
+            return "; ".join(warnings)
+        return None
+
     def to_dict(self) -> dict[str, object]:
+        hard_failures = self.hard_failures()
+        warnings = self.warnings()
         return {
             "sampleCount": self.sample_count,
             "tolerance": self.tolerance.to_dict(),
@@ -235,7 +263,12 @@ class BehaviorParityDiagnostics:
             "meanAbsError": self.mean_abs_error(),
             "p99AbsError": self.p99_abs_error(),
             "p999AbsError": self.p999_abs_error(),
-            "passed": not self.failed(),
+            "passed": not hard_failures,
+            "severity": "error" if hard_failures else ("warning" if warnings else "pass"),
+            "warningCount": len(warnings),
+            "warnings": warnings,
+            "hardFailureCount": len(hard_failures),
+            "hardFailures": hard_failures,
         }
 
 

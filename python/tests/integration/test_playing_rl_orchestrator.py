@@ -22,12 +22,14 @@ from napoleon_ml.policy.actor_critic import (
 from napoleon_ml.policy.checkpoint import SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE
 from napoleon_ml.policy.reinforce import REINFORCE_ALGORITHM
 from napoleon_ml.rl_orchestrator import (
+    DEFAULT_EVALUATION_SEED_COUNT,
     DEFAULT_FULL_DIAGNOSTICS_INTERVAL,
     PlayingRlOrchestratorError,
     PlayingRlRunConfig,
     _config_from_file_dict,
     _full_diagnostics_is_due,
     _validate_config,
+    _validate_resume_config,
     run_playing_rl_experiment,
 )
 
@@ -614,6 +616,63 @@ def test_playing_rl_full_diagnostics_interval_uses_output_generation(
     invalid = replace(config, full_diagnostics_interval=0)
     with pytest.raises(PlayingRlOrchestratorError, match="full_diagnostics_interval"):
         _validate_config(invalid)
+
+
+def test_new_playing_rl_run_default_evaluation_seed_count_is_400(
+    tmp_path: Path,
+) -> None:
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "--run-directory",
+            str(tmp_path / "run"),
+            "--initial-checkpoint",
+            str(tmp_path / "initial.pt"),
+            "--supervised-dataset",
+            str(tmp_path / "supervised"),
+        ]
+    )
+    config = _config_from_args(args, parser)
+
+    assert DEFAULT_EVALUATION_SEED_COUNT == 400
+    assert config.evaluation_seed_count == 400
+
+
+def test_resume_keeps_stored_evaluation_seed_count_100_when_not_provided(
+    tmp_path: Path,
+) -> None:
+    supervised_dataset = tmp_path / "supervised"
+    supervised_dataset.mkdir()
+    (supervised_dataset / "manifest.json").write_text("{}", encoding="utf-8")
+    initial_checkpoint = tmp_path / "initial-playing.pt"
+    initial_checkpoint.write_bytes(b"checkpoint")
+    stored_run = PlayingRlRunConfig(
+        run_directory=tmp_path / "run",
+        initial_checkpoint=initial_checkpoint,
+        supervised_dataset=supervised_dataset,
+        evaluation_seed_count=100,
+    ).normalized()
+    requested_run = replace(stored_run, evaluation_seed_count=400)
+    stored_config = stored_run.to_file_dict()
+    requested_config = requested_run.to_file_dict()
+
+    _validate_resume_config(
+        stored_config=stored_config,
+        requested_config=requested_config,
+        provided_config_keys=set(),
+    )
+    loaded = _config_from_file_dict(stored_config, build_typescript=False, build_cpp=False)
+    assert loaded.evaluation_seed_count == 100
+
+    with pytest.raises(
+        PlayingRlOrchestratorError,
+        match="resume config mismatch for evaluationSeedCount",
+    ):
+        _validate_resume_config(
+            stored_config=stored_config,
+            requested_config=requested_config,
+            provided_config_keys={"evaluationSeedCount"},
+        )
 
 
 def test_run_playing_rl_cli_parses_rollout_diagnostic_and_cache_options(
