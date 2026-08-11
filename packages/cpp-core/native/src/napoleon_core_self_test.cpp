@@ -1,5 +1,6 @@
 #include "napoleon_core.hpp"
 #include "napoleon_evaluation.hpp"
+#include "napoleon_onnx_policy.hpp"
 #include "napoleon_rule_based.hpp"
 #include "napoleon_roster.hpp"
 #include "napoleon_simulation_runtime.hpp"
@@ -9,6 +10,8 @@
 #include <cmath>
 #include <iostream>
 #include <iterator>
+#include <memory>
+#include <numeric>
 #include <string>
 #include <vector>
 
@@ -16,6 +19,13 @@ namespace {
 
 bool same_agent(const napoleon::AgentIdentity& left, const napoleon::AgentIdentity& right) {
   return left.type == right.type && left.id == right.id;
+}
+
+napoleon::AgentResult first_result_for_request(const napoleon::AgentRequest& request) {
+  napoleon::AgentResult result;
+  result.request_id = request.request_id;
+  result.action = request.legal_actions.front();
+  return result;
 }
 
 std::vector<napoleon::FinishedGame> drive_external_first_legal(
@@ -30,7 +40,7 @@ std::vector<napoleon::FinishedGame> drive_external_first_legal(
       results.reserve(requests.size());
       for (const napoleon::AgentRequest& request : requests) {
         assert(!request.legal_actions.empty());
-        results.push_back(napoleon::AgentResult{request.request_id, request.legal_actions.front()});
+        results.push_back(first_result_for_request(request));
       }
       runtime.submit_agent_results(results);
     }
@@ -47,6 +57,52 @@ std::vector<napoleon::FinishedGame> drive_external_first_legal(
 
   assert(false && "runtime did not finish within iteration budget");
   return {};
+}
+
+std::vector<napoleon::AgentRequest> collect_playing_requests(
+    napoleon::SimulationRuntime& runtime,
+    std::size_t expected_request_count) {
+  for (int iteration = 0; iteration < 10000; ++iteration) {
+    runtime.advance_runnable_games();
+    std::vector<napoleon::AgentRequest> requests = runtime.collect_agent_requests();
+    if (requests.empty()) {
+      continue;
+    }
+
+    const bool all_playing = std::all_of(
+        requests.begin(),
+        requests.end(),
+        [](const napoleon::AgentRequest& request) {
+          return request.phase == napoleon::Phase::Playing;
+        });
+    if (all_playing) {
+      assert(requests.size() == expected_request_count);
+      return requests;
+    }
+
+    std::vector<napoleon::AgentResult> setup_results;
+    setup_results.reserve(requests.size());
+    for (const napoleon::AgentRequest& request : requests) {
+      assert(request.phase != napoleon::Phase::Playing);
+      assert(!request.legal_actions.empty());
+      setup_results.push_back(first_result_for_request(request));
+    }
+    runtime.submit_agent_results(setup_results);
+  }
+
+  assert(false && "runtime did not reach playing requests within iteration budget");
+  return {};
+}
+
+bool same_policy_action_result(
+    const napoleon::onnx_policy::PolicyActionResult& left,
+    const napoleon::onnx_policy::PolicyActionResult& right) {
+  return left.result.request_id == right.result.request_id &&
+         left.selected_card_index == right.selected_card_index &&
+         left.result.action.type == right.result.action.type &&
+         left.result.action.card.id == right.result.action.card.id &&
+         std::fabs(left.behavior_log_probability - right.behavior_log_probability) < 1e-12 &&
+         left.policy_key == right.policy_key;
 }
 
 }  // namespace
@@ -198,7 +254,8 @@ int main() {
       napoleon::self_play_roster(rule),
       7000,
       8000,
-      1000});
+      1000,
+      nullptr});
   const std::vector<std::uint32_t> cpu_game_ids = cpu_runtime.add_games(1000);
   assert(cpu_game_ids.size() == 1000);
   const std::size_t cpu_transitions = cpu_runtime.advance_runnable_games();
@@ -218,7 +275,8 @@ int main() {
       napoleon::fixed_roster({current, rule, rule, rule, rule}),
       42,
       24,
-      16});
+      16,
+      nullptr});
   waiting_runtime.add_games(12);
   waiting_runtime.advance_runnable_games();
   std::vector<napoleon::AgentRequest> initial_requests =
@@ -242,7 +300,10 @@ int main() {
           return action.type == napoleon::Action::Type::Pass;
         });
     assert(pass_it != it->legal_actions.end());
-    reversed_passes.push_back(napoleon::AgentResult{it->request_id, *pass_it});
+    napoleon::AgentResult result;
+    result.request_id = it->request_id;
+    result.action = *pass_it;
+    reversed_passes.push_back(result);
   }
   waiting_runtime.submit_agent_results(reversed_passes);
   waiting_runtime.advance_runnable_games();
@@ -258,16 +319,161 @@ int main() {
   assert(waiting_metrics.agent_request_count == 24);
   assert(waiting_metrics.submitted_agent_result_count == 12);
 
+  napoleon::SimulationRuntime onnx_request_runtime(napoleon::SimulationRuntimeConfig{
+      napoleon::self_play_roster(current),
+      2024,
+      3030,
+      8,
+      napoleon::onnx_policy::attach_playing_model_input});
+  onnx_request_runtime.add_games(5);
+  std::vector<napoleon::AgentRequest> playing_requests =
+      collect_playing_requests(onnx_request_runtime, 5);
+  for (const napoleon::AgentRequest& request : playing_requests) {
+    assert(request.phase == napoleon::Phase::Playing);
+    assert(request.playing_model_input.size() ==
+           napoleon::observation::kPlayingModelInputFeatureCount);
+    assert(request.legal_play_mask.size() == napoleon::observation::kCardCount);
+    assert(std::accumulate(request.legal_play_mask.begin(), request.legal_play_mask.end(), 0) > 0);
+  }
+
+  std::array<float, napoleon::onnx_policy::kPolicyLogitCount> logits{};
+  logits.fill(0.0F);
+  logits[52] = 100000.0F;
+  logits[0] = 0.25F;
+  logits[7] = 0.5F;
+
+  napoleon::onnx_policy::BatchedPolicyExecutor batch_one(
+      napoleon::onnx_policy::BatchedPolicyConfig{1, 1.0, 5150});
+  batch_one.add_policy(
+      napoleon::onnx_policy::policy_key_from_agent(current),
+      std::make_unique<napoleon::onnx_policy::DeterministicPolicySession>(logits));
+  const std::vector<napoleon::onnx_policy::PolicyActionResult> batch_one_results =
+      batch_one.run(playing_requests);
+
+  napoleon::onnx_policy::BatchedPolicyExecutor batch_many(
+      napoleon::onnx_policy::BatchedPolicyConfig{4, 1.0, 5150});
+  batch_many.add_policy(
+      napoleon::onnx_policy::policy_key_from_agent(current),
+      std::make_unique<napoleon::onnx_policy::DeterministicPolicySession>(logits));
+  const std::vector<napoleon::onnx_policy::PolicyActionResult> batch_many_results =
+      batch_many.run(playing_requests);
+
+  assert(batch_one_results.size() == batch_many_results.size());
+  for (std::size_t index = 0; index < batch_one_results.size(); ++index) {
+    assert(same_policy_action_result(batch_one_results[index], batch_many_results[index]));
+    const int selected_card_index = batch_many_results[index].selected_card_index;
+    assert(playing_requests[index].legal_play_mask[static_cast<std::size_t>(selected_card_index)] == 1);
+    assert(std::isfinite(batch_many_results[index].behavior_log_probability));
+    assert(batch_many_results[index].behavior_log_probability <= 1e-12);
+  }
+  const napoleon::onnx_policy::BatchedPolicyStats batch_one_stats = batch_one.stats();
+  const napoleon::onnx_policy::BatchedPolicyStats batch_many_stats = batch_many.stats();
+  assert(batch_one_stats.request_count == playing_requests.size());
+  assert(batch_one_stats.session_run_count == playing_requests.size());
+  assert(batch_one_stats.max_observed_batch_size == 1);
+  assert(batch_many_stats.request_count == playing_requests.size());
+  assert(batch_many_stats.session_run_count == 2);
+  assert(batch_many_stats.max_observed_batch_size == 4);
+  assert(batch_many_stats.batch_size_histogram.at(4) == 1);
+  assert(batch_many_stats.batch_size_histogram.at(1) == 1);
+  assert(batch_many_stats.policy_stats.at("current-policy:current").request_count ==
+         playing_requests.size());
+
+  std::vector<napoleon::AgentRequest> mixed_policy_requests;
+  for (std::size_t index = 0; index < 5; ++index) {
+    napoleon::AgentRequest request = playing_requests[index];
+    request.request_id = static_cast<std::uint64_t>(index + 1);
+    request.sequence = static_cast<std::uint64_t>(index + 1);
+    request.agent = index % 2 == 0 ? current : frozen;
+    mixed_policy_requests.push_back(std::move(request));
+  }
+  napoleon::onnx_policy::BatchedPolicyExecutor mixed_executor(
+      napoleon::onnx_policy::BatchedPolicyConfig{2, 1.0, 777});
+  mixed_executor.add_policy(
+      napoleon::onnx_policy::policy_key_from_agent(current),
+      std::make_unique<napoleon::onnx_policy::DeterministicPolicySession>(logits));
+  mixed_executor.add_policy(
+      napoleon::onnx_policy::policy_key_from_agent(frozen),
+      std::make_unique<napoleon::onnx_policy::DeterministicPolicySession>(logits));
+  const std::vector<napoleon::onnx_policy::PolicyActionResult> mixed_results =
+      mixed_executor.run(mixed_policy_requests);
+  assert(mixed_results.size() == mixed_policy_requests.size());
+  for (std::size_t index = 0; index < mixed_results.size(); ++index) {
+    assert(mixed_results[index].result.request_id == index + 1);
+  }
+  const napoleon::onnx_policy::BatchedPolicyStats mixed_stats = mixed_executor.stats();
+  assert(mixed_stats.request_count == 5);
+  assert(mixed_stats.session_run_count == 3);
+  assert(mixed_stats.mean_batch_size > 1.6 && mixed_stats.mean_batch_size < 1.7);
+  assert(mixed_stats.max_observed_batch_size == 2);
+  assert(mixed_stats.policy_stats.at("current-policy:current").request_count == 3);
+  assert(mixed_stats.policy_stats.at("current-policy:current").session_run_count == 2);
+  assert(mixed_stats.policy_stats.at("frozen-policy:rl-v740").request_count == 2);
+  assert(mixed_stats.policy_stats.at("frozen-policy:rl-v740").session_run_count == 1);
+
+  napoleon::AgentRequest forced_request = playing_requests.front();
+  forced_request.legal_actions = {playing_requests.front().legal_actions.front()};
+  forced_request.legal_play_mask.assign(napoleon::observation::kCardCount, 0);
+  const int forced_card_index =
+      napoleon::observation::playing_card_model_index(forced_request.legal_actions.front().card);
+  forced_request.legal_play_mask[static_cast<std::size_t>(forced_card_index)] = 1;
+  napoleon::onnx_policy::BatchedPolicyExecutor forced_executor(
+      napoleon::onnx_policy::BatchedPolicyConfig{8, 1.0, 999});
+  forced_executor.add_policy(
+      napoleon::onnx_policy::policy_key_from_agent(current),
+      std::make_unique<napoleon::onnx_policy::DeterministicPolicySession>(logits));
+  const std::vector<napoleon::onnx_policy::PolicyActionResult> forced_results =
+      forced_executor.run({forced_request});
+  assert(forced_results.size() == 1);
+  assert(forced_results.front().selected_card_index == forced_card_index);
+  assert(forced_results.front().behavior_log_probability == 0.0);
+
+  bool rejected_non_playing = false;
+  try {
+    napoleon::AgentRequest invalid_request = playing_requests.front();
+    invalid_request.phase = napoleon::Phase::Bidding;
+    forced_executor.run({invalid_request});
+  } catch (const std::runtime_error&) {
+    rejected_non_playing = true;
+  }
+  assert(rejected_non_playing);
+
+  bool rejected_missing_session = false;
+  try {
+    napoleon::onnx_policy::BatchedPolicyExecutor missing_session_executor(
+        napoleon::onnx_policy::BatchedPolicyConfig{2, 1.0, 1});
+    missing_session_executor.run({playing_requests.front()});
+  } catch (const std::runtime_error&) {
+    rejected_missing_session = true;
+  }
+  assert(rejected_missing_session);
+
+  bool rejected_unenabled_onnxruntime = false;
+  try {
+    napoleon::onnx_policy::create_onnxruntime_policy_session(
+        napoleon::onnx_policy::PolicySessionConfig{
+            napoleon::onnx_policy::policy_key_from_agent(current),
+            "/tmp/missing-policy.onnx",
+            "model_input",
+            "logits",
+            napoleon::onnx_policy::InferenceDevice::Cuda});
+  } catch (const std::runtime_error&) {
+    rejected_unenabled_onnxruntime = true;
+  }
+  assert(rejected_unenabled_onnxruntime);
+
   napoleon::SimulationRuntime deterministic_a(napoleon::SimulationRuntimeConfig{
       napoleon::fixed_roster({current, rule, frozen, rule, current}),
       123,
       456,
-      4});
+      4,
+      nullptr});
   napoleon::SimulationRuntime deterministic_b(napoleon::SimulationRuntimeConfig{
       napoleon::fixed_roster({current, rule, frozen, rule, current}),
       123,
       456,
-      4});
+      4,
+      nullptr});
   deterministic_a.add_games(4);
   deterministic_b.add_games(4);
   const std::vector<napoleon::FinishedGame> finished_a =

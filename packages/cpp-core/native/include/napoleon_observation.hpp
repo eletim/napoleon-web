@@ -66,6 +66,8 @@ struct PlayingModelInput {
 
 std::optional<PlayingModelInput> create_current_player_playing_model_input(const GameState& state);
 PlayingModelInput create_playing_model_input(const GameState& state, int player_index);
+int playing_card_model_index(Card card);
+Card card_from_playing_model_index(int index);
 std::string current_player_playing_model_input_json(const GameState& state);
 std::string canonical_snapshot_with_current_player_playing_model_input_json(const GameState& state);
 

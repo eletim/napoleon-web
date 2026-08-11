@@ -93,6 +93,64 @@ int card_model_index(Card card) {
   return static_cast<int>(card.id / 13) * 13 + rank_index;
 }
 
+Card card_from_model_index(int index) {
+  if (index < 0 || index >= kCardCount) {
+    throw std::runtime_error("card model index out of range");
+  }
+  if (index == 52) {
+    return Card{52};
+  }
+
+  const int suit_index = index / 13;
+  const int rank_model_index = index % 13;
+  int core_rank_index = 0;
+  switch (rank_model_index) {
+    case 0:
+      core_rank_index = static_cast<int>(Rank::Ace);
+      break;
+    case 1:
+      core_rank_index = static_cast<int>(Rank::King);
+      break;
+    case 2:
+      core_rank_index = static_cast<int>(Rank::Queen);
+      break;
+    case 3:
+      core_rank_index = static_cast<int>(Rank::Jack);
+      break;
+    case 4:
+      core_rank_index = static_cast<int>(Rank::Ten);
+      break;
+    case 5:
+      core_rank_index = static_cast<int>(Rank::Nine);
+      break;
+    case 6:
+      core_rank_index = static_cast<int>(Rank::Eight);
+      break;
+    case 7:
+      core_rank_index = static_cast<int>(Rank::Seven);
+      break;
+    case 8:
+      core_rank_index = static_cast<int>(Rank::Six);
+      break;
+    case 9:
+      core_rank_index = static_cast<int>(Rank::Five);
+      break;
+    case 10:
+      core_rank_index = static_cast<int>(Rank::Four);
+      break;
+    case 11:
+      core_rank_index = static_cast<int>(Rank::Three);
+      break;
+    case 12:
+      core_rank_index = static_cast<int>(Rank::Two);
+      break;
+    default:
+      throw std::runtime_error("card model index out of range");
+  }
+
+  return Card{static_cast<std::uint8_t>(suit_index * 13 + core_rank_index)};
+}
+
 int relative_player_index(int self_player_index, int player_index) {
   return (player_index - self_player_index + kPlayerCount) % kPlayerCount;
 }
@@ -573,6 +631,14 @@ PlayingModelInput create_playing_model_input(const GameState& state, int player_
 
   result.model_input = encode_model_input(encoded);
   return result;
+}
+
+int playing_card_model_index(Card card) {
+  return card_model_index(card);
+}
+
+Card card_from_playing_model_index(int index) {
+  return card_from_model_index(index);
 }
 
 std::optional<PlayingModelInput> create_current_player_playing_model_input(const GameState& state) {

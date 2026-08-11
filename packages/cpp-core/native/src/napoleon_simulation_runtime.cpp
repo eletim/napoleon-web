@@ -201,6 +201,9 @@ std::size_t SimulationRuntime::advance_runnable_games(std::size_t max_transition
         if (request.legal_actions.empty()) {
           throw std::runtime_error("agent request has no legal actions");
         }
+        if (config_.build_agent_request_payload) {
+          config_.build_agent_request_payload(game.state, player_index, request);
+        }
 
         game.status = RuntimeGameStatus::WaitingAgent;
         game.pending_request_id = request.request_id;
