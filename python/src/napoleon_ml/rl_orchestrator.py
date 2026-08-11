@@ -226,7 +226,11 @@ def run_playing_rl_experiment(
             provided_config_keys=set(provided_config_keys),
         )
         file_config = stored_config
-        config = _config_from_file_dict(stored_config, build_typescript=config.build_typescript)
+        config = _config_from_file_dict(
+            stored_config,
+            build_typescript=config.build_typescript,
+            build_cpp=config.build_cpp,
+        )
         _validate_config(config)
         _ensure_inputs(config)
     else:
@@ -1306,6 +1310,7 @@ def _config_from_file_dict(
     data: Mapping[str, object],
     *,
     build_typescript: bool,
+    build_cpp: bool,
 ) -> PlayingRlRunConfig:
     rollout_workers = _required_int(_stored_config_value(data, "rolloutWorkers"))
     return PlayingRlRunConfig(
@@ -1361,7 +1366,7 @@ def _config_from_file_dict(
             _stored_config_value(data, "frozenPolicyArtifactId")
         ),
         build_typescript=build_typescript,
-        build_cpp=True,
+        build_cpp=build_cpp,
     ).normalized()
 
 

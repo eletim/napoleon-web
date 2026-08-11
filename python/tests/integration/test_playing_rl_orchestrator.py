@@ -21,6 +21,7 @@ from napoleon_ml.rl_orchestrator import (
     DEFAULT_FULL_DIAGNOSTICS_INTERVAL,
     PlayingRlOrchestratorError,
     PlayingRlRunConfig,
+    _config_from_file_dict,
     _full_diagnostics_is_due,
     _validate_config,
     run_playing_rl_experiment,
@@ -511,6 +512,28 @@ def test_run_playing_rl_cli_parses_rollout_diagnostic_and_cache_options(
     assert config.frozen_policy_metadata == tmp_path / "frozen.json"
     assert config.frozen_policy_artifact_id == "rl-v-test"
     assert config.build_cpp is False
+
+
+def test_resume_config_reload_preserves_build_flags(tmp_path: Path) -> None:
+    supervised_dataset = tmp_path / "supervised"
+    supervised_dataset.mkdir()
+    (supervised_dataset / "manifest.json").write_text("{}", encoding="utf-8")
+    initial_checkpoint = tmp_path / "initial-playing.pt"
+    initial_checkpoint.write_bytes(b"checkpoint")
+    config = _small_config(
+        run_directory=tmp_path / "run",
+        initial_checkpoint=initial_checkpoint,
+        supervised_dataset=supervised_dataset,
+    )
+
+    loaded = _config_from_file_dict(
+        config.to_file_dict(),
+        build_typescript=False,
+        build_cpp=False,
+    )
+
+    assert loaded.build_typescript is False
+    assert loaded.build_cpp is False
 
 
 def _small_config(
