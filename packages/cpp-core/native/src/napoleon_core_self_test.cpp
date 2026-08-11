@@ -1,4 +1,5 @@
 #include "napoleon_core.hpp"
+#include "napoleon_rule_based.hpp"
 #include "napoleon_roster.hpp"
 
 #include <cassert>
@@ -107,6 +108,55 @@ int main() {
   assert(spec_manifest.find("rl-v740") != std::string::npos);
   assert(napoleon::roster_assignment_manifest_json(sampled_a).find("\"seats\"") !=
          std::string::npos);
+
+  int completed_rule_games = 0;
+  int selected_rule_actions = 0;
+  for (std::uint32_t game_seed : {424242u, 424243u, 424244u, 424245u}) {
+    napoleon::GameState rule_game = napoleon::create_initial_game(game_seed);
+    for (int player_index = 0; player_index < 5; ++player_index) {
+      napoleon::Action pass;
+      pass.type = napoleon::Action::Type::Pass;
+      pass.player_index = player_index;
+      napoleon::apply_action(rule_game, pass);
+    }
+    napoleon::Action choose;
+    choose.type = napoleon::Action::Type::ChooseAdjutant;
+    choose.player_index = rule_game.current_player_index;
+    choose.card = napoleon::parse_card_id("joker");
+    napoleon::apply_action(rule_game, choose);
+    napoleon::Action discard;
+    discard.type = napoleon::Action::Type::DiscardCards;
+    discard.player_index = rule_game.current_player_index;
+    discard.cards = {
+        rule_game.hands[static_cast<std::size_t>(discard.player_index)][0],
+        rule_game.hands[static_cast<std::size_t>(discard.player_index)][1],
+        rule_game.hands[static_cast<std::size_t>(discard.player_index)][2]};
+    napoleon::apply_action(rule_game, discard);
+
+    napoleon::SeededRandom rule_rng(123 + game_seed);
+    while (!rule_game.is_game_over) {
+      if (rule_game.is_trick_complete) {
+        napoleon::Action next;
+        next.type = napoleon::Action::Type::AdvanceToNextTrick;
+        napoleon::apply_action(rule_game, next);
+        continue;
+      }
+
+      const napoleon::Action action = napoleon::select_agent_action(
+          rule,
+          rule_game,
+          rule_game.current_player_index,
+          rule_rng);
+      assert(action.type == napoleon::Action::Type::PlayCard);
+      napoleon::apply_action(rule_game, action);
+      ++selected_rule_actions;
+    }
+    assert(rule_game.phase == napoleon::Phase::Finished);
+    assert(rule_game.result.has_value());
+    ++completed_rule_games;
+  }
+  assert(completed_rule_games == 4);
+  assert(selected_rule_actions == 200);
 
   std::cout << "napoleon_core_self_test ok\n";
   return 0;

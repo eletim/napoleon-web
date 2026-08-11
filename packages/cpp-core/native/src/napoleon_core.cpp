@@ -1032,6 +1032,12 @@ std::string canonical_snapshot_json(const GameState& state) {
   return out.str();
 }
 
+std::string action_json(const Action& action) {
+  std::ostringstream out;
+  write_action(out, action);
+  return out.str();
+}
+
 Action parse_action_line(const std::string& line) {
   std::istringstream input(line);
   std::string type;

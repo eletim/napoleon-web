@@ -130,6 +130,9 @@ importers:
 
   packages/cpp-core:
     dependencies:
+      '@napoleon/ai':
+        specifier: workspace:*
+        version: link:../ai
       '@napoleon/game-core':
         specifier: workspace:*
         version: link:../game-core

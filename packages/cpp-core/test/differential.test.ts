@@ -5,12 +5,14 @@ import {
   advanceToNextTrick,
   applyAction,
   createInitialGame,
+  createPlayerView,
   getLegalActions,
   type Card,
   type GameAction,
   type GameState,
   type Suit
 } from "@napoleon/game-core";
+import { selectPlayAction } from "@napoleon/ai";
 
 interface CanonicalSnapshot {
   phase: string;
@@ -205,7 +207,8 @@ function applyScriptToTs(seed: number, script: readonly string[]): GameState {
 }
 
 function writeDifferentialCase(name: string, seed: number, script: readonly string[]): string {
-  const tsSnapshot = toCanonicalSnapshot(applyScriptToTs(seed, script));
+  const tsState = applyScriptToTs(seed, script);
+  const tsSnapshot = toCanonicalSnapshot(tsState);
   const slug = name.replaceAll(/[^a-zA-Z0-9]+/g, "-").replaceAll(/^-|-$/g, "").toLowerCase();
   const caseDir = resolve(".differential", slug);
 
@@ -213,8 +216,36 @@ function writeDifferentialCase(name: string, seed: number, script: readonly stri
   writeFileSync(resolve(caseDir, "actions.txt"), `${script.join("\n")}\n`);
   writeFileSync(resolve(caseDir, "expected.json"), `${JSON.stringify(tsSnapshot)}\n`);
   writeFileSync(resolve(caseDir, "seed.txt"), `${seed}\n`);
+  writeRuleBasedOracle(caseDir, tsState, script, seed);
 
   return slug;
+}
+
+function writeRuleBasedOracle(
+  caseDir: string,
+  state: GameState,
+  script: readonly string[],
+  seed: number
+): void {
+  const legalPlayActions = getLegalActions(state, state.currentPlayerId).filter(
+    (action): action is Extract<GameAction, { type: "play-card" }> => action.type === "play-card"
+  );
+
+  if (state.phase !== "playing" || state.isTrickComplete || legalPlayActions.length === 0) {
+    return;
+  }
+
+  const agentSeed = (seed ^ Math.imul(script.length + 1, 0x9e3779b9)) >>> 0;
+  const legalActions = getLegalActions(state, state.currentPlayerId);
+  const selected = selectPlayAction(
+    state.currentPlayerId,
+    createPlayerView(state, state.currentPlayerId),
+    legalActions,
+    createSeededRandom(agentSeed)
+  );
+
+  writeFileSync(resolve(caseDir, "rule_based_seed.txt"), `${agentSeed}\n`);
+  writeFileSync(resolve(caseDir, "rule_based_expected.json"), `${JSON.stringify(selected)}\n`);
 }
 
 function allPassBiddingScript(): string[] {

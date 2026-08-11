@@ -1,4 +1,5 @@
 #include "napoleon_core.hpp"
+#include "napoleon_rule_based.hpp"
 
 #include <cstdint>
 #include <iostream>
@@ -28,14 +29,22 @@ std::uint32_t parse_seed(const std::string& value) {
 int main(int argc, char** argv) {
   try {
     std::uint32_t seed = 0;
+    std::uint32_t agent_seed = 0;
+    bool select_rule_based_action = false;
     for (int index = 1; index < argc; ++index) {
       const std::string arg = argv[index];
       if (arg == "--seed" && index + 1 < argc) {
         seed = parse_seed(argv[++index]);
+      } else if (arg == "--agent-seed" && index + 1 < argc) {
+        agent_seed = parse_seed(argv[++index]);
+      } else if (arg == "--select-rule-based-action") {
+        select_rule_based_action = true;
       } else if (arg == "--snapshot") {
         continue;
       } else {
-        throw std::runtime_error("usage: napoleon_core_cli --snapshot --seed <uint32>");
+        throw std::runtime_error(
+            "usage: napoleon_core_cli (--snapshot | --select-rule-based-action) "
+            "--seed <uint32> [--agent-seed <uint32>]");
       }
     }
 
@@ -47,7 +56,14 @@ int main(int argc, char** argv) {
       napoleon::apply_action(state, napoleon::parse_action_line(line));
     }
 
-    std::cout << napoleon::canonical_snapshot_json(state) << '\n';
+    if (select_rule_based_action) {
+      napoleon::SeededRandom rng(agent_seed);
+      const napoleon::Action action = napoleon::select_agent_action(
+          napoleon::rule_based_agent(), state, state.current_player_index, rng);
+      std::cout << napoleon::action_json(action) << '\n';
+    } else {
+      std::cout << napoleon::canonical_snapshot_json(state) << '\n';
+    }
     return 0;
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';

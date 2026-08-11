@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "build": "cmake -S native -B build && cmake --build build",
-    "test": "pnpm run build && ctest --test-dir build --output-on-failure && pnpm --filter @napoleon/game-core build && tsc -p tsconfig.json && bash test/run_differential.sh",
+    "test": "pnpm run build && ctest --test-dir build --output-on-failure && pnpm --filter @napoleon/ai... build && tsc -p tsconfig.json && bash test/run_differential.sh",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@napoleon/ai": "workspace:*",
     "@napoleon/game-core": "workspace:*"
   },
   "devDependencies": {
