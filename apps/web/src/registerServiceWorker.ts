@@ -4,8 +4,6 @@ export function registerServiceWorker(): void {
   }
 
   window.addEventListener("load", () => {
-    const hadController = navigator.serviceWorker.controller !== null;
-
     void navigator.serviceWorker.register("/sw.js").then((registration) => {
       if (registration.waiting !== null) {
         registration.waiting.postMessage({ type: "SKIP_WAITING" });
@@ -27,17 +25,6 @@ export function registerServiceWorker(): void {
           }
         });
       });
-    });
-
-    let hasReloadedForUpdate = false;
-
-    navigator.serviceWorker.addEventListener("controllerchange", () => {
-      if (!hadController || hasReloadedForUpdate) {
-        return;
-      }
-
-      hasReloadedForUpdate = true;
-      window.location.reload();
     });
   });
 }

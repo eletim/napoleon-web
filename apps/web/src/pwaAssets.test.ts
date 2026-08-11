@@ -24,6 +24,7 @@ const webRoot = fileURLToPath(new URL("..", import.meta.url));
 const manifestPath = fileURLToPath(
   new URL("../public/manifest.webmanifest", import.meta.url)
 );
+const registrationPath = fileURLToPath(new URL("./registerServiceWorker.ts", import.meta.url));
 const serviceWorkerPath = fileURLToPath(new URL("../public/sw.js", import.meta.url));
 
 describe("PWA assets", () => {
@@ -77,8 +78,11 @@ describe("PWA assets", () => {
   });
 
   it("registers an update-friendly service worker cache strategy", () => {
+    const registration = readFileSync(registrationPath, "utf8");
     const serviceWorker = readFileSync(serviceWorkerPath, "utf8");
 
+    expect(registration).toContain("navigator.serviceWorker.register(\"/sw.js\")");
+    expect(registration).not.toContain("window.location.reload()");
     expect(serviceWorker).toContain("self.skipWaiting()");
     expect(serviceWorker).toContain("self.clients.claim()");
     expect(serviceWorker).toContain("networkFirst(request)");
