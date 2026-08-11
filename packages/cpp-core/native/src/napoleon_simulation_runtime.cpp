@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 #include <stdexcept>
 #include <utility>
 
@@ -198,11 +199,25 @@ std::vector<AgentRequest> SimulationRuntime::collect_agent_requests() {
 }
 
 void SimulationRuntime::submit_agent_results(const std::vector<AgentResult>& results) {
+  struct ValidatedResult {
+    std::size_t game_index = 0;
+    AgentResult result;
+    GameState next_state;
+  };
+
   std::vector<AgentResult> ordered = results;
   std::sort(ordered.begin(), ordered.end(), [](const AgentResult& left, const AgentResult& right) {
     return left.request_id < right.request_id;
   });
 
+  for (std::size_t index = 1; index < ordered.size(); ++index) {
+    if (ordered[index - 1].request_id == ordered[index].request_id) {
+      throw std::runtime_error("duplicate request id in agent results");
+    }
+  }
+
+  std::vector<ValidatedResult> validated;
+  validated.reserve(ordered.size());
   for (const AgentResult& result : ordered) {
     auto game_it = std::find_if(games_.begin(), games_.end(), [&](const RuntimeGame& game) {
       return game.pending_request_id.has_value() && *game.pending_request_id == result.request_id;
@@ -219,17 +234,24 @@ void SimulationRuntime::submit_agent_results(const std::vector<AgentResult>& res
     try {
       GameState validation_state = game.state;
       apply_action(validation_state, result.action);
+      validated.push_back(ValidatedResult{
+          static_cast<std::size_t>(std::distance(games_.begin(), game_it)),
+          result,
+          std::move(validation_state)});
     } catch (const std::exception&) {
       throw std::runtime_error("submitted action is not legal for request");
     }
+  }
 
-    apply_action(game.state, result.action);
+  for (ValidatedResult& result : validated) {
+    RuntimeGame& game = games_[result.game_index];
+    game.state = std::move(result.next_state);
     pending_requests_.erase(
         std::remove_if(
             pending_requests_.begin(),
             pending_requests_.end(),
             [&](const AgentRequest& request) {
-              return request.request_id == result.request_id;
+              return request.request_id == result.result.request_id;
             }),
         pending_requests_.end());
     if (game.state.is_game_over) {
