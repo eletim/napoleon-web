@@ -133,6 +133,9 @@ importers:
       '@napoleon/ai':
         specifier: workspace:*
         version: link:../ai
+      '@napoleon/ai-observation':
+        specifier: workspace:*
+        version: link:../ai-observation
       '@napoleon/game-core':
         specifier: workspace:*
         version: link:../game-core

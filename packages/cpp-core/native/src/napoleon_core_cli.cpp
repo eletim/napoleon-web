@@ -1,4 +1,5 @@
 #include "napoleon_core.hpp"
+#include "napoleon_observation.hpp"
 #include "napoleon_rule_based.hpp"
 
 #include <cstdint>
@@ -62,7 +63,10 @@ int main(int argc, char** argv) {
           napoleon::rule_based_agent(), state, state.current_player_index, rng);
       std::cout << napoleon::action_json(action) << '\n';
     } else {
-      std::cout << napoleon::canonical_snapshot_json(state) << '\n';
+      std::cout
+          << napoleon::observation::
+                 canonical_snapshot_with_current_player_playing_model_input_json(state)
+          << '\n';
     }
     return 0;
   } catch (const std::exception& error) {
