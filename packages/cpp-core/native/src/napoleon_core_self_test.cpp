@@ -1,15 +1,44 @@
 #include "napoleon_core.hpp"
 #include "napoleon_roster.hpp"
+#include "napoleon_simulation_runtime.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <iostream>
 #include <string>
+#include <vector>
 
 namespace {
 
 bool same_agent(const napoleon::AgentIdentity& left, const napoleon::AgentIdentity& right) {
   return left.type == right.type && left.id == right.id;
+}
+
+std::vector<napoleon::FinishedGame> drive_external_first_legal(
+    napoleon::SimulationRuntime& runtime,
+    std::size_t expected_finished_count) {
+  for (int iteration = 0; iteration < 1000; ++iteration) {
+    runtime.advance_runnable_games();
+    std::vector<napoleon::AgentRequest> requests = runtime.collect_agent_requests();
+    if (!requests.empty()) {
+      std::vector<napoleon::AgentResult> results;
+      results.reserve(requests.size());
+      for (const napoleon::AgentRequest& request : requests) {
+        assert(!request.legal_actions.empty());
+        results.push_back(napoleon::AgentResult{request.request_id, request.legal_actions.front()});
+      }
+      runtime.submit_agent_results(results);
+    }
+
+    std::vector<napoleon::FinishedGame> finished = runtime.collect_finished_games();
+    if (finished.size() == expected_finished_count) {
+      return finished;
+    }
+  }
+
+  assert(false && "runtime did not finish within iteration budget");
+  return {};
 }
 
 }  // namespace
@@ -107,6 +136,95 @@ int main() {
   assert(spec_manifest.find("rl-v740") != std::string::npos);
   assert(napoleon::roster_assignment_manifest_json(sampled_a).find("\"seats\"") !=
          std::string::npos);
+
+  napoleon::SimulationRuntime cpu_runtime(napoleon::SimulationRuntimeConfig{
+      napoleon::self_play_roster(rule),
+      7000,
+      8000,
+      1000});
+  const std::vector<std::uint32_t> cpu_game_ids = cpu_runtime.add_games(1000);
+  assert(cpu_game_ids.size() == 1000);
+  const std::size_t cpu_transitions = cpu_runtime.advance_runnable_games();
+  assert(cpu_transitions > 1000);
+  assert(cpu_runtime.collect_agent_requests().empty());
+  const std::vector<napoleon::FinishedGame> cpu_finished = cpu_runtime.collect_finished_games();
+  assert(cpu_finished.size() == 1000);
+  const napoleon::RuntimeMetrics cpu_metrics = cpu_runtime.metrics();
+  assert(cpu_metrics.added_games == 1000);
+  assert(cpu_metrics.finished_games == 1000);
+  assert(cpu_metrics.agent_request_count == 0);
+  assert(cpu_metrics.internal_transition_count == cpu_transitions);
+  assert(cpu_metrics.games_per_second >= 0.0);
+  assert(cpu_metrics.decisions_per_second > 0.0);
+
+  napoleon::SimulationRuntime waiting_runtime(napoleon::SimulationRuntimeConfig{
+      napoleon::fixed_roster({current, rule, rule, rule, rule}),
+      42,
+      24,
+      16});
+  waiting_runtime.add_games(12);
+  waiting_runtime.advance_runnable_games();
+  std::vector<napoleon::AgentRequest> initial_requests =
+      waiting_runtime.collect_agent_requests();
+  assert(initial_requests.size() == 12);
+  for (std::size_t index = 0; index < initial_requests.size(); ++index) {
+    assert(initial_requests[index].game_id == index + 1);
+    assert(initial_requests[index].sequence == index + 1);
+    assert(initial_requests[index].player_index == 0);
+    assert(initial_requests[index].phase == napoleon::Phase::Bidding);
+    assert(same_agent(initial_requests[index].agent, current));
+    assert(!initial_requests[index].snapshot_json.empty());
+  }
+
+  std::vector<napoleon::AgentResult> reversed_passes;
+  for (auto it = initial_requests.rbegin(); it != initial_requests.rend(); ++it) {
+    const auto pass_it = std::find_if(
+        it->legal_actions.begin(),
+        it->legal_actions.end(),
+        [](const napoleon::Action& action) {
+          return action.type == napoleon::Action::Type::Pass;
+        });
+    assert(pass_it != it->legal_actions.end());
+    reversed_passes.push_back(napoleon::AgentResult{it->request_id, *pass_it});
+  }
+  waiting_runtime.submit_agent_results(reversed_passes);
+  waiting_runtime.advance_runnable_games();
+  const std::vector<napoleon::AgentRequest> adjutant_requests =
+      waiting_runtime.collect_agent_requests();
+  assert(adjutant_requests.size() == 12);
+  for (std::size_t index = 0; index < adjutant_requests.size(); ++index) {
+    assert(adjutant_requests[index].game_id == index + 1);
+    assert(adjutant_requests[index].sequence == index + 13);
+    assert(adjutant_requests[index].phase == napoleon::Phase::ChoosingAdjutant);
+  }
+  const napoleon::RuntimeMetrics waiting_metrics = waiting_runtime.metrics();
+  assert(waiting_metrics.agent_request_count == 24);
+  assert(waiting_metrics.submitted_agent_result_count == 12);
+
+  napoleon::SimulationRuntime deterministic_a(napoleon::SimulationRuntimeConfig{
+      napoleon::fixed_roster({current, rule, frozen, rule, current}),
+      123,
+      456,
+      4});
+  napoleon::SimulationRuntime deterministic_b(napoleon::SimulationRuntimeConfig{
+      napoleon::fixed_roster({current, rule, frozen, rule, current}),
+      123,
+      456,
+      4});
+  deterministic_a.add_games(4);
+  deterministic_b.add_games(4);
+  const std::vector<napoleon::FinishedGame> finished_a =
+      drive_external_first_legal(deterministic_a, 4);
+  const std::vector<napoleon::FinishedGame> finished_b =
+      drive_external_first_legal(deterministic_b, 4);
+  assert(finished_a.size() == finished_b.size());
+  for (std::size_t index = 0; index < finished_a.size(); ++index) {
+    assert(finished_a[index].game_id == finished_b[index].game_id);
+    assert(finished_a[index].seed == finished_b[index].seed);
+    assert(finished_a[index].snapshot_json == finished_b[index].snapshot_json);
+    assert(napoleon::roster_assignment_manifest_json(finished_a[index].roster) ==
+           napoleon::roster_assignment_manifest_json(finished_b[index].roster));
+  }
 
   std::cout << "napoleon_core_self_test ok\n";
   return 0;
