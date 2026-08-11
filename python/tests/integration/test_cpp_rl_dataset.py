@@ -38,6 +38,18 @@ def test_cpp_generated_rl_binary_dataset_loads_current_python_trainer_batch() ->
                 "3",
                 "--games-per-shard",
                 "2",
+                "--policy-onnx",
+                str(_REPO_ROOT / "benchmarks/playing-policies/rl-v740/policy.onnx"),
+                "--policy-metadata",
+                str(_REPO_ROOT / "benchmarks/playing-policies/rl-v740/policy.json"),
+                "--policy-artifact-id",
+                "cpp-integration-policy",
+                "--frozen-onnx",
+                str(_REPO_ROOT / "benchmarks/playing-policies/rl-v740/policy.onnx"),
+                "--frozen-metadata",
+                str(_REPO_ROOT / "benchmarks/playing-policies/rl-v740/policy.json"),
+                "--frozen-artifact-id",
+                "rl-v740",
                 "--roster-seed",
                 "17",
             ],
@@ -87,6 +99,9 @@ def test_cpp_generated_rl_binary_dataset_loads_current_python_trainer_batch() ->
 
         assert manifest.behavior_policy is not None
         assert manifest.behavior_policy.type == "playing-onnx"
+        assert manifest.behavior_policy.artifact_id == "cpp-integration-policy"
+        assert len(manifest.behavior_policy.onnx_sha256) == 64
+        assert len(manifest.behavior_policy.metadata_sha256) == 64
         assert isinstance(manifest.behavior_policy.metadata, dict)
         metadata = manifest.behavior_policy.metadata
         assert metadata["producer"] == "cpp-rl-dataset-cli"
@@ -107,6 +122,17 @@ def test_cpp_generated_rl_binary_dataset_loads_current_python_trainer_batch() ->
             "rule-based",
             "frozen-onnx",
         ]
+        frozen_seats = [
+            seat for seat in manifest.rollout_roster.seats if seat.source == "frozen-onnx"
+        ]
+        assert {seat.artifact_id for seat in frozen_seats} == {"rl-v740"}
+        assert all(
+            seat.onnx_sha256 == manifest.behavior_policy.onnx_sha256 for seat in frozen_seats
+        )
+        assert all(
+            seat.metadata_sha256 == manifest.behavior_policy.metadata_sha256
+            for seat in frozen_seats
+        )
 
         loader = create_playing_self_play_dataloader(
             output_directory,

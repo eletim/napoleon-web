@@ -173,6 +173,12 @@ struct Sha256 {
 
 struct CliOptions {
   std::filesystem::path output_directory;
+  std::filesystem::path policy_onnx_path;
+  std::filesystem::path policy_metadata_path;
+  std::filesystem::path frozen_onnx_path;
+  std::filesystem::path frozen_metadata_path;
+  std::string policy_artifact_id = "cpp-current-policy";
+  std::string frozen_artifact_id = "rl-v740";
   std::uint32_t start_seed = 0;
   std::uint32_t game_count = 0;
   std::uint32_t games_per_shard = 0;
@@ -470,6 +476,18 @@ CliOptions parse_args(int argc, char** argv) {
 
     if (arg == "--output") {
       options.output_directory = require_value(arg);
+    } else if (arg == "--policy-onnx") {
+      options.policy_onnx_path = require_value(arg);
+    } else if (arg == "--policy-metadata") {
+      options.policy_metadata_path = require_value(arg);
+    } else if (arg == "--policy-artifact-id") {
+      options.policy_artifact_id = require_value(arg);
+    } else if (arg == "--frozen-onnx") {
+      options.frozen_onnx_path = require_value(arg);
+    } else if (arg == "--frozen-metadata") {
+      options.frozen_metadata_path = require_value(arg);
+    } else if (arg == "--frozen-artifact-id") {
+      options.frozen_artifact_id = require_value(arg);
     } else if (arg == "--start-seed") {
       options.start_seed = parse_uint32(require_value(arg), "start-seed");
     } else if (arg == "--games") {
@@ -485,13 +503,33 @@ CliOptions parse_args(int argc, char** argv) {
     } else {
       throw std::runtime_error(
           "usage: napoleon_rl_dataset_cli --output <dir> --start-seed <uint32> "
-          "--games <n> --games-per-shard <n> [--roster-seed <uint32>] "
-          "[--temperature <positive>] [--all-current]");
+          "--games <n> --games-per-shard <n> --policy-onnx <path> "
+          "--policy-metadata <path> [--policy-artifact-id <id>] "
+          "[--frozen-onnx <path>] [--frozen-metadata <path>] [--frozen-artifact-id <id>] "
+          "[--roster-seed <uint32>] [--temperature <positive>] [--all-current]");
     }
   }
 
   if (options.output_directory.empty()) {
     throw std::runtime_error("--output is required");
+  }
+  if (options.policy_onnx_path.empty()) {
+    throw std::runtime_error("--policy-onnx is required");
+  }
+  if (options.policy_metadata_path.empty()) {
+    throw std::runtime_error("--policy-metadata is required");
+  }
+  if (options.frozen_onnx_path.empty()) {
+    options.frozen_onnx_path = options.policy_onnx_path;
+  }
+  if (options.frozen_metadata_path.empty()) {
+    options.frozen_metadata_path = options.policy_metadata_path;
+  }
+  if (options.policy_artifact_id.empty()) {
+    throw std::runtime_error("--policy-artifact-id must not be empty");
+  }
+  if (options.frozen_artifact_id.empty()) {
+    throw std::runtime_error("--frozen-artifact-id must not be empty");
   }
   if (options.game_count == 0) {
     throw std::runtime_error("--games must be positive");
@@ -688,18 +726,47 @@ std::string sha256_hex(const std::string& value) {
   return hasher.hexdigest();
 }
 
-void write_roster_seat_manifest(std::ostream& out, const std::string& source) {
+std::string sha256_file(const std::filesystem::path& path) {
+  std::ifstream in(path, std::ios::binary);
+  if (!in.is_open()) {
+    throw std::runtime_error("failed opening file for SHA-256: " + path.string());
+  }
+  Sha256 hasher;
+  std::array<std::uint8_t, 1024 * 1024> buffer{};
+  while (in.good()) {
+    in.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(buffer.size()));
+    const std::streamsize read_count = in.gcount();
+    if (read_count > 0) {
+      hasher.update(buffer.data(), static_cast<std::size_t>(read_count));
+    }
+  }
+  return hasher.hexdigest();
+}
+
+std::string base_name(const std::filesystem::path& path) {
+  return path.filename().string();
+}
+
+void write_roster_seat_manifest(
+    std::ostream& out,
+    const std::string& source,
+    const CliOptions& options,
+    const std::string& frozen_onnx_sha256,
+    const std::string& frozen_metadata_sha256) {
   if (source == "current-policy") {
     out << "{\"source\":\"current-policy\"}";
   } else if (source == "rule-based") {
     out << "{\"source\":\"rule-based\",\"version\":" << kRuleBasedAgentVersion << '}';
   } else if (source == "frozen-onnx") {
     out << "{\"source\":\"frozen-onnx\","
-        << "\"artifactId\":\"rl-v740\","
-        << "\"onnxFileName\":\"policy.onnx\","
-        << "\"metadataFileName\":\"policy.json\","
-        << "\"onnxSha256\":\"" << std::string(64, 'a') << "\","
-        << "\"metadataSha256\":\"" << std::string(64, 'b') << "\","
+        << "\"artifactId\":";
+    json_escape(out, options.frozen_artifact_id);
+    out << ",\"onnxFileName\":";
+    json_escape(out, base_name(options.frozen_onnx_path));
+    out << ",\"metadataFileName\":";
+    json_escape(out, base_name(options.frozen_metadata_path));
+    out << ",\"onnxSha256\":\"" << frozen_onnx_sha256 << "\","
+        << "\"metadataSha256\":\"" << frozen_metadata_sha256 << "\","
         << "\"requestedInferenceDevice\":\"cpu\","
         << "\"resolvedInferenceDevice\":\"cpu\","
         << "\"executionProvider\":\"cpu\","
@@ -715,6 +782,10 @@ void write_manifest(
     const std::vector<ShardManifest>& shards,
     std::uint64_t sample_count) {
   const std::string card_ids = card_ids_json();
+  const std::string policy_onnx_sha256 = sha256_file(options.policy_onnx_path);
+  const std::string policy_metadata_sha256 = sha256_file(options.policy_metadata_path);
+  const std::string frozen_onnx_sha256 = sha256_file(options.frozen_onnx_path);
+  const std::string frozen_metadata_sha256 = sha256_file(options.frozen_metadata_path);
   const std::uint32_t end_seed = options.start_seed + options.game_count - 1u;
   std::ofstream out(output_directory / "manifest.json");
   if (!out.is_open()) {
@@ -754,11 +825,17 @@ void write_manifest(
       << napoleon::observation::kPlayingModelInputSchemaVersion << ",\n";
   out << "  \"behaviorPolicy\": {\n";
   out << "    \"type\": \"playing-onnx\",\n";
-  out << "    \"artifactId\": \"cpp-current-policy\",\n";
-  out << "    \"onnxFileName\": \"policy.onnx\",\n";
-  out << "    \"metadataFileName\": \"policy.json\",\n";
-  out << "    \"onnxSha256\": \"" << std::string(64, 'c') << "\",\n";
-  out << "    \"metadataSha256\": \"" << std::string(64, 'd') << "\",\n";
+  out << "    \"artifactId\": ";
+  json_escape(out, options.policy_artifact_id);
+  out << ",\n";
+  out << "    \"onnxFileName\": ";
+  json_escape(out, base_name(options.policy_onnx_path));
+  out << ",\n";
+  out << "    \"metadataFileName\": ";
+  json_escape(out, base_name(options.policy_metadata_path));
+  out << ",\n";
+  out << "    \"onnxSha256\": \"" << policy_onnx_sha256 << "\",\n";
+  out << "    \"metadataSha256\": \"" << policy_metadata_sha256 << "\",\n";
   out << "    \"requestedInferenceDevice\": \"cpu\",\n";
   out << "    \"resolvedInferenceDevice\": \"cpu\",\n";
   out << "    \"executionProvider\": \"cpu\",\n";
@@ -779,7 +856,7 @@ void write_manifest(
       if (index != 0) {
         out << ',';
       }
-      write_roster_seat_manifest(out, "current-policy");
+      write_roster_seat_manifest(out, "current-policy", options, frozen_onnx_sha256, frozen_metadata_sha256);
     }
   } else {
     const std::array<std::string, napoleon::kPlayerCount> seat_sources{
@@ -788,7 +865,7 @@ void write_manifest(
       if (index != 0) {
         out << ',';
       }
-      write_roster_seat_manifest(out, seat_sources[index]);
+      write_roster_seat_manifest(out, seat_sources[index], options, frozen_onnx_sha256, frozen_metadata_sha256);
     }
   }
   out << "]},\n";
