@@ -17,7 +17,13 @@ export function GameStatus({ display }: GameStatusProps) {
         {chips.map((chip) => (
           <span
             aria-label={chip.ariaLabel}
-            className={["status-chip", `status-chip-${chip.tone ?? "phase"}`].join(" ")}
+            className={[
+              "status-chip",
+              `status-chip-${chip.tone ?? "phase"}`,
+              chip.suitColor === undefined ? "" : `status-chip-suit-${chip.suitColor}`
+            ]
+              .filter(Boolean)
+              .join(" ")}
             key={`${chip.label}-${chip.value ?? ""}`}
           >
             <span className="status-chip-label">{chip.label}</span>

@@ -42,6 +42,11 @@ struct RuntimeGameSnapshot {
   std::uint64_t internal_transition_count = 0;
 };
 
+struct ScheduledGame {
+  std::uint32_t seed = 0;
+  RosterAssignment roster;
+};
+
 struct AgentRequest {
   std::uint64_t request_id = 0;
   std::uint32_t game_id = 0;
@@ -93,6 +98,7 @@ class SimulationRuntime {
   ~SimulationRuntime();
 
   std::vector<std::uint32_t> add_games(std::size_t count);
+  std::vector<std::uint32_t> add_scheduled_games(const std::vector<ScheduledGame>& schedule);
   std::size_t advance_runnable_games(std::size_t max_transitions = 0);
   std::vector<AgentRequest> collect_agent_requests();
   void submit_agent_results(const std::vector<AgentResult>& results);

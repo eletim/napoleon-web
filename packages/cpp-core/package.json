@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "cmake -S native -B build && cmake --build build",
+    "rl-dataset:generate": "pnpm run build && ./build/napoleon_rl_dataset_cli",
     "test": "pnpm run build && ctest --test-dir build --output-on-failure && pnpm --filter @napoleon/ai... --filter @napoleon/ai-observation... build && tsc -p tsconfig.json && bash test/run_differential.sh",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

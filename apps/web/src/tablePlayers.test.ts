@@ -50,6 +50,7 @@ describe("createTablePlayers", () => {
           type: "bid",
           label: "♥ 14",
           suit: "hearts",
+          targetPointCards: 14,
           color: "red"
         }
       ]

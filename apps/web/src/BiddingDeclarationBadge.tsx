@@ -1,4 +1,5 @@
 import type { BiddingDeclarationDisplay } from "./biddingDeclarations";
+import { suitSymbols } from "./cardSymbols";
 
 interface BiddingDeclarationBadgeProps {
   playerLabel: string;
@@ -26,7 +27,14 @@ export function BiddingDeclarationBadge({
       aria-label={`${playerLabel}の最新競り宣言: ${declaration.label}`}
       className={className}
     >
-      <strong>{declaration.label}</strong>
+      {declaration.type === "bid" ? (
+        <strong className="latest-bid-value">
+          <span className="latest-bid-suit">{suitSymbols[declaration.suit]}</span>
+          <span className="latest-bid-target">{declaration.targetPointCards}</span>
+        </strong>
+      ) : (
+        <strong>{declaration.label}</strong>
+      )}
     </div>
   );
 }

@@ -78,6 +78,7 @@ class PlayingSelfPlayTorchSample(TypedDict):
     seed: Tensor
     step: Tensor
     acting_player_index: Tensor
+    self_role_index: Tensor
 
 
 TrainingTorchSample = (

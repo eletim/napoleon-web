@@ -116,6 +116,42 @@ per-policy inference metrics as JSON. This executable is for AI development
 smoke testing only and is not used by the browser, web UI, or normal server
 runtime.
 
+## Evaluation / Benchmark / Tournament CLI
+
+`napoleon_eval_cli` runs the native simulation runtime as an AI-development
+application. It is intentionally outside the browser and normal Web runtime.
+The first backend consumes policy `AgentRequest` batches deterministically so
+candidate, frozen-policy, opponent-pool, and tournament schedules can be tested
+without depending on RL dataset generation.
+
+```sh
+./build/napoleon_eval_cli \
+  --scenario candidate-vs-rule-based \
+  --start-seed 0 \
+  --seed-count 400 \
+  --max-concurrent-games 256 \
+  --inference-max-batch-size 32 \
+  --output cpp-evaluation.json
+```
+
+The JSON artifact includes completed game records, candidate and per-policy
+stats, contract success, average point cards, total/simulation/inference
+elapsed time, games/sec, decisions/sec, request count, session-run count,
+mean/max batch size, policy-specific batch stats, and the known TypeScript
+2000-game baselines:
+
+```text
+TS CUDA batch=1 / workers=4: 11.20 sec / 2000 games
+TS batched path:            18-22 sec / 2000 games
+```
+
+## RL Tensor Dataset CLI
+
+`napoleon_rl_dataset_cli` generates tensor-ready binary shards for policy
+training. It consumes the C++ runtime, attributes samples only to the current
+policy seat, and writes raw shard output plus a manifest with policy artifact
+provenance and roster-seat attribution.
+
 ## Local Commands
 
 ```sh

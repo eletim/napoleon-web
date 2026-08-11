@@ -25,6 +25,7 @@ describe("createLatestBiddingDeclarations", () => {
       type: "bid",
       label: "♠ 15",
       suit: "spades",
+      targetPointCards: 15,
       color: "black"
     });
     expect(declarations.get("player-1")).toEqual({
@@ -56,6 +57,7 @@ describe("createLatestBiddingDeclarations", () => {
       type: "bid",
       label: "♦ 16",
       suit: "diamonds",
+      targetPointCards: 16,
       color: "red"
     });
   });

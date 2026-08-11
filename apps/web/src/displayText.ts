@@ -5,7 +5,7 @@ import type {
   PublicStandardCard,
   PublicSuit
 } from "@napoleon/protocol";
-import { suitSymbols } from "./cardSymbols";
+import { isRedSuit, suitSymbols } from "./cardSymbols";
 import type { TablePlayer } from "./tableTypes";
 
 export interface StatusChip {
@@ -13,6 +13,7 @@ export interface StatusChip {
   value?: string;
   ariaLabel?: string;
   tone?: "phase" | "contract" | "role" | "special" | "result";
+  suitColor?: "red" | "black";
 }
 
 export interface GameStatusDisplay {
@@ -49,10 +50,7 @@ export function createGameStatusDisplay(
           { label: "交換", ariaLabel: "埋札交換", tone: "phase" },
           ...createContractSetupChips(state, players)
         ],
-        secondary: [
-          ...createAdjutantChip(state, players),
-          ...createSpecialCardChips(state)
-        ]
+        secondary: createAdjutantChip(state, players)
       };
     case "choosing-adjutant":
       return {
@@ -60,7 +58,7 @@ export function createGameStatusDisplay(
           { label: "副官", ariaLabel: "副官指定", tone: "phase" },
           ...createContractSetupChips(state, players)
         ],
-        secondary: createSpecialCardChips(state)
+        secondary: []
       };
     case "playing":
       return {
@@ -72,10 +70,7 @@ export function createGameStatusDisplay(
           },
           ...createContractSummaryChips(state, players)
         ],
-        secondary: [
-          ...createAdjutantChip(state, players),
-          ...createSpecialCardChips(state)
-        ]
+        secondary: createAdjutantChip(state, players)
       };
     case "finished":
       return {
@@ -92,10 +87,7 @@ export function createGameStatusDisplay(
               ]),
           ...createContractSummaryChips(state, players)
         ],
-        secondary: [
-          ...createAdjutantChip(state, players),
-          ...createSpecialCardChips(state)
-        ]
+        secondary: createAdjutantChip(state, players)
       };
   }
 }
@@ -252,12 +244,7 @@ function createContractSetupChips(
   }
 
   return [
-    {
-      label: formatSuit(state.contract.trumpSuit),
-      value: String(state.contract.targetPointCards),
-      ariaLabel: `契約: ナポレオンは${formatPlayerLabel(state.contract.napoleonPlayerId, players)}、切り札は${formatSuit(state.contract.trumpSuit)}、契約は${state.contract.targetPointCards}枚です。`,
-      tone: "contract"
-    }
+    createContractChip(state.contract, players)
   ];
 }
 
@@ -270,13 +257,21 @@ function createContractSummaryChips(
   }
 
   return [
-    {
-      label: formatSuit(state.contract.trumpSuit),
-      value: String(state.contract.targetPointCards),
-      ariaLabel: `契約: ナポレオンは${formatPlayerLabel(state.contract.napoleonPlayerId, players)}、切り札は${formatSuit(state.contract.trumpSuit)}、契約は${state.contract.targetPointCards}枚です。`,
-      tone: "contract"
-    }
+    createContractChip(state.contract, players)
   ];
+}
+
+function createContractChip(
+  contract: NonNullable<PublicGameState["contract"]>,
+  players: readonly TablePlayer[]
+): StatusChip {
+  return {
+    label: formatSuit(contract.trumpSuit),
+    value: String(contract.targetPointCards),
+    ariaLabel: `契約: ナポレオンは${formatPlayerLabel(contract.napoleonPlayerId, players)}、切り札は${formatSuit(contract.trumpSuit)}、契約は${contract.targetPointCards}枚です。`,
+    tone: "contract",
+    suitColor: isRedSuit(contract.trumpSuit) ? "red" : "black"
+  };
 }
 
 function createAdjutantChip(
@@ -295,46 +290,6 @@ function createAdjutantChip(
       tone: "role"
     }
   ];
-}
-
-function createSpecialCardChips(state: PublicGameState): readonly StatusChip[] {
-  if (state.trumpSuit === null) {
-    return [];
-  }
-
-  return [
-    {
-      label: "オ",
-      value: formatCardId(state.specialCards.orumaCardId),
-      ariaLabel: `オルマ: ${formatCardId(state.specialCards.orumaCardId)}`,
-      tone: "special"
-    },
-    {
-      label: "よ",
-      value: formatCardId(state.specialCards.yoromekiCardId),
-      ariaLabel: `よろめき: ${formatCardId(state.specialCards.yoromekiCardId)}`,
-      tone: "special"
-    },
-    ...createOptionalCardChip("正", "正ジャック", state.specialCards.seiJackCardId),
-    ...createOptionalCardChip("裏", "裏ジャック", state.specialCards.uraJackCardId)
-  ];
-}
-
-function createOptionalCardChip(
-  label: string,
-  ariaName: string,
-  cardId: string | null
-): readonly StatusChip[] {
-  return cardId === null
-    ? []
-    : [
-        {
-          label,
-          value: formatCardId(cardId),
-          ariaLabel: `${ariaName}: ${formatCardId(cardId)}`,
-          tone: "special"
-        }
-      ];
 }
 
 function isPublicSuit(value: string | undefined): value is PublicSuit {
