@@ -4,13 +4,23 @@ import assert from "node:assert/strict";
 import {
   advanceToNextTrick,
   applyAction,
+  createPlayerView,
   createInitialGame,
   getLegalActions,
   type Card,
   type GameAction,
   type GameState,
+  type PlayerId,
   type Suit
 } from "@napoleon/game-core";
+import {
+  MODEL_INPUT_FEATURE_COUNT,
+  MODEL_INPUT_SCHEMA_VERSION,
+  createPlayingModelInput,
+  createRelativePlayerOrder,
+  encodeBiddingHistoryFromPublicActions,
+  encodePlayingObservation
+} from "@napoleon/ai-observation";
 
 interface CanonicalSnapshot {
   phase: string;
@@ -40,6 +50,25 @@ interface CanonicalSnapshot {
   trickNumber: number;
   isTrickComplete: boolean;
   isGameOver: boolean;
+  playingModelInput: CanonicalPlayingModelInput | null;
+}
+
+interface CanonicalPlayingModelInput {
+  modelInputSchemaVersion: typeof MODEL_INPUT_SCHEMA_VERSION;
+  modelInputFeatureCount: typeof MODEL_INPUT_FEATURE_COUNT;
+  playerId: string;
+  observation: ReturnType<typeof encodePlayingObservation>;
+  legalPlayMask: readonly number[];
+  modelInput: readonly number[];
+}
+
+interface PublicBiddingActionRecord {
+  step: number;
+  playerId: PlayerId;
+  phase: "bidding";
+  action:
+    | { type: "bid"; playerId: PlayerId; suit: Suit; targetPointCards: number }
+    | { type: "pass"; playerId: PlayerId };
 }
 
 type CanonicalAction =
@@ -73,7 +102,10 @@ function createSeededGame(seed: number): GameState {
   return createInitialGame({ rng: createSeededRandom(seed) });
 }
 
-function toCanonicalSnapshot(state: GameState): CanonicalSnapshot {
+function toCanonicalSnapshot(
+  state: GameState,
+  publicActionHistory: readonly PublicBiddingActionRecord[]
+): CanonicalSnapshot {
   return {
     phase: state.phase,
     currentPlayerId: state.currentPlayerId,
@@ -116,7 +148,45 @@ function toCanonicalSnapshot(state: GameState): CanonicalSnapshot {
     result: state.result,
     trickNumber: state.trickNumber,
     isTrickComplete: state.isTrickComplete,
-    isGameOver: state.isGameOver
+    isGameOver: state.isGameOver,
+    playingModelInput: toCanonicalPlayingModelInput(state, publicActionHistory)
+  };
+}
+
+function toCanonicalPlayingModelInput(
+  state: GameState,
+  publicActionHistory: readonly PublicBiddingActionRecord[]
+): CanonicalPlayingModelInput | null {
+  if (state.phase !== "playing" || state.isTrickComplete) {
+    return null;
+  }
+
+  const playerId = state.currentPlayerId;
+  const absolutePlayerIds = state.players.map((player) => player.id);
+  const relativePlayerIds = createRelativePlayerOrder(absolutePlayerIds, playerId);
+  const biddingHistory = encodeBiddingHistoryFromPublicActions(
+    publicActionHistory,
+    relativePlayerIds
+  );
+  const observation = encodePlayingObservation(
+    {
+      playerId,
+      view: createPlayerView(state, playerId),
+      legalActions: getLegalActions(state, playerId),
+      publicActionHistory
+    },
+    absolutePlayerIds,
+    biddingHistory
+  );
+  const modelInput = createPlayingModelInput(observation);
+
+  return {
+    modelInputSchemaVersion: MODEL_INPUT_SCHEMA_VERSION,
+    modelInputFeatureCount: MODEL_INPUT_FEATURE_COUNT,
+    playerId,
+    observation,
+    legalPlayMask: modelInput.legalPlayMask,
+    modelInput: Array.from(modelInput.modelInput)
   };
 }
 
@@ -204,8 +274,47 @@ function applyScriptToTs(seed: number, script: readonly string[]): GameState {
   return state;
 }
 
+function publicBiddingHistoryFromScript(
+  script: readonly string[]
+): readonly PublicBiddingActionRecord[] {
+  return script.flatMap((line, index): readonly PublicBiddingActionRecord[] => {
+    const [type, ...parts] = line.split(" ");
+
+    if (type === "bid") {
+      return [{
+        step: index + 1,
+        playerId: parts[0],
+        phase: "bidding",
+        action: {
+          type: "bid",
+          playerId: parts[0],
+          suit: parts[1] as Suit,
+          targetPointCards: Number(parts[2])
+        }
+      }];
+    }
+
+    if (type === "pass") {
+      return [{
+        step: index + 1,
+        playerId: parts[0],
+        phase: "bidding",
+        action: {
+          type: "pass",
+          playerId: parts[0]
+        }
+      }];
+    }
+
+    return [];
+  });
+}
+
 function writeDifferentialCase(name: string, seed: number, script: readonly string[]): string {
-  const tsSnapshot = toCanonicalSnapshot(applyScriptToTs(seed, script));
+  const tsSnapshot = toCanonicalSnapshot(
+    applyScriptToTs(seed, script),
+    publicBiddingHistoryFromScript(script)
+  );
   const slug = name.replaceAll(/[^a-zA-Z0-9]+/g, "-").replaceAll(/^-|-$/g, "").toLowerCase();
   const caseDir = resolve(".differential", slug);
 
