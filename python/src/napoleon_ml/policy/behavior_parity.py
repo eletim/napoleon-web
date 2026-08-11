@@ -172,9 +172,9 @@ class BehaviorParityDiagnostics:
                 f"{self.forced_nonzero_count} forced-action samples have non-zero "
                 "behavior log probability"
             )
-        if self.strict_failed_count == 0:
-            return failures
         if self.tolerance.mode == "strict":
+            if self.strict_failed_count == 0:
+                return failures
             failures.append(
                 f"{self.strict_failed_count} samples exceed rtol={self.tolerance.rtol} "
                 f"and atol={self.tolerance.atol}"
@@ -208,8 +208,6 @@ class BehaviorParityDiagnostics:
 
     def warnings(self) -> list[str]:
         warnings: list[str] = []
-        if self.strict_failed_count == 0:
-            return warnings
         warning_max_abs_error = self.tolerance.warning_max_abs_error
         if (
             warning_max_abs_error is not None

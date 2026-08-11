@@ -36,6 +36,20 @@ def test_batched_cuda_small_max_outlier_warns_without_hard_failure() -> None:
     assert str(warnings[0]).startswith("max abs error 0.005114")
 
 
+def test_batched_cuda_warning_does_not_depend_on_strict_failure_count() -> None:
+    diagnostics = _diagnostics_from_selected_and_behavior(
+        [-1000.0],
+        [-1000.006],
+        execution_provider="cuda",
+        max_observed_batch_size=32,
+    )
+
+    assert diagnostics.strict_failed_count == 0
+    assert diagnostics.failed() is False
+    assert diagnostics.warning() is True
+    assert diagnostics.to_dict()["severity"] == "warning"
+
+
 @pytest.mark.parametrize(
     ("errors", "detail"),
     [
@@ -64,6 +78,20 @@ def test_batched_cuda_hard_failures_remain_strict(
     hard_failure_count = artifact["hardFailureCount"]
     assert isinstance(hard_failure_count, int)
     assert hard_failure_count >= 1
+
+
+def test_batched_cuda_hard_max_does_not_depend_on_strict_failure_count() -> None:
+    diagnostics = _diagnostics_from_selected_and_behavior(
+        [-1000.0],
+        [-1000.011],
+        execution_provider="cuda",
+        max_observed_batch_size=32,
+    )
+
+    assert diagnostics.strict_failed_count == 0
+    assert diagnostics.failed() is True
+    assert "max abs error" in diagnostics.failure_detail()
+    assert diagnostics.to_dict()["severity"] == "error"
 
 
 def test_nonfinite_error_hard_fails() -> None:
@@ -122,6 +150,36 @@ def _diagnostics_from_errors(
     legal_mask[:, 0] = True
     if not forced:
         legal_mask[:, 1] = True
+    diagnostics = BehaviorParityDiagnostics(
+        tolerance=tolerance,
+        execution_provider=execution_provider,
+        max_observed_batch_size=max_observed_batch_size,
+    )
+    diagnostics.update(
+        selected_log_probability=selected,
+        behavior_log_probability=behavior,
+        legal_mask=legal_mask,
+    )
+    return diagnostics
+
+
+def _diagnostics_from_selected_and_behavior(
+    selected_values: list[float],
+    behavior_values: list[float],
+    *,
+    execution_provider: str,
+    max_observed_batch_size: int,
+) -> BehaviorParityDiagnostics:
+    tolerance = (
+        BATCHED_CUDA_BEHAVIOR_PARITY_TOLERANCE
+        if execution_provider == "cuda" and max_observed_batch_size > 1
+        else STRICT_BEHAVIOR_PARITY_TOLERANCE
+    )
+    selected = torch.tensor(selected_values, dtype=torch.float32)
+    behavior = torch.tensor(behavior_values, dtype=torch.float32)
+    legal_mask = torch.zeros((len(selected_values), CARD_COUNT), dtype=torch.bool)
+    legal_mask[:, 0] = True
+    legal_mask[:, 1] = True
     diagnostics = BehaviorParityDiagnostics(
         tolerance=tolerance,
         execution_provider=execution_provider,
