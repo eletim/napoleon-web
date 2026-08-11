@@ -115,6 +115,7 @@ struct GameState {
   int current_player_index = 0;
   std::vector<PlayedCard> current_trick;
   std::vector<CompletedTrick> completed_tricks;
+  std::vector<BiddingHistoryEntry> public_bidding_history;
   std::optional<Suit> trump_suit;
   std::optional<Contract> contract;
   std::optional<AdjutantState> adjutant;

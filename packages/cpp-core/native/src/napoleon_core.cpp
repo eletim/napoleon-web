@@ -1,5 +1,4 @@
 #include "napoleon_core.hpp"
-
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -811,8 +810,10 @@ void apply_action(GameState& state, const Action& action) {
       state.current_player_index = next_player_index(action.player_index);
       state.bidding->highest_bid = candidate;
       state.bidding->consecutive_pass_count = 0;
-      state.bidding->history.push_back(
-          BiddingHistoryEntry{true, action.player_index, action.suit, action.target_point_cards});
+      BiddingHistoryEntry history_entry{
+          true, action.player_index, action.suit, action.target_point_cards};
+      state.bidding->history.push_back(history_entry);
+      state.public_bidding_history.push_back(history_entry);
       return;
     }
     case Action::Type::Pass: {
@@ -822,6 +823,7 @@ void apply_action(GameState& state, const Action& action) {
       history_entry.is_bid = false;
       history_entry.player_index = action.player_index;
       state.bidding->history.push_back(history_entry);
+      state.public_bidding_history.push_back(history_entry);
 
       if (state.bidding->highest_bid.has_value() &&
           state.bidding->consecutive_pass_count == kPlayerCount - 1) {

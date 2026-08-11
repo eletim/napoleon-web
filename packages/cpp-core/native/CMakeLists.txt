@@ -19,11 +19,18 @@ target_include_directories(napoleon_core
 
 target_compile_options(napoleon_core PRIVATE -Wall -Wextra -Wpedantic)
 
+add_library(napoleon_observation
+  src/napoleon_observation.cpp
+)
+
+target_link_libraries(napoleon_observation PUBLIC napoleon_core)
+target_compile_options(napoleon_observation PRIVATE -Wall -Wextra -Wpedantic)
+
 add_executable(napoleon_core_cli
   src/napoleon_core_cli.cpp
 )
 
-target_link_libraries(napoleon_core_cli PRIVATE napoleon_core)
+target_link_libraries(napoleon_core_cli PRIVATE napoleon_observation)
 target_compile_options(napoleon_core_cli PRIVATE -Wall -Wextra -Wpedantic)
 
 add_executable(napoleon_core_self_test
