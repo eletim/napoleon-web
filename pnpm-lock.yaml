@@ -130,6 +130,9 @@ importers:
 
   packages/cpp-core:
     dependencies:
+      '@napoleon/ai':
+        specifier: workspace:*
+        version: link:../ai
       '@napoleon/ai-observation':
         specifier: workspace:*
         version: link:../ai-observation

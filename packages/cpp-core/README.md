@@ -35,8 +35,9 @@ collect_finished_games()
 
 Game seeds are `base_seed + game_index` modulo `uint32_t`; roster sampling uses
 `roster_seed` plus the same stable `game_index`. Runnable games are advanced in
-ascending `game_id` order. `RuleBased` seats currently use the runtime's
-deterministic CPU first-legal selector as the minimal in-process backend; policy
+ascending `game_id` order. `RuleBased` seats use the C++ RuleBased selector for
+playing decisions and retain the deterministic CPU first-legal selector for
+non-playing setup phases that are outside that agent's current scope. Policy
 seats emit stable `AgentRequest` records and resume only through
 `submit_agent_results()`.
 

@@ -1,5 +1,7 @@
 #include "napoleon_simulation_runtime.hpp"
 
+#include "napoleon_rule_based.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <iterator>
@@ -39,7 +41,17 @@ std::vector<Action> runtime_legal_actions(const GameState& state, int player_ind
   return actions;
 }
 
-Action select_cpu_action(const GameState& state, int player_index) {
+Action select_cpu_action(
+    const AgentIdentity& agent,
+    const GameState& state,
+    int player_index,
+    std::uint32_t decision_seed) {
+  if (agent.type == AgentType::RuleBased && state.phase == Phase::Playing &&
+      !state.is_trick_complete) {
+    SeededRandom rng(decision_seed);
+    return select_agent_action(agent, state, player_index, rng);
+  }
+
   const std::vector<Action> actions = runtime_legal_actions(state, player_index);
   if (actions.empty()) {
     throw std::runtime_error("runnable game has no legal action");
@@ -170,7 +182,9 @@ std::size_t SimulationRuntime::advance_runnable_games(std::size_t max_transition
         continue;
       }
 
-      const Action action = select_cpu_action(game.state, player_index);
+      const std::uint32_t decision_seed =
+          game.seed ^ static_cast<std::uint32_t>(game.internal_transition_count + 0x9e3779b9u);
+      const Action action = select_cpu_action(agent, game.state, player_index, decision_seed);
       apply_action(game.state, action);
       if (game.state.is_game_over) {
         game.status = RuntimeGameStatus::Finished;

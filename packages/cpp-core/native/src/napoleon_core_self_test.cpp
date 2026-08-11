@@ -1,4 +1,5 @@
 #include "napoleon_core.hpp"
+#include "napoleon_rule_based.hpp"
 #include "napoleon_roster.hpp"
 #include "napoleon_simulation_runtime.hpp"
 
@@ -6,6 +7,7 @@
 #include <cassert>
 #include <cmath>
 #include <iostream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -18,7 +20,8 @@ bool same_agent(const napoleon::AgentIdentity& left, const napoleon::AgentIdenti
 std::vector<napoleon::FinishedGame> drive_external_first_legal(
     napoleon::SimulationRuntime& runtime,
     std::size_t expected_finished_count) {
-  for (int iteration = 0; iteration < 1000; ++iteration) {
+  std::vector<napoleon::FinishedGame> all_finished;
+  for (int iteration = 0; iteration < 10000; ++iteration) {
     runtime.advance_runnable_games();
     std::vector<napoleon::AgentRequest> requests = runtime.collect_agent_requests();
     if (!requests.empty()) {
@@ -32,8 +35,12 @@ std::vector<napoleon::FinishedGame> drive_external_first_legal(
     }
 
     std::vector<napoleon::FinishedGame> finished = runtime.collect_finished_games();
-    if (finished.size() == expected_finished_count) {
-      return finished;
+    all_finished.insert(
+        all_finished.end(),
+        std::make_move_iterator(finished.begin()),
+        std::make_move_iterator(finished.end()));
+    if (all_finished.size() == expected_finished_count) {
+      return all_finished;
     }
   }
 
@@ -136,6 +143,55 @@ int main() {
   assert(spec_manifest.find("rl-v740") != std::string::npos);
   assert(napoleon::roster_assignment_manifest_json(sampled_a).find("\"seats\"") !=
          std::string::npos);
+
+  int completed_rule_games = 0;
+  int selected_rule_actions = 0;
+  for (std::uint32_t game_seed : {424242u, 424243u, 424244u, 424245u}) {
+    napoleon::GameState rule_game = napoleon::create_initial_game(game_seed);
+    for (int player_index = 0; player_index < 5; ++player_index) {
+      napoleon::Action pass;
+      pass.type = napoleon::Action::Type::Pass;
+      pass.player_index = player_index;
+      napoleon::apply_action(rule_game, pass);
+    }
+    napoleon::Action choose;
+    choose.type = napoleon::Action::Type::ChooseAdjutant;
+    choose.player_index = rule_game.current_player_index;
+    choose.card = napoleon::parse_card_id("joker");
+    napoleon::apply_action(rule_game, choose);
+    napoleon::Action discard;
+    discard.type = napoleon::Action::Type::DiscardCards;
+    discard.player_index = rule_game.current_player_index;
+    discard.cards = {
+        rule_game.hands[static_cast<std::size_t>(discard.player_index)][0],
+        rule_game.hands[static_cast<std::size_t>(discard.player_index)][1],
+        rule_game.hands[static_cast<std::size_t>(discard.player_index)][2]};
+    napoleon::apply_action(rule_game, discard);
+
+    napoleon::SeededRandom rule_rng(123 + game_seed);
+    while (!rule_game.is_game_over) {
+      if (rule_game.is_trick_complete) {
+        napoleon::Action next;
+        next.type = napoleon::Action::Type::AdvanceToNextTrick;
+        napoleon::apply_action(rule_game, next);
+        continue;
+      }
+
+      const napoleon::Action action = napoleon::select_agent_action(
+          rule,
+          rule_game,
+          rule_game.current_player_index,
+          rule_rng);
+      assert(action.type == napoleon::Action::Type::PlayCard);
+      napoleon::apply_action(rule_game, action);
+      ++selected_rule_actions;
+    }
+    assert(rule_game.phase == napoleon::Phase::Finished);
+    assert(rule_game.result.has_value());
+    ++completed_rule_games;
+  }
+  assert(completed_rule_games == 4);
+  assert(selected_rule_actions == 200);
 
   napoleon::SimulationRuntime cpu_runtime(napoleon::SimulationRuntimeConfig{
       napoleon::self_play_roster(rule),

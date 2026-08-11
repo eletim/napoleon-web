@@ -163,6 +163,7 @@ std::vector<Action> get_legal_actions(const GameState& state, int player_index);
 void apply_action(GameState& state, const Action& action);
 
 std::string canonical_snapshot_json(const GameState& state);
+std::string action_json(const Action& action);
 Action parse_action_line(const std::string& line);
 
 std::string card_id(Card card);
