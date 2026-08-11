@@ -344,6 +344,28 @@ function actionToLine(action: GameAction): string {
   }
 }
 
+function writeRandomizedGameCases(index: number): string[] {
+  const seed = 100000 + index * 7919;
+  const actionSeed = 0x9e3779b9 ^ (index * 2654435761);
+  const script = makeRandomGameScript(seed, actionSeed >>> 0);
+  const checkpointLengths = new Set<number>();
+
+  for (let length = 8; length < script.length; length += 8) {
+    checkpointLengths.add(length);
+  }
+  checkpointLengths.add(script.length);
+
+  return [...checkpointLengths].map((length) =>
+    writeDifferentialCase(
+      length === script.length
+        ? `randomized full game ${index} terminal`
+        : `randomized full game ${index} step ${length}`,
+      seed,
+      script.slice(0, length)
+    )
+  );
+}
+
 function cardId(card: Card): string {
   return card.id;
 }
@@ -355,15 +377,7 @@ const cases = [
   writeDifferentialCase("exchange snapshot", 424242, makeReadyToPlayScript(424242)),
   writeDifferentialCase("playing snapshot", 98765, makeFirstLegalPlayScript(98765, 20)),
   writeDifferentialCase("terminal snapshot", 13579, makeFirstLegalPlayScript(13579, 50)),
-  ...Array.from({ length: 64 }, (_, index) => {
-    const seed = 100000 + index * 7919;
-    const actionSeed = 0x9e3779b9 ^ (index * 2654435761);
-    return writeDifferentialCase(
-      `randomized full game ${index}`,
-      seed,
-      makeRandomGameScript(seed, actionSeed >>> 0)
-    );
-  })
+  ...Array.from({ length: 32 }, (_, index) => writeRandomizedGameCases(index)).flat()
 ];
 
 writeFileSync(resolve(".differential", "cases.txt"), `${cases.join("\n")}\n`);
