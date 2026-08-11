@@ -513,6 +513,18 @@ input:focus-visible {
   font-weight: 900;
 }
 
+.status-chip-contract.status-chip-suit-red {
+  background: #b91c1c;
+  border-color: #991b1b;
+  color: #ffffff;
+}
+
+.status-chip-contract.status-chip-suit-black {
+  background: #111827;
+  border-color: #020617;
+  color: #ffffff;
+}
+
 .status-chip-role {
   background: #dcfce7;
   border-color: rgb(220 252 231 / 70%);

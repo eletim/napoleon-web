@@ -5,7 +5,7 @@ import type {
   PublicStandardCard,
   PublicSuit
 } from "@napoleon/protocol";
-import { suitSymbols } from "./cardSymbols";
+import { isRedSuit, suitSymbols } from "./cardSymbols";
 import type { TablePlayer } from "./tableTypes";
 
 export interface StatusChip {
@@ -13,6 +13,7 @@ export interface StatusChip {
   value?: string;
   ariaLabel?: string;
   tone?: "phase" | "contract" | "role" | "special" | "result";
+  suitColor?: "red" | "black";
 }
 
 export interface GameStatusDisplay {
@@ -243,12 +244,7 @@ function createContractSetupChips(
   }
 
   return [
-    {
-      label: formatSuit(state.contract.trumpSuit),
-      value: String(state.contract.targetPointCards),
-      ariaLabel: `契約: ナポレオンは${formatPlayerLabel(state.contract.napoleonPlayerId, players)}、切り札は${formatSuit(state.contract.trumpSuit)}、契約は${state.contract.targetPointCards}枚です。`,
-      tone: "contract"
-    }
+    createContractChip(state.contract, players)
   ];
 }
 
@@ -261,13 +257,21 @@ function createContractSummaryChips(
   }
 
   return [
-    {
-      label: formatSuit(state.contract.trumpSuit),
-      value: String(state.contract.targetPointCards),
-      ariaLabel: `契約: ナポレオンは${formatPlayerLabel(state.contract.napoleonPlayerId, players)}、切り札は${formatSuit(state.contract.trumpSuit)}、契約は${state.contract.targetPointCards}枚です。`,
-      tone: "contract"
-    }
+    createContractChip(state.contract, players)
   ];
+}
+
+function createContractChip(
+  contract: NonNullable<PublicGameState["contract"]>,
+  players: readonly TablePlayer[]
+): StatusChip {
+  return {
+    label: formatSuit(contract.trumpSuit),
+    value: String(contract.targetPointCards),
+    ariaLabel: `契約: ナポレオンは${formatPlayerLabel(contract.napoleonPlayerId, players)}、切り札は${formatSuit(contract.trumpSuit)}、契約は${contract.targetPointCards}枚です。`,
+    tone: "contract",
+    suitColor: isRedSuit(contract.trumpSuit) ? "red" : "black"
+  };
 }
 
 function createAdjutantChip(

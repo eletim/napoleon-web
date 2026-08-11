@@ -65,7 +65,8 @@ describe("display text", () => {
         label: "♦",
         value: "14",
         ariaLabel: "契約: ナポレオンは右側AI、切り札は♦、契約は14枚です。",
-        tone: "contract"
+        tone: "contract",
+        suitColor: "red"
       }
     ]);
     expect(display.secondary).toEqual([]);
@@ -95,7 +96,8 @@ describe("display text", () => {
         label: "♦",
         value: "14",
         ariaLabel: "契約: ナポレオンは右側AI、切り札は♦、契約は14枚です。",
-        tone: "contract"
+        tone: "contract",
+        suitColor: "red"
       }
     ]);
     expect(display.secondary).toContainEqual({
@@ -125,7 +127,8 @@ describe("display text", () => {
         label: "♦",
         value: "14",
         ariaLabel: "契約: ナポレオンは右側AI、切り札は♦、契約は14枚です。",
-        tone: "contract"
+        tone: "contract",
+        suitColor: "red"
       }
     ]);
     expect(display.secondary.some((chip) => chip.label === "副")).toBe(false);
@@ -165,7 +168,8 @@ describe("display text", () => {
         label: "♦",
         value: "14",
         ariaLabel: "契約: ナポレオンは右側AI、切り札は♦、契約は14枚です。",
-        tone: "contract"
+        tone: "contract",
+        suitColor: "red"
       }
     ]);
     expect(display.secondary).toEqual([
@@ -234,7 +238,8 @@ describe("display text", () => {
         label: "♦",
         value: "14",
         ariaLabel: "契約: ナポレオンは右側AI、切り札は♦、契約は14枚です。",
-        tone: "contract"
+        tone: "contract",
+        suitColor: "red"
       }
     ]);
     expect(display.primary.some((chip) => chip.label === "ナポレオン陣営")).toBe(false);
