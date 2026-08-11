@@ -70,6 +70,7 @@ export function App() {
   const [adjutantSelection, setAdjutantSelection] =
     useState<AdjutantSelection>(defaultAdjutantSelection);
   const [hasRequestError, setHasRequestError] = useState(false);
+  const [winningCardHighlightEnabled, setWinningCardHighlightEnabled] = useState(true);
 
   const legalCardIds = useMemo(() => {
     const actions = session?.state.legalActions ?? [];
@@ -372,7 +373,10 @@ export function App() {
                   <>
                     <TrickBoard
                       currentTrick={session?.state.currentTrick ?? []}
+                      highlightWinningCard={winningCardHighlightEnabled}
                       players={tablePlayers}
+                      trickNumber={session?.state.trickNumber}
+                      trumpSuit={session?.state.trumpSuit}
                     />
 
                     <button
@@ -559,11 +563,15 @@ export function App() {
               canExchange={canExchange}
               isBusy={isBusy}
               legalCardIds={legalCardIds}
+              onToggleWinningCardHighlight={() =>
+                setWinningCardHighlightEnabled((current) => !current)
+              }
               onPlay={handlePlay}
               selectedDiscardCardIds={selectedDiscardCardIds}
               self={self}
               selfPlayer={selfPlayer}
               state={session?.state}
+              winningCardHighlightEnabled={winningCardHighlightEnabled}
             />
           </section>
         </>

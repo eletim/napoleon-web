@@ -14,8 +14,10 @@ interface SelfHandPanelProps {
   legalCardIds: ReadonlySet<string>;
   selectedDiscardCardIds: readonly string[];
   canExchange: boolean;
+  winningCardHighlightEnabled: boolean;
   defaultHandOrderMode?: HandOrderMode;
   onPlay: (card: PublicCard) => void;
+  onToggleWinningCardHighlight: () => void;
 }
 
 export function SelfHandPanel({
@@ -26,8 +28,10 @@ export function SelfHandPanel({
   legalCardIds,
   selectedDiscardCardIds,
   canExchange,
+  winningCardHighlightEnabled,
   defaultHandOrderMode = "riipai",
-  onPlay
+  onPlay,
+  onToggleWinningCardHighlight
 }: SelfHandPanelProps) {
   const [handOrderMode, setHandOrderMode] = useState<HandOrderMode>(defaultHandOrderMode);
   const playerId = self?.id ?? selfPlayer?.id ?? "player-0";
@@ -72,18 +76,33 @@ export function SelfHandPanel({
           ) : null}
         </div>
 
-        <div className="hand-sort-toggle" aria-label="理牌切り替え">
-          <button
-            aria-label={handOrderMode === "riipai" ? "理牌オン" : "理牌オフ"}
-            aria-pressed={handOrderMode === "riipai"}
-            className={getHandSortButtonClassName(handOrderMode)}
-            onClick={() =>
-              setHandOrderMode((current) => (current === "riipai" ? "original" : "riipai"))
-            }
-            type="button"
-          >
-            理
-          </button>
+        <div className="hand-control-toggles">
+          <div className="hand-sort-toggle" aria-label="理牌切り替え">
+            <button
+              aria-label={handOrderMode === "riipai" ? "理牌オン" : "理牌オフ"}
+              aria-pressed={handOrderMode === "riipai"}
+              className={getHandSortButtonClassName(handOrderMode)}
+              onClick={() =>
+                setHandOrderMode((current) => (current === "riipai" ? "original" : "riipai"))
+              }
+              type="button"
+            >
+              理
+            </button>
+          </div>
+          <div className="winning-card-toggle" aria-label="暫定勝ち札強調切り替え">
+            <button
+              aria-label={
+                winningCardHighlightEnabled ? "暫定勝ち札強調オン" : "暫定勝ち札強調オフ"
+              }
+              aria-pressed={winningCardHighlightEnabled}
+              className={getWinningCardButtonClassName(winningCardHighlightEnabled)}
+              onClick={onToggleWinningCardHighlight}
+              type="button"
+            >
+              勝
+            </button>
+          </div>
         </div>
       </div>
 
@@ -122,6 +141,12 @@ export function SelfHandPanel({
       </div>
     </article>
   );
+}
+
+function getWinningCardButtonClassName(enabled: boolean): string {
+  return enabled
+    ? "hand-sort-button hand-sort-button-active"
+    : "hand-sort-button";
 }
 
 function getCardInteractionState(

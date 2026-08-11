@@ -26,11 +26,13 @@ describe("SelfHandPanel", () => {
         defaultHandOrderMode="riipai"
         isBusy={false}
         legalCardIds={new Set(["spades-2"])}
+        onToggleWinningCardHighlight={vi.fn()}
         onPlay={vi.fn()}
         selectedDiscardCardIds={["spades-2"]}
         self={state.self}
         selfPlayer={undefined}
         state={state}
+        winningCardHighlightEnabled={true}
       />
     );
 
@@ -59,11 +61,13 @@ describe("SelfHandPanel", () => {
         canExchange={false}
         isBusy={false}
         legalCardIds={new Set()}
+        onToggleWinningCardHighlight={vi.fn()}
         onPlay={vi.fn()}
         selectedDiscardCardIds={[]}
         self={state.self}
         selfPlayer={undefined}
         state={state}
+        winningCardHighlightEnabled={true}
       />
     );
 
@@ -83,11 +87,13 @@ describe("SelfHandPanel", () => {
         canExchange={false}
         isBusy={false}
         legalCardIds={new Set(["spades-A"])}
+        onToggleWinningCardHighlight={vi.fn()}
         onPlay={vi.fn()}
         selectedDiscardCardIds={[]}
         self={state.self}
         selfPlayer={undefined}
         state={state}
+        winningCardHighlightEnabled={true}
       />
     );
 
@@ -110,6 +116,7 @@ describe("SelfHandPanel", () => {
     ];
     const state = createState(hand);
     const onPlay = vi.fn();
+    const onToggleWinningCardHighlight = vi.fn();
     const container = document.createElement("div");
     const root = createRoot(container);
 
@@ -119,11 +126,13 @@ describe("SelfHandPanel", () => {
           canExchange={false}
           isBusy={false}
           legalCardIds={new Set(["spades-2"])}
+          onToggleWinningCardHighlight={onToggleWinningCardHighlight}
           onPlay={onPlay}
           selectedDiscardCardIds={[]}
           self={state.self}
           selfPlayer={undefined}
           state={state}
+          winningCardHighlightEnabled={true}
         />
       );
     });
@@ -157,8 +166,37 @@ describe("SelfHandPanel", () => {
     expect(onPlay).toHaveBeenCalledWith(hand[2]);
 
     act(() => {
+      getWinningCardToggleButton(container).click();
+    });
+
+    expect(onToggleWinningCardHighlight).toHaveBeenCalledTimes(1);
+    expect(onPlay).toHaveBeenCalledTimes(1);
+
+    act(() => {
       root.unmount();
     });
+  });
+
+  it("shows the compact winning-card highlight toggle state", () => {
+    const state = createState([standardCard("clubs", "2")]);
+
+    const html = renderToStaticMarkup(
+      <SelfHandPanel
+        canExchange={false}
+        isBusy={false}
+        legalCardIds={new Set()}
+        onToggleWinningCardHighlight={vi.fn()}
+        onPlay={vi.fn()}
+        selectedDiscardCardIds={[]}
+        self={state.self}
+        selfPlayer={undefined}
+        state={state}
+        winningCardHighlightEnabled={false}
+      />
+    );
+
+    expect(html).toContain("aria-label=\"暫定勝ち札強調オフ\"");
+    expect(html).toContain(">勝</button>");
   });
 });
 
@@ -249,6 +287,16 @@ function getHandSortButton(container: Element): HTMLButtonElement {
 
   if (!(button instanceof HTMLButtonElement)) {
     throw new Error("Hand sort button was not rendered.");
+  }
+
+  return button;
+}
+
+function getWinningCardToggleButton(container: Element): HTMLButtonElement {
+  const button = container.querySelector(".winning-card-toggle button");
+
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new Error("Winning card toggle button was not rendered.");
   }
 
   return button;

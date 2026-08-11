@@ -6,6 +6,7 @@ export type BiddingDeclarationDisplay =
       type: "bid";
       label: string;
       suit: PublicSuit;
+      targetPointCards: number;
       color: "red" | "black";
     }
   | {
@@ -40,6 +41,7 @@ export function createLatestBiddingDeclarations(
       type: "bid",
       label: `${suitSymbols[entry.suit]} ${entry.targetPointCards}`,
       suit: entry.suit,
+      targetPointCards: entry.targetPointCards,
       color: isRedSuit(entry.suit) ? "red" : "black"
     });
   }
