@@ -128,6 +128,19 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.1)(happy-dom@20.11.2)
 
+  packages/cpp-core:
+    dependencies:
+      '@napoleon/game-core':
+        specifier: workspace:*
+        version: link:../game-core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.1
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
   packages/game-core:
     devDependencies:
       typescript:
