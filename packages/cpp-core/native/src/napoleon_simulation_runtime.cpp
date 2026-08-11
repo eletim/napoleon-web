@@ -24,11 +24,17 @@ std::vector<Action> runtime_legal_actions(const GameState& state, int player_ind
     return actions;
   }
 
-  Action action;
-  action.type = Action::Type::DiscardCards;
-  action.player_index = player_index;
-  action.cards.assign(hand.begin(), hand.begin() + 3);
-  actions.push_back(action);
+  for (std::size_t first = 0; first + 2 < hand.size(); ++first) {
+    for (std::size_t second = first + 1; second + 1 < hand.size(); ++second) {
+      for (std::size_t third = second + 1; third < hand.size(); ++third) {
+        Action action;
+        action.type = Action::Type::DiscardCards;
+        action.player_index = player_index;
+        action.cards = {hand[first], hand[second], hand[third]};
+        actions.push_back(action);
+      }
+    }
+  }
   return actions;
 }
 
