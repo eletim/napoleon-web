@@ -15,7 +15,11 @@ from napoleon_ml.cli.run_playing_rl import _config_from_args, build_parser
 from napoleon_ml.cli.train_policy_mlp import main as train_supervised_main
 from napoleon_ml.dataset.constants import CARD_COUNT, EXPECTED_CARD_IDS
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
-from napoleon_ml.policy.actor_critic import ACTOR_CRITIC_ALGORITHM
+from napoleon_ml.policy.actor_critic import (
+    ACTOR_CRITIC_ALGORITHM,
+    SEPARATED_ACTOR_CRITIC_ALGORITHM,
+)
+from napoleon_ml.policy.checkpoint import SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE
 from napoleon_ml.policy.reinforce import REINFORCE_ALGORITHM
 from napoleon_ml.rl_orchestrator import (
     DEFAULT_FULL_DIAGNOSTICS_INTERVAL,
@@ -424,6 +428,150 @@ def test_playing_rl_orchestrator_actor_critic_two_iteration_resume_and_safety(
             resume=True,
             provided_config_keys={"algorithm"},
         )
+
+
+@pytest.mark.integration
+def test_playing_rl_orchestrator_separated_actor_critic_typescript_smoke(
+    tmp_path: Path,
+) -> None:
+    supervised_dataset = tmp_path / "supervised"
+    initial_checkpoint = tmp_path / "initial-playing.pt"
+    _create_initial_checkpoint(supervised_dataset, initial_checkpoint)
+
+    run_directory = tmp_path / "separated-actor-critic-run"
+    config = replace(
+        _small_config(
+            run_directory=run_directory,
+            initial_checkpoint=initial_checkpoint,
+            supervised_dataset=supervised_dataset,
+            algorithm=SEPARATED_ACTOR_CRITIC_ALGORITHM,
+        ),
+        iterations=1,
+        games_per_iteration=1,
+        games_per_shard=1,
+        rollout_workers=1,
+        rollout_concurrency=1,
+        batch_size=8,
+        evaluation_seed_count=1,
+    )
+    run_playing_rl_experiment(config, resume=False)
+
+    iter0 = _load_json(run_directory / "iterations" / "iter-000" / "iteration.json")
+    report = _load_json(run_directory / "iterations" / "iter-000" / "train-report.json")
+    assert iter0["algorithm"] == SEPARATED_ACTOR_CRITIC_ALGORITHM
+    assert _required_int(iter0["optimizerStepCount"]) > 0
+    assert _required_float(report["actorParameterDeltaNorm"]) > 0
+    assert _required_float(report["criticParameterDeltaNorm"]) > 0
+    checkpoint = torch.load(
+        run_directory / "iterations" / "iter-000" / "output-checkpoint.pt",
+        map_location="cpu",
+        weights_only=True,
+    )
+    assert checkpoint["model_architecture"] == SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE
+
+    evaluation = _load_json(run_directory / "evaluations" / "policy-v001" / "summary.json")
+    assert evaluation["completedGames"] == 5
+    metadata = _load_json(run_directory / "evaluations" / "policy-v001" / "policy.json")
+    assert metadata["modelArchitecture"] == SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE
+    assert _required_object(metadata["onnx"])["outputs"] == [
+        {"name": "logits", "shape": ["batch", CARD_COUNT], "dtype": "float32"}
+    ]
+
+
+@pytest.mark.integration
+def test_playing_rl_orchestrator_separated_actor_critic_cpp_smoke(tmp_path: Path) -> None:
+    _ensure_cpp_onnxruntime_enabled_or_skip(tmp_path)
+    supervised_dataset = tmp_path / "supervised"
+    initial_checkpoint = tmp_path / "initial-playing.pt"
+    _create_initial_checkpoint(supervised_dataset, initial_checkpoint)
+
+    run_directory = tmp_path / "separated-actor-critic-cpp-run"
+    config = replace(
+        _small_config(
+            run_directory=run_directory,
+            initial_checkpoint=initial_checkpoint,
+            supervised_dataset=supervised_dataset,
+            algorithm=SEPARATED_ACTOR_CRITIC_ALGORITHM,
+        ),
+        iterations=1,
+        games_per_iteration=1,
+        games_per_shard=1,
+        rollout_workers=1,
+        rollout_concurrency=1,
+        batch_size=8,
+        evaluation_seed_count=1,
+        simulation_backend="cpp",
+        frozen_policy_onnx=_REPO_ROOT / "benchmarks/playing-policies/rl-v740/policy.onnx",
+        frozen_policy_metadata=_REPO_ROOT / "benchmarks/playing-policies/rl-v740/policy.json",
+        build_cpp=True,
+    )
+    run_playing_rl_experiment(config, resume=False)
+
+    iter0 = _load_json(run_directory / "iterations" / "iter-000" / "iteration.json")
+    report = _load_json(run_directory / "iterations" / "iter-000" / "train-report.json")
+    assert iter0["algorithm"] == SEPARATED_ACTOR_CRITIC_ALGORITHM
+    assert iter0["simulationBackend"] == "cpp"
+    assert _required_int(iter0["optimizerStepCount"]) > 0
+    assert _required_float(report["actorParameterDeltaNorm"]) > 0
+    assert _required_float(report["criticParameterDeltaNorm"]) > 0
+    checkpoint = torch.load(
+        run_directory / "iterations" / "iter-000" / "output-checkpoint.pt",
+        map_location="cpu",
+        weights_only=True,
+    )
+    assert checkpoint["model_architecture"] == SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE
+
+    evaluation = _load_json(run_directory / "evaluations" / "policy-v001" / "summary.json")
+    assert evaluation["simulationBackend"] == "cpp"
+    assert evaluation["completedGames"] == 5
+    metadata = _load_json(run_directory / "evaluations" / "policy-v001" / "policy.json")
+    assert metadata["modelArchitecture"] == SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE
+    assert _required_object(metadata["onnx"])["outputs"] == [
+        {"name": "logits", "shape": ["batch", CARD_COUNT], "dtype": "float32"}
+    ]
+
+
+def _ensure_cpp_onnxruntime_enabled_or_skip(tmp_path: Path) -> None:
+    native_dir = _REPO_ROOT / "packages/cpp-core/native"
+    probe_build_dir = tmp_path / "cpp-onnxruntime-probe"
+    probe = subprocess.run(
+        [
+            "cmake",
+            "-S",
+            str(native_dir),
+            "-B",
+            str(probe_build_dir),
+            "-DNAPOLEON_ENABLE_ONNXRUNTIME=ON",
+        ],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    if probe.returncode != 0:
+        pytest.skip(
+            "C++ ONNX Runtime SDK is unavailable; "
+            f"cmake stdout:\n{probe.stdout}\nstderr:\n{probe.stderr}"
+        )
+
+    configure = subprocess.run(
+        [
+            "cmake",
+            "-S",
+            str(native_dir),
+            "-B",
+            str(_REPO_ROOT / "packages/cpp-core/build"),
+            "-DNAPOLEON_ENABLE_ONNXRUNTIME=ON",
+        ],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert configure.returncode == 0, (
+        "C++ ONNX Runtime configure failed after probe success:\n"
+        f"stdout:\n{configure.stdout}\nstderr:\n{configure.stderr}"
+    )
 
 
 def test_playing_rl_orchestrator_explicit_cuda_fails_during_config_validation(

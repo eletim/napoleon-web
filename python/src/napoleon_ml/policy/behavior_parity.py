@@ -13,7 +13,11 @@ from torch import Tensor
 
 from napoleon_ml.dataset.manifest import DatasetManifest
 from napoleon_ml.policy.checkpoint import PolicyCheckpointCompatibilityError
-from napoleon_ml.policy.model import PolicyActorCriticModel, PolicyMlpModel
+from napoleon_ml.policy.model import (
+    PolicyActorCriticModel,
+    PolicyMlpModel,
+    PolicySeparatedActorCriticModel,
+)
 from napoleon_ml.policy.onnx_export import build_policy_onnx_metadata
 
 STRICT_BEHAVIOR_LOG_PROB_PARITY_RTOL = 1e-4
@@ -248,7 +252,7 @@ def select_behavior_parity_tolerance(
 
 def validate_behavior_policy_provenance(
     *,
-    model: PolicyMlpModel | PolicyActorCriticModel,
+    model: PolicyMlpModel | PolicyActorCriticModel | PolicySeparatedActorCriticModel,
     checkpoint: dict[str, object],
     manifest: DatasetManifest,
     self_play_dataset_directory: Path,

@@ -15,7 +15,7 @@ from napoleon_ml.cli._policy_common import (
 from napoleon_ml.dataset.pytorch import create_playing_self_play_dataloader
 from napoleon_ml.dataset.split import DatasetSplit, SplitConfig
 from napoleon_ml.policy.actor_critic import (
-    ACTOR_CRITIC_ALGORITHM,
+    ACTOR_CRITIC_ALGORITHMS,
     ActorCriticTrainReport,
     ActorCriticTrainSettings,
     train_policy_actor_critic,
@@ -37,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--learning-rate", type=float, default=1e-5)
     parser.add_argument(
         "--algorithm",
-        choices=(REINFORCE_ALGORITHM, ACTOR_CRITIC_ALGORITHM),
+        choices=(REINFORCE_ALGORITHM, *ACTOR_CRITIC_ALGORITHMS),
         default=REINFORCE_ALGORITHM,
     )
     parser.add_argument("--value-loss-coefficient", type=float, default=0.5)
@@ -87,7 +87,7 @@ def _run(args: argparse.Namespace) -> int:
         verify_integrity=not args.no_integrity_check,
     )
     report: ActorCriticTrainReport | ReinforceTrainReport
-    if args.algorithm == ACTOR_CRITIC_ALGORITHM:
+    if args.algorithm in ACTOR_CRITIC_ALGORITHMS:
         ac_settings = ActorCriticTrainSettings(
             seed=seed,
             epochs=args.epochs,
@@ -100,6 +100,7 @@ def _run(args: argparse.Namespace) -> int:
             behavior_parity_max_observed_batch_size=(
                 args.behavior_parity_max_observed_batch_size
             ),
+            algorithm=args.algorithm,
         )
         report = train_policy_actor_critic(
             input_checkpoint=args.input_checkpoint,

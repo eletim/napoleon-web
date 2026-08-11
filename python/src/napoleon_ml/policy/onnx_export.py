@@ -33,7 +33,13 @@ from napoleon_ml.policy.checkpoint import (
     load_policy_logits_checkpoint,
 )
 from napoleon_ml.policy.metrics import select_policy_action
-from napoleon_ml.policy.model import PolicyActorCriticModel, PolicyMlpModel
+from napoleon_ml.policy.model import (
+    PolicyActorCriticModel,
+    PolicyMlpModel,
+    PolicySeparatedActorCriticModel,
+)
+
+PolicyLogitsModel = PolicyMlpModel | PolicyActorCriticModel | PolicySeparatedActorCriticModel
 
 ONNX_INPUT_NAME = "model_input"
 ONNX_OUTPUT_NAME = "logits"
@@ -151,7 +157,7 @@ def export_policy_checkpoint_to_onnx(
 
 def build_policy_onnx_metadata(
     *,
-    model: PolicyMlpModel | PolicyActorCriticModel,
+    model: PolicyLogitsModel,
     checkpoint: dict[str, object],
     source_checkpoint_sha256: str | None = None,
 ) -> dict[str, object]:
@@ -312,7 +318,7 @@ def _validate_checkpoint_metadata_for_export(checkpoint: dict[str, object]) -> N
             )
 
 
-def _validate_model_for_export(model: PolicyMlpModel | PolicyActorCriticModel) -> None:
+def _validate_model_for_export(model: PolicyLogitsModel) -> None:
     if model.config.input_dim != MODEL_INPUT_FEATURE_COUNT:
         raise PolicyCheckpointCompatibilityError(
             "checkpoint model_config.input_dim mismatch: "
@@ -335,7 +341,7 @@ def _validate_model_for_export(model: PolicyMlpModel | PolicyActorCriticModel) -
 
 def _export_onnx(
     *,
-    model: PolicyMlpModel | PolicyActorCriticModel,
+    model: PolicyLogitsModel,
     dummy_input: torch.Tensor,
     output: Path,
 ) -> None:
@@ -355,7 +361,7 @@ def _export_onnx(
 
 def _check_onnx_runtime_parity(
     *,
-    model: PolicyMlpModel | PolicyActorCriticModel,
+    model: PolicyLogitsModel,
     onnx_path: Path,
     sample: TensorizedPlayingSample,
 ) -> _OnnxParityResult:

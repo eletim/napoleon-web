@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from .actor_critic import (
     ACTOR_CRITIC_ALGORITHM,
+    ACTOR_CRITIC_ALGORITHMS,
     DEFAULT_VALUE_LOSS_COEFFICIENT,
+    SEPARATED_ACTOR_CRITIC_ALGORITHM,
     ActorCriticTrainReport,
     ActorCriticTrainSettings,
     actor_critic_losses,
@@ -12,8 +14,10 @@ from .actor_critic import (
 )
 from .checkpoint import (
     ACTOR_CRITIC_MODEL_ARCHITECTURE,
+    ACTOR_CRITIC_MODEL_ARCHITECTURES,
     CHECKPOINT_SCHEMA_VERSION,
     POLICY_MODEL_ARCHITECTURE,
+    SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE,
     PolicyCheckpointCompatibilityError,
     load_policy_checkpoint,
     load_policy_logits_checkpoint,
@@ -34,9 +38,12 @@ from .model import (
     PolicyActorCriticModel,
     PolicyMlpConfig,
     PolicyMlpModel,
+    PolicySeparatedActorCriticModel,
     create_actor_critic_from_policy_model,
     create_seeded_actor_critic_model,
     create_seeded_policy_model,
+    create_seeded_separated_actor_critic_model,
+    create_separated_actor_critic_from_policy_model,
 )
 from .onnx_export import (
     ONNX_INPUT_NAME,
@@ -61,9 +68,13 @@ from .reinforce import (
 __all__ = [
     "CHECKPOINT_SCHEMA_VERSION",
     "ACTOR_CRITIC_ALGORITHM",
+    "ACTOR_CRITIC_ALGORITHMS",
     "ACTOR_CRITIC_MODEL_ARCHITECTURE",
+    "ACTOR_CRITIC_MODEL_ARCHITECTURES",
     "DEFAULT_VALUE_LOSS_COEFFICIENT",
     "POLICY_MODEL_ARCHITECTURE",
+    "SEPARATED_ACTOR_CRITIC_ALGORITHM",
+    "SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE",
     "ActorCriticTrainReport",
     "ActorCriticTrainSettings",
     "PolicyCheckpointCompatibilityError",
@@ -72,6 +83,7 @@ __all__ = [
     "PolicyActorCriticModel",
     "PolicyMlpConfig",
     "PolicyMlpModel",
+    "PolicySeparatedActorCriticModel",
     "PolicyOnnxExportReport",
     "ONNX_INPUT_NAME",
     "ONNX_OUTPUT_NAME",
@@ -84,6 +96,8 @@ __all__ = [
     "create_actor_critic_from_policy_model",
     "create_seeded_actor_critic_model",
     "create_seeded_policy_model",
+    "create_seeded_separated_actor_critic_model",
+    "create_separated_actor_critic_from_policy_model",
     "evaluate_policy_model",
     "export_policy_checkpoint_to_onnx",
     "load_policy_checkpoint",

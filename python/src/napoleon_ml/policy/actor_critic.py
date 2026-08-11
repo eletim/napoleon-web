@@ -30,8 +30,10 @@ from napoleon_ml.policy.behavior_parity import (
 )
 from napoleon_ml.policy.checkpoint import (
     ACTOR_CRITIC_MODEL_ARCHITECTURE,
+    ACTOR_CRITIC_MODEL_ARCHITECTURES,
     CHECKPOINT_SCHEMA_VERSION,
     POLICY_MODEL_ARCHITECTURE,
+    SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE,
     PolicyCheckpointCompatibilityError,
 )
 from napoleon_ml.policy.device import (
@@ -47,7 +49,9 @@ from napoleon_ml.policy.model import (
     PolicyActorCriticModel,
     PolicyMlpConfig,
     PolicyMlpModel,
+    PolicySeparatedActorCriticModel,
     create_actor_critic_from_policy_model,
+    create_separated_actor_critic_from_policy_model,
 )
 from napoleon_ml.policy.reinforce import (
     DEFAULT_BEHAVIOR_PARITY_SUBSET_SIZE,
@@ -59,7 +63,10 @@ from napoleon_ml.policy.reinforce import (
 )
 
 ACTOR_CRITIC_ALGORITHM = "actor-critic-v1"
+SEPARATED_ACTOR_CRITIC_ALGORITHM = "actor-critic-separated-v1"
+ACTOR_CRITIC_ALGORITHMS = (ACTOR_CRITIC_ALGORITHM, SEPARATED_ACTOR_CRITIC_ALGORITHM)
 DEFAULT_VALUE_LOSS_COEFFICIENT = 0.5
+PlayingActorCriticModel = PolicyActorCriticModel | PolicySeparatedActorCriticModel
 
 
 @dataclass(frozen=True)
@@ -76,6 +83,7 @@ class ActorCriticTrainSettings:
     behavior_parity_subset_size: int = DEFAULT_BEHAVIOR_PARITY_SUBSET_SIZE
     behavior_parity_execution_provider: str | None = None
     behavior_parity_max_observed_batch_size: int | None = None
+    algorithm: str = ACTOR_CRITIC_ALGORITHM
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -91,6 +99,7 @@ class ActorCriticTrainSettings:
             "behaviorParitySubsetSize": self.behavior_parity_subset_size,
             "behaviorParityExecutionProvider": self.behavior_parity_execution_provider,
             "behaviorParityMaxObservedBatchSize": self.behavior_parity_max_observed_batch_size,
+            "algorithm": self.algorithm,
         }
 
 
@@ -207,8 +216,8 @@ class ActorCriticTrainReport:
 
 
 class _LoadedCheckpoint(NamedTuple):
-    behavior_model: PolicyMlpModel | PolicyActorCriticModel
-    training_model: PolicyActorCriticModel
+    behavior_model: PolicyMlpModel | PlayingActorCriticModel
+    training_model: PlayingActorCriticModel
     checkpoint: dict[str, object]
     sha256: str
     migrated_from_policy: bool
@@ -382,6 +391,7 @@ def train_policy_actor_critic(
         input_checkpoint,
         manifest=manifest,
         value_head_seed=settings.seed,
+        target_model_architecture=_model_architecture_for_algorithm(settings.algorithm),
     )
     behavior_provenance = validate_behavior_policy_provenance(
         model=loaded.behavior_model,
@@ -477,12 +487,12 @@ def train_policy_actor_critic(
     actor_delta_norm, changed_actor_parameter_count = _parameter_delta_for_prefixes(
         before_parameters,
         loaded.training_model,
-        prefixes=("trunk.", "policy_head."),
+        prefixes=_actor_parameter_prefixes(loaded.training_model),
     )
     critic_delta_norm, changed_critic_parameter_count = _parameter_delta_for_prefixes(
         before_parameters,
         loaded.training_model,
-        prefixes=("value_head.",),
+        prefixes=_critic_parameter_prefixes(loaded.training_model),
     )
     total_elapsed = elapsed_seconds_since(total_start, device)
 
@@ -571,7 +581,7 @@ def train_policy_actor_critic(
 
 @torch.no_grad()
 def evaluate_actor_critic_policy(
-    model: PolicyActorCriticModel,
+    model: PlayingActorCriticModel,
     dataloader: Iterable[PlayingSelfPlayTorchSample],
     *,
     temperature: float,
@@ -692,11 +702,13 @@ def load_checkpoint_for_actor_critic(
     *,
     manifest: DatasetManifest,
     value_head_seed: int | None = None,
+    target_model_architecture: str = ACTOR_CRITIC_MODEL_ARCHITECTURE,
 ) -> _LoadedCheckpoint:
     checkpoint_path = Path(path)
     raw = _load_raw_checkpoint(checkpoint_path)
     checkpoint = cast(dict[str, object], raw)
     _validate_checkpoint_for_actor_critic(checkpoint, manifest=manifest)
+    _validate_target_model_architecture(target_model_architecture)
 
     model_config_raw = checkpoint.get("model_config")
     if not isinstance(model_config_raw, dict):
@@ -704,17 +716,36 @@ def load_checkpoint_for_actor_critic(
     model_config = PolicyMlpConfig.from_dict(cast(dict[str, Any], model_config_raw))
 
     architecture = checkpoint.get("model_architecture", POLICY_MODEL_ARCHITECTURE)
+    training_model: PlayingActorCriticModel
     if architecture == POLICY_MODEL_ARCHITECTURE:
         policy_model = PolicyMlpModel(model_config)
         _load_model_state(policy_model, checkpoint)
-        training_model = create_actor_critic_from_policy_model(
-            policy_model,
-            seed=value_head_seed,
-        )
-        behavior_model: PolicyMlpModel | PolicyActorCriticModel = policy_model
+        if target_model_architecture == ACTOR_CRITIC_MODEL_ARCHITECTURE:
+            training_model = create_actor_critic_from_policy_model(
+                policy_model,
+                seed=value_head_seed,
+            )
+        elif target_model_architecture == SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE:
+            training_model = create_separated_actor_critic_from_policy_model(
+                policy_model,
+                seed=value_head_seed,
+            )
+        else:
+            raise AssertionError("target model architecture must be validated.")
+        behavior_model: PolicyMlpModel | PlayingActorCriticModel = policy_model
         migrated = True
-    elif architecture == ACTOR_CRITIC_MODEL_ARCHITECTURE:
-        actor_critic_model = PolicyActorCriticModel(model_config)
+    elif architecture in ACTOR_CRITIC_MODEL_ARCHITECTURES:
+        if architecture != target_model_architecture:
+            raise PolicyCheckpointCompatibilityError(
+                "checkpoint model_architecture mismatch for Actor-Critic training: "
+                f"expected {target_model_architecture!r}, got {architecture!r}."
+            )
+        if architecture == ACTOR_CRITIC_MODEL_ARCHITECTURE:
+            actor_critic_model: PlayingActorCriticModel = PolicyActorCriticModel(model_config)
+        elif architecture == SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE:
+            actor_critic_model = PolicySeparatedActorCriticModel(model_config)
+        else:
+            raise AssertionError("architecture must be validated.")
         _load_model_state(actor_critic_model, checkpoint)
         behavior_model = actor_critic_model
         training_model = actor_critic_model
@@ -807,7 +838,7 @@ def _load_raw_checkpoint(path: Path) -> dict[Any, Any]:
 
 
 def _load_model_state(
-    model: PolicyMlpModel | PolicyActorCriticModel,
+    model: PolicyMlpModel | PlayingActorCriticModel,
     checkpoint: dict[str, object],
 ) -> None:
     model_state = checkpoint.get("model_state")
@@ -823,20 +854,20 @@ def _load_model_state(
         ) from error
 
 
-def _clone_parameters(model: PolicyActorCriticModel) -> dict[str, Tensor]:
+def _clone_parameters(model: PlayingActorCriticModel) -> dict[str, Tensor]:
     return {name: parameter.detach().clone() for name, parameter in model.named_parameters()}
 
 
 def _parameter_delta(
     before: dict[str, Tensor],
-    model: PolicyActorCriticModel,
+    model: PlayingActorCriticModel,
 ) -> tuple[float, int]:
     return _parameter_delta_for_prefixes(before, model, prefixes=None)
 
 
 def _parameter_delta_for_prefixes(
     before: dict[str, Tensor],
-    model: PolicyActorCriticModel,
+    model: PlayingActorCriticModel,
     *,
     prefixes: tuple[str, ...] | None,
 ) -> tuple[float, int]:
@@ -849,6 +880,18 @@ def _parameter_delta_for_prefixes(
         squared_sum += float(torch.sum(diff * diff).item())
         changed += int(torch.ne(parameter.detach(), before[name]).sum().item())
     return math.sqrt(squared_sum), changed
+
+
+def _actor_parameter_prefixes(model: PlayingActorCriticModel) -> tuple[str, ...]:
+    if isinstance(model, PolicySeparatedActorCriticModel):
+        return ("actor.",)
+    return ("trunk.", "policy_head.")
+
+
+def _critic_parameter_prefixes(model: PlayingActorCriticModel) -> tuple[str, ...]:
+    if isinstance(model, PolicySeparatedActorCriticModel):
+        return ("critic.",)
+    return ("value_head.",)
 
 
 def _build_rl_provenance(
@@ -866,7 +909,8 @@ def _build_rl_provenance(
         raise ValueError("self-play manifest behaviorPolicy and reward metadata are required.")
 
     return {
-        "algorithm": ACTOR_CRITIC_ALGORITHM,
+        "algorithm": settings.algorithm,
+        "modelArchitecture": _model_architecture_for_algorithm(settings.algorithm),
         "parentCheckpointSha256": input_checkpoint_sha256,
         "selfPlayManifestSha256": _sha256_file(self_play_dataset_directory / "manifest.json"),
         "behaviorOnnxSha256": manifest.behavior_policy.onnx_sha256,
@@ -894,33 +938,39 @@ def _build_rl_provenance(
 def _save_actor_critic_checkpoint(
     path: Path,
     *,
-    model: PolicyActorCriticModel,
+    model: PlayingActorCriticModel,
     parent_checkpoint: dict[str, object],
     rl_provenance: dict[str, object],
     source_checkpoint_sha256: str,
     migrated_from_policy: bool,
 ) -> None:
     checkpoint = dict(parent_checkpoint)
-    checkpoint["model_architecture"] = ACTOR_CRITIC_MODEL_ARCHITECTURE
+    model_architecture = _model_architecture_for_model(model)
+    checkpoint["model_architecture"] = model_architecture
     checkpoint["model_state"] = cpu_state_dict(model)
     checkpoint["model_config"] = model.config.to_dict()
     checkpoint["rl_provenance"] = rl_provenance
     if migrated_from_policy:
         checkpoint["actor_critic_migration_provenance"] = {
-            "migration": "policy-mlp-to-playing-actor-critic-v1",
+            "migration": _migration_name_for_architecture(model_architecture),
             "sourceCheckpointSha256": source_checkpoint_sha256,
             "sourceModelArchitecture": parent_checkpoint.get(
                 "model_architecture", POLICY_MODEL_ARCHITECTURE
             ),
-            "targetModelArchitecture": ACTOR_CRITIC_MODEL_ARCHITECTURE,
-            "copiedParameters": ["trunk", "policy_head"],
-            "newParameters": ["value_head"],
+            "targetModelArchitecture": model_architecture,
+            "copiedParameters": _copied_parameters_for_architecture(model_architecture),
+            "newParameters": _new_parameters_for_architecture(model_architecture),
             "policyLogitsPreserved": True,
         }
     torch.save(checkpoint, path)
 
 
 def _validate_settings(settings: ActorCriticTrainSettings) -> None:
+    if settings.algorithm not in ACTOR_CRITIC_ALGORITHMS:
+        raise ValueError(
+            "algorithm must be one of "
+            f"{', '.join(ACTOR_CRITIC_ALGORITHMS)}, got {settings.algorithm!r}."
+        )
     if settings.epochs <= 0:
         raise ValueError(f"epochs must be positive, got {settings.epochs}.")
     if settings.batch_size <= 0:
@@ -948,6 +998,48 @@ def _validate_settings(settings: ActorCriticTrainSettings) -> None:
             "behavior_parity_max_observed_batch_size must be positive when set, "
             f"got {settings.behavior_parity_max_observed_batch_size}."
         )
+
+
+def _model_architecture_for_algorithm(algorithm: str) -> str:
+    if algorithm == ACTOR_CRITIC_ALGORITHM:
+        return ACTOR_CRITIC_MODEL_ARCHITECTURE
+    if algorithm == SEPARATED_ACTOR_CRITIC_ALGORITHM:
+        return SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE
+    raise ValueError(
+        f"algorithm must be one of {', '.join(ACTOR_CRITIC_ALGORITHMS)}, got {algorithm!r}."
+    )
+
+
+def _validate_target_model_architecture(model_architecture: str) -> None:
+    if model_architecture not in ACTOR_CRITIC_MODEL_ARCHITECTURES:
+        raise PolicyCheckpointCompatibilityError(
+            "target model architecture must be one of "
+            f"{', '.join(ACTOR_CRITIC_MODEL_ARCHITECTURES)}, got {model_architecture!r}."
+        )
+
+
+def _model_architecture_for_model(model: PlayingActorCriticModel) -> str:
+    if isinstance(model, PolicySeparatedActorCriticModel):
+        return SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE
+    return ACTOR_CRITIC_MODEL_ARCHITECTURE
+
+
+def _migration_name_for_architecture(model_architecture: str) -> str:
+    if model_architecture == SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE:
+        return "policy-mlp-to-playing-separated-actor-critic-v1"
+    return "policy-mlp-to-playing-actor-critic-v1"
+
+
+def _copied_parameters_for_architecture(model_architecture: str) -> list[str]:
+    if model_architecture == SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE:
+        return ["actor"]
+    return ["trunk", "policy_head"]
+
+
+def _new_parameters_for_architecture(model_architecture: str) -> list[str]:
+    if model_architecture == SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE:
+        return ["critic"]
+    return ["value_head"]
 
 
 def _sha256_file(path: Path) -> str:

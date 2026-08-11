@@ -15,12 +15,22 @@ from napoleon_ml.dataset.manifest import DatasetManifest
 from napoleon_ml.dataset.tensors import MODEL_INPUT_FEATURE_COUNT, MODEL_INPUT_SCHEMA_VERSION
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 
-from .model import PolicyActorCriticModel, PolicyMlpConfig, PolicyMlpModel
+from .model import (
+    PolicyActorCriticModel,
+    PolicyMlpConfig,
+    PolicyMlpModel,
+    PolicySeparatedActorCriticModel,
+)
 
 CHECKPOINT_SCHEMA_VERSION = 1
 LEGACY_V1_MODEL_INPUT_FEATURE_COUNT = 6242
 POLICY_MODEL_ARCHITECTURE = "policy-mlp-v1"
 ACTOR_CRITIC_MODEL_ARCHITECTURE = "playing-actor-critic-v1"
+SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE = "playing-separated-actor-critic-v1"
+ACTOR_CRITIC_MODEL_ARCHITECTURES = (
+    ACTOR_CRITIC_MODEL_ARCHITECTURE,
+    SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+)
 
 
 class PolicyCheckpointCompatibilityError(ValueError):
@@ -98,7 +108,10 @@ def load_policy_logits_checkpoint(
     path: Path | str,
     *,
     manifest: DatasetManifest,
-) -> tuple[PolicyMlpModel | PolicyActorCriticModel, dict[str, object]]:
+) -> tuple[
+    PolicyMlpModel | PolicyActorCriticModel | PolicySeparatedActorCriticModel,
+    dict[str, object],
+]:
     """Load any checkpoint that can emit playing policy logits."""
 
     checkpoint_path = Path(path)
@@ -112,9 +125,13 @@ def load_policy_logits_checkpoint(
     model_config = PolicyMlpConfig.from_dict(model_config_raw)
     architecture = raw.get("model_architecture", POLICY_MODEL_ARCHITECTURE)
     if architecture == POLICY_MODEL_ARCHITECTURE:
-        model: PolicyMlpModel | PolicyActorCriticModel = PolicyMlpModel(model_config)
+        model: PolicyMlpModel | PolicyActorCriticModel | PolicySeparatedActorCriticModel = (
+            PolicyMlpModel(model_config)
+        )
     elif architecture == ACTOR_CRITIC_MODEL_ARCHITECTURE:
         model = PolicyActorCriticModel(model_config)
+    elif architecture == SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE:
+        model = PolicySeparatedActorCriticModel(model_config)
     else:
         raise PolicyCheckpointCompatibilityError(
             f"checkpoint model_architecture is unsupported: {architecture!r}."
@@ -250,7 +267,7 @@ def migrate_policy_checkpoint_to_hidden_dims(
         "targetModelConfig": target_config.to_dict(),
         "copyStrategy": "leading-channel-relu-identity-expansion",
         "policyLogitsPreserved": True,
-        "valuePredictionPreserved": architecture == ACTOR_CRITIC_MODEL_ARCHITECTURE,
+        "valuePredictionPreserved": architecture in ACTOR_CRITIC_MODEL_ARCHITECTURES,
         "targetInitializationSeed": seed,
     }
 
@@ -280,6 +297,19 @@ def migrate_policy_checkpoint_to_hidden_dims(
             actor_critic_target_model,
         )
         migrated["model_state"] = actor_critic_target_model.state_dict()
+    elif architecture == SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE:
+        separated_source_model = PolicySeparatedActorCriticModel(source_config)
+        _load_model_state(
+            separated_source_model,
+            cast(dict[str, torch.Tensor], model_state),
+        )
+        torch.manual_seed(seed)
+        separated_target_model = PolicySeparatedActorCriticModel(target_config)
+        _copy_separated_actor_critic_function(
+            separated_source_model,
+            separated_target_model,
+        )
+        migrated["model_state"] = separated_target_model.state_dict()
     else:
         raise PolicyCheckpointCompatibilityError(
             f"checkpoint model_architecture is unsupported: {architecture!r}."
@@ -368,7 +398,7 @@ def _load_raw_checkpoint(path: Path) -> dict[Any, Any]:
 
 
 def _load_model_state(
-    model: PolicyMlpModel | PolicyActorCriticModel,
+    model: PolicyMlpModel | PolicyActorCriticModel | PolicySeparatedActorCriticModel,
     model_state: dict[str, torch.Tensor],
 ) -> None:
     try:
@@ -436,6 +466,21 @@ def _copy_actor_critic_function(
     )
 
 
+def _copy_separated_actor_critic_function(
+    source: PolicySeparatedActorCriticModel,
+    target: PolicySeparatedActorCriticModel,
+) -> None:
+    _copy_policy_function(source.actor, target.actor)
+    source_hidden, source_head = _policy_linear_layers_from_sequence(source.critic.network)
+    target_hidden, target_head = _policy_linear_layers_from_sequence(target.critic.network)
+    _copy_relu_mlp_function(
+        source_hidden=source_hidden,
+        source_heads=(source_head,),
+        target_hidden=target_hidden,
+        target_heads=(target_head,),
+    )
+
+
 def _copy_relu_mlp_function(
     *,
     source_hidden: list[nn.Linear],
@@ -491,10 +536,16 @@ def _zero_leading_rows(layer: nn.Linear, row_count: int) -> None:
 
 
 def _policy_linear_layers(model: PolicyMlpModel) -> tuple[list[nn.Linear], nn.Linear]:
-    layers = _linear_layers(model.network)
+    return _policy_linear_layers_from_sequence(model.network)
+
+
+def _policy_linear_layers_from_sequence(
+    sequence: nn.Sequential,
+) -> tuple[list[nn.Linear], nn.Linear]:
+    layers = _linear_layers(sequence)
     if len(layers) < 2:
         raise PolicyCheckpointCompatibilityError(
-            "policy model must contain hidden and head layers."
+            "MLP model must contain hidden and head layers."
         )
     return layers[:-1], layers[-1]
 
