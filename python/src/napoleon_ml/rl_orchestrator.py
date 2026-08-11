@@ -1701,8 +1701,8 @@ def _normalize_cpp_rollout_summary(
     }
 
 
-def _cpp_policy_backend(config: PlayingRlRunConfig) -> str:
-    return "onnx" if config.inference_device == "cuda" else "deterministic"
+def _cpp_policy_backend(_config: PlayingRlRunConfig) -> str:
+    return "onnx"
 
 
 def _require_frozen_policy_paths(config: PlayingRlRunConfig) -> tuple[Path, Path]:

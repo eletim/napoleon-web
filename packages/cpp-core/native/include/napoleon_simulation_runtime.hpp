@@ -52,6 +52,7 @@ struct AgentRequest {
   std::uint32_t game_id = 0;
   std::uint32_t game_index = 0;
   std::uint64_t sequence = 0;
+  std::uint64_t game_decision_count = 0;
   int player_index = 0;
   AgentIdentity agent;
   Phase phase = Phase::Bidding;

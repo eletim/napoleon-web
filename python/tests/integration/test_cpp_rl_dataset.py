@@ -96,6 +96,22 @@ def test_cpp_generated_rl_binary_dataset_loads_current_python_trainer_batch() ->
         assert manifest.sample_count == cli_summary["sampleCount"]
         assert manifest.sample_count == 30
         assert manifest.shard_count == 2
+        assert manifest.simulation_backend == "cpp"
+        assert isinstance(manifest.runtime, dict)
+        assert manifest.runtime["policyBackend"] == "deterministic"
+        assert manifest.runtime["rolloutConcurrency"] == 1
+        assert manifest.runtime["inferenceMaxBatchSize"] == 1
+        assert isinstance(manifest.inference, dict)
+        assert manifest.inference["requestCount"] == cli_summary["inference"]["requestCount"]
+        assert isinstance(manifest.provenance, dict)
+        assert manifest.provenance["currentArtifactId"] == "cpp-integration-policy"
+        assert manifest.provenance["frozenArtifactId"] == "rl-v740"
+        assert manifest.provenance["behaviorSamples"] == "current-policy-only"
+        assert isinstance(manifest.opponent_pool, dict)
+        assert manifest.opponent_pool["weighted"][0] == {"source": "rule-based", "weight": 1}
+        assert isinstance(manifest.seat_rotation, dict)
+        assert manifest.seat_rotation["current"] == "game-index-mod-player-count"
+        assert manifest.seat_rotation["rosterSeed"] == 17
 
         assert manifest.behavior_policy is not None
         assert manifest.behavior_policy.type == "playing-onnx"
@@ -104,10 +120,11 @@ def test_cpp_generated_rl_binary_dataset_loads_current_python_trainer_batch() ->
         assert len(manifest.behavior_policy.metadata_sha256) == 64
         assert isinstance(manifest.behavior_policy.metadata, dict)
         metadata = manifest.behavior_policy.metadata
-        assert metadata["producer"] == "cpp-rl-dataset-cli"
-        assert metadata["sampleAttribution"] == "current-policy-only"
-        assert metadata["rawCacheCompatible"] is True
-        assert metadata["rosterSpec"] == {
+        assert metadata["metadataSchemaVersion"] == 1
+        assert isinstance(metadata["policyModel"], dict)
+        assert metadata["policyModel"]["input_dim"] == MODEL_INPUT_FEATURE_COUNT
+        assert manifest.provenance["rawCacheCompatible"] is True
+        assert manifest.provenance["rosterSpec"] == {
             "kind": "current-plus-opponent-pool",
             "currentSeatRotation": "game-index-mod-player-count",
             "opponentPool": ["rule-based", "frozen-onnx"],
