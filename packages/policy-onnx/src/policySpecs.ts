@@ -7,6 +7,9 @@ import {
   BIDDING_MODEL_INPUT_SCHEMA_VERSION,
   BIDDING_MODEL_INPUT_FEATURE_COUNT,
   CARD_COUNT,
+  COMPLETE_INFO_PLAYING_ENCODER_SCHEMA_VERSION,
+  COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT,
+  COMPLETE_INFO_PLAYING_MODEL_INPUT_SCHEMA_VERSION,
   DATASET_SCHEMA_VERSION,
   EXCHANGE_DISCARD_COUNT,
   EXCHANGE_ENCODER_SCHEMA_VERSION,
@@ -26,8 +29,15 @@ import {
 } from "./constants.js";
 import type { NonPlayingPolicyType, PolicyOnnxIoMetadata } from "./types.js";
 
+export const PUBLIC_PLAYING_OBSERVATION_VARIANT = "public" as const;
+export const COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT = "complete-info-compact" as const;
+export type PlayingObservationVariant =
+  | typeof PUBLIC_PLAYING_OBSERVATION_VARIANT
+  | typeof COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT;
+
 export interface RuntimePolicyOnnxSpec {
   policyType: "playing" | NonPlayingPolicyType;
+  playingObservationVariant?: PlayingObservationVariant;
   artifactType?: string;
   metadataSchemaVersion: number;
   checkpointSchemaVersion: number;
@@ -48,6 +58,7 @@ export interface RuntimePolicyOnnxSpec {
 
 export const PLAYING_POLICY_ONNX_SPEC: RuntimePolicyOnnxSpec = {
   policyType: "playing",
+  playingObservationVariant: PUBLIC_PLAYING_OBSERVATION_VARIANT,
   metadataSchemaVersion: POLICY_ONNX_METADATA_SCHEMA_VERSION,
   checkpointSchemaVersion: POLICY_CHECKPOINT_SCHEMA_VERSION,
   datasetSchemaVersion: DATASET_SCHEMA_VERSION,
@@ -63,6 +74,26 @@ export const PLAYING_POLICY_ONNX_SPEC: RuntimePolicyOnnxSpec = {
   inputDtype: ONNX_DTYPE,
   outputDtype: ONNX_DTYPE
 };
+
+export const COMPLETE_INFO_COMPACT_PLAYING_POLICY_ONNX_SPEC: RuntimePolicyOnnxSpec = {
+  ...PLAYING_POLICY_ONNX_SPEC,
+  playingObservationVariant: COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT,
+  encoderSchemaVersion: COMPLETE_INFO_PLAYING_ENCODER_SCHEMA_VERSION,
+  modelInputSchemaVersion: COMPLETE_INFO_PLAYING_MODEL_INPUT_SCHEMA_VERSION,
+  modelInputFeatureCount: COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT,
+  inputShape: [ONNX_BATCH_DIMENSION, COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT]
+};
+
+export function getPlayingPolicyOnnxSpec(
+  variant: PlayingObservationVariant
+): RuntimePolicyOnnxSpec {
+  switch (variant) {
+    case PUBLIC_PLAYING_OBSERVATION_VARIANT:
+      return PLAYING_POLICY_ONNX_SPEC;
+    case COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT:
+      return COMPLETE_INFO_COMPACT_PLAYING_POLICY_ONNX_SPEC;
+  }
+}
 
 export const NONPLAYING_POLICY_ONNX_SPECS = {
   bidding: {

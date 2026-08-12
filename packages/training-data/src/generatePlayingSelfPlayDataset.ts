@@ -3,20 +3,31 @@ import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/p
 import { basename, dirname, join, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
 import { RuleBasedAgent, runAutomatedGame } from "@napoleon/ai";
-import type { Agent, AutomatedGameRecord, DecisionRecord, PlayerObservation } from "@napoleon/ai";
+import type {
+  ActualCardState,
+  Agent,
+  AutomatedGameRecord,
+  DecisionRecord,
+  PlayerObservation
+} from "@napoleon/ai";
 import type { GameAction, PlayerId, WinningTeam } from "@napoleon/game-core";
 import {
   CARD_COUNT,
   CARD_IDS,
+  COMPLETE_INFO_PLAYING_ENCODER_SCHEMA_VERSION,
+  COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT,
+  COMPLETE_INFO_PLAYING_MODEL_INPUT_SCHEMA_VERSION,
   MODEL_INPUT_FEATURE_COUNT,
   MODEL_INPUT_SCHEMA_VERSION,
   PLAYER_COUNT,
   PLAYING_ENCODER_SCHEMA_VERSION,
   SELF_ROLE_ORDER,
+  createCompleteInfoPlayingModelInput,
   createPlayingModelInput,
   createRelativePlayerOrder,
   encodeBiddingHistory,
   encodeBiddingHistoryFromPublicActions,
+  encodeCompleteInfoPlayingObservation,
   encodePlayingObservation,
   getCardId,
   getCardIndex,
@@ -48,8 +59,13 @@ export const PLAYING_SELF_PLAY_ROSTER_ASSIGNMENT = "rotate-by-seed" as const;
 export const CURRENT_POLICY_ROSTER_SOURCE = "current-policy" as const;
 export const RULE_BASED_ROSTER_SOURCE = "rule-based" as const;
 export const FROZEN_ONNX_ROSTER_SOURCE = "frozen-onnx" as const;
+export const PUBLIC_PLAYING_OBSERVATION_VARIANT = "public" as const;
+export const COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT = "complete-info-compact" as const;
 
 export type PlayingSelfPlayRole = typeof SELF_ROLE_ORDER[number];
+export type PlayingObservationVariant =
+  | typeof PUBLIC_PLAYING_OBSERVATION_VARIANT
+  | typeof COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT;
 export type PlayingSelfPlayRosterSource =
   | typeof CURRENT_POLICY_ROSTER_SOURCE
   | typeof RULE_BASED_ROSTER_SOURCE
@@ -201,6 +217,7 @@ export interface GeneratePlayingSelfPlayDatasetOptions {
   gameRunner?: PlayingSelfPlayGameRunner;
   format?: typeof PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT | typeof DATASET_FORMAT;
   binaryCompression?: PlayingSelfPlayBinaryCompression;
+  observationVariant?: PlayingObservationVariant;
 }
 
 export interface PlayingSelfPlayGameRunRequest {
@@ -211,6 +228,7 @@ export interface PlayingSelfPlayGameRunRequest {
   rolloutRoster: PlayingSelfPlayRolloutRosterOptions | undefined;
   temperature: number;
   maxDecisionSteps: number | undefined;
+  observationVariant: PlayingObservationVariant;
 }
 
 export interface PlayingSelfPlayGameRunResult {
@@ -245,8 +263,14 @@ export interface PlayingSelfPlayDatasetManifest {
   cardIds: readonly string[];
   cardIdsSha256: string;
   shards: readonly DatasetShardManifest[];
-  playingEncoderSchemaVersion: typeof PLAYING_ENCODER_SCHEMA_VERSION;
-  playingModelInputSchemaVersion: typeof MODEL_INPUT_SCHEMA_VERSION;
+  playingEncoderSchemaVersion:
+    | typeof PLAYING_ENCODER_SCHEMA_VERSION
+    | typeof COMPLETE_INFO_PLAYING_ENCODER_SCHEMA_VERSION;
+  playingModelInputSchemaVersion:
+    | typeof MODEL_INPUT_SCHEMA_VERSION
+    | typeof COMPLETE_INFO_PLAYING_MODEL_INPUT_SCHEMA_VERSION;
+  playingObservationVariant: PlayingObservationVariant;
+  modelInputFeatureCount: number;
   behaviorPolicy: {
     type: "playing-onnx";
     artifactId: string;
@@ -317,29 +341,39 @@ interface PlayingSelfPlayShardWriter {
 
 const BINARY_SHARD_MAGIC = Buffer.from("NPSPBD01", "ascii");
 
-const PLAYING_SELF_PLAY_BINARY_TENSOR_SCHEMA: PlayingSelfPlayBinaryTensorSchema = {
-  shardSchemaVersion: PLAYING_SELF_PLAY_BINARY_SHARD_SCHEMA_VERSION,
-  byteOrder: "little-endian",
-  compression: "none",
-  fields: [
-    { name: "modelInput", dtype: "float32", shape: [MODEL_INPUT_FEATURE_COUNT] },
-    { name: "legalPlayMask", dtype: "uint8", shape: [CARD_COUNT] },
-    { name: "selectedCardIndex", dtype: "uint8", shape: [] },
-    { name: "behaviorLogProbability", dtype: "float32", shape: [] },
-    { name: "terminalReward", dtype: "int8", shape: [] },
-    { name: "seed", dtype: "uint32", shape: [] },
-    { name: "step", dtype: "uint16", shape: [] },
-    { name: "actingPlayerIndex", dtype: "uint8", shape: [] },
-    { name: "selfRoleIndex", dtype: "uint8", shape: [] }
-  ]
-};
+function createPlayingSelfPlayBinaryTensorSchema(
+  observationVariant: PlayingObservationVariant,
+  compression: PlayingSelfPlayBinaryCompression = "none"
+): PlayingSelfPlayBinaryTensorSchema {
+  return {
+    shardSchemaVersion: PLAYING_SELF_PLAY_BINARY_SHARD_SCHEMA_VERSION,
+    byteOrder: "little-endian",
+    compression,
+    fields: [
+      {
+        name: "modelInput",
+        dtype: "float32",
+        shape: [modelInputFeatureCountForVariant(observationVariant)]
+      },
+      { name: "legalPlayMask", dtype: "uint8", shape: [CARD_COUNT] },
+      { name: "selectedCardIndex", dtype: "uint8", shape: [] },
+      { name: "behaviorLogProbability", dtype: "float32", shape: [] },
+      { name: "terminalReward", dtype: "int8", shape: [] },
+      { name: "seed", dtype: "uint32", shape: [] },
+      { name: "step", dtype: "uint16", shape: [] },
+      { name: "actingPlayerIndex", dtype: "uint8", shape: [] },
+      { name: "selfRoleIndex", dtype: "uint8", shape: [] }
+    ]
+  };
+}
 
 function createPlayingSelfPlayShardWriter(
   directory: string,
   shardIndex: number,
   startSeed: number,
   format: typeof PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT | typeof DATASET_FORMAT,
-  binaryCompression: PlayingSelfPlayBinaryCompression
+  binaryCompression: PlayingSelfPlayBinaryCompression,
+  observationVariant: PlayingObservationVariant
 ): PlayingSelfPlayShardWriter {
   if (format === DATASET_FORMAT) {
     return createJsonlShardWriter(
@@ -354,7 +388,8 @@ function createPlayingSelfPlayShardWriter(
     directory,
     shardIndex,
     startSeed,
-    binaryCompression
+    binaryCompression,
+    observationVariant
   );
 }
 
@@ -362,7 +397,8 @@ function createBinaryPlayingSelfPlayShardWriter(
   directory: string,
   shardIndex: number,
   startSeed: number,
-  compression: PlayingSelfPlayBinaryCompression
+  compression: PlayingSelfPlayBinaryCompression,
+  observationVariant: PlayingObservationVariant
 ): PlayingSelfPlayShardWriter {
   const fileName = binaryShardFileName(shardIndex);
   const samples: PlayingSelfPlayTensorSample[] = [];
@@ -386,7 +422,7 @@ function createBinaryPlayingSelfPlayShardWriter(
         throw new Error(`Cannot close shard ${fileName} more than once.`);
       }
       closed = true;
-      const bytes = serializeBinaryPlayingSelfPlayShard(samples, compression);
+      const bytes = serializeBinaryPlayingSelfPlayShard(samples, compression, observationVariant);
       await writeFile(join(directory, fileName), bytes);
       return {
         file: fileName,
@@ -407,10 +443,12 @@ function createBinaryPlayingSelfPlayShardWriter(
 
 function serializeBinaryPlayingSelfPlayShard(
   samples: readonly PlayingSelfPlayTensorSample[],
-  compression: PlayingSelfPlayBinaryCompression
+  compression: PlayingSelfPlayBinaryCompression,
+  observationVariant: PlayingObservationVariant
 ): Buffer {
   const sampleCount = samples.length;
-  const modelInput = new Float32Array(sampleCount * MODEL_INPUT_FEATURE_COUNT);
+  const modelInputFeatureCount = modelInputFeatureCountForVariant(observationVariant);
+  const modelInput = new Float32Array(sampleCount * modelInputFeatureCount);
   const legalPlayMask = new Uint8Array(sampleCount * CARD_COUNT);
   const selectedCardIndex = new Uint8Array(sampleCount);
   const behaviorLogProbability = new Float32Array(sampleCount);
@@ -421,7 +459,7 @@ function serializeBinaryPlayingSelfPlayShard(
   const selfRoleIndex = new Uint8Array(sampleCount);
 
   samples.forEach((sample, index) => {
-    modelInput.set(sample.modelInput, index * MODEL_INPUT_FEATURE_COUNT);
+    modelInput.set(sample.modelInput, index * modelInputFeatureCount);
     legalPlayMask.set(sample.legalPlayMask, index * CARD_COUNT);
     selectedCardIndex[index] = sample.selectedCardIndex;
     behaviorLogProbability[index] = sample.behaviorLogProbability;
@@ -444,7 +482,7 @@ function serializeBinaryPlayingSelfPlayShard(
     bufferFromTypedArray(selfRoleIndex)
   ];
   let byteOffset = 0;
-  const fields = PLAYING_SELF_PLAY_BINARY_TENSOR_SCHEMA.fields.map((field, index) => {
+  const fields = createPlayingSelfPlayBinaryTensorSchema(observationVariant).fields.map((field, index) => {
     const byteLength = buffers[index].byteLength;
     const record = { ...field, byteOffset, byteLength };
     byteOffset += byteLength;
@@ -457,7 +495,8 @@ function serializeBinaryPlayingSelfPlayShard(
     sampleType: PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE,
     sampleSchemaVersion: PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION,
     sampleCount,
-    modelInputFeatureCount: MODEL_INPUT_FEATURE_COUNT,
+    modelInputFeatureCount,
+    playingObservationVariant: observationVariant,
     cardCount: CARD_COUNT,
     byteOrder: "little-endian",
     compression,
@@ -483,6 +522,7 @@ export async function generatePlayingSelfPlayDataset(
   const outputDirectory = resolve(options.outputDirectory);
   const format = options.format ?? PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT;
   const binaryCompression = options.binaryCompression ?? "none";
+  const observationVariant = options.observationVariant ?? PUBLIC_PLAYING_OBSERVATION_VARIANT;
   await ensureOutputDoesNotExist(outputDirectory);
   await mkdir(dirname(outputDirectory), { recursive: true });
 
@@ -526,7 +566,8 @@ export async function generatePlayingSelfPlayDataset(
         behaviorPolicyArtifactId: artifact.artifactId,
         rolloutRoster: options.rolloutRoster,
         temperature,
-        maxDecisionSteps: options.maxDecisionSteps
+        maxDecisionSteps: options.maxDecisionSteps,
+        observationVariant
       }).then(
         (result) => {
           const resultSeed = getGameRunSeed(result);
@@ -586,7 +627,8 @@ export async function generatePlayingSelfPlayDataset(
           shards.length,
           seed,
           format,
-          binaryCompression
+          binaryCompression,
+          observationVariant
         );
         shardGameCount = 0;
       }
@@ -594,11 +636,11 @@ export async function generatePlayingSelfPlayDataset(
       const samples = await getSamplesForGameRunResult(result, options.playingPolicy, temperature, {
         behaviorPolicyArtifactId: artifact.artifactId,
         rolloutSeatSources: assignRolloutRosterForSeed(options.rolloutRoster, seed).map((seat) => seat.source)
-      }, format);
+      }, format, observationVariant);
 
       for (const sample of samples) {
         if (isPlayingSelfPlayTensorSample(sample)) {
-          validatePlayingSelfPlayTensorSample(sample, seed);
+          validatePlayingSelfPlayTensorSample(sample, seed, observationVariant);
         } else {
           validatePlayingSelfPlaySample(sample, seed);
         }
@@ -635,7 +677,8 @@ export async function generatePlayingSelfPlayDataset(
       shards,
       artifact,
       rolloutRoster,
-      format
+      format,
+      observationVariant
     });
     const rolloutTiming = createPlayingSelfPlayRolloutTiming({
       options,
@@ -730,11 +773,14 @@ async function getSamplesForGameRunResult(
     behaviorPolicyArtifactId: string;
     rolloutSeatSources: readonly PlayingSelfPlayRosterSource[];
   },
-  format: typeof PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT | typeof DATASET_FORMAT
+  format: typeof PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT | typeof DATASET_FORMAT,
+  observationVariant: PlayingObservationVariant
 ): Promise<readonly PlayingSelfPlayWritableSample[]> {
   if (isPlayingSelfPlayGameRunResult(result)) {
     if (format === PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT && result.tensorSamples !== undefined) {
-      return result.tensorSamples.map(normalizePlayingSelfPlayTensorSample);
+      return result.tensorSamples.map((sample) =>
+        normalizePlayingSelfPlayTensorSample(sample, observationVariant)
+      );
     }
     if (result.samples !== undefined) {
       if (format === PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT) {
@@ -853,7 +899,8 @@ export function validatePlayingSelfPlaySample(
 
 export function validatePlayingSelfPlayTensorSample(
   sample: PlayingSelfPlayTensorSample,
-  expectedSeed: number
+  expectedSeed: number,
+  observationVariant: PlayingObservationVariant = PUBLIC_PLAYING_OBSERVATION_VARIANT
 ): void {
   if (sample.sampleType !== PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE) {
     throw new Error(`Tensor sample sampleType must be ${PLAYING_SELF_PLAY_DATASET_SAMPLE_TYPE}.`);
@@ -870,8 +917,9 @@ export function validatePlayingSelfPlayTensorSample(
   validatePlayerIndex("actingPlayerIndex", sample.actingPlayerIndex);
   validateSelfRoleIndex("selfRoleIndex", sample.selfRoleIndex);
 
-  if (!isFloat32ArrayLike(sample.modelInput) || sample.modelInput.length !== MODEL_INPUT_FEATURE_COUNT) {
-    throw new Error(`modelInput must be Float32Array-like(${MODEL_INPUT_FEATURE_COUNT}).`);
+  const modelInputFeatureCount = modelInputFeatureCountForVariant(observationVariant);
+  if (!isFloat32ArrayLike(sample.modelInput) || sample.modelInput.length !== modelInputFeatureCount) {
+    throw new Error(`modelInput must be Float32Array-like(${modelInputFeatureCount}).`);
   }
   for (const [index, value] of sample.modelInput.entries()) {
     if (!Number.isFinite(value)) {
@@ -921,7 +969,10 @@ export function validatePlayingSelfPlayDatasetManifest(
     throw new Error("Self-play manifest format or sample type mismatch.");
   }
   if (manifest.format === PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT) {
-    validatePlayingSelfPlayBinaryTensorSchema(manifest.tensorSchema);
+    validatePlayingSelfPlayBinaryTensorSchema(
+      manifest.tensorSchema,
+      manifest.playingObservationVariant
+    );
   } else if (manifest.tensorSchema !== undefined) {
     throw new Error("Legacy JSONL self-play manifest must not include tensorSchema.");
   }
@@ -957,7 +1008,17 @@ export function validatePlayingSelfPlayDatasetManifest(
     manifest.playingEncoderSchemaVersion !== PLAYING_ENCODER_SCHEMA_VERSION ||
     manifest.playingModelInputSchemaVersion !== MODEL_INPUT_SCHEMA_VERSION
   ) {
-    throw new Error("Self-play manifest playing schema metadata mismatch.");
+    if (manifest.playingObservationVariant === PUBLIC_PLAYING_OBSERVATION_VARIANT) {
+      throw new Error("Self-play manifest playing schema metadata mismatch.");
+    }
+  }
+  if (
+    !isPlayingObservationVariant(manifest.playingObservationVariant) ||
+    manifest.playingEncoderSchemaVersion !== playingEncoderSchemaVersionForVariant(manifest.playingObservationVariant) ||
+    manifest.playingModelInputSchemaVersion !== modelInputSchemaVersionForVariant(manifest.playingObservationVariant) ||
+    manifest.modelInputFeatureCount !== modelInputFeatureCountForVariant(manifest.playingObservationVariant)
+  ) {
+    throw new Error("Self-play manifest playing observation variant metadata mismatch.");
   }
   if (
     manifest.behaviorPolicy.type !== "playing-onnx" ||
@@ -1006,7 +1067,8 @@ function isExpectedSelfPlayFormatAndSchema(manifest: PlayingSelfPlayDatasetManif
 }
 
 function validatePlayingSelfPlayBinaryTensorSchema(
-  schema: PlayingSelfPlayBinaryTensorSchema | undefined
+  schema: PlayingSelfPlayBinaryTensorSchema | undefined,
+  observationVariant: PlayingObservationVariant = PUBLIC_PLAYING_OBSERVATION_VARIANT
 ): void {
   if (schema === undefined) {
     throw new Error("Binary self-play manifest tensorSchema is required.");
@@ -1018,11 +1080,12 @@ function validatePlayingSelfPlayBinaryTensorSchema(
   ) {
     throw new Error("Binary self-play manifest tensorSchema metadata mismatch.");
   }
-  if (schema.fields.length !== PLAYING_SELF_PLAY_BINARY_TENSOR_SCHEMA.fields.length) {
+  const expectedSchema = createPlayingSelfPlayBinaryTensorSchema(observationVariant);
+  if (schema.fields.length !== expectedSchema.fields.length) {
     throw new Error("Binary self-play manifest tensorSchema field count mismatch.");
   }
   schema.fields.forEach((field, index) => {
-    const expected = PLAYING_SELF_PLAY_BINARY_TENSOR_SCHEMA.fields[index];
+    const expected = expectedSchema.fields[index];
     if (
       field.name !== expected.name ||
       field.dtype !== expected.dtype ||
@@ -1037,6 +1100,33 @@ function isSupportedPlayingSelfPlayBinaryCompression(
   value: string
 ): value is PlayingSelfPlayBinaryCompression {
   return value === "none" || value === "gzip";
+}
+
+function isPlayingObservationVariant(value: unknown): value is PlayingObservationVariant {
+  return value === PUBLIC_PLAYING_OBSERVATION_VARIANT ||
+    value === COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT;
+}
+
+function playingEncoderSchemaVersionForVariant(
+  observationVariant: PlayingObservationVariant
+): typeof PLAYING_ENCODER_SCHEMA_VERSION | typeof COMPLETE_INFO_PLAYING_ENCODER_SCHEMA_VERSION {
+  return observationVariant === PUBLIC_PLAYING_OBSERVATION_VARIANT
+    ? PLAYING_ENCODER_SCHEMA_VERSION
+    : COMPLETE_INFO_PLAYING_ENCODER_SCHEMA_VERSION;
+}
+
+function modelInputSchemaVersionForVariant(
+  observationVariant: PlayingObservationVariant
+): typeof MODEL_INPUT_SCHEMA_VERSION | typeof COMPLETE_INFO_PLAYING_MODEL_INPUT_SCHEMA_VERSION {
+  return observationVariant === PUBLIC_PLAYING_OBSERVATION_VARIANT
+    ? MODEL_INPUT_SCHEMA_VERSION
+    : COMPLETE_INFO_PLAYING_MODEL_INPUT_SCHEMA_VERSION;
+}
+
+function modelInputFeatureCountForVariant(observationVariant: PlayingObservationVariant): number {
+  return observationVariant === PUBLIC_PLAYING_OBSERVATION_VARIANT
+    ? MODEL_INPUT_FEATURE_COUNT
+    : COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT;
 }
 
 function validateRolloutRosterManifest(roster: PlayingSelfPlayRolloutRosterManifest): void {
@@ -1101,8 +1191,10 @@ export async function runPlayingSelfPlayGame(options: {
   rolloutRoster: PlayingSelfPlayRolloutRosterOptions | undefined;
   temperature: number;
   maxDecisionSteps: number | undefined;
+  observationVariant?: PlayingObservationVariant;
 }): Promise<AutomatedGameRecord> {
   const assignedRoster = assignRolloutRosterForSeed(options.rolloutRoster, options.seed);
+  const observationVariant = options.observationVariant ?? PUBLIC_PLAYING_OBSERVATION_VARIANT;
 
   return runAutomatedGame({
     seed: options.seed,
@@ -1115,7 +1207,8 @@ export async function runPlayingSelfPlayGame(options: {
           return new PlayingSelfPlayAgent({
             policy: options.currentPolicy,
             rng,
-            temperature: options.temperature
+            temperature: options.temperature,
+            observationVariant
           });
         case RULE_BASED_ROSTER_SOURCE:
           return new RuleBasedAgent(rng);
@@ -1123,7 +1216,8 @@ export async function runPlayingSelfPlayGame(options: {
           return new PlayingSelfPlayAgent({
             policy: seat.policy,
             rng,
-            temperature: options.temperature
+            temperature: options.temperature,
+            observationVariant: PUBLIC_PLAYING_OBSERVATION_VARIANT
           });
       }
     }
@@ -1137,8 +1231,10 @@ export async function runPlayingSelfPlayGameWithSamples(options: {
   rolloutRoster: PlayingSelfPlayRolloutRosterOptions | undefined;
   temperature: number;
   maxDecisionSteps: number | undefined;
+  observationVariant?: PlayingObservationVariant;
 }): Promise<PlayingSelfPlayGameRunResult> {
   const assignedRoster = assignRolloutRosterForSeed(options.rolloutRoster, options.seed);
+  const observationVariant = options.observationVariant ?? PUBLIC_PLAYING_OBSERVATION_VARIANT;
   const sampledDecisions: PlayingSelfPlaySampleDraft[] = [];
   const record = await runAutomatedGame({
     seed: options.seed,
@@ -1152,6 +1248,7 @@ export async function runPlayingSelfPlayGameWithSamples(options: {
             policy: options.currentPolicy,
             rng,
             temperature: options.temperature,
+            observationVariant,
             recordSample: (sample) => {
               sampledDecisions.push(sample);
             }
@@ -1162,20 +1259,26 @@ export async function runPlayingSelfPlayGameWithSamples(options: {
           return new PlayingSelfPlayAgent({
             policy: seat.policy,
             rng,
-            temperature: options.temperature
+            temperature: options.temperature,
+            observationVariant: PUBLIC_PLAYING_OBSERVATION_VARIANT
           });
       }
     }
   });
-  const samples = completePlayingSelfPlaySamples(record, sampledDecisions, {
-    behaviorPolicyArtifactId: options.behaviorPolicyArtifactId,
-    rolloutSeatSources: assignedRoster.map((seat) => seat.source)
-  });
+  const samples = observationVariant === PUBLIC_PLAYING_OBSERVATION_VARIANT
+    ? completePlayingSelfPlaySamples(record, sampledDecisions, {
+        behaviorPolicyArtifactId: options.behaviorPolicyArtifactId,
+        rolloutSeatSources: assignedRoster.map((seat) => seat.source)
+      })
+    : undefined;
   const tensorSamples = completePlayingSelfPlayTensorSamples(record, sampledDecisions, {
-    rolloutSeatSources: assignedRoster.map((seat) => seat.source)
+    rolloutSeatSources: assignedRoster.map((seat) => seat.source),
+    observationVariant
   });
 
-  return { seed: record.seed, samples, tensorSamples };
+  return samples !== undefined
+    ? { seed: record.seed, samples, tensorSamples }
+    : { seed: record.seed, tensorSamples };
 }
 
 const defaultPlayingSelfPlayGameRunner: PlayingSelfPlayGameRunner = {
@@ -1185,7 +1288,7 @@ const defaultPlayingSelfPlayGameRunner: PlayingSelfPlayGameRunner = {
 interface PlayingSelfPlaySampleDraft {
   playerId: PlayerId;
   relativePlayerIds: readonly PlayerId[];
-  observation: ReturnType<typeof encodePlayingObservation>;
+  observation?: ReturnType<typeof encodePlayingObservation>;
   modelInput: Float32Array;
   legalPlayMask: Uint8Array;
   selectedCardIndex: number;
@@ -1200,6 +1303,7 @@ class PlayingSelfPlayAgent implements Agent {
       policy: PlayingSelfPlayPolicy;
       rng: () => number;
       temperature: number;
+      observationVariant: PlayingObservationVariant;
       recordSample?: (sample: PlayingSelfPlaySampleDraft) => void;
     }
   ) {
@@ -1207,11 +1311,23 @@ class PlayingSelfPlayAgent implements Agent {
   }
 
   async selectAction(observation: PlayerObservation): Promise<GameAction> {
+    return this.selectActionWithContext(observation);
+  }
+
+  async selectActionWithContext(
+    observation: PlayerObservation,
+    context?: { actualState: ActualCardState; playerIds: readonly PlayerId[] }
+  ): Promise<GameAction> {
     if (observation.view.phase !== "playing") {
       return this.ruleBasedAgent.selectAction(observation);
     }
 
-    const { modelInput, legalPlayMask, encodedObservation } = createPlayingSelfPlayPolicyInput(observation);
+    const { modelInput, legalPlayMask, encodedObservation, relativePlayerIds } =
+      createPlayingSelfPlayPolicyInput(
+        observation,
+        this.options.observationVariant,
+        context
+      );
     const logits = await this.options.policy.predictLogits(modelInput);
     const selection = samplePlayingSelfPlayAction({
       logits,
@@ -1232,7 +1348,7 @@ class PlayingSelfPlayAgent implements Agent {
 
     this.options.recordSample?.({
       playerId: observation.playerId,
-      relativePlayerIds: encodedObservation.relativePlayerIds,
+      relativePlayerIds,
       observation: encodedObservation,
       modelInput: Float32Array.from(modelInput),
       legalPlayMask: Uint8Array.from(legalPlayMask),
@@ -1244,10 +1360,15 @@ class PlayingSelfPlayAgent implements Agent {
   }
 }
 
-function createPlayingSelfPlayPolicyInput(observation: PlayerObservation): {
+function createPlayingSelfPlayPolicyInput(
+  observation: PlayerObservation,
+  observationVariant: PlayingObservationVariant,
+  context: { actualState: ActualCardState; playerIds: readonly PlayerId[] } | undefined
+): {
   modelInput: Float32Array;
   legalPlayMask: readonly number[];
-  encodedObservation: ReturnType<typeof encodePlayingObservation>;
+  encodedObservation?: ReturnType<typeof encodePlayingObservation>;
+  relativePlayerIds: readonly PlayerId[];
 } {
   if (observation.view.phase !== "playing") {
     throw new Error(
@@ -1255,12 +1376,31 @@ function createPlayingSelfPlayPolicyInput(observation: PlayerObservation): {
     );
   }
 
+  const absolutePlayerIds = observation.view.players.map((player) => player.id);
+  const relativePlayerIds = createRelativePlayerOrder(absolutePlayerIds, observation.playerId);
+
+  if (observationVariant === COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT) {
+    if (context === undefined) {
+      throw new Error("Complete-info compact self-play input requires runtime actual state.");
+    }
+    if (!sameStringArray(context.playerIds, absolutePlayerIds)) {
+      throw new Error("Complete-info compact self-play playerIds must match observation order.");
+    }
+    const completeInfoObservation = encodeCompleteInfoPlayingObservation(
+      observation,
+      context.actualState,
+      context.playerIds
+    );
+    const { modelInput, legalPlayMask } =
+      createCompleteInfoPlayingModelInput(completeInfoObservation);
+
+    return { modelInput, legalPlayMask, relativePlayerIds };
+  }
+
   if (observation.publicActionHistory === undefined) {
     throw new Error("Playing self-play policy input requires publicActionHistory.");
   }
 
-  const absolutePlayerIds = observation.view.players.map((player) => player.id);
-  const relativePlayerIds = createRelativePlayerOrder(absolutePlayerIds, observation.playerId);
   const biddingHistory = encodeBiddingHistoryFromPublicActions(
     observation.publicActionHistory,
     relativePlayerIds
@@ -1272,7 +1412,7 @@ function createPlayingSelfPlayPolicyInput(observation: PlayerObservation): {
   );
   const { modelInput, legalPlayMask } = createPlayingModelInput(encodedObservation);
 
-  return { modelInput, legalPlayMask, encodedObservation };
+  return { modelInput, legalPlayMask, encodedObservation, relativePlayerIds };
 }
 
 function samplePlayingSelfPlayAction(options: {
@@ -1439,6 +1579,9 @@ function completePlayingSelfPlaySamples(
     if (!sameStringArray(sampledDecision.relativePlayerIds, relativePlayerIds)) {
       throw new Error("Sampled action relativePlayerIds mismatch.");
     }
+    if (sampledDecision.observation === undefined) {
+      throw new Error("Public self-play samples require an encoded public observation.");
+    }
     if (!sameStringArray(sampledDecision.relativePlayerIds, sampledDecision.observation.relativePlayerIds)) {
       throw new Error("Sampled action observation relativePlayerIds mismatch.");
     }
@@ -1483,6 +1626,7 @@ function completePlayingSelfPlayTensorSamples(
   sampledDecisions: readonly PlayingSelfPlaySampleDraft[],
   metadata: {
     rolloutSeatSources: readonly PlayingSelfPlayRosterSource[];
+    observationVariant: PlayingObservationVariant;
   }
 ): readonly PlayingSelfPlayTensorSample[] {
   const samples: PlayingSelfPlayTensorSample[] = [];
@@ -1530,7 +1674,7 @@ function completePlayingSelfPlayTensorSamples(
       modelInput: sampledDecision.modelInput,
       legalPlayMask: sampledDecision.legalPlayMask
     };
-    validatePlayingSelfPlayTensorSample(tensorSample, record.seed);
+    validatePlayingSelfPlayTensorSample(tensorSample, record.seed, metadata.observationVariant);
     samples.push(tensorSample);
   }
 
@@ -1562,14 +1706,15 @@ function tensorSampleFromLegacySample(sample: PlayingSelfPlaySample): PlayingSel
 }
 
 function normalizePlayingSelfPlayTensorSample(
-  sample: PlayingSelfPlayTensorSample
+  sample: PlayingSelfPlayTensorSample,
+  observationVariant: PlayingObservationVariant
 ): PlayingSelfPlayTensorSample {
   const normalized = {
     ...sample,
     modelInput: Float32Array.from(sample.modelInput as ArrayLike<number>),
     legalPlayMask: Uint8Array.from(sample.legalPlayMask as ArrayLike<number>)
   };
-  validatePlayingSelfPlayTensorSample(normalized, normalized.seed);
+  validatePlayingSelfPlayTensorSample(normalized, normalized.seed, observationVariant);
   return normalized;
 }
 
@@ -1674,6 +1819,7 @@ function createPlayingSelfPlayManifest(input: {
   };
   rolloutRoster: PlayingSelfPlayRolloutRosterManifest;
   format: typeof PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT | typeof DATASET_FORMAT;
+  observationVariant: PlayingObservationVariant;
 }): PlayingSelfPlayDatasetManifest {
   const manifest: PlayingSelfPlayDatasetManifest = {
     datasetSchemaVersion: input.format === DATASET_FORMAT
@@ -1696,8 +1842,10 @@ function createPlayingSelfPlayManifest(input: {
     cardIds: CARD_IDS,
     cardIdsSha256: calculateCardIdsSha256(),
     shards: input.shards,
-    playingEncoderSchemaVersion: PLAYING_ENCODER_SCHEMA_VERSION,
-    playingModelInputSchemaVersion: MODEL_INPUT_SCHEMA_VERSION,
+    playingEncoderSchemaVersion: playingEncoderSchemaVersionForVariant(input.observationVariant),
+    playingModelInputSchemaVersion: modelInputSchemaVersionForVariant(input.observationVariant),
+    playingObservationVariant: input.observationVariant,
+    modelInputFeatureCount: modelInputFeatureCountForVariant(input.observationVariant),
     behaviorPolicy: {
       type: "playing-onnx",
       ...input.artifact
@@ -1717,7 +1865,7 @@ function createPlayingSelfPlayManifest(input: {
 
   if (input.format === PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT) {
     manifest.tensorSchema = {
-      ...PLAYING_SELF_PLAY_BINARY_TENSOR_SCHEMA,
+      ...createPlayingSelfPlayBinaryTensorSchema(input.observationVariant),
       compression: input.options.binaryCompression ?? "none"
     };
   }
@@ -1760,6 +1908,10 @@ function validatePlayingSelfPlayGenerationOptions(
     validatePositiveInteger("inferenceMaxBatchSize", options.inferenceMaxBatchSize);
   }
   validateTemperature(options.temperature);
+  const observationVariant = options.observationVariant ?? PUBLIC_PLAYING_OBSERVATION_VARIANT;
+  if (!isPlayingObservationVariant(observationVariant)) {
+    throw new Error("observationVariant must be public or complete-info-compact.");
+  }
   validateRolloutRosterOptions(options.rolloutRoster);
 
   if (
@@ -1777,6 +1929,9 @@ function validatePlayingSelfPlayGenerationOptions(
   }
   if (options.format === DATASET_FORMAT && options.binaryCompression !== undefined) {
     throw new Error("binaryCompression is only supported for binary self-play format.");
+  }
+  if (options.format === DATASET_FORMAT && observationVariant !== PUBLIC_PLAYING_OBSERVATION_VARIANT) {
+    throw new Error("complete-info compact self-play currently requires binary self-play format.");
   }
 
   if (options.outputDirectory.length === 0) {

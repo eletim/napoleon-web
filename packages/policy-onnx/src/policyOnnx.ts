@@ -10,7 +10,7 @@ import { parseNonPlayingPolicyOnnxMetadata, parsePolicyOnnxMetadata } from "./me
 import { validateOnnxModelIo } from "./onnxProto.js";
 import {
   getNonPlayingPolicyOnnxSpec,
-  PLAYING_POLICY_ONNX_SPEC,
+  getPlayingPolicyOnnxSpec,
   type RuntimePolicyOnnxSpec
 } from "./policySpecs.js";
 import type {
@@ -38,6 +38,7 @@ const FLOAT32_MIN = -3.4028234663852886e38;
 
 export class PolicyOnnxModel {
   private readonly inferenceQueue: PolicyOnnxInferenceQueue;
+  private readonly spec: RuntimePolicyOnnxSpec;
 
   constructor(
     readonly metadata: PolicyOnnxMetadata,
@@ -45,9 +46,10 @@ export class PolicyOnnxModel {
     readonly runtime: PolicyOnnxRuntimeInfo,
     options: { inferenceMaxBatchSize?: number } = {}
   ) {
+    this.spec = getPlayingPolicyOnnxSpec(metadata.playingObservationVariant ?? "public");
     this.inferenceQueue = new PolicyOnnxInferenceQueue(
       session,
-      PLAYING_POLICY_ONNX_SPEC,
+      this.spec,
       options.inferenceMaxBatchSize ?? 1
     );
   }
@@ -157,11 +159,12 @@ export class NonPlayingPolicyOnnxModel {
 
 export async function loadPolicyOnnxModel(options: PolicyOnnxLoadOptions): Promise<PolicyOnnxModel> {
   const metadata = parsePolicyOnnxMetadata(await readFile(options.metadataPath, "utf8"));
-  await validateOnnxModelIo(options.onnxPath, metadata, PLAYING_POLICY_ONNX_SPEC);
+  const spec = getPlayingPolicyOnnxSpec(metadata.playingObservationVariant ?? "public");
+  await validateOnnxModelIo(options.onnxPath, metadata, spec);
 
   const { session, runtime } = await createPolicyOnnxSession(options);
 
-  validateSessionNames(session, PLAYING_POLICY_ONNX_SPEC);
+  validateSessionNames(session, spec);
 
   return new PolicyOnnxModel(metadata, session, runtime, {
     inferenceMaxBatchSize: options.inferenceMaxBatchSize

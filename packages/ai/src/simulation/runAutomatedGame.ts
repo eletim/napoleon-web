@@ -86,7 +86,10 @@ export async function runAutomatedGame(
           : []
       )
     };
-    const action = await agent.selectAction(observation);
+    const action = await selectAutomatedAction(agent, observation, {
+      actualState: captureActualCardState(state),
+      playerIds
+    });
 
     if (!legalActions.some((legalAction) => actionsEqual(action, legalAction))) {
       throw new Error(
@@ -128,6 +131,35 @@ export async function runAutomatedGame(
     decisions,
     result: state.result
   };
+}
+
+interface CompleteInfoActionAgent {
+  selectActionWithContext: (
+    observation: PlayerObservation,
+    context: {
+      actualState: ActualCardState;
+      playerIds: readonly PlayerId[];
+    }
+  ) => Promise<GameAction>;
+}
+
+function isCompleteInfoActionAgent(agent: Agent): agent is Agent & CompleteInfoActionAgent {
+  return typeof (agent as Partial<CompleteInfoActionAgent>).selectActionWithContext === "function";
+}
+
+function selectAutomatedAction(
+  agent: Agent,
+  observation: PlayerObservation,
+  context: {
+    actualState: ActualCardState;
+    playerIds: readonly PlayerId[];
+  }
+): Promise<GameAction> {
+  if (isCompleteInfoActionAgent(agent)) {
+    return agent.selectActionWithContext(observation, context);
+  }
+
+  return agent.selectAction(observation);
 }
 
 interface GameActionDecision {

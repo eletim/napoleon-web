@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
 import {
   CARD_COUNT,
+  COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT,
   MODEL_INPUT_FEATURE_COUNT,
   createPlayingModelInput
 } from "@napoleon/ai-observation";
@@ -26,6 +27,7 @@ import {
   PLAYING_SELF_PLAY_SAMPLING_ALGORITHM,
   assignRolloutRosterForSeed,
   calculatePlayingSelfPlayLogProbability,
+  COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT,
   generatePlayingSelfPlayDataset,
   runPlayingSelfPlayGame,
   runPlayingSelfPlayGameWithSamples,
@@ -224,6 +226,56 @@ describe("generatePlayingSelfPlayDataset", () => {
         expect(fileStat.size).toBe(shard.byteLength);
         expect(createHash("sha256").update(bytes).digest("hex")).toBe(shard.sha256);
       }
+    });
+  });
+
+  it("wires compact complete-info model input into binary self-play rollout", async () => {
+    await withTempDir(async (directory) => {
+      const onnxPath = join(directory, "compact.onnx");
+      const metadataPath = join(directory, "compact.json");
+      await writeFile(onnxPath, "compact-policy");
+      await writeFile(metadataPath, "{}\n");
+
+      const observedInputLengths: number[] = [];
+      const policy: PlayingSelfPlayPolicy = {
+        metadata: { playingObservationVariant: COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT },
+        predictLogits: async (modelInput) => {
+          observedInputLengths.push(modelInput.length);
+          return new Float32Array(CARD_COUNT);
+        }
+      };
+      const output = join(directory, "compact-binary");
+
+      await generatePlayingSelfPlayDataset({
+        outputDirectory: output,
+        playingPolicy: policy,
+        playingPolicyArtifact: {
+          onnxPath,
+          metadataPath,
+          artifactId: "compact-policy"
+        },
+        startSeed: 61,
+        gameCount: 1,
+        gamesPerShard: 1,
+        observationVariant: COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT
+      });
+
+      const manifest = await readManifest(output);
+      validatePlayingSelfPlayDatasetManifest(manifest);
+      expect(manifest.playingObservationVariant).toBe(COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT);
+      expect(manifest.modelInputFeatureCount).toBe(COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT);
+      expect(manifest.playingEncoderSchemaVersion).toBe(1);
+      expect(manifest.playingModelInputSchemaVersion).toBe(1);
+      expect(manifest.tensorSchema?.fields[0]).toEqual({
+        name: "modelInput",
+        dtype: "float32",
+        shape: [COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT]
+      });
+      expect(manifest.shards.every((shard) => shard.file.endsWith(".bin"))).toBe(true);
+      expect(observedInputLengths.length).toBeGreaterThan(0);
+      expect(new Set(observedInputLengths)).toEqual(
+        new Set([COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT])
+      );
     });
   });
 

@@ -7,7 +7,7 @@ import { PolicyOnnxCompatibilityError } from "./errors.js";
 import {
   getNonPlayingPolicyOnnxSpec,
   ioMetadataForSpec,
-  PLAYING_POLICY_ONNX_SPEC,
+  getPlayingPolicyOnnxSpec,
   type RuntimePolicyOnnxSpec
 } from "./policySpecs.js";
 import type {
@@ -48,12 +48,19 @@ export function validatePolicyOnnxMetadata(value: unknown): asserts value is Pol
     throw new PolicyOnnxCompatibilityError("metadata must be a JSON object.");
   }
 
-  const spec = PLAYING_POLICY_ONNX_SPEC;
+  const variant = requirePlayingObservationVariant(value.playingObservationVariant);
+  const spec = getPlayingPolicyOnnxSpec(variant);
   expectEqual("metadataSchemaVersion", value.metadataSchemaVersion, spec.metadataSchemaVersion);
   expectEqual("checkpointSchemaVersion", value.checkpointSchemaVersion, spec.checkpointSchemaVersion);
   expectEqual("datasetSchemaVersion", value.datasetSchemaVersion, spec.datasetSchemaVersion);
+  if ("playingObservationVariant" in value || variant !== "public") {
+    expectEqual("playingObservationVariant", value.playingObservationVariant, variant);
+  }
   expectEqual("playingEncoderSchemaVersion", value.playingEncoderSchemaVersion, spec.encoderSchemaVersion);
   expectEqual("modelInputSchemaVersion", value.modelInputSchemaVersion, spec.modelInputSchemaVersion);
+  if ("modelInputFeatureCount" in value || variant !== "public") {
+    expectEqual("modelInputFeatureCount", value.modelInputFeatureCount, spec.modelInputFeatureCount);
+  }
   expectEqual("cardIdsSha256", value.cardIdsSha256, calculateCardIdsSha256());
 
   validateOnnxMetadata(value.onnx, spec);
@@ -172,4 +179,17 @@ function requireNonPlayingPolicyType(value: unknown): NonPlayingPolicyType {
   }
 
   throw new PolicyOnnxCompatibilityError(`metadata policyType is unsupported: ${JSON.stringify(value)}.`);
+}
+
+function requirePlayingObservationVariant(value: unknown): "public" | "complete-info-compact" {
+  if (value === undefined || value === "public") {
+    return "public";
+  }
+  if (value === "complete-info-compact") {
+    return value;
+  }
+
+  throw new PolicyOnnxCompatibilityError(
+    `metadata playingObservationVariant is unsupported: ${JSON.stringify(value)}.`
+  );
 }

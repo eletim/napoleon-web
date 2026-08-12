@@ -22,6 +22,7 @@ let currentPolicy: PlayingSelfPlayPolicy | null = null;
 let rolloutRoster: PlayingSelfPlayRolloutRosterOptions | undefined;
 let temperature = 1;
 let maxDecisionSteps: number | undefined;
+let observationVariant: "public" | "complete-info-compact" = "public";
 
 process.on("message", (message: PlayingSelfPlayWorkerMessage) => {
   void handleMessage(message).catch((error: unknown) => {
@@ -40,6 +41,7 @@ async function handleMessage(message: PlayingSelfPlayWorkerMessage): Promise<voi
       );
       temperature = message.temperature;
       maxDecisionSteps = message.maxDecisionSteps;
+      observationVariant = message.observationVariant;
       send({
         type: "ready",
         currentPolicy: await createPolicyFingerprint(
@@ -61,7 +63,8 @@ async function handleMessage(message: PlayingSelfPlayWorkerMessage): Promise<voi
           behaviorPolicyArtifactId: message.currentPolicyArtifactId,
           rolloutRoster,
           temperature,
-          maxDecisionSteps
+          maxDecisionSteps,
+          observationVariant
         });
         const resultWithStats = {
           ...result,

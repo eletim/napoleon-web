@@ -14,9 +14,13 @@ import numpy as np
 import torch
 from torch import Tensor
 
-from .constants import CARD_COUNT, MODEL_INPUT_FEATURE_COUNT, PLAYER_COUNT, SELF_ROLE_COUNT
+from .constants import CARD_COUNT, PLAYER_COUNT, SELF_ROLE_COUNT
 from .errors import DatasetError, ShardIntegrityError
 from .manifest import DatasetManifest, DatasetShardManifest
+from .playing_variants import (
+    model_input_feature_count_for_variant,
+    normalize_playing_observation_variant,
+)
 from .split import DatasetSplit, SplitConfig, split_for_seed
 
 
@@ -44,17 +48,24 @@ _FIELD_DTYPES: dict[str, np.dtype[Any]] = {
     "actingPlayerIndex": np.dtype("u1"),
     "selfRoleIndex": np.dtype("u1"),
 }
-_FIELD_SHAPES = {
-    "modelInput": (MODEL_INPUT_FEATURE_COUNT,),
-    "legalPlayMask": (CARD_COUNT,),
-    "selectedCardIndex": (),
-    "behaviorLogProbability": (),
-    "terminalReward": (),
-    "seed": (),
-    "step": (),
-    "actingPlayerIndex": (),
-    "selfRoleIndex": (),
-}
+
+
+def _field_shapes(manifest: DatasetManifest) -> dict[str, tuple[int, ...]]:
+    return {
+        "modelInput": (
+            model_input_feature_count_for_variant(manifest.playing_observation_variant),
+        ),
+        "legalPlayMask": (CARD_COUNT,),
+        "selectedCardIndex": (),
+        "behaviorLogProbability": (),
+        "terminalReward": (),
+        "seed": (),
+        "step": (),
+        "actingPlayerIndex": (),
+        "selfRoleIndex": (),
+    }
+
+
 _HEADER_PREFIX_LENGTH = len(_MAGIC) + 4
 _SUPPORTED_COMPRESSIONS = frozenset({"none", "gzip"})
 
@@ -77,7 +88,12 @@ def iter_binary_playing_self_play_batches(
     directory = Path(dataset_directory)
     pending: dict[str, np.ndarray] | None = None
     for shard in manifest.shards:
-        arrays = _read_shard(directory / shard.file, shard, verify_integrity=verify_integrity)
+        arrays = _read_shard(
+            directory / shard.file,
+            shard,
+            manifest,
+            verify_integrity=verify_integrity,
+        )
         keep = _split_mask(arrays["seed"], split=split, split_config=split_config)
         indices = np.nonzero(keep)[0]
         offset = 0
@@ -108,6 +124,7 @@ def iter_binary_playing_self_play_batches(
 def _read_shard(
     path: Path,
     shard: DatasetShardManifest,
+    manifest: DatasetManifest,
     *,
     verify_integrity: bool,
 ) -> dict[str, np.ndarray]:
@@ -136,7 +153,7 @@ def _read_shard(
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ShardIntegrityError(f"{shard.file}: invalid binary shard header: {error}") from error
 
-    _validate_header(header, shard)
+    _validate_header(header, shard, manifest)
     compression = header["compression"]
     raw_payload = data[header_stop:]
     if compression == "gzip":
@@ -160,12 +177,16 @@ def _read_shard(
             f"expected {expected_length}, got {len(payload)}."
         )
 
-    arrays = _arrays_from_payload(payload, header)
+    arrays = _arrays_from_payload(payload, header, manifest)
     _validate_arrays(arrays, shard)
     return arrays
 
 
-def _validate_header(header: object, shard: DatasetShardManifest) -> None:
+def _validate_header(
+    header: object,
+    shard: DatasetShardManifest,
+    manifest: DatasetManifest,
+) -> None:
     if not isinstance(header, dict):
         raise ShardIntegrityError(f"{shard.file}: binary shard header must be an object.")
     expected_scalars = {
@@ -173,7 +194,9 @@ def _validate_header(header: object, shard: DatasetShardManifest) -> None:
         "sampleType": "playing-self-play-sample",
         "sampleSchemaVersion": 4,
         "sampleCount": shard.sample_count,
-        "modelInputFeatureCount": MODEL_INPUT_FEATURE_COUNT,
+        "modelInputFeatureCount": model_input_feature_count_for_variant(
+            manifest.playing_observation_variant
+        ),
         "cardCount": CARD_COUNT,
         "byteOrder": "little-endian",
     }
@@ -195,15 +218,25 @@ def _validate_header(header: object, shard: DatasetShardManifest) -> None:
         raise ShardIntegrityError(f"{shard.file}: header fields must be a list.")
     if len(fields) != len(_FIELD_DTYPES):
         raise ShardIntegrityError(f"{shard.file}: header field count mismatch.")
+    variant = normalize_playing_observation_variant(manifest.playing_observation_variant)
+    if header.get("playingObservationVariant", variant) != variant:
+        raise ShardIntegrityError(
+            f"{shard.file}: header playingObservationVariant mismatch."
+        )
 
 
-def _arrays_from_payload(payload: bytearray, header: dict[str, object]) -> dict[str, np.ndarray]:
+def _arrays_from_payload(
+    payload: bytearray,
+    header: dict[str, object],
+    manifest: DatasetManifest,
+) -> dict[str, np.ndarray]:
     raw_sample_count = header["sampleCount"]
     if not isinstance(raw_sample_count, int):
         raise ShardIntegrityError("binary shard header sampleCount is invalid.")
     sample_count = raw_sample_count
     arrays: dict[str, np.ndarray] = {}
     fields = cast(list[object], header["fields"])
+    field_shapes = _field_shapes(manifest)
 
     for raw_field in fields:
         if not isinstance(raw_field, dict):
@@ -217,13 +250,13 @@ def _arrays_from_payload(payload: bytearray, header: dict[str, object]) -> dict[
             raise ShardIntegrityError(f"binary shard field has invalid name: {name!r}.")
         if dtype_name != _dtype_name(name):
             raise ShardIntegrityError(f"binary shard field {name} dtype mismatch.")
-        if not isinstance(shape_raw, list) or tuple(shape_raw) != _FIELD_SHAPES[name]:
+        if not isinstance(shape_raw, list) or tuple(shape_raw) != field_shapes[name]:
             raise ShardIntegrityError(f"binary shard field {name} shape mismatch.")
         if not isinstance(byte_offset, int) or not isinstance(byte_length, int):
             raise ShardIntegrityError(f"binary shard field {name} byte range is invalid.")
 
         dtype: np.dtype[Any] = _FIELD_DTYPES[name]
-        shape = (sample_count, *_FIELD_SHAPES[name])
+        shape = (sample_count, *field_shapes[name])
         expected_byte_length = int(np.prod(shape, dtype=np.int64)) * dtype.itemsize
         if byte_length != expected_byte_length:
             raise ShardIntegrityError(f"binary shard field {name} byteLength mismatch.")

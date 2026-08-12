@@ -149,7 +149,8 @@ describe("runPlayingSelfPlayCli", () => {
           { source: "rule-based" },
           { source: "current-policy" }
         ],
-        temperature: 1
+        temperature: 1,
+        observationVariant: "public"
       });
       expect(generatePlayingSelfPlayDataset).toHaveBeenCalledWith(expect.objectContaining({
         rolloutWorkers: 2,

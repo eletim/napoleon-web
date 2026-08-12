@@ -12,7 +12,8 @@ import {
   encodeBiddingModelInput,
   encodeExchangeModelInput,
   encodePlayingModelInput,
-  getCardId
+  getCardId,
+  getCardIndex
 } from "@napoleon/ai-observation";
 import type { GameAction } from "@napoleon/game-core";
 import {
@@ -20,6 +21,8 @@ import {
   BIDDING_ACTION_COUNT,
   BIDDING_MODEL_INPUT_FEATURE_COUNT,
   CARD_COUNT,
+  COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT,
+  COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT,
   EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
   MODEL_INPUT_FEATURE_COUNT,
   MULTIPHASE_DATASET_SCHEMA_VERSION,
@@ -31,6 +34,7 @@ import {
   calculateCardIdsSha256,
   createPolicyOnnxAdjutantInput,
   createPolicyOnnxBiddingInput,
+  createPolicyOnnxCompleteInfoPlayInput,
   createPolicyOnnxExchangeInput,
   createPolicyOnnxPlayInput,
   loadNonPlayingPolicyOnnxModel,
@@ -172,6 +176,74 @@ describe("PolicyOnnxAgent", () => {
 
     await expect(agent.selectAction(forcedDecision.observation)).resolves.toEqual(
       forcedDecision.legalActions[0]
+    );
+  });
+
+  it("uses complete-info compact playing input when the policy metadata requests it", async () => {
+    const source = await runAutomatedGame({
+      seed: 12345,
+      createAgent: ({ rng }) => new RuleBasedAgent(rng)
+    });
+    const decision = source.decisions.find(
+      (candidate) => candidate.phase === "playing" && candidate.action.type === "play-card"
+    );
+
+    if (decision === undefined || decision.action.type !== "play-card") {
+      throw new Error("Expected a playing decision.");
+    }
+
+    const observedInputLengths: number[] = [];
+    const compactPolicy = {
+      metadata: {
+        playingObservationVariant: COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT
+      },
+      async selectLegalPlay(input) {
+        observedInputLengths.push(input.modelInput.length);
+        return {
+          selectedCardIndex: getCardIndex(decision.action.cardId),
+          logits: new Float32Array(CARD_COUNT)
+        };
+      }
+    } as PolicyOnnxModel;
+    const agent = new PolicyOnnxAgent({ policy: compactPolicy });
+    const compactInput = createPolicyOnnxCompleteInfoPlayInput(decision.observation, {
+      actualState: decision.actualState,
+      playerIds: source.playerIds
+    });
+
+    expect(compactInput.modelInput).toHaveLength(COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT);
+    await expect(
+      agent.selectActionWithContext(decision.observation, {
+        actualState: decision.actualState,
+        playerIds: source.playerIds
+      })
+    ).resolves.toEqual(decision.action);
+    expect(observedInputLengths).toEqual([COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT]);
+  });
+
+  it("rejects complete-info compact playing input without runtime actual state", async () => {
+    const source = await runAutomatedGame({
+      seed: 12345,
+      createAgent: ({ rng }) => new RuleBasedAgent(rng)
+    });
+    const decision = source.decisions.find((candidate) => candidate.phase === "playing");
+
+    if (decision === undefined) {
+      throw new Error("Expected a playing decision.");
+    }
+
+    const compactPolicy = {
+      metadata: {
+        playingObservationVariant: COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT
+      },
+      async selectLegalPlay() {
+        throw new Error("selectLegalPlay should not run without complete-info context.");
+      }
+    } as unknown as PolicyOnnxModel;
+    const agent = new PolicyOnnxAgent({ policy: compactPolicy });
+
+    await expect(agent.selectAction(decision.observation)).rejects.toThrow(
+      "requires runtime actual state"
     );
   });
 

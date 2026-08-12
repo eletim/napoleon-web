@@ -27,8 +27,10 @@ export interface PolicyOnnxMetadata {
   metadataSchemaVersion: number;
   checkpointSchemaVersion: number;
   datasetSchemaVersion: number;
+  playingObservationVariant?: "public" | "complete-info-compact";
   playingEncoderSchemaVersion: number;
   modelInputSchemaVersion: number;
+  modelInputFeatureCount?: number;
   cardIdsSha256: string;
   onnx: {
     opsetVersion: number;
