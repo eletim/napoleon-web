@@ -77,3 +77,28 @@ node apps/self-play-cli/dist/policyEvaluationCli.js \
   --benchmark standard \
   --inference-device cuda
 ```
+
+To compare a complete-information compact PPO checkpoint with an existing
+public-input PPO checkpoint under the same seeds, pass the compact artifact as
+the candidate and the public artifact as the baseline:
+
+```bash
+node apps/self-play-cli/dist/policyEvaluationCli.js \
+  --onnx ./compact-policy.onnx \
+  --metadata ./compact-policy.json \
+  --policy-label complete-info-compact \
+  --baseline-onnx ./public-policy.onnx \
+  --baseline-metadata ./public-policy.json \
+  --baseline-label public \
+  --output ./policy-comparison.json \
+  --start-seed 900 \
+  --seed-count 50 \
+  --benchmark rule-based-x4 \
+  --inference-device cpu
+```
+
+The comparison output keeps one result per policy with the same evaluation
+conditions. Each policy entry records the artifact paths, runtime device,
+`playingObservationVariant`, and `modelInputFeatureCount`, so a compact
+complete-information artifact and a public-input artifact can be distinguished
+after the run.

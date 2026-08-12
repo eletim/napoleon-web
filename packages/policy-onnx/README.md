@@ -43,15 +43,24 @@ models expose `policy.runtime.requestedInferenceDevice`,
 `policy.runtime.resolvedInferenceDevice`, and `policy.runtime.executionProvider`
 so callers can verify that an explicit CUDA request did not silently run on CPU.
 
-`modelInput` must be a 6246-element `float32` feature vector using model input
-schema version 2. `legalPlayMask` must contain 53 entries and at least one
-legal card. `selectLegalPlay` always applies the mask before choosing the
-highest-logit card index.
+For public-input playing artifacts, `modelInput` must be a 6246-element
+`float32` feature vector using model input schema version 2. For
+complete-information compact playing artifacts, the metadata must set
+`playingObservationVariant: "complete-info-compact"` and
+`modelInputFeatureCount` to the compact feature count expected by the ONNX
+graph. `legalPlayMask` must contain 53 entries and at least one legal card.
+`selectLegalPlay` always applies the mask before choosing the highest-logit
+card index.
 
 `new PolicyOnnxAgent({ policy })` is the backward-compatible playing-only
 configuration. It uses ONNX for `playing`, while `bidding`,
 `choosing-adjutant`, and `exchanging` fall back to the existing
 `RuleBasedAgent`.
+When the loaded playing policy is a complete-information compact artifact,
+`PolicyOnnxAgent` requires the simulation runtime context supplied by
+`runAutomatedGame`/`runEvaluation` and builds the compact input from the true
+card state. Public-input artifacts continue to use only the public
+`PlayerObservation`.
 
 To run every phase through ONNX, load each phase artifact and assign it to the
 matching slot:
@@ -106,10 +115,13 @@ expected contract:
 
 - metadata schema version 1
 - dataset schema version 1
-- playing encoder schema version 2
-- model input schema version 2
+- public playing encoder schema version 2, or complete-information compact
+  playing encoder schema version 1
+- public model input schema version 2, or complete-information compact model
+  input schema version 1
 - current `CARD_IDS` SHA-256
-- ONNX input `model_input`, shape `["batch", 6246]`, dtype `float32`
+- ONNX input `model_input`, shape `["batch", modelInputFeatureCount]`, dtype
+  `float32`
 - ONNX output `logits`, shape `["batch", 53]`, dtype `float32`
 
 The tests create a temporary ONNX model at runtime and compare a fixed sample's
@@ -240,6 +252,13 @@ from denominators.
 `runPolicyVsRuleBasedEvaluation` is intentionally playing-only: the
 `PolicyOnnxAgent` uses ONNX for playing decisions and keeps bidding,
 adjutant selection, and exchange on the `RuleBasedAgent` fallback path.
+Complete-information compact playing artifacts are supported in this same
+evaluation path. The hidden card state is supplied by the simulation runtime
+only to agents that implement the complete-info context method; browser/server
+public-input policies and plain `RuleBasedAgent` instances do not receive that
+state. The evaluation configuration records the policy metadata, including
+`playingObservationVariant` and `modelInputFeatureCount`, plus the runtime
+device information.
 
 For fixed-opponent benchmark evaluation, use
 `runPlayingPolicyRosterEvaluation` or `runStandardPlayingPolicyBenchmarks`.
