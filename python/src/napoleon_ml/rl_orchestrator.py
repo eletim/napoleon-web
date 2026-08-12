@@ -371,6 +371,7 @@ def _run_iteration(
         manifest=manifest,
         start_seed=start_seed,
         game_count=config.games_per_iteration,
+        playing_observation_variant=config.playing_observation_variant,
     )
     self_play_manifest_sha256 = sha256_file(self_play_dir / "manifest.json")
     self_play_shard_byte_length = sum(shard.byte_length for shard in manifest.shards)
@@ -943,6 +944,7 @@ def _validate_self_play_manifest_matches_request(
     manifest: DatasetManifest,
     start_seed: int,
     game_count: int,
+    playing_observation_variant: str,
 ) -> None:
     end_seed = start_seed + game_count - 1
     if manifest.start_seed != start_seed:
@@ -956,6 +958,15 @@ def _validate_self_play_manifest_matches_request(
     if manifest.game_count != game_count:
         raise PlayingRlOrchestratorError(
             f"self-play manifest gameCount mismatch: {manifest.game_count} != {game_count}"
+        )
+    actual_variant = normalize_playing_observation_variant(
+        manifest.playing_observation_variant
+    )
+    expected_variant = normalize_playing_observation_variant(playing_observation_variant)
+    if actual_variant != expected_variant:
+        raise PlayingRlOrchestratorError(
+            "self-play manifest playingObservationVariant mismatch: "
+            f"{actual_variant!r} != {expected_variant!r}"
         )
 
 

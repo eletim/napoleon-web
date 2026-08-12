@@ -45,10 +45,17 @@ export {
   selectLegalPolicyAction
 } from "./policyOnnx.js";
 export {
+  COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT,
+  PUBLIC_PLAYING_OBSERVATION_VARIANT,
+  getPlayingPolicyOnnxSpec
+} from "./policySpecs.js";
+export type { PlayingObservationVariant } from "./policySpecs.js";
+export {
   PolicyOnnxAgent,
   createPolicyOnnxAgentDecisionMetrics,
   createPolicyOnnxAdjutantInput,
   createPolicyOnnxBiddingInput,
+  createPolicyOnnxCompleteInfoPlayInput,
   createPolicyOnnxExchangeInput,
   createPolicyOnnxPlayInput
 } from "./policyOnnxAgent.js";
@@ -57,6 +64,7 @@ export type {
   PolicyOnnxAgentOptions,
   PolicyOnnxAgentDecisionMetrics,
   PolicyOnnxBiddingInput,
+  PolicyOnnxCompleteInfoPlayInputContext,
   PolicyOnnxExchangeInput,
   PolicyOnnxPlayInput
 } from "./policyOnnxAgent.js";

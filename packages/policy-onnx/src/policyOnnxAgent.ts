@@ -1,9 +1,10 @@
 import { RuleBasedAgent } from "@napoleon/ai";
-import type { Agent, PlayerObservation } from "@napoleon/ai";
+import type { ActualCardState, Agent, PlayerObservation } from "@napoleon/ai";
 import type { GameAction, PlayerId } from "@napoleon/game-core";
 import {
   createAdjutantModelInput,
   createBiddingModelInput,
+  createCompleteInfoPlayingModelInput,
   createExchangeModelInput,
   createPlayingModelInput,
   createRelativePlayerOrder,
@@ -12,13 +13,17 @@ import {
   encodeBiddingHistoryFromPublicActions,
   encodeAdjutantObservation,
   encodeBiddingObservation,
+  encodeCompleteInfoPlayingObservation,
   encodeExchangeObservation,
   encodePlayingObservation,
   getCardId,
   validateEncodedExchangeAction
 } from "@napoleon/ai-observation";
 import { PolicyOnnxCompatibilityError } from "./errors.js";
-import { getNonPlayingPolicyOnnxSpec } from "./policySpecs.js";
+import {
+  COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT,
+  getNonPlayingPolicyOnnxSpec
+} from "./policySpecs.js";
 import type { NonPlayingPolicyOnnxModel, PolicyOnnxModel } from "./policyOnnx.js";
 import type { NonPlayingPolicyType } from "./types.js";
 
@@ -60,6 +65,11 @@ export interface PolicyOnnxPlayInput {
   legalPlayMask: readonly number[];
 }
 
+export interface PolicyOnnxCompleteInfoPlayInputContext {
+  actualState: ActualCardState;
+  playerIds?: readonly PlayerId[];
+}
+
 export class PolicyOnnxAgent implements Agent {
   private readonly policy: PolicyOnnxModel;
   private readonly biddingPolicy: NonPlayingPolicyOnnxModel | null;
@@ -83,6 +93,13 @@ export class PolicyOnnxAgent implements Agent {
   }
 
   async selectAction(observation: PlayerObservation): Promise<GameAction> {
+    return this.selectActionWithContext(observation);
+  }
+
+  async selectActionWithContext(
+    observation: PlayerObservation,
+    context?: { actualState: ActualCardState; playerIds: readonly PlayerId[] }
+  ): Promise<GameAction> {
     switch (observation.view.phase) {
       case "bidding":
         if (this.biddingPolicy === null) {
@@ -107,7 +124,7 @@ export class PolicyOnnxAgent implements Agent {
         return this.selectExchangeAction(observation, this.exchangePolicy);
       case "playing":
         this.incrementOnnxCallCount("playing");
-        return this.selectPlayAction(observation);
+        return this.selectPlayAction(observation, context);
       case "finished":
         return this.ruleBasedAgent.selectAction(observation);
     }
@@ -218,11 +235,20 @@ export class PolicyOnnxAgent implements Agent {
     return selectedAction;
   }
 
-  private async selectPlayAction(observation: PlayerObservation): Promise<GameAction> {
-    const { modelInput, legalPlayMask } = createPolicyOnnxPlayInput(
-      observation,
-      this.playerIds ?? undefined
-    );
+  private async selectPlayAction(
+    observation: PlayerObservation,
+    context: { actualState: ActualCardState; playerIds: readonly PlayerId[] } | undefined
+  ): Promise<GameAction> {
+    const { modelInput, legalPlayMask } =
+      this.policy.metadata?.playingObservationVariant === COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT
+        ? createPolicyOnnxCompleteInfoPlayInput(observation, {
+            actualState: requireCompleteInfoContext(context),
+            playerIds: this.playerIds ?? context?.playerIds
+          })
+        : createPolicyOnnxPlayInput(
+            observation,
+            this.playerIds ?? undefined
+          );
     const selection = await this.policy.selectLegalPlay({ modelInput, legalPlayMask });
     const selectedCardId = getCardId(selection.selectedCardIndex);
     const selectedAction = observation.legalActions.find(
@@ -325,6 +351,26 @@ export function createPolicyOnnxPlayInput(
   return createPlayingModelInput(encodedObservation);
 }
 
+export function createPolicyOnnxCompleteInfoPlayInput(
+  observation: PlayerObservation,
+  context: PolicyOnnxCompleteInfoPlayInputContext
+): PolicyOnnxPlayInput {
+  if (observation.view.phase !== "playing") {
+    throw new PolicyOnnxCompatibilityError(
+      `createPolicyOnnxCompleteInfoPlayInput requires a playing observation, got ${observation.view.phase}.`
+    );
+  }
+
+  const absolutePlayerIds = getValidatedPlayerIds(observation, context.playerIds);
+  const encodedObservation = encodeCompleteInfoPlayingObservation(
+    observation,
+    context.actualState,
+    absolutePlayerIds
+  );
+
+  return createCompleteInfoPlayingModelInput(encodedObservation);
+}
+
 export function createPolicyOnnxAgentDecisionMetrics(): PolicyOnnxAgentDecisionMetrics {
   return {
     biddingOnnxCallCount: 0,
@@ -374,6 +420,18 @@ function requirePublicActionHistory(
   }
 
   return publicActionHistory;
+}
+
+function requireCompleteInfoContext(
+  context: { actualState: ActualCardState; playerIds: readonly PlayerId[] } | undefined
+): ActualCardState {
+  if (context === undefined) {
+    throw new PolicyOnnxCompatibilityError(
+      "Complete-info compact PolicyOnnxAgent requires runtime actual state."
+    );
+  }
+
+  return context.actualState;
 }
 
 function validatePlayerIdsForObservation(
