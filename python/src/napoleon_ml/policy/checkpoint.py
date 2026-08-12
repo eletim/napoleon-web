@@ -51,6 +51,9 @@ def save_policy_checkpoint(
     manifest: DatasetManifest,
     extra_metadata: dict[str, object] | None = None,
 ) -> None:
+    playing_observation_variant = normalize_playing_observation_variant(
+        manifest.playing_observation_variant
+    )
     checkpoint = {
         "checkpoint_schema_version": CHECKPOINT_SCHEMA_VERSION,
         "model_state": model.state_dict(),
@@ -58,10 +61,10 @@ def save_policy_checkpoint(
         "training_config": dict(training_config),
         "dataset_schema_version": manifest.dataset_schema_version,
         "playing_encoder_schema_version": manifest.playing_encoder_schema_version,
-        "model_input_schema_version": MODEL_INPUT_SCHEMA_VERSION,
-        "playing_observation_variant": normalize_playing_observation_variant(
-            manifest.playing_observation_variant
+        "model_input_schema_version": playing_model_input_schema_version_for_variant(
+            playing_observation_variant
         ),
+        "playing_observation_variant": playing_observation_variant,
         "model_input_feature_count": model.config.input_dim,
         "card_ids_sha256": calculate_card_ids_sha256(),
     }
