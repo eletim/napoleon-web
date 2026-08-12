@@ -7,6 +7,7 @@ import json
 import math
 import pickle
 from collections.abc import Iterable
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NamedTuple, cast
@@ -64,8 +65,15 @@ from napoleon_ml.policy.reinforce import (
 
 ACTOR_CRITIC_ALGORITHM = "actor-critic-v1"
 SEPARATED_ACTOR_CRITIC_ALGORITHM = "actor-critic-separated-v1"
-ACTOR_CRITIC_ALGORITHMS = (ACTOR_CRITIC_ALGORITHM, SEPARATED_ACTOR_CRITIC_ALGORITHM)
+PPO_SEPARATED_ACTOR_CRITIC_ALGORITHM = "ppo-separated-v1"
+ACTOR_CRITIC_ALGORITHMS = (
+    ACTOR_CRITIC_ALGORITHM,
+    SEPARATED_ACTOR_CRITIC_ALGORITHM,
+    PPO_SEPARATED_ACTOR_CRITIC_ALGORITHM,
+)
 DEFAULT_VALUE_LOSS_COEFFICIENT = 0.5
+DEFAULT_PPO_CLIP_EPSILON = 0.2
+PPO_APPROXIMATE_KL_DEFINITION = "mean(behavior_log_probability - new_log_probability)"
 PlayingActorCriticModel = PolicyActorCriticModel | PolicySeparatedActorCriticModel
 
 
@@ -84,6 +92,7 @@ class ActorCriticTrainSettings:
     behavior_parity_execution_provider: str | None = None
     behavior_parity_max_observed_batch_size: int | None = None
     algorithm: str = ACTOR_CRITIC_ALGORITHM
+    ppo_clip_epsilon: float = DEFAULT_PPO_CLIP_EPSILON
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -100,6 +109,7 @@ class ActorCriticTrainSettings:
             "behaviorParityExecutionProvider": self.behavior_parity_execution_provider,
             "behaviorParityMaxObservedBatchSize": self.behavior_parity_max_observed_batch_size,
             "algorithm": self.algorithm,
+            "ppoClipEpsilon": self.ppo_clip_epsilon,
         }
 
 
@@ -144,6 +154,13 @@ class ActorCriticTrainReport:
     critic_parameter_delta_norm: float
     changed_actor_parameter_count: int
     changed_critic_parameter_count: int
+    ppo_clip_epsilon: float | None
+    ppo_mean_probability_ratio: float | None
+    ppo_probability_ratio_std: float | None
+    ppo_clipped_sample_count: int | None
+    ppo_clipped_fraction: float | None
+    ppo_approximate_kl: float | None
+    ppo_approximate_kl_definition: str | None
     role_stats_before: dict[str, dict[str, float | int]] | None
     role_stats_after: dict[str, dict[str, float | int]] | None
     requested_device: str
@@ -201,6 +218,13 @@ class ActorCriticTrainReport:
             "criticParameterDeltaNorm": self.critic_parameter_delta_norm,
             "changedActorParameterCount": self.changed_actor_parameter_count,
             "changedCriticParameterCount": self.changed_critic_parameter_count,
+            "ppoClipEpsilon": self.ppo_clip_epsilon,
+            "ppoMeanProbabilityRatio": self.ppo_mean_probability_ratio,
+            "ppoProbabilityRatioStd": self.ppo_probability_ratio_std,
+            "ppoClippedSampleCount": self.ppo_clipped_sample_count,
+            "ppoClippedFraction": self.ppo_clipped_fraction,
+            "ppoApproximateKl": self.ppo_approximate_kl,
+            "ppoApproximateKlDefinition": self.ppo_approximate_kl_definition,
             "roleStatsBefore": self.role_stats_before,
             "roleStatsAfter": self.role_stats_after,
             "requestedDevice": self.requested_device,
@@ -372,6 +396,54 @@ class _EvaluationAccumulator:
         return self.sample_count
 
 
+@dataclass
+class _PpoDiagnosticsAccumulator:
+    sample_count: int = 0
+    ratio_sum: float = 0.0
+    ratio_squared_sum: float = 0.0
+    clipped_sample_count: int = 0
+    approximate_kl_sum: float = 0.0
+
+    def update(
+        self,
+        *,
+        selected_log_probability: Tensor,
+        behavior_log_probability: Tensor,
+        clip_epsilon: float,
+    ) -> None:
+        ratio = torch.exp(
+            selected_log_probability.detach() - behavior_log_probability.detach()
+        )
+        clipped = ratio.lt(1.0 - clip_epsilon) | ratio.gt(1.0 + clip_epsilon)
+        approximate_kl = behavior_log_probability.detach() - selected_log_probability.detach()
+        batch_size = int(ratio.shape[0])
+
+        self.sample_count += batch_size
+        self.ratio_sum += float(ratio.sum().item())
+        self.ratio_squared_sum += float((ratio * ratio).sum().item())
+        self.clipped_sample_count += int(clipped.sum().item())
+        self.approximate_kl_sum += float(approximate_kl.sum().item())
+
+    def mean_ratio(self) -> float:
+        return self.ratio_sum / self._nonzero_sample_count()
+
+    def ratio_std(self) -> float:
+        mean = self.mean_ratio()
+        variance = self.ratio_squared_sum / self._nonzero_sample_count() - mean * mean
+        return math.sqrt(max(0.0, variance))
+
+    def clipped_fraction(self) -> float:
+        return self.clipped_sample_count / self._nonzero_sample_count()
+
+    def approximate_kl(self) -> float:
+        return self.approximate_kl_sum / self._nonzero_sample_count()
+
+    def _nonzero_sample_count(self) -> int:
+        if self.sample_count == 0:
+            raise ValueError("PPO diagnostics contain no samples.")
+        return self.sample_count
+
+
 def train_policy_actor_critic(
     *,
     input_checkpoint: Path | str,
@@ -401,6 +473,11 @@ def train_policy_actor_critic(
         source_checkpoint_sha256=loaded.sha256,
     )
     loaded.training_model.to(device.torch_device)
+    frozen_old_critic = (
+        _clone_frozen_old_critic(loaded.training_model)
+        if _is_ppo_algorithm(settings.algorithm)
+        else None
+    )
 
     temperature = _require_manifest_temperature(manifest)
     safety_start = start_timing(device)
@@ -416,6 +493,8 @@ def train_policy_actor_critic(
         behavior_parity_max_observed_batch_size=(
             settings.behavior_parity_max_observed_batch_size
         ),
+        algorithm=settings.algorithm,
+        ppo_clip_epsilon=settings.ppo_clip_epsilon,
     )
     safety_elapsed = elapsed_seconds_since(safety_start, device)
     _assert_behavior_parity(parity)
@@ -428,16 +507,22 @@ def train_policy_actor_critic(
     actor_loss_sum = 0.0
     trained_sample_count = 0
     sample_stats = _TrainingSampleStats()
+    ppo_training_diagnostics = (
+        _PpoDiagnosticsAccumulator() if _is_ppo_algorithm(settings.algorithm) else None
+    )
 
     loaded.training_model.train()
     training_start = start_timing(device)
     for epoch_index in range(settings.epochs):
         for batch in dataloader:
             optimizer.zero_grad(set_to_none=True)
-            model_input, selected, legal_mask, reward, _ = playing_self_play_batch_to_device(
-                batch,
-                device,
-            )
+            (
+                model_input,
+                selected,
+                legal_mask,
+                reward,
+                behavior_log_probability,
+            ) = playing_self_play_batch_to_device(batch, device)
             if epoch_index == 0:
                 sample_stats.update(reward=reward, legal_mask=legal_mask)
 
@@ -448,12 +533,32 @@ def train_policy_actor_critic(
                 legal_mask,
                 temperature=temperature,
             )
-            actor_loss, value_loss, total_loss = actor_critic_losses(
-                selected_log_probability,
-                reward,
-                value_prediction,
-                value_loss_coefficient=settings.value_loss_coefficient,
-            )
+            if _is_ppo_algorithm(settings.algorithm):
+                if frozen_old_critic is None or ppo_training_diagnostics is None:
+                    raise AssertionError("PPO training requires a frozen old Critic.")
+                with torch.no_grad():
+                    old_value_prediction = frozen_old_critic(model_input)
+                actor_loss, value_loss, total_loss = ppo_actor_critic_losses(
+                    selected_log_probability,
+                    behavior_log_probability,
+                    reward,
+                    value_prediction,
+                    old_value_prediction,
+                    clip_epsilon=settings.ppo_clip_epsilon,
+                    value_loss_coefficient=settings.value_loss_coefficient,
+                )
+                ppo_training_diagnostics.update(
+                    selected_log_probability=selected_log_probability,
+                    behavior_log_probability=behavior_log_probability,
+                    clip_epsilon=settings.ppo_clip_epsilon,
+                )
+            else:
+                actor_loss, value_loss, total_loss = actor_critic_losses(
+                    selected_log_probability,
+                    reward,
+                    value_prediction,
+                    value_loss_coefficient=settings.value_loss_coefficient,
+                )
             _assert_finite_tensor(total_loss, label="actor-critic loss")
             total_loss.backward()  # type: ignore[no-untyped-call]
             optimizer.step()
@@ -479,6 +584,8 @@ def train_policy_actor_critic(
             value_loss_coefficient=settings.value_loss_coefficient,
             require_behavior_parity=False,
             device=device,
+            algorithm=settings.algorithm,
+            ppo_clip_epsilon=settings.ppo_clip_epsilon,
         )
         post_eval_elapsed = elapsed_seconds_since(post_eval_start, device)
     parameter_delta_norm, changed_parameter_count = _parameter_delta(
@@ -543,6 +650,39 @@ def train_policy_actor_critic(
         critic_parameter_delta_norm=critic_delta_norm,
         changed_actor_parameter_count=changed_actor_parameter_count,
         changed_critic_parameter_count=changed_critic_parameter_count,
+        ppo_clip_epsilon=(
+            settings.ppo_clip_epsilon if _is_ppo_algorithm(settings.algorithm) else None
+        ),
+        ppo_mean_probability_ratio=(
+            ppo_training_diagnostics.mean_ratio()
+            if ppo_training_diagnostics is not None
+            else None
+        ),
+        ppo_probability_ratio_std=(
+            ppo_training_diagnostics.ratio_std()
+            if ppo_training_diagnostics is not None
+            else None
+        ),
+        ppo_clipped_sample_count=(
+            ppo_training_diagnostics.clipped_sample_count
+            if ppo_training_diagnostics is not None
+            else None
+        ),
+        ppo_clipped_fraction=(
+            ppo_training_diagnostics.clipped_fraction()
+            if ppo_training_diagnostics is not None
+            else None
+        ),
+        ppo_approximate_kl=(
+            ppo_training_diagnostics.approximate_kl()
+            if ppo_training_diagnostics is not None
+            else None
+        ),
+        ppo_approximate_kl_definition=(
+            PPO_APPROXIMATE_KL_DEFINITION
+            if _is_ppo_algorithm(settings.algorithm)
+            else None
+        ),
         role_stats_before=parity.role_stats() if settings.full_diagnostics else None,
         role_stats_after=after.role_stats() if after is not None else None,
         requested_device=device.requested,
@@ -591,6 +731,8 @@ def evaluate_actor_critic_policy(
     max_samples: int | None = None,
     behavior_parity_execution_provider: str | None = None,
     behavior_parity_max_observed_batch_size: int | None = None,
+    algorithm: str = ACTOR_CRITIC_ALGORITHM,
+    ppo_clip_epsilon: float = DEFAULT_PPO_CLIP_EPSILON,
 ) -> _EvaluationAccumulator:
     if device is None:
         device = resolve_torch_device("cpu")
@@ -635,12 +777,23 @@ def evaluate_actor_critic_policy(
             legal_mask,
             temperature=temperature,
         )
-        actor_loss, value_loss, total_loss = actor_critic_losses(
-            selected_log_probability,
-            reward,
-            value_prediction,
-            value_loss_coefficient=value_loss_coefficient,
-        )
+        if _is_ppo_algorithm(algorithm):
+            actor_loss, value_loss, total_loss = ppo_actor_critic_losses(
+                selected_log_probability,
+                behavior_log_probability,
+                reward,
+                value_prediction,
+                value_prediction,
+                clip_epsilon=ppo_clip_epsilon,
+                value_loss_coefficient=value_loss_coefficient,
+            )
+        else:
+            actor_loss, value_loss, total_loss = actor_critic_losses(
+                selected_log_probability,
+                reward,
+                value_prediction,
+                value_loss_coefficient=value_loss_coefficient,
+            )
         accumulator.update(
             selected_log_probability=selected_log_probability,
             reward=reward,
@@ -671,6 +824,28 @@ def actor_critic_losses(
     *,
     value_loss_coefficient: float,
 ) -> tuple[Tensor, Tensor, Tensor]:
+    _validate_actor_critic_loss_inputs(
+        selected_log_probability,
+        terminal_reward,
+        value_prediction,
+        value_loss_coefficient=value_loss_coefficient,
+    )
+
+    reward = terminal_reward.to(dtype=value_prediction.dtype)
+    advantage = reward - value_prediction
+    actor_loss = -torch.mean(advantage.detach() * selected_log_probability)
+    value_loss = F.mse_loss(value_prediction, reward)
+    total_loss = actor_loss + value_loss_coefficient * value_loss
+    return actor_loss, value_loss, total_loss
+
+
+def _validate_actor_critic_loss_inputs(
+    selected_log_probability: Tensor,
+    terminal_reward: Tensor,
+    value_prediction: Tensor,
+    *,
+    value_loss_coefficient: float,
+) -> None:
     if selected_log_probability.shape != terminal_reward.shape:
         raise ValueError(
             "terminal_reward must have the same shape as selected_log_probability: "
@@ -689,9 +864,66 @@ def actor_critic_losses(
             f"got {value_loss_coefficient}."
         )
 
+
+def ppo_clipped_actor_loss(
+    selected_log_probability: Tensor,
+    behavior_log_probability: Tensor,
+    advantage: Tensor,
+    *,
+    clip_epsilon: float,
+) -> Tensor:
+    if selected_log_probability.shape != behavior_log_probability.shape:
+        raise ValueError(
+            "behavior_log_probability must have the same shape as "
+            "selected_log_probability: "
+            f"{tuple(behavior_log_probability.shape)} != "
+            f"{tuple(selected_log_probability.shape)}."
+        )
+    if advantage.shape != selected_log_probability.shape:
+        raise ValueError(
+            "advantage must have the same shape as selected_log_probability: "
+            f"{tuple(advantage.shape)} != {tuple(selected_log_probability.shape)}."
+        )
+    _validate_ppo_clip_epsilon(clip_epsilon)
+
+    ratio = torch.exp(selected_log_probability - behavior_log_probability)
+    clipped_ratio = torch.clamp(ratio, 1.0 - clip_epsilon, 1.0 + clip_epsilon)
+    fixed_advantage = advantage.detach()
+    objective = torch.minimum(ratio * fixed_advantage, clipped_ratio * fixed_advantage)
+    return -torch.mean(objective)
+
+
+def ppo_actor_critic_losses(
+    selected_log_probability: Tensor,
+    behavior_log_probability: Tensor,
+    terminal_reward: Tensor,
+    value_prediction: Tensor,
+    old_value_prediction: Tensor,
+    *,
+    clip_epsilon: float,
+    value_loss_coefficient: float,
+) -> tuple[Tensor, Tensor, Tensor]:
+    _validate_actor_critic_loss_inputs(
+        selected_log_probability,
+        terminal_reward,
+        value_prediction,
+        value_loss_coefficient=value_loss_coefficient,
+    )
+    if old_value_prediction.shape != terminal_reward.shape:
+        raise ValueError(
+            "old_value_prediction must have the same shape as terminal_reward: "
+            f"{tuple(old_value_prediction.shape)} != {tuple(terminal_reward.shape)}."
+        )
+
     reward = terminal_reward.to(dtype=value_prediction.dtype)
-    advantage = reward - value_prediction
-    actor_loss = -torch.mean(advantage.detach() * selected_log_probability)
+    old_value = old_value_prediction.to(dtype=value_prediction.dtype)
+    advantage = reward - old_value
+    actor_loss = ppo_clipped_actor_loss(
+        selected_log_probability,
+        behavior_log_probability,
+        advantage,
+        clip_epsilon=clip_epsilon,
+    )
     value_loss = F.mse_loss(value_prediction, reward)
     total_loss = actor_loss + value_loss_coefficient * value_loss
     return actor_loss, value_loss, total_loss
@@ -894,6 +1126,15 @@ def _critic_parameter_prefixes(model: PlayingActorCriticModel) -> tuple[str, ...
     return ("value_head.",)
 
 
+def _clone_frozen_old_critic(model: PlayingActorCriticModel) -> torch.nn.Module:
+    if not isinstance(model, PolicySeparatedActorCriticModel):
+        raise ValueError("PPO Actor-Critic training requires separated Actor/Critic parameters.")
+    frozen = deepcopy(model.critic)
+    frozen.eval()
+    frozen.requires_grad_(False)
+    return cast(torch.nn.Module, frozen)
+
+
 def _build_rl_provenance(
     *,
     input_checkpoint_sha256: str,
@@ -923,6 +1164,9 @@ def _build_rl_provenance(
         "optimizer": settings.optimizer,
         "learningRate": settings.learning_rate,
         "valueLossCoefficient": settings.value_loss_coefficient,
+        "ppoClipEpsilon": (
+            settings.ppo_clip_epsilon if _is_ppo_algorithm(settings.algorithm) else None
+        ),
         "epochs": settings.epochs,
         "optimizerSteps": optimizer_step_count,
         "trainingSeed": settings.seed,
@@ -998,12 +1242,18 @@ def _validate_settings(settings: ActorCriticTrainSettings) -> None:
             "behavior_parity_max_observed_batch_size must be positive when set, "
             f"got {settings.behavior_parity_max_observed_batch_size}."
         )
+    _validate_ppo_clip_epsilon(settings.ppo_clip_epsilon)
+    if _is_ppo_algorithm(settings.algorithm) and settings.value_loss_coefficient < 0.0:
+        raise ValueError("PPO value-loss-coefficient must be non-negative.")
 
 
 def _model_architecture_for_algorithm(algorithm: str) -> str:
     if algorithm == ACTOR_CRITIC_ALGORITHM:
         return ACTOR_CRITIC_MODEL_ARCHITECTURE
-    if algorithm == SEPARATED_ACTOR_CRITIC_ALGORITHM:
+    if algorithm in {
+        SEPARATED_ACTOR_CRITIC_ALGORITHM,
+        PPO_SEPARATED_ACTOR_CRITIC_ALGORITHM,
+    }:
         return SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE
     raise ValueError(
         f"algorithm must be one of {', '.join(ACTOR_CRITIC_ALGORITHMS)}, got {algorithm!r}."
@@ -1040,6 +1290,15 @@ def _new_parameters_for_architecture(model_architecture: str) -> list[str]:
     if model_architecture == SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE:
         return ["critic"]
     return ["value_head"]
+
+
+def _is_ppo_algorithm(algorithm: str) -> bool:
+    return algorithm == PPO_SEPARATED_ACTOR_CRITIC_ALGORITHM
+
+
+def _validate_ppo_clip_epsilon(value: float) -> None:
+    if not math.isfinite(value) or value <= 0.0 or value >= 1.0:
+        raise ValueError(f"ppo_clip_epsilon must be finite and in (0, 1), got {value}.")
 
 
 def _sha256_file(path: Path) -> str:

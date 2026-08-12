@@ -16,6 +16,7 @@ from napoleon_ml.dataset.pytorch import create_playing_self_play_dataloader
 from napoleon_ml.dataset.split import DatasetSplit, SplitConfig
 from napoleon_ml.policy.actor_critic import (
     ACTOR_CRITIC_ALGORITHMS,
+    DEFAULT_PPO_CLIP_EPSILON,
     ActorCriticTrainReport,
     ActorCriticTrainSettings,
     train_policy_actor_critic,
@@ -41,6 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=REINFORCE_ALGORITHM,
     )
     parser.add_argument("--value-loss-coefficient", type=float, default=0.5)
+    parser.add_argument("--ppo-clip-epsilon", type=float, default=DEFAULT_PPO_CLIP_EPSILON)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--device", choices=SUPPORTED_TORCH_DEVICES, default="cpu")
@@ -101,6 +103,7 @@ def _run(args: argparse.Namespace) -> int:
                 args.behavior_parity_max_observed_batch_size
             ),
             algorithm=args.algorithm,
+            ppo_clip_epsilon=args.ppo_clip_epsilon,
         )
         report = train_policy_actor_critic(
             input_checkpoint=args.input_checkpoint,
@@ -172,6 +175,25 @@ def _run(args: argparse.Namespace) -> int:
             )
         else:
             print(f"mean_actor_loss: {report.mean_actor_loss:.8f}")
+            if report.ppo_clip_epsilon is not None:
+                print(f"ppo_clip_epsilon: {report.ppo_clip_epsilon:.8f}")
+                print(
+                    "ppo_mean_probability_ratio: "
+                    f"{_format_optional_float(report.ppo_mean_probability_ratio, precision=8)}"
+                )
+                print(
+                    "ppo_probability_ratio_std: "
+                    f"{_format_optional_float(report.ppo_probability_ratio_std, precision=8)}"
+                )
+                print(f"ppo_clipped_sample_count: {report.ppo_clipped_sample_count}")
+                print(
+                    "ppo_clipped_fraction: "
+                    f"{_format_optional_float(report.ppo_clipped_fraction, precision=8)}"
+                )
+                print(
+                    "ppo_approximate_kl: "
+                    f"{_format_optional_float(report.ppo_approximate_kl, precision=8)}"
+                )
             print(
                 "actor_loss_before: "
                 f"{_format_optional_float(report.actor_loss_before, precision=8)}"

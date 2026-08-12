@@ -24,7 +24,9 @@ from napoleon_ml.dataset.split import DatasetSplit, SplitConfig
 from napoleon_ml.dataset.validation import validate_manifest
 from napoleon_ml.policy.actor_critic import (
     ACTOR_CRITIC_ALGORITHMS,
+    DEFAULT_PPO_CLIP_EPSILON,
     DEFAULT_VALUE_LOSS_COEFFICIENT,
+    PPO_SEPARATED_ACTOR_CRITIC_ALGORITHM,
     ActorCriticTrainReport,
     ActorCriticTrainSettings,
     train_policy_actor_critic,
@@ -88,6 +90,7 @@ class PlayingRlRunConfig:
     algorithm: str = REINFORCE_ALGORITHM
     learning_rate: float = DEFAULT_LEARNING_RATE
     value_loss_coefficient: float = DEFAULT_VALUE_LOSS_COEFFICIENT
+    ppo_clip_epsilon: float = DEFAULT_PPO_CLIP_EPSILON
     epochs: int = DEFAULT_EPOCHS
     batch_size: int = DEFAULT_BATCH_SIZE
     full_diagnostics_interval: int = DEFAULT_FULL_DIAGNOSTICS_INTERVAL
@@ -122,6 +125,7 @@ class PlayingRlRunConfig:
             algorithm=self.algorithm,
             learning_rate=self.learning_rate,
             value_loss_coefficient=self.value_loss_coefficient,
+            ppo_clip_epsilon=self.ppo_clip_epsilon,
             epochs=self.epochs,
             batch_size=self.batch_size,
             full_diagnostics_interval=self.full_diagnostics_interval,
@@ -168,6 +172,7 @@ class PlayingRlRunConfig:
             "algorithm": self.algorithm,
             "learningRate": self.learning_rate,
             "valueLossCoefficient": self.value_loss_coefficient,
+            "ppoClipEpsilon": self.ppo_clip_epsilon,
             "epochs": self.epochs,
             "batchSize": self.batch_size,
             "fullDiagnosticsInterval": self.full_diagnostics_interval,
@@ -380,6 +385,7 @@ def _run_iteration(
             batch_size=config.batch_size,
             learning_rate=config.learning_rate,
             value_loss_coefficient=config.value_loss_coefficient,
+            ppo_clip_epsilon=config.ppo_clip_epsilon,
             verify_integrity=True,
             device=config.device,
             full_diagnostics=diagnostics_performed,
@@ -489,6 +495,17 @@ def _run_iteration(
         "valueLossCoefficient": (
             config.value_loss_coefficient if config.algorithm in ACTOR_CRITIC_ALGORITHMS else None
         ),
+        "ppoClipEpsilon": (
+            config.ppo_clip_epsilon
+            if config.algorithm == PPO_SEPARATED_ACTOR_CRITIC_ALGORITHM
+            else None
+        ),
+        "ppoMeanProbabilityRatio": train_report.get("ppoMeanProbabilityRatio"),
+        "ppoProbabilityRatioStd": train_report.get("ppoProbabilityRatioStd"),
+        "ppoClippedSampleCount": train_report.get("ppoClippedSampleCount"),
+        "ppoClippedFraction": train_report.get("ppoClippedFraction"),
+        "ppoApproximateKl": train_report.get("ppoApproximateKl"),
+        "ppoApproximateKlDefinition": train_report.get("ppoApproximateKlDefinition"),
         "optimizerStepCount": report.optimizer_step_count,
         "behaviorParityDiagnostics": train_report["behaviorParityDiagnostics"],
         "behaviorPolicyProvenance": train_report["behaviorPolicyProvenance"],
@@ -576,6 +593,15 @@ def _run_iteration(
                 ),
                 "changedCriticParameterCount": (
                     actor_critic_report.changed_critic_parameter_count
+                ),
+                "ppoClipEpsilon": actor_critic_report.ppo_clip_epsilon,
+                "ppoMeanProbabilityRatio": actor_critic_report.ppo_mean_probability_ratio,
+                "ppoProbabilityRatioStd": actor_critic_report.ppo_probability_ratio_std,
+                "ppoClippedSampleCount": actor_critic_report.ppo_clipped_sample_count,
+                "ppoClippedFraction": actor_critic_report.ppo_clipped_fraction,
+                "ppoApproximateKl": actor_critic_report.ppo_approximate_kl,
+                "ppoApproximateKlDefinition": (
+                    actor_critic_report.ppo_approximate_kl_definition
                 ),
             }
         )
@@ -1299,6 +1325,13 @@ def _validate_resume_config(
         "frozenPolicyMetadataSha256",
         "frozenPolicyArtifactId",
     }
+    stored_algorithm = _stored_config_value(stored_config, "algorithm")
+    requested_algorithm = _stored_config_value(requested_config, "algorithm")
+    if (
+        stored_algorithm == PPO_SEPARATED_ACTOR_CRITIC_ALGORITHM
+        or requested_algorithm == PPO_SEPARATED_ACTOR_CRITIC_ALGORITHM
+    ):
+        always_check.add("ppoClipEpsilon")
     for key in always_check | provided_config_keys:
         if requested_config.get(key) != _stored_config_value(stored_config, key):
             raise PlayingRlOrchestratorError(
@@ -1336,6 +1369,7 @@ def _config_from_file_dict(
         value_loss_coefficient=_required_float(
             _stored_config_value(data, "valueLossCoefficient")
         ),
+        ppo_clip_epsilon=_required_float(_stored_config_value(data, "ppoClipEpsilon")),
         epochs=_required_int(data["epochs"]),
         batch_size=_required_int(data["batchSize"]),
         full_diagnostics_interval=_required_int(
@@ -1443,6 +1477,12 @@ def _validate_config(config: PlayingRlRunConfig) -> None:
         raise PlayingRlOrchestratorError(
             "value_loss_coefficient must be finite and non-negative."
         )
+    if (
+        not math.isfinite(config.ppo_clip_epsilon)
+        or config.ppo_clip_epsilon <= 0.0
+        or config.ppo_clip_epsilon >= 1.0
+    ):
+        raise PlayingRlOrchestratorError("ppo_clip_epsilon must be finite and in (0, 1).")
 
     self_play_start = config.self_play_seed_base
     self_play_end = config.self_play_seed_base + config.iterations * config.games_per_iteration - 1
@@ -1886,6 +1926,8 @@ def _stored_config_value(data: Mapping[str, object], key: str) -> object:
         return REINFORCE_ALGORITHM
     if key == "valueLossCoefficient":
         return DEFAULT_VALUE_LOSS_COEFFICIENT
+    if key == "ppoClipEpsilon":
+        return DEFAULT_PPO_CLIP_EPSILON
     if key == "rolloutRoster":
         return DEFAULT_ROLLOUT_ROSTER
     if key == "rolloutWorkers":

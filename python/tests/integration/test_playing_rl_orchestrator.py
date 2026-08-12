@@ -17,6 +17,8 @@ from napoleon_ml.dataset.constants import CARD_COUNT, EXPECTED_CARD_IDS
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 from napoleon_ml.policy.actor_critic import (
     ACTOR_CRITIC_ALGORITHM,
+    DEFAULT_PPO_CLIP_EPSILON,
+    PPO_SEPARATED_ACTOR_CRITIC_ALGORITHM,
     SEPARATED_ACTOR_CRITIC_ALGORITHM,
 )
 from napoleon_ml.policy.checkpoint import SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE
@@ -533,6 +535,69 @@ def test_playing_rl_orchestrator_separated_actor_critic_cpp_smoke(tmp_path: Path
     ]
 
 
+@pytest.mark.integration
+def test_playing_rl_orchestrator_ppo_separated_cpp_smoke(tmp_path: Path) -> None:
+    _ensure_cpp_onnxruntime_enabled_or_skip(tmp_path)
+    supervised_dataset = tmp_path / "supervised"
+    initial_checkpoint = tmp_path / "initial-playing.pt"
+    _create_initial_checkpoint(supervised_dataset, initial_checkpoint)
+
+    run_directory = tmp_path / "ppo-separated-cpp-run"
+    config = replace(
+        _small_config(
+            run_directory=run_directory,
+            initial_checkpoint=initial_checkpoint,
+            supervised_dataset=supervised_dataset,
+            algorithm=PPO_SEPARATED_ACTOR_CRITIC_ALGORITHM,
+        ),
+        iterations=1,
+        games_per_iteration=1,
+        games_per_shard=1,
+        rollout_workers=1,
+        rollout_concurrency=1,
+        batch_size=8,
+        evaluation_seed_count=1,
+        simulation_backend="cpp",
+        frozen_policy_onnx=_REPO_ROOT / "benchmarks/playing-policies/rl-v740/policy.onnx",
+        frozen_policy_metadata=_REPO_ROOT / "benchmarks/playing-policies/rl-v740/policy.json",
+        ppo_clip_epsilon=0.2,
+        build_cpp=True,
+    )
+    run_playing_rl_experiment(config, resume=False)
+
+    iter0 = _load_json(run_directory / "iterations" / "iter-000" / "iteration.json")
+    report = _load_json(run_directory / "iterations" / "iter-000" / "train-report.json")
+    assert iter0["algorithm"] == PPO_SEPARATED_ACTOR_CRITIC_ALGORITHM
+    assert iter0["simulationBackend"] == "cpp"
+    assert iter0["ppoClipEpsilon"] == pytest.approx(0.2)
+    assert iter0["ppoMeanProbabilityRatio"] is not None
+    assert iter0["ppoClippedFraction"] is not None
+    assert iter0["ppoApproximateKl"] is not None
+    assert _required_int(iter0["optimizerStepCount"]) > 0
+    assert report["ppoClipEpsilon"] == pytest.approx(0.2)
+    assert report["ppoMeanProbabilityRatio"] is not None
+    assert report["ppoClippedFraction"] is not None
+    assert report["ppoApproximateKl"] is not None
+    checkpoint = torch.load(
+        run_directory / "iterations" / "iter-000" / "output-checkpoint.pt",
+        map_location="cpu",
+        weights_only=True,
+    )
+    assert checkpoint["model_architecture"] == SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE
+    provenance = cast(dict[str, object], checkpoint["rl_provenance"])
+    assert provenance["algorithm"] == PPO_SEPARATED_ACTOR_CRITIC_ALGORITHM
+    assert provenance["ppoClipEpsilon"] == pytest.approx(0.2)
+
+    evaluation = _load_json(run_directory / "evaluations" / "policy-v001" / "summary.json")
+    assert evaluation["simulationBackend"] == "cpp"
+    assert evaluation["completedGames"] == 5
+    metadata = _load_json(run_directory / "evaluations" / "policy-v001" / "policy.json")
+    assert metadata["modelArchitecture"] == SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE
+    assert _required_object(metadata["onnx"])["outputs"] == [
+        {"name": "logits", "shape": ["batch", CARD_COUNT], "dtype": "float32"}
+    ]
+
+
 def _ensure_cpp_onnxruntime_enabled_or_skip(tmp_path: Path) -> None:
     native_dir = _REPO_ROOT / "packages/cpp-core/native"
     probe_build_dir = tmp_path / "cpp-onnxruntime-probe"
@@ -675,6 +740,32 @@ def test_resume_keeps_stored_evaluation_seed_count_100_when_not_provided(
         )
 
 
+def test_ppo_resume_fails_close_when_clip_epsilon_changes(tmp_path: Path) -> None:
+    supervised_dataset = tmp_path / "supervised"
+    supervised_dataset.mkdir()
+    (supervised_dataset / "manifest.json").write_text("{}", encoding="utf-8")
+    initial_checkpoint = tmp_path / "initial-playing.pt"
+    initial_checkpoint.write_bytes(b"checkpoint")
+    stored_run = PlayingRlRunConfig(
+        run_directory=tmp_path / "run",
+        initial_checkpoint=initial_checkpoint,
+        supervised_dataset=supervised_dataset,
+        algorithm=PPO_SEPARATED_ACTOR_CRITIC_ALGORITHM,
+        ppo_clip_epsilon=DEFAULT_PPO_CLIP_EPSILON,
+    ).normalized()
+    requested_run = replace(stored_run, ppo_clip_epsilon=0.1)
+
+    with pytest.raises(
+        PlayingRlOrchestratorError,
+        match="resume config mismatch for ppoClipEpsilon",
+    ):
+        _validate_resume_config(
+            stored_config=stored_run.to_file_dict(),
+            requested_config=requested_run.to_file_dict(),
+            provided_config_keys=set(),
+        )
+
+
 def test_run_playing_rl_cli_parses_rollout_diagnostic_and_cache_options(
     tmp_path: Path,
 ) -> None:
@@ -695,6 +786,8 @@ def test_run_playing_rl_cli_parses_rollout_diagnostic_and_cache_options(
             "64",
             "--inference-max-batch-size",
             "128",
+            "--ppo-clip-epsilon",
+            "0.15",
             "--retain-self-play-data",
             "--simulation-backend",
             "cpp",
@@ -713,6 +806,7 @@ def test_run_playing_rl_cli_parses_rollout_diagnostic_and_cache_options(
     assert config.inference_device == "auto"
     assert config.rollout_concurrency == 64
     assert config.inference_max_batch_size == 128
+    assert config.ppo_clip_epsilon == pytest.approx(0.15)
     assert config.retain_self_play_data is True
     assert config.simulation_backend == "cpp"
     assert config.frozen_policy_onnx == tmp_path / "frozen.onnx"
