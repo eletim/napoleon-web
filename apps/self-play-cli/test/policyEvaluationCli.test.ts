@@ -274,4 +274,195 @@ describe("runPolicyEvaluationCli", () => {
 
     await rm(directory, { recursive: true, force: true });
   });
+
+  it("evaluates candidate and baseline policies with the same RuleBased conditions", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "policy-eval-cli-"));
+    const output = join(directory, "evaluation.json");
+    const io = createIo();
+    const completeInfoPolicy = {
+      metadata: {
+        playingObservationVariant: "complete-info-compact",
+        modelInputFeatureCount: 385
+      },
+      runtime: {
+        requestedInferenceDevice: "cpu",
+        resolvedInferenceDevice: "cpu",
+        executionProvider: "cpu"
+      }
+    };
+    const publicPolicy = {
+      metadata: {
+        playingObservationVariant: "public",
+        onnx: {
+          inputs: [
+            {
+              shape: ["batch", 6246]
+            }
+          ]
+        }
+      },
+      runtime: {
+        requestedInferenceDevice: "cpu",
+        resolvedInferenceDevice: "cpu",
+        executionProvider: "cpu"
+      }
+    };
+    const completeInfoResult = {
+      schemaVersion: 1,
+      run: {
+        gameCount: 2,
+        rotationOffsets: [0, 1, 2, 3, 4],
+        completedCount: 10,
+        failedCount: 0
+      },
+      comparison: {
+        illegalActionCount: 0
+      }
+    };
+    const publicResult = {
+      schemaVersion: 1,
+      run: {
+        gameCount: 2,
+        rotationOffsets: [0, 1, 2, 3, 4],
+        completedCount: 9,
+        failedCount: 1
+      },
+      comparison: {
+        illegalActionCount: 1
+      }
+    };
+    loadPolicyOnnxModel
+      .mockResolvedValueOnce(completeInfoPolicy)
+      .mockResolvedValueOnce(publicPolicy);
+    runPolicyVsRuleBasedEvaluation
+      .mockResolvedValueOnce(completeInfoResult)
+      .mockResolvedValueOnce(publicResult);
+
+    const code = await runPolicyEvaluationCli([
+      "--onnx",
+      "/models/compact.onnx",
+      "--metadata",
+      "/models/compact.json",
+      "--policy-label",
+      "complete-info-compact",
+      "--baseline-onnx",
+      "/models/public.onnx",
+      "--baseline-metadata",
+      "/models/public.json",
+      "--baseline-label",
+      "public",
+      "--output",
+      output,
+      "--start-seed",
+      "200",
+      "--seed-count",
+      "2"
+    ], io);
+
+    expect(code).toBe(0);
+    expect(loadPolicyOnnxModel).toHaveBeenNthCalledWith(1, {
+      onnxPath: "/models/compact.onnx",
+      metadataPath: "/models/compact.json",
+      inferenceDevice: "cpu"
+    });
+    expect(loadPolicyOnnxModel).toHaveBeenNthCalledWith(2, {
+      onnxPath: "/models/public.onnx",
+      metadataPath: "/models/public.json",
+      inferenceDevice: "cpu"
+    });
+    expect(runPolicyVsRuleBasedEvaluation).toHaveBeenNthCalledWith(1, {
+      policy: completeInfoPolicy,
+      startSeed: 200,
+      gameCount: 2
+    });
+    expect(runPolicyVsRuleBasedEvaluation).toHaveBeenNthCalledWith(2, {
+      policy: publicPolicy,
+      startSeed: 200,
+      gameCount: 2
+    });
+    expect(runStandardPlayingPolicyBenchmarks).not.toHaveBeenCalled();
+
+    const written = JSON.parse(await readFile(output, "utf8"));
+    expect(written).toMatchObject({
+      schemaVersion: 1,
+      evaluationType: "playing-policy-comparison",
+      benchmark: "rule-based-x4",
+      startSeed: 200,
+      endSeed: 201,
+      seedCount: 2,
+      inferenceDevice: "cpu",
+      policies: [
+        {
+          artifact: {
+            label: "complete-info-compact",
+            onnxPath: "/models/compact.onnx",
+            metadataPath: "/models/compact.json",
+            playingObservationVariant: "complete-info-compact",
+            modelInputFeatureCount: 385
+          },
+          result: completeInfoResult
+        },
+        {
+          artifact: {
+            label: "public",
+            onnxPath: "/models/public.onnx",
+            metadataPath: "/models/public.json",
+            playingObservationVariant: "public",
+            modelInputFeatureCount: 6246
+          },
+          result: publicResult
+        }
+      ]
+    });
+    expect(JSON.parse(io.stdout.write.mock.calls[0][0])).toEqual({
+      policies: [
+        {
+          label: "complete-info-compact",
+          variant: "complete-info-compact",
+          modelInputFeatureCount: 385,
+          runtime: completeInfoPolicy.runtime,
+          scheduledGames: 10,
+          completedGames: 10,
+          failedGames: 0,
+          illegalActionCount: 0
+        },
+        {
+          label: "public",
+          variant: "public",
+          modelInputFeatureCount: 6246,
+          runtime: publicPolicy.runtime,
+          scheduledGames: 10,
+          completedGames: 9,
+          failedGames: 1,
+          illegalActionCount: 1
+        }
+      ]
+    });
+
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  it("rejects incomplete baseline artifact arguments before loading policies", async () => {
+    const io = createIo();
+    const code = await runPolicyEvaluationCli([
+      "--onnx",
+      "/models/compact.onnx",
+      "--metadata",
+      "/models/compact.json",
+      "--baseline-onnx",
+      "/models/public.onnx",
+      "--output",
+      "/tmp/evaluation.json",
+      "--start-seed",
+      "200",
+      "--seed-count",
+      "2"
+    ], io);
+
+    expect(code).toBe(1);
+    expect(io.stderr.write.mock.calls.join("\n")).toContain(
+      "--baseline-onnx and --baseline-metadata must be provided together."
+    );
+    expect(loadPolicyOnnxModel).not.toHaveBeenCalled();
+  });
 });
