@@ -27,6 +27,7 @@ export interface ChildProcessPlayingSelfPlayGameRunnerOptions {
   rolloutRoster: readonly WorkerRolloutRosterSeat[] | undefined;
   temperature: number;
   maxDecisionSteps?: number;
+  observationVariant: "public" | "complete-info-compact";
 }
 
 interface WorkerSlot {
@@ -121,7 +122,8 @@ export class ChildProcessPlayingSelfPlayGameRunner implements PlayingSelfPlayGam
       currentPolicy: this.options.currentPolicy,
       rolloutRoster: this.options.rolloutRoster,
       temperature: this.options.temperature,
-      maxDecisionSteps: this.options.maxDecisionSteps
+      maxDecisionSteps: this.options.maxDecisionSteps,
+      observationVariant: this.options.observationVariant
     });
 
     return worker;

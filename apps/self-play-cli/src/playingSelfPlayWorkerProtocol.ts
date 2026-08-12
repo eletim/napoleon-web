@@ -11,6 +11,7 @@ export type WorkerRolloutRosterSeat =
     };
 
 export type WorkerInferenceDevice = "cpu" | "auto" | "cuda";
+export type WorkerPlayingObservationVariant = "public" | "complete-info-compact";
 
 export interface PlayingSelfPlayWorkerInitMessage {
   type: "init";
@@ -23,6 +24,7 @@ export interface PlayingSelfPlayWorkerInitMessage {
   rolloutRoster: readonly WorkerRolloutRosterSeat[] | undefined;
   temperature: number;
   maxDecisionSteps: number | undefined;
+  observationVariant: WorkerPlayingObservationVariant;
 }
 
 export interface WorkerPolicyFingerprint {

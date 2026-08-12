@@ -18,6 +18,10 @@ from typing import TextIO, cast
 from napoleon_ml.cli._policy_common import configure_reproducibility, load_checked_manifest
 from napoleon_ml.dataset.constants import PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT, UINT32_MAX
 from napoleon_ml.dataset.manifest import DatasetManifest, parse_manifest
+from napoleon_ml.dataset.playing_variants import (
+    PUBLIC_PLAYING_OBSERVATION_VARIANT,
+    normalize_playing_observation_variant,
+)
 from napoleon_ml.dataset.pytorch import create_playing_self_play_dataloader
 from napoleon_ml.dataset.reader import iter_raw_samples, load_manifest
 from napoleon_ml.dataset.split import DatasetSplit, SplitConfig
@@ -65,12 +69,14 @@ DEFAULT_EVALUATION_SEED_COUNT = 400
 DEFAULT_INFERENCE_DEVICE = "cpu"
 DEFAULT_RETAIN_SELF_PLAY_DATA = False
 DEFAULT_SIMULATION_BACKEND = "typescript"
+DEFAULT_PLAYING_OBSERVATION_VARIANT = PUBLIC_PLAYING_OBSERVATION_VARIANT
 DEFAULT_FROZEN_POLICY_ARTIFACT_ID = "rl-v740"
 DEFAULT_FROZEN_POLICY_ONNX = Path("benchmarks/playing-policies/rl-v740/policy.onnx")
 DEFAULT_FROZEN_POLICY_METADATA = Path("benchmarks/playing-policies/rl-v740/policy.json")
 PLAYING_RL_ALGORITHMS = (REINFORCE_ALGORITHM, *ACTOR_CRITIC_ALGORITHMS)
 SUPPORTED_INFERENCE_DEVICES = ("cpu", "auto", "cuda")
 SUPPORTED_SIMULATION_BACKENDS = ("typescript", "cpp")
+SUPPORTED_PLAYING_OBSERVATION_VARIANTS = ("public", "complete-info-compact")
 
 
 @dataclass(frozen=True)
@@ -102,6 +108,7 @@ class PlayingRlRunConfig:
     inference_device: str = DEFAULT_INFERENCE_DEVICE
     retain_self_play_data: bool = DEFAULT_RETAIN_SELF_PLAY_DATA
     simulation_backend: str = DEFAULT_SIMULATION_BACKEND
+    playing_observation_variant: str = DEFAULT_PLAYING_OBSERVATION_VARIANT
     frozen_policy_onnx: Path | None = None
     frozen_policy_metadata: Path | None = None
     frozen_policy_artifact_id: str = DEFAULT_FROZEN_POLICY_ARTIFACT_ID
@@ -137,6 +144,9 @@ class PlayingRlRunConfig:
             inference_device=self.inference_device,
             retain_self_play_data=self.retain_self_play_data,
             simulation_backend=self.simulation_backend,
+            playing_observation_variant=normalize_playing_observation_variant(
+                self.playing_observation_variant
+            ),
             frozen_policy_onnx=(
                 self.frozen_policy_onnx.expanduser().resolve()
                 if self.frozen_policy_onnx is not None
@@ -184,6 +194,9 @@ class PlayingRlRunConfig:
             "inferenceDevice": self.inference_device,
             "retainSelfPlayData": self.retain_self_play_data,
             "simulationBackend": self.simulation_backend,
+            "playingObservationVariant": normalize_playing_observation_variant(
+                self.playing_observation_variant
+            ),
             "frozenPolicyOnnx": (
                 str(self.frozen_policy_onnx) if self.frozen_policy_onnx is not None else None
             ),
@@ -306,6 +319,7 @@ def _run_iteration(
         metadata_path=behavior_metadata,
         manifest=load_manifest(config.supervised_dataset),
         verify_integrity=True,
+        playing_observation_variant=config.playing_observation_variant,
     )
     behavior_onnx_sha256 = sha256_file(behavior_onnx)
     behavior_metadata_sha256 = sha256_file(behavior_metadata)
@@ -686,6 +700,7 @@ def _ensure_evaluation(
         metadata_path=metadata_path,
         manifest=load_manifest(config.supervised_dataset),
         verify_integrity=True,
+        playing_observation_variant=config.playing_observation_variant,
     )
     onnx_sha256 = sha256_file(onnx_path)
     metadata_sha256 = sha256_file(metadata_path)
@@ -1321,6 +1336,7 @@ def _validate_resume_config(
         "rolloutConcurrency",
         "inferenceMaxBatchSize",
         "simulationBackend",
+        "playingObservationVariant",
         "frozenPolicyOnnxSha256",
         "frozenPolicyMetadataSha256",
         "frozenPolicyArtifactId",
@@ -1387,6 +1403,9 @@ def _config_from_file_dict(
         simulation_backend=_required_simulation_backend(
             _stored_config_value(data, "simulationBackend")
         ),
+        playing_observation_variant=_required_playing_observation_variant(
+            _stored_config_value(data, "playingObservationVariant")
+        ),
         frozen_policy_onnx=(
             Path(_required_str(data["frozenPolicyOnnx"]))
             if data.get("frozenPolicyOnnx") is not None
@@ -1449,6 +1468,28 @@ def _validate_config(config: PlayingRlRunConfig) -> None:
         raise PlayingRlOrchestratorError(
             "simulation_backend must be one of "
             f"{', '.join(SUPPORTED_SIMULATION_BACKENDS)}, got {config.simulation_backend!r}."
+        )
+    if config.playing_observation_variant not in SUPPORTED_PLAYING_OBSERVATION_VARIANTS:
+        raise PlayingRlOrchestratorError(
+            "playing_observation_variant must be one of "
+            f"{', '.join(SUPPORTED_PLAYING_OBSERVATION_VARIANTS)}, "
+            f"got {config.playing_observation_variant!r}."
+        )
+    if (
+        config.playing_observation_variant != PUBLIC_PLAYING_OBSERVATION_VARIANT
+        and config.algorithm != PPO_SEPARATED_ACTOR_CRITIC_ALGORITHM
+    ):
+        raise PlayingRlOrchestratorError(
+            "complete-info compact playing observation variant requires "
+            f"algorithm={PPO_SEPARATED_ACTOR_CRITIC_ALGORITHM!r}."
+        )
+    if (
+        config.playing_observation_variant != PUBLIC_PLAYING_OBSERVATION_VARIANT
+        and config.simulation_backend != "typescript"
+    ):
+        raise PlayingRlOrchestratorError(
+            "complete-info compact playing observation variant requires "
+            "simulation_backend='typescript'."
         )
     if config.simulation_backend == "cpp":
         if config.frozen_policy_onnx is None or config.frozen_policy_metadata is None:
@@ -1598,6 +1639,8 @@ def _run_rollout_backend(
                 artifact_id,
                 "--progress-prefix",
                 progress_prefix,
+                "--playing-observation-variant",
+                config.playing_observation_variant,
             ],
             cwd=_repo_root(),
         )
@@ -1946,6 +1989,8 @@ def _stored_config_value(data: Mapping[str, object], key: str) -> object:
         return DEFAULT_RETAIN_SELF_PLAY_DATA
     if key == "simulationBackend":
         return DEFAULT_SIMULATION_BACKEND
+    if key == "playingObservationVariant":
+        return DEFAULT_PLAYING_OBSERVATION_VARIANT
     if key == "frozenPolicyOnnxSha256":
         return data.get("frozenPolicyOnnxSha256")
     if key == "frozenPolicyMetadataSha256":
@@ -2029,6 +2074,16 @@ def _required_simulation_backend(value: object) -> str:
         raise PlayingRlOrchestratorError(
             "simulationBackend must be one of "
             f"{', '.join(SUPPORTED_SIMULATION_BACKENDS)}, got {text!r}."
+        )
+    return text
+
+
+def _required_playing_observation_variant(value: object) -> str:
+    text = _required_str(value)
+    if text not in SUPPORTED_PLAYING_OBSERVATION_VARIANTS:
+        raise PlayingRlOrchestratorError(
+            "playingObservationVariant must be one of "
+            f"{', '.join(SUPPORTED_PLAYING_OBSERVATION_VARIANTS)}, got {text!r}."
         )
     return text
 

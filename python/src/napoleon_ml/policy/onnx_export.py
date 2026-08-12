@@ -17,14 +17,17 @@ import torch
 from napoleon_ml.dataset.constants import (
     CARD_COUNT,
     DATASET_SCHEMA_VERSION,
-    PLAYING_ENCODER_SCHEMA_VERSION,
 )
 from napoleon_ml.dataset.manifest import DatasetManifest
 from napoleon_ml.dataset.reader import iter_tensorized_samples
 from napoleon_ml.dataset.tensors import (
-    MODEL_INPUT_FEATURE_COUNT,
-    MODEL_INPUT_SCHEMA_VERSION,
     TensorizedPlayingSample,
+)
+from napoleon_ml.dataset.playing_variants import (
+    model_input_feature_count_for_variant,
+    normalize_playing_observation_variant,
+    playing_encoder_schema_version_for_variant,
+    playing_model_input_schema_version_for_variant,
 )
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 from napoleon_ml.policy.checkpoint import (
@@ -49,6 +52,14 @@ _FLOAT32_DTYPE = "float32"
 _BATCH_DIMENSION = "batch"
 _PARITY_RTOL = 1e-4
 _PARITY_ATOL = 1e-5
+
+
+@dataclass(frozen=True)
+class _ExportParitySample:
+    seed: int
+    step: int
+    model_input: np.ndarray
+    legal_play_mask: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -89,6 +100,7 @@ def export_policy_checkpoint_to_onnx(
     metadata_path: Path | str,
     manifest: DatasetManifest,
     verify_integrity: bool = True,
+    playing_observation_variant: str | None = None,
 ) -> PolicyOnnxExportReport:
     checkpoint_file = Path(checkpoint_path)
     output = Path(onnx_path)
@@ -99,39 +111,47 @@ def export_policy_checkpoint_to_onnx(
         metadata_path=metadata_output,
     )
 
-    model, checkpoint = load_policy_logits_checkpoint(checkpoint_file, manifest=manifest)
-    _validate_model_for_export(model)
+    variant = normalize_playing_observation_variant(
+        playing_observation_variant if playing_observation_variant is not None else manifest.playing_observation_variant
+    )
+    manifest_for_checkpoint = manifest if variant == "public" else None
+    model, checkpoint = load_policy_logits_checkpoint(
+        checkpoint_file,
+        manifest=manifest_for_checkpoint,
+        playing_observation_variant=variant,
+    )
+    input_feature_count = model_input_feature_count_for_variant(variant)
+    _validate_model_for_export(model, input_feature_count=input_feature_count)
 
-    samples = iter_tensorized_samples(dataset_directory, verify_integrity=verify_integrity)
-    sample = next(samples, None)
-    if sample is None:
-        raise PolicyCheckpointCompatibilityError(
-            "dataset contains no samples for ONNX parity check."
-        )
-    if not isinstance(sample, TensorizedPlayingSample):
-        raise PolicyCheckpointCompatibilityError(
-            "policy ONNX export requires a playing-training-sample dataset."
-        )
-    if verify_integrity:
-        for _ in samples:
-            pass
+    sample = _select_export_parity_sample(
+        dataset_directory,
+        verify_integrity=verify_integrity,
+        input_feature_count=input_feature_count,
+        variant=variant,
+    )
 
     model.eval()
     output.parent.mkdir(parents=True, exist_ok=True)
     metadata_output.parent.mkdir(parents=True, exist_ok=True)
 
-    dummy_input = torch.zeros((2, MODEL_INPUT_FEATURE_COUNT), dtype=torch.float32)
+    dummy_input = torch.zeros((2, input_feature_count), dtype=torch.float32)
     staged_output = _temporary_sibling(output)
     staged_metadata = _temporary_sibling(metadata_output)
     try:
         with torch.no_grad():
             _export_onnx(model=model, dummy_input=dummy_input, output=staged_output)
 
-        parity = _check_onnx_runtime_parity(model=model, onnx_path=staged_output, sample=sample)
+        parity = _check_onnx_runtime_parity(
+            model=model,
+            onnx_path=staged_output,
+            sample=sample,
+            input_feature_count=input_feature_count,
+        )
         metadata = build_policy_onnx_metadata(
             model=model,
             checkpoint=checkpoint,
             source_checkpoint_sha256=_sha256_file(checkpoint_file),
+            playing_observation_variant=variant,
         )
         staged_metadata.write_text(
             json.dumps(metadata, indent=2, sort_keys=True) + "\n",
@@ -160,23 +180,30 @@ def build_policy_onnx_metadata(
     model: PolicyLogitsModel,
     checkpoint: dict[str, object],
     source_checkpoint_sha256: str | None = None,
+    playing_observation_variant: str | None = None,
 ) -> dict[str, object]:
-    _validate_model_for_export(model)
-    _validate_checkpoint_metadata_for_export(checkpoint)
+    variant = normalize_playing_observation_variant(
+        playing_observation_variant if playing_observation_variant is not None else checkpoint.get("playing_observation_variant")
+    )
+    input_feature_count = model_input_feature_count_for_variant(variant)
+    _validate_model_for_export(model, input_feature_count=input_feature_count)
+    _validate_checkpoint_metadata_for_export(checkpoint, playing_observation_variant=variant)
 
     metadata: dict[str, object] = {
         "metadataSchemaVersion": POLICY_ONNX_METADATA_SCHEMA_VERSION,
         "checkpointSchemaVersion": CHECKPOINT_SCHEMA_VERSION,
         "datasetSchemaVersion": DATASET_SCHEMA_VERSION,
-        "playingEncoderSchemaVersion": PLAYING_ENCODER_SCHEMA_VERSION,
-        "modelInputSchemaVersion": MODEL_INPUT_SCHEMA_VERSION,
+        "playingObservationVariant": variant,
+        "playingEncoderSchemaVersion": playing_encoder_schema_version_for_variant(variant),
+        "modelInputSchemaVersion": playing_model_input_schema_version_for_variant(variant),
+        "modelInputFeatureCount": input_feature_count,
         "cardIdsSha256": calculate_card_ids_sha256(),
         "onnx": {
             "opsetVersion": ONNX_OPSET_VERSION,
             "inputs": [
                 {
                     "name": ONNX_INPUT_NAME,
-                    "shape": [_BATCH_DIMENSION, MODEL_INPUT_FEATURE_COUNT],
+                    "shape": [_BATCH_DIMENSION, input_feature_count],
                     "dtype": _FLOAT32_DTYPE,
                 }
             ],
@@ -198,12 +225,14 @@ def build_policy_onnx_metadata(
 
 
 def validate_policy_onnx_metadata(metadata: dict[str, Any]) -> None:
+    variant = normalize_playing_observation_variant(metadata.get("playingObservationVariant"))
     expected = {
         "metadataSchemaVersion": POLICY_ONNX_METADATA_SCHEMA_VERSION,
         "checkpointSchemaVersion": CHECKPOINT_SCHEMA_VERSION,
         "datasetSchemaVersion": DATASET_SCHEMA_VERSION,
-        "playingEncoderSchemaVersion": PLAYING_ENCODER_SCHEMA_VERSION,
-        "modelInputSchemaVersion": MODEL_INPUT_SCHEMA_VERSION,
+        "playingEncoderSchemaVersion": playing_encoder_schema_version_for_variant(variant),
+        "modelInputSchemaVersion": playing_model_input_schema_version_for_variant(variant),
+        "modelInputFeatureCount": model_input_feature_count_for_variant(variant),
         "cardIdsSha256": calculate_card_ids_sha256(),
     }
 
@@ -228,7 +257,7 @@ def validate_policy_onnx_metadata(metadata: dict[str, Any]) -> None:
     _validate_io_metadata(
         onnx.get("inputs"),
         expected_name=ONNX_INPUT_NAME,
-        expected_shape=(_BATCH_DIMENSION, MODEL_INPUT_FEATURE_COUNT),
+        expected_shape=(_BATCH_DIMENSION, model_input_feature_count_for_variant(variant)),
         expected_dtype=_FLOAT32_DTYPE,
         label="input",
     )
@@ -263,6 +292,44 @@ def _temporary_sibling(path: Path) -> Path:
 
 def _sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _select_export_parity_sample(
+    dataset_directory: Path | str,
+    *,
+    verify_integrity: bool,
+    input_feature_count: int,
+    variant: str,
+) -> _ExportParitySample:
+    if variant != "public":
+        legal_mask = np.zeros((CARD_COUNT,), dtype=np.bool_)
+        legal_mask[0] = True
+        return _ExportParitySample(
+            seed=-1,
+            step=-1,
+            model_input=np.zeros((input_feature_count,), dtype=np.float32),
+            legal_play_mask=legal_mask,
+        )
+
+    samples = iter_tensorized_samples(dataset_directory, verify_integrity=verify_integrity)
+    sample = next(samples, None)
+    if sample is None:
+        raise PolicyCheckpointCompatibilityError(
+            "dataset contains no samples for ONNX parity check."
+        )
+    if not isinstance(sample, TensorizedPlayingSample):
+        raise PolicyCheckpointCompatibilityError(
+            "policy ONNX export requires a playing-training-sample dataset."
+        )
+    if verify_integrity:
+        for _ in samples:
+            pass
+    return _ExportParitySample(
+        seed=sample.seed,
+        step=sample.step,
+        model_input=sample.model_input.astype(np.float32, copy=True),
+        legal_play_mask=sample.legal_play_mask.astype(np.bool_, copy=True),
+    )
 
 
 def _validate_export_paths(*, checkpoint_path: Path, onnx_path: Path, metadata_path: Path) -> None:
@@ -301,12 +368,17 @@ def _validate_writable_artifact_path(path: Path, *, label: str) -> None:
         )
 
 
-def _validate_checkpoint_metadata_for_export(checkpoint: dict[str, object]) -> None:
+def _validate_checkpoint_metadata_for_export(
+    checkpoint: dict[str, object],
+    *,
+    playing_observation_variant: str,
+) -> None:
+    variant = normalize_playing_observation_variant(playing_observation_variant)
     expected = {
         "checkpoint_schema_version": CHECKPOINT_SCHEMA_VERSION,
         "dataset_schema_version": DATASET_SCHEMA_VERSION,
-        "playing_encoder_schema_version": PLAYING_ENCODER_SCHEMA_VERSION,
-        "model_input_schema_version": MODEL_INPUT_SCHEMA_VERSION,
+        "playing_encoder_schema_version": playing_encoder_schema_version_for_variant(variant),
+        "model_input_schema_version": playing_model_input_schema_version_for_variant(variant),
         "card_ids_sha256": calculate_card_ids_sha256(),
     }
 
@@ -318,15 +390,19 @@ def _validate_checkpoint_metadata_for_export(checkpoint: dict[str, object]) -> N
             )
 
 
-def _validate_model_for_export(model: PolicyLogitsModel) -> None:
-    if model.config.input_dim != MODEL_INPUT_FEATURE_COUNT:
+def _validate_model_for_export(
+    model: PolicyLogitsModel,
+    *,
+    input_feature_count: int,
+) -> None:
+    if model.config.input_dim != input_feature_count:
         raise PolicyCheckpointCompatibilityError(
             "checkpoint model_config.input_dim mismatch: "
-            f"expected {MODEL_INPUT_FEATURE_COUNT}, got {model.config.input_dim}."
+            f"expected {input_feature_count}, got {model.config.input_dim}."
         )
 
     with torch.no_grad():
-        output = model(torch.zeros((2, MODEL_INPUT_FEATURE_COUNT), dtype=torch.float32))
+        output = model(torch.zeros((2, input_feature_count), dtype=torch.float32))
 
     if tuple(output.shape) != (2, CARD_COUNT):
         raise PolicyCheckpointCompatibilityError(
@@ -363,7 +439,8 @@ def _check_onnx_runtime_parity(
     *,
     model: PolicyLogitsModel,
     onnx_path: Path,
-    sample: TensorizedPlayingSample,
+    sample: _ExportParitySample,
+    input_feature_count: int,
 ) -> _OnnxParityResult:
     try:
         import onnxruntime as ort  # type: ignore[import-untyped]
@@ -373,7 +450,7 @@ def _check_onnx_runtime_parity(
         ) from error
 
     model_input_np = sample.model_input.astype(np.float32, copy=True).reshape(
-        1, MODEL_INPUT_FEATURE_COUNT
+        1, input_feature_count
     )
     legal_mask_np = sample.legal_play_mask.astype(np.bool_, copy=True).reshape(1, CARD_COUNT)
     with torch.no_grad():
@@ -383,7 +460,7 @@ def _check_onnx_runtime_parity(
         pytorch_selected = select_policy_action(pytorch_logits, legal_mask_torch)
 
     session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
-    _validate_onnx_runtime_io(session)
+    _validate_onnx_runtime_io(session, input_feature_count=input_feature_count)
     outputs = session.run([ONNX_OUTPUT_NAME], {ONNX_INPUT_NAME: model_input_np})
     onnx_logits_np = cast(np.ndarray, outputs[0])
     if onnx_logits_np.shape != (1, CARD_COUNT):
@@ -426,7 +503,7 @@ def _check_onnx_runtime_parity(
     )
 
 
-def _validate_onnx_runtime_io(session: Any) -> None:
+def _validate_onnx_runtime_io(session: Any, *, input_feature_count: int) -> None:
     inputs = session.get_inputs()
     outputs = session.get_outputs()
     if len(inputs) != 1:
@@ -451,11 +528,11 @@ def _validate_onnx_runtime_io(session: Any) -> None:
     if (
         len(input_meta.shape) != 2
         or not isinstance(input_meta.shape[0], str)
-        or input_meta.shape[1] != MODEL_INPUT_FEATURE_COUNT
+        or input_meta.shape[1] != input_feature_count
     ):
         raise PolicyCheckpointCompatibilityError(
             "ONNX input shape mismatch: expected dynamic batch and "
-            f"{MODEL_INPUT_FEATURE_COUNT} features, got {input_meta.shape!r}."
+            f"{input_feature_count} features, got {input_meta.shape!r}."
         )
     if (
         len(output_meta.shape) != 2

@@ -89,6 +89,8 @@ _SELF_PLAY_MANIFEST_KEYS = (
             "sampleSchemaVersion",
             "playingEncoderSchemaVersion",
             "playingModelInputSchemaVersion",
+            "playingObservationVariant",
+            "modelInputFeatureCount",
             "behaviorPolicy",
             "samplingAlgorithm",
             "temperature",
@@ -97,6 +99,9 @@ _SELF_PLAY_MANIFEST_KEYS = (
             "rolloutRoster",
         }
     )
+)
+_SELF_PLAY_LEGACY_MANIFEST_KEYS = _SELF_PLAY_MANIFEST_KEYS - frozenset(
+    {"playingObservationVariant", "modelInputFeatureCount"}
 )
 _BINARY_SELF_PLAY_EXTENSION_KEYS = frozenset(
     {
@@ -211,6 +216,8 @@ class DatasetManifest:
     card_ids: tuple[str, ...]
     card_ids_sha256: str
     shards: tuple[DatasetShardManifest, ...]
+    playing_observation_variant: str | None = None
+    model_input_feature_count: int | None = None
     sample_schema_version: int | None = None
     behavior_policy: DatasetBehaviorPolicyInfo | None = None
     sampling_algorithm: str | None = None
@@ -454,6 +461,8 @@ def parse_manifest(raw: object) -> DatasetManifest:
             error=_error,
         )
         playing_model_input_schema_version = None
+        playing_observation_variant = None
+        model_input_feature_count = None
         encoder_schema_version = None
         agent = _parse_agent(obj["agent"])
         sample_schema_version = None
@@ -468,6 +477,8 @@ def parse_manifest(raw: object) -> DatasetManifest:
         require_exact_keys(obj, _MULTIPHASE_MANIFEST_KEYS, path="manifest", error=_error)
         playing_encoder_schema_version = None
         playing_model_input_schema_version = None
+        playing_observation_variant = None
+        model_input_feature_count = None
         encoder_schema_version = require_int(
             obj["encoderSchemaVersion"], path="manifest.encoderSchemaVersion", error=_error
         )
@@ -481,7 +492,14 @@ def parse_manifest(raw: object) -> DatasetManifest:
         rollout_roster = None
         tensor_schema = None
     elif dataset_schema_version == 3:
-        require_exact_keys(obj, _SELF_PLAY_MANIFEST_KEYS, path="manifest", error=_error)
+        require_exact_keys(
+            obj,
+            _SELF_PLAY_MANIFEST_KEYS
+            if "playingObservationVariant" in obj or "modelInputFeatureCount" in obj
+            else _SELF_PLAY_LEGACY_MANIFEST_KEYS,
+            path="manifest",
+            error=_error,
+        )
         playing_encoder_schema_version = require_int(
             obj["playingEncoderSchemaVersion"],
             path="manifest.playingEncoderSchemaVersion",
@@ -491,6 +509,18 @@ def parse_manifest(raw: object) -> DatasetManifest:
             obj["playingModelInputSchemaVersion"],
             path="manifest.playingModelInputSchemaVersion",
             error=_error,
+        )
+        playing_observation_variant = _optional_str(
+            obj, "playingObservationVariant", path="manifest"
+        )
+        model_input_feature_count = (
+            require_int(
+                obj["modelInputFeatureCount"],
+                path="manifest.modelInputFeatureCount",
+                error=_error,
+            )
+            if "modelInputFeatureCount" in obj
+            else None
         )
         encoder_schema_version = None
         agent = None
@@ -509,9 +539,21 @@ def parse_manifest(raw: object) -> DatasetManifest:
         rollout_roster = _parse_rollout_roster(obj["rolloutRoster"])
         tensor_schema = None
     elif dataset_schema_version == 4:
-        for key in sorted(_BINARY_SELF_PLAY_REQUIRED_KEYS):
+        binary_required_keys = (
+            _BINARY_SELF_PLAY_REQUIRED_KEYS
+            if "playingObservationVariant" in obj or "modelInputFeatureCount" in obj
+            else _BINARY_SELF_PLAY_REQUIRED_KEYS
+            - frozenset({"playingObservationVariant", "modelInputFeatureCount"})
+        )
+        binary_manifest_keys = (
+            _BINARY_SELF_PLAY_MANIFEST_KEYS
+            if "playingObservationVariant" in obj or "modelInputFeatureCount" in obj
+            else _BINARY_SELF_PLAY_MANIFEST_KEYS
+            - frozenset({"playingObservationVariant", "modelInputFeatureCount"})
+        )
+        for key in sorted(binary_required_keys):
             require_key(obj, key, path="manifest", error=_error)
-        reject_unknown_keys(obj, _BINARY_SELF_PLAY_MANIFEST_KEYS, path="manifest", error=_error)
+        reject_unknown_keys(obj, binary_manifest_keys, path="manifest", error=_error)
         playing_encoder_schema_version = require_int(
             obj["playingEncoderSchemaVersion"],
             path="manifest.playingEncoderSchemaVersion",
@@ -521,6 +563,18 @@ def parse_manifest(raw: object) -> DatasetManifest:
             obj["playingModelInputSchemaVersion"],
             path="manifest.playingModelInputSchemaVersion",
             error=_error,
+        )
+        playing_observation_variant = _optional_str(
+            obj, "playingObservationVariant", path="manifest"
+        )
+        model_input_feature_count = (
+            require_int(
+                obj["modelInputFeatureCount"],
+                path="manifest.modelInputFeatureCount",
+                error=_error,
+            )
+            if "modelInputFeatureCount" in obj
+            else None
         )
         encoder_schema_version = None
         agent = None
@@ -572,6 +626,8 @@ def parse_manifest(raw: object) -> DatasetManifest:
         ),
         playing_encoder_schema_version=playing_encoder_schema_version,
         playing_model_input_schema_version=playing_model_input_schema_version,
+        playing_observation_variant=playing_observation_variant,
+        model_input_feature_count=model_input_feature_count,
         encoder_schema_version=encoder_schema_version,
         format=require_str(obj["format"], path="manifest.format", error=_error),
         sample_type=require_str(obj["sampleType"], path="manifest.sampleType", error=_error),

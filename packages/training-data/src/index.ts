@@ -20,6 +20,7 @@ export {
 } from "./generateRuleBasedDataset.js";
 export {
   DEFAULT_PLAYING_SELF_PLAY_TEMPERATURE,
+  COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT,
   CURRENT_POLICY_ROSTER_SOURCE,
   FROZEN_ONNX_ROSTER_SOURCE,
   PLAYING_SELF_PLAY_DATASET_GENERATOR_VERSION,
@@ -33,6 +34,7 @@ export {
   PLAYING_SELF_PLAY_REWARD_VERSION,
   PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION,
   PLAYING_SELF_PLAY_SAMPLING_ALGORITHM,
+  PUBLIC_PLAYING_OBSERVATION_VARIANT,
   RULE_BASED_ROSTER_SOURCE,
   assignRolloutRosterForSeed,
   calculatePlayingSelfPlayLogProbability,
@@ -88,6 +90,7 @@ export type {
   PlayingSelfPlayBinaryCompression,
   PlayingSelfPlayDatasetManifest,
   PlayingSelfPlayOutcome,
+  PlayingObservationVariant,
   PlayingSelfPlayPolicy,
   PlayingSelfPlayPolicyArtifactOptions,
   PlayingSelfPlayRole,

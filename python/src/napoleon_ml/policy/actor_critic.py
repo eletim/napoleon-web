@@ -23,6 +23,11 @@ from napoleon_ml.dataset.constants import (
 from napoleon_ml.dataset.manifest import DatasetManifest
 from napoleon_ml.dataset.pytorch import PlayingSelfPlayTorchSample
 from napoleon_ml.dataset.tensors import MODEL_INPUT_FEATURE_COUNT, MODEL_INPUT_SCHEMA_VERSION
+from napoleon_ml.dataset.playing_variants import (
+    model_input_feature_count_for_variant,
+    normalize_playing_observation_variant,
+    playing_model_input_schema_version_for_variant,
+)
 from napoleon_ml.policy.behavior_parity import (
     BehaviorParityDiagnostics,
     BehaviorPolicyProvenanceDiagnostic,
@@ -769,6 +774,7 @@ def evaluate_actor_critic_policy(
             reward,
             behavior_log_probability,
         ) = playing_self_play_batch_to_device(batch, device)
+        role_index = batch["self_role_index"].to(device=device.torch_device, dtype=torch.long)
 
         logits, value_prediction = model.forward_actor_critic(model_input)
         selected_log_probability = masked_selected_log_probability(
@@ -802,7 +808,7 @@ def evaluate_actor_critic_policy(
             value_loss=value_loss,
             total_loss=total_loss,
             legal_mask=legal_mask,
-            role_index=_role_index_from_model_input(model_input),
+            role_index=role_index,
             behavior_log_probability=(
                 behavior_log_probability if require_behavior_parity else None
             ),
@@ -1001,11 +1007,12 @@ def _validate_checkpoint_for_actor_critic(
     *,
     manifest: DatasetManifest,
 ) -> None:
+    variant = normalize_playing_observation_variant(manifest.playing_observation_variant)
     expected = {
         "checkpoint_schema_version": CHECKPOINT_SCHEMA_VERSION,
         "dataset_schema_version": DATASET_SCHEMA_VERSION,
         "playing_encoder_schema_version": manifest.playing_encoder_schema_version,
-        "model_input_schema_version": MODEL_INPUT_SCHEMA_VERSION,
+        "model_input_schema_version": playing_model_input_schema_version_for_variant(variant),
         "card_ids_sha256": manifest.card_ids_sha256,
     }
     for key, expected_value in expected.items():
@@ -1018,10 +1025,19 @@ def _validate_checkpoint_for_actor_critic(
     model_config = checkpoint.get("model_config")
     if not isinstance(model_config, dict):
         raise PolicyCheckpointCompatibilityError("checkpoint model_config must be a dictionary.")
-    if model_config.get("input_dim") != MODEL_INPUT_FEATURE_COUNT:
+    checkpoint_variant = normalize_playing_observation_variant(
+        checkpoint.get("playing_observation_variant")
+    )
+    if checkpoint_variant != variant:
+        raise PolicyCheckpointCompatibilityError(
+            "checkpoint playing_observation_variant mismatch: "
+            f"expected {variant!r}, got {checkpoint_variant!r}."
+        )
+    expected_input_dim = model_input_feature_count_for_variant(variant)
+    if model_config.get("input_dim") != expected_input_dim:
         raise PolicyCheckpointCompatibilityError(
             "checkpoint model_config.input_dim mismatch: "
-            f"expected {MODEL_INPUT_FEATURE_COUNT}, got {model_config.get('input_dim')!r}."
+            f"expected {expected_input_dim}, got {model_config.get('input_dim')!r}."
         )
 
 
@@ -1046,12 +1062,6 @@ def _require_behavior_parity_diagnostics(
     if diagnostics is None:
         raise AssertionError("behavior parity diagnostics were not collected.")
     return diagnostics
-
-
-def _role_index_from_model_input(model_input: Tensor) -> Tensor:
-    if model_input.ndim != 2 or model_input.shape[1] < len(SELF_ROLE_ORDER):
-        raise ValueError("model_input must contain the selfRoleOneHot suffix.")
-    return torch.argmax(model_input[:, -len(SELF_ROLE_ORDER) :], dim=1)
 
 
 def _load_raw_checkpoint(path: Path) -> dict[Any, Any]:
