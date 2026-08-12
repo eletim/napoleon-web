@@ -7,7 +7,10 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from napoleon_ml.policy.actor_critic import DEFAULT_VALUE_LOSS_COEFFICIENT
+from napoleon_ml.policy.actor_critic import (
+    DEFAULT_PPO_CLIP_EPSILON,
+    DEFAULT_VALUE_LOSS_COEFFICIENT,
+)
 from napoleon_ml.policy.device import SUPPORTED_TORCH_DEVICES
 from napoleon_ml.policy.reinforce import REINFORCE_ALGORITHM
 from napoleon_ml.rl_orchestrator import (
@@ -54,6 +57,7 @@ _OPTION_TO_CONFIG_KEY = {
     "--algorithm": "algorithm",
     "--learning-rate": "learningRate",
     "--value-loss-coefficient": "valueLossCoefficient",
+    "--ppo-clip-epsilon": "ppoClipEpsilon",
     "--epochs": "epochs",
     "--batch-size": "batchSize",
     "--full-diagnostics-interval": "fullDiagnosticsInterval",
@@ -99,6 +103,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--value-loss-coefficient",
         type=float,
         default=DEFAULT_VALUE_LOSS_COEFFICIENT,
+    )
+    parser.add_argument(
+        "--ppo-clip-epsilon",
+        type=float,
+        default=DEFAULT_PPO_CLIP_EPSILON,
     )
     parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS)
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
@@ -198,6 +207,7 @@ def _config_from_args(
         algorithm=args.algorithm,
         learning_rate=args.learning_rate,
         value_loss_coefficient=args.value_loss_coefficient,
+        ppo_clip_epsilon=args.ppo_clip_epsilon,
         epochs=args.epochs,
         batch_size=args.batch_size,
         full_diagnostics_interval=args.full_diagnostics_interval,

@@ -17,11 +17,16 @@ from napoleon_ml.dataset.split import DatasetSplit, SplitConfig
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 from napoleon_ml.policy.actor_critic import (
     ACTOR_CRITIC_ALGORITHM,
+    DEFAULT_PPO_CLIP_EPSILON,
+    PPO_SEPARATED_ACTOR_CRITIC_ALGORITHM,
     SEPARATED_ACTOR_CRITIC_ALGORITHM,
     ActorCriticTrainReport,
     ActorCriticTrainSettings,
+    _clone_frozen_old_critic,
     actor_critic_losses,
     load_checkpoint_for_actor_critic,
+    ppo_actor_critic_losses,
+    ppo_clipped_actor_loss,
     train_policy_actor_critic,
 )
 from napoleon_ml.policy.checkpoint import (
@@ -102,6 +107,128 @@ def test_actor_critic_forced_action_has_no_actor_gradient_but_updates_critic() -
     assert torch.count_nonzero(logits.grad).item() == 0
     assert value.grad is not None
     assert value.grad.item() != 0.0
+
+
+def test_ppo_clipped_actor_loss_matches_unclipped_objective_at_ratio_one() -> None:
+    selected_logp = torch.tensor([-0.25, -0.75], requires_grad=True)
+    behavior_logp = selected_logp.detach().clone()
+    advantage = torch.tensor([0.5, -1.5])
+
+    loss = ppo_clipped_actor_loss(
+        selected_logp,
+        behavior_logp,
+        advantage,
+        clip_epsilon=DEFAULT_PPO_CLIP_EPSILON,
+    )
+
+    assert loss.item() == pytest.approx(float(-torch.mean(advantage).item()))
+
+
+def test_ppo_clipped_actor_loss_clips_positive_and_negative_advantages() -> None:
+    behavior_logp = torch.zeros(2)
+    selected_logp = torch.log(torch.tensor([2.0, 0.2]))
+    advantage = torch.tensor([3.0, -4.0])
+
+    loss = ppo_clipped_actor_loss(
+        selected_logp,
+        behavior_logp,
+        advantage,
+        clip_epsilon=0.2,
+    )
+
+    expected_positive = 1.2 * 3.0
+    expected_negative = 0.8 * -4.0
+    assert loss.item() == pytest.approx(-((expected_positive + expected_negative) / 2.0))
+
+
+def test_ppo_clipped_actor_loss_uses_dataset_behavior_log_probability() -> None:
+    selected_logp = torch.tensor([0.0])
+    advantage = torch.tensor([1.0])
+
+    behavior_ratio_one = ppo_clipped_actor_loss(
+        selected_logp,
+        torch.tensor([0.0]),
+        advantage,
+        clip_epsilon=0.2,
+    )
+    behavior_half_probability = ppo_clipped_actor_loss(
+        selected_logp,
+        torch.log(torch.tensor([0.5])),
+        advantage,
+        clip_epsilon=0.2,
+    )
+
+    assert behavior_ratio_one.item() == pytest.approx(-1.0)
+    assert behavior_half_probability.item() == pytest.approx(-1.2)
+
+
+def test_ppo_advantage_uses_frozen_old_critic_after_current_critic_changes() -> None:
+    torch.manual_seed(123)
+    model = PolicySeparatedActorCriticModel(PolicyMlpConfig(hidden_dim=8, hidden_layers=1))
+    model_input = torch.randn((2, 6246))
+    reward = torch.tensor([1.0, -1.0])
+    frozen_old_critic = _clone_frozen_old_critic(model)
+
+    with torch.no_grad():
+        old_value_before = frozen_old_critic(model_input)
+        old_advantage_before = reward - old_value_before
+        for parameter in model.critic.parameters():
+            parameter.add_(0.25)
+        old_value_after = frozen_old_critic(model_input)
+        current_value_after = model.critic(model_input)
+
+    torch.testing.assert_close(old_value_after, old_value_before)
+    assert not torch.equal(current_value_after, old_value_before)
+    torch.testing.assert_close(reward - old_value_after, old_advantage_before)
+
+
+def test_ppo_separated_actor_and_critic_updates_are_isolated() -> None:
+    torch.manual_seed(123)
+    model = PolicySeparatedActorCriticModel(PolicyMlpConfig(hidden_dim=8, hidden_layers=1))
+    model_input = torch.randn((2, 6246))
+    selected = torch.tensor([0, 1])
+    legal_mask = torch.zeros((2, CARD_COUNT), dtype=torch.bool)
+    legal_mask[0, [0, 2]] = True
+    legal_mask[1, [1, 3]] = True
+    reward = torch.tensor([1.0, -1.0])
+    behavior_logp = torch.tensor([-0.5, -0.5])
+
+    actor_before = _clone_module_parameters(model.actor)
+    critic_before = _clone_module_parameters(model.critic)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+    optimizer.zero_grad(set_to_none=True)
+    logits, value_prediction = model.forward_actor_critic(model_input)
+    selected_logp = masked_selected_log_probability(logits, selected, legal_mask, temperature=1.0)
+    old_value_prediction = value_prediction.detach().clone()
+    actor_loss, value_loss, _ = ppo_actor_critic_losses(
+        selected_logp,
+        behavior_logp,
+        reward,
+        value_prediction,
+        old_value_prediction,
+        clip_epsilon=0.2,
+        value_loss_coefficient=0.5,
+    )
+    actor_loss.backward()  # type: ignore[no-untyped-call]
+    optimizer.step()
+
+    _assert_module_parameters_changed(model.actor, actor_before)
+    _assert_module_parameters_unchanged(model.critic, critic_before)
+    assert all(parameter.grad is None for parameter in model.critic.parameters())
+    assert value_loss.item() >= 0.0
+
+    actor_before = _clone_module_parameters(model.actor)
+    critic_before = _clone_module_parameters(model.critic)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+    optimizer.zero_grad(set_to_none=True)
+    _, value_prediction = model.forward_actor_critic(model_input)
+    value_loss = torch.nn.functional.mse_loss(value_prediction, reward)
+    value_loss.backward()  # type: ignore[no-untyped-call]
+    optimizer.step()
+
+    _assert_module_parameters_unchanged(model.actor, actor_before)
+    _assert_module_parameters_changed(model.critic, critic_before)
+    assert all(parameter.grad is None for parameter in model.actor.parameters())
 
 
 def test_actor_critic_training_migrates_policy_logits_and_saves_checkpoint(
@@ -312,6 +439,60 @@ def test_separated_actor_critic_migrates_policy_logits_and_saves_checkpoint(
     assert cast(dict[str, object], metadata["onnx"])["outputs"] == [
         {"name": "logits", "shape": ["batch", CARD_COUNT], "dtype": "float32"}
     ]
+
+
+def test_ppo_separated_actor_critic_saves_diagnostics_and_provenance(
+    tmp_path: Path,
+) -> None:
+    self_play_dataset = tmp_path / "self-play"
+    self_play_dataset.mkdir()
+    policy_model = PolicyMlpModel(PolicyMlpConfig(hidden_dim=8, hidden_layers=1))
+    checkpoint_path = tmp_path / "input.pt"
+    output_path = tmp_path / "output.pt"
+    checkpoint = _write_checkpoint(checkpoint_path, policy_model)
+    _write_self_play_dataset(
+        self_play_dataset,
+        model=policy_model,
+        checkpoint=checkpoint,
+        checkpoint_path=checkpoint_path,
+        rewards=(1, -1),
+    )
+
+    report = _run_actor_critic(
+        input_checkpoint=checkpoint_path,
+        self_play_dataset=self_play_dataset,
+        output_checkpoint=output_path,
+        algorithm=PPO_SEPARATED_ACTOR_CRITIC_ALGORITHM,
+        ppo_clip_epsilon=0.2,
+    )
+
+    assert report.ppo_clip_epsilon == pytest.approx(0.2)
+    assert report.ppo_mean_probability_ratio is not None
+    assert report.ppo_probability_ratio_std is not None
+    assert report.ppo_clipped_sample_count is not None
+    assert report.ppo_clipped_fraction is not None
+    assert report.ppo_approximate_kl is not None
+    assert report.ppo_approximate_kl_definition == (
+        "mean(behavior_log_probability - new_log_probability)"
+    )
+    data = report.to_dict()
+    assert data["ppoClipEpsilon"] == pytest.approx(0.2)
+    assert "behaviorParityDiagnostics" in data
+    assert output_path.is_file()
+
+    raw = torch.load(output_path, map_location="cpu", weights_only=True)
+    assert raw["model_architecture"] == SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE
+    provenance = cast(dict[str, object], raw["rl_provenance"])
+    assert provenance["algorithm"] == PPO_SEPARATED_ACTOR_CRITIC_ALGORITHM
+    assert provenance["modelArchitecture"] == SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE
+    assert provenance["ppoClipEpsilon"] == pytest.approx(0.2)
+
+    reloaded = load_checkpoint_for_actor_critic(
+        output_path,
+        manifest=load_manifest(self_play_dataset),
+        target_model_architecture=SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+    )
+    assert isinstance(reloaded.training_model, PolicySeparatedActorCriticModel)
 
 
 def test_separated_actor_critic_actor_and_critic_updates_are_isolated() -> None:
@@ -711,6 +892,7 @@ def _run_actor_critic(
     behavior_parity_execution_provider: str | None = None,
     behavior_parity_max_observed_batch_size: int | None = None,
     algorithm: str = ACTOR_CRITIC_ALGORITHM,
+    ppo_clip_epsilon: float = DEFAULT_PPO_CLIP_EPSILON,
 ) -> ActorCriticTrainReport:
     settings = ActorCriticTrainSettings(
         seed=0,
@@ -724,6 +906,7 @@ def _run_actor_critic(
         behavior_parity_execution_provider=behavior_parity_execution_provider,
         behavior_parity_max_observed_batch_size=behavior_parity_max_observed_batch_size,
         algorithm=algorithm,
+        ppo_clip_epsilon=ppo_clip_epsilon,
     )
     loader = create_playing_self_play_dataloader(
         self_play_dataset,
