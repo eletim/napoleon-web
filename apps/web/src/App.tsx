@@ -270,8 +270,13 @@ export function App() {
     }
   }
 
+  const appShellClassName =
+    session !== undefined && mode === "game"
+      ? "app-shell app-shell-game-active"
+      : "app-shell";
+
   return (
-    <main className="app-shell">
+    <main className={appShellClassName}>
       <nav
         className={
           session !== undefined && mode === "game"
