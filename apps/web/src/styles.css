@@ -625,6 +625,14 @@ input:focus-visible {
   padding: 12px;
 }
 
+.trick-count-summary {
+  font-size: 1.05rem;
+}
+
+.trick-mobile-status-summary {
+  display: none;
+}
+
 .trick-contract-summary {
   font-size: 1.42rem;
   font-weight: 950;
@@ -1865,11 +1873,21 @@ input:focus-visible {
     padding: 5px;
   }
 
-  .trick-contract-summary {
+  .app-shell-game-active .trick-count-summary {
+    display: none;
+  }
+
+  .app-shell-game-active .trick-mobile-status-summary {
+    display: grid;
+    gap: 4px;
+    justify-items: center;
+  }
+
+  .app-shell-game-active .trick-contract-summary {
     font-size: 1.28rem;
   }
 
-  .trick-adjutant-summary {
+  .app-shell-game-active .trick-adjutant-summary {
     font-size: 0.78rem;
   }
 

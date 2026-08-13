@@ -55,9 +55,15 @@ export function TrickBoard({
           isWinning={winningPlayerId === player.id}
         />
       ))}
-      <div className="trick-message" aria-label={createTrickSummaryAriaLabel(contract, adjutant)}>
-        <strong className="trick-contract-summary">{formatContractSummary(contract)}</strong>
-        <span className="trick-adjutant-summary">{formatAdjutantCardSummary(adjutant)}</span>
+      <div
+        className="trick-message"
+        aria-label={createTrickSummaryAriaLabel(currentTrick.length, contract, adjutant)}
+      >
+        <strong className="trick-count-summary">{currentTrick.length} / 5</strong>
+        <span className="trick-mobile-status-summary" aria-hidden="true">
+          <strong className="trick-contract-summary">{formatContractSummary(contract)}</strong>
+          <span className="trick-adjutant-summary">{formatAdjutantCardSummary(adjutant)}</span>
+        </span>
       </div>
     </div>
   );
@@ -157,10 +163,13 @@ function formatCalledCardId(cardId: string): string {
 }
 
 function createTrickSummaryAriaLabel(
+  playedCardCount: number,
   contract: PublicGameState["contract"] | undefined,
   adjutant: PublicGameState["adjutant"] | undefined
 ): string {
-  return `契約 ${formatContractSummary(contract)}、${formatAdjutantCardSummary(adjutant)}`;
+  return `現在のトリックは${playedCardCount}枚出ています。契約 ${formatContractSummary(
+    contract
+  )}、${formatAdjutantCardSummary(adjutant)}`;
 }
 
 function isPublicSuit(value: string | undefined): value is PublicSuit {

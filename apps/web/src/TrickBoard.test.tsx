@@ -65,7 +65,7 @@ describe("TrickBoard", () => {
     expect(html).toContain("played-card-collecting");
   });
 
-  it("shows the contract and adjutant card in the center summary", () => {
+  it("renders a mobile center summary for the contract and adjutant card", () => {
     const html = renderToStaticMarkup(
       <TrickBoard
         adjutant={{ calledCardId: "spades-A", revealedPlayerId: "player-2" }}
@@ -89,7 +89,8 @@ describe("TrickBoard", () => {
 
     expect(html).toContain("♠ 13");
     expect(html).toContain("副官 ♠A");
-    expect(html).not.toContain("4 / 5");
+    expect(html).toContain("trick-mobile-status-summary");
+    expect(html).toContain("trick-count-summary");
     expect(html).not.toContain("副官 ♠A・");
   });
 });
