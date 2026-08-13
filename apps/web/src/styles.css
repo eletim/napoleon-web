@@ -1532,10 +1532,13 @@ input:focus-visible {
   }
 
   .app-shell-game-in-progress .table-grid {
+    --opponent-seat-height: 66px;
+
     grid-template-areas:
       "left right"
       "top-left top-right"
       "center center";
+    grid-template-rows: var(--opponent-seat-height) var(--opponent-seat-height) minmax(0, 1fr);
   }
 
   .player-seat {
@@ -1557,7 +1560,27 @@ input:focus-visible {
   }
 
   .app-shell-game-in-progress .player-seat {
+    align-self: stretch;
+    box-sizing: border-box;
+    grid-template-rows: 18px 16px 20px;
+    height: var(--opponent-seat-height);
+    justify-self: stretch;
+    min-height: var(--opponent-seat-height);
     padding: 3px 4px;
+  }
+
+  .app-shell-game-in-progress .player-seat .role-badges {
+    flex-wrap: nowrap;
+    min-height: 16px;
+    overflow: hidden;
+  }
+
+  .app-shell-game-in-progress .latest-bid-declaration {
+    align-self: stretch;
+    box-sizing: border-box;
+    height: 100%;
+    justify-content: center;
+    min-height: 0;
   }
 
   .seat-main-row,
@@ -1909,9 +1932,30 @@ input:focus-visible {
     padding: 3px;
   }
 
+  .app-shell-game-in-progress .table-grid {
+    --opponent-seat-height: 58px;
+  }
+
+  .app-shell-game-in-progress .player-seat {
+    gap: 2px;
+    grid-template-rows: 16px 14px 18px;
+    height: var(--opponent-seat-height);
+    min-height: var(--opponent-seat-height);
+    padding: 2px 3px;
+  }
+
+  .app-shell-game-in-progress .player-seat .role-badges {
+    min-height: 14px;
+  }
+
   .app-shell-game-active .latest-bid-declaration {
     min-height: 20px;
     padding: 2px 4px;
+  }
+
+  .app-shell-game-in-progress .latest-bid-declaration {
+    min-height: 0;
+    padding: 1px 4px;
   }
 
   .app-shell-game-active .played-card,
