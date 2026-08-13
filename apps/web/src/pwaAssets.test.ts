@@ -121,9 +121,10 @@ describe("PWA assets", () => {
   it("keeps HTML PWA assets and entrypoint relative to Vite base", () => {
     const html = readFileSync(fileURLToPath(new URL("../index.html", import.meta.url)), "utf8");
 
-    expect(html).toContain('href="%BASE_URL%manifest.webmanifest"');
-    expect(html).toContain('href="%BASE_URL%icons/napoleon-192.png"');
-    expect(html).toContain('href="%BASE_URL%icons/napoleon-180.png"');
-    expect(html).toContain('src="%BASE_URL%src/main.tsx"');
+    expect(html).toContain('href="manifest.webmanifest"');
+    expect(html).toContain('href="icons/napoleon-192.png"');
+    expect(html).toContain('href="icons/napoleon-180.png"');
+    expect(html).toContain('src="src/main.tsx"');
+    expect(html).not.toContain("%BASE_URL%");
   });
 });
