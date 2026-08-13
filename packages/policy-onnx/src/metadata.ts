@@ -7,12 +7,14 @@ import { PolicyOnnxCompatibilityError } from "./errors.js";
 import {
   getNonPlayingPolicyOnnxSpec,
   ioMetadataForSpec,
+  PLAYING_CRITIC_ONNX_SPEC,
   PLAYING_POLICY_ONNX_SPEC,
-  type RuntimePolicyOnnxSpec
+  type RuntimeOnnxIoSpec
 } from "./policySpecs.js";
 import type {
   NonPlayingPolicyOnnxMetadata,
   NonPlayingPolicyType,
+  PolicyCriticOnnxMetadata,
   PolicyOnnxIoMetadata,
   PolicyOnnxMetadata
 } from "./types.js";
@@ -40,6 +42,19 @@ export function parseNonPlayingPolicyOnnxMetadata(text: string): NonPlayingPolic
   }
 
   validateNonPlayingPolicyOnnxMetadata(raw);
+  return raw;
+}
+
+export function parsePolicyCriticOnnxMetadata(text: string): PolicyCriticOnnxMetadata {
+  let raw: unknown;
+
+  try {
+    raw = JSON.parse(text);
+  } catch (error) {
+    throw new PolicyOnnxCompatibilityError(`metadata JSON cannot be parsed: ${String(error)}`);
+  }
+
+  validatePolicyCriticOnnxMetadata(raw);
   return raw;
 }
 
@@ -98,7 +113,34 @@ export function validateNonPlayingPolicyOnnxMetadata(
   validateOnnxMetadata(value.onnx, spec);
 }
 
-function validateOnnxMetadata(value: unknown, spec: RuntimePolicyOnnxSpec): void {
+export function validatePolicyCriticOnnxMetadata(
+  value: unknown
+): asserts value is PolicyCriticOnnxMetadata {
+  if (!isRecord(value)) {
+    throw new PolicyOnnxCompatibilityError("metadata must be a JSON object.");
+  }
+
+  const spec = PLAYING_CRITIC_ONNX_SPEC;
+  expectEqual("metadataSchemaVersion", value.metadataSchemaVersion, spec.metadataSchemaVersion);
+  expectEqual("artifactType", value.artifactType, spec.artifactType);
+  expectEqual("checkpointSchemaVersion", value.checkpointSchemaVersion, spec.checkpointSchemaVersion);
+  expectEqual("datasetSchemaVersion", value.datasetSchemaVersion, spec.datasetSchemaVersion);
+  expectEqual("playingEncoderSchemaVersion", value.playingEncoderSchemaVersion, spec.encoderSchemaVersion);
+  expectEqual("modelInputSchemaVersion", value.modelInputSchemaVersion, spec.modelInputSchemaVersion);
+  expectEqual("modelInputFeatureCount", value.modelInputFeatureCount, spec.modelInputFeatureCount);
+  expectEqual("outputValueCount", value.outputValueCount, spec.outputValueCount);
+  expectEqual("cardIdsSha256", value.cardIdsSha256, calculateCardIdsSha256());
+  expectEqual("inputName", value.inputName, spec.inputName);
+  expectEqual("outputName", value.outputName, spec.outputName);
+  expectShape("inputShape", value.inputShape, spec.inputShape);
+  expectShape("outputShape", value.outputShape, spec.outputShape);
+  expectEqual("inputDtype", value.inputDtype, ONNX_DTYPE);
+  expectEqual("outputDtype", value.outputDtype, ONNX_DTYPE);
+
+  validateOnnxMetadata(value.onnx, spec);
+}
+
+function validateOnnxMetadata(value: unknown, spec: RuntimeOnnxIoSpec): void {
   if (!isRecord(value)) {
     throw new PolicyOnnxCompatibilityError("metadata onnx must be an object.");
   }

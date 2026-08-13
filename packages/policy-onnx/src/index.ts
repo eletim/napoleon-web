@@ -13,10 +13,12 @@ export {
   MODEL_INPUT_SCHEMA_VERSION,
   MULTIPHASE_DATASET_SCHEMA_VERSION,
   NONPLAYING_ONNX_METADATA_SCHEMA_VERSION,
+  ONNX_CRITIC_OUTPUT_NAME,
   ONNX_INPUT_NAME,
   ONNX_OPSET_VERSION,
   ONNX_OUTPUT_NAME,
   PLAYING_ENCODER_SCHEMA_VERSION,
+  POLICY_CRITIC_ONNX_METADATA_SCHEMA_VERSION,
   POLICY_CHECKPOINT_SCHEMA_VERSION,
   POLICY_ONNX_METADATA_SCHEMA_VERSION
 } from "./constants.js";
@@ -25,14 +27,19 @@ export { PolicyOnnxCompatibilityError } from "./errors.js";
 export {
   parseNonPlayingPolicyOnnxMetadata,
   validateNonPlayingPolicyOnnxMetadata,
+  parsePolicyCriticOnnxMetadata,
+  validatePolicyCriticOnnxMetadata,
   parsePolicyOnnxMetadata,
   validatePolicyOnnxMetadata
 } from "./metadata.js";
 export {
   NonPlayingPolicyOnnxModel,
+  PolicyCriticOnnxModel,
   PolicyOnnxModel,
   calculateLegalPolicyLogProbability,
+  criticValueToWinRateEquivalent,
   loadNonPlayingPolicyOnnxModel,
+  loadPolicyCriticOnnxModel,
   loadPolicyOnnxModel,
   maskIllegalPolicyLogits,
   sampleLegalPolicyAction,
@@ -49,6 +56,15 @@ export {
   createPolicyOnnxExchangeInput,
   createPolicyOnnxPlayInput
 } from "./policyOnnxAgent.js";
+export {
+  CriticEvBiddingAgent,
+  isNonPointCard
+} from "./criticEvBiddingAgent.js";
+export type {
+  CriticEvBiddingAgentOptions,
+  CriticEvBiddingEvaluation,
+  PolicyCriticValueModel
+} from "./criticEvBiddingAgent.js";
 export type {
   PolicyOnnxAdjutantInput,
   PolicyOnnxAgentOptions,
@@ -104,6 +120,8 @@ export type {
   NonPlayingPolicyOnnxSingleSelection,
   CalculateLegalPolicyLogProbabilityOptions,
   PolicyOnnxExecutionProvider,
+  PolicyCriticOnnxMetadata,
+  PolicyCriticOnnxSelection,
   PolicyOnnxInferenceDevice,
   PolicyOnnxInferenceStats,
   NonPlayingPolicyType,

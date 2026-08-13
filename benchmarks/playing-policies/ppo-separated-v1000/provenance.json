@@ -3,6 +3,11 @@
   "committedArtifact": {
     "checkpointPath": "checkpoint.pt",
     "checkpointSha256": "36c543b8e3026283269fd40b382abf12aeb085296a8de52e52d3bf65b4c24376",
+    "criticMetadataPath": "critic.json",
+    "criticMetadataSha256": "7d5e4d6d785666c1da26bc5e59bb3f92c8b7dd592e2a91dd747ddefc3ea7cdaa",
+    "criticOnnxPath": "critic.onnx",
+    "criticOnnxSha256": "3055882f3e63e2a096ee7cedee341bc97e033572bcb59f36f3f68e3d89f134d9",
+    "criticOutputValueCount": 1,
     "metadataPath": "policy.json",
     "metadataSha256": "54f0f2837f0e0bad81c778114ab996259b5f3a05bda338a12d0fb32b1fb50616",
     "modelArchitecture": "playing-separated-actor-critic-v1",
