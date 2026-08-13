@@ -218,7 +218,7 @@ class BehaviorParityDiagnostics:
         warning_max_abs_error = self.tolerance.warning_max_abs_error
         if (
             warning_max_abs_error is not None
-            and _exceeds_threshold(self.max_abs_error, warning_max_abs_error)
+            and _meets_threshold(self.max_abs_error, warning_max_abs_error)
             and not _exceeds_threshold(self.max_abs_error, self.tolerance.max_abs_error)
         ):
             warnings.append(
@@ -384,6 +384,10 @@ def _nearest_rank_quantile(values: list[float], quantile: float) -> float:
 
 def _exceeds_threshold(value: float, threshold: float) -> bool:
     return value > threshold and not math.isclose(value, threshold, rel_tol=1e-6, abs_tol=1e-9)
+
+
+def _meets_threshold(value: float, threshold: float) -> bool:
+    return value > threshold or math.isclose(value, threshold, rel_tol=1e-6, abs_tol=1e-9)
 
 
 def _canonical_metadata_bytes(metadata: dict[str, object]) -> bytes:

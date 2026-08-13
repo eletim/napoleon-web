@@ -36,6 +36,19 @@ def test_batched_cuda_small_max_outlier_warns_without_hard_failure() -> None:
     assert str(warnings[0]).startswith("max abs error 0.005114")
 
 
+def test_batched_cuda_max_abs_boundary_warns_at_warning_threshold() -> None:
+    diagnostics = _diagnostics_from_errors(
+        [0.005],
+        execution_provider="cuda",
+        max_observed_batch_size=32,
+    )
+
+    assert diagnostics.failed() is False
+    assert diagnostics.warning() is True
+    assert diagnostics.max_abs_error == pytest.approx(0.005)
+    assert diagnostics.to_dict()["severity"] == "warning"
+
+
 def test_batched_cuda_p999_warning_band_warns_without_hard_failure() -> None:
     errors = [0.0] * 998 + [0.0045] * 2
     diagnostics = _diagnostics_from_errors(
