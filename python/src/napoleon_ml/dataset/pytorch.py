@@ -773,6 +773,7 @@ def _torch_playing_self_play_sample(
         "seed": torch.tensor(sample.seed, dtype=torch.int64),
         "step": torch.tensor(sample.step, dtype=torch.int64),
         "acting_player_index": torch.tensor(sample.acting_player_index, dtype=torch.int64),
+        "self_role_index": torch.tensor(sample.self_role_index, dtype=torch.int64),
     }
 
 

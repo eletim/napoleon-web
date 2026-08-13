@@ -162,7 +162,20 @@ def test_self_play_tensorizer_matches_supervised_playing_model_input_bytes() -> 
     assert self_play.selected_card_index.dtype == np.int64
     assert self_play.behavior_log_probability.dtype == np.float32
     assert self_play.terminal_reward.dtype == np.float32
+    assert self_play.self_role_index == 0
     assert self_play.model_input.tobytes() == supervised.model_input.tobytes()
+
+
+def test_self_play_tensorized_role_index_must_match_observation() -> None:
+    self_play = tensorize_sample(
+        parse_sample(_load_valid_self_play_sample(), sample_type="playing-self-play-sample")
+    )
+    assert isinstance(self_play, TensorizedPlayingSelfPlaySample)
+
+    mismatched = dataclasses.replace(self_play, self_role_index=1)
+
+    with pytest.raises(SampleValidationError, match="self_role_index"):
+        validate_tensorized_sample(mismatched)
 
 
 def test_flat_observation_is_c_contiguous() -> None:
