@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { RuleBasedAgent, runAutomatedGame } from "@napoleon/ai";
-import { applyAction, createInitialGame, createPlayerView } from "@napoleon/game-core";
-import type { GameState } from "@napoleon/game-core";
+import { applyAction, createInitialGame, createPlayerView, orumaCardId } from "@napoleon/game-core";
+import type { Card, GameState, PlayerState } from "@napoleon/game-core";
 import {
   CriticEvBiddingAgent,
   type PolicyCriticValueModel
@@ -60,6 +60,25 @@ describe("CriticEvBiddingAgent", () => {
     });
   });
 
+  it("evaluates pass as adjutant EV when self holds Oruma against the current opponent bid", async () => {
+    const state = forcePlayerToHoldCard(createStateWithOpponentMaxBid(), "player-0", orumaCardId);
+    const observation = createObservation(state);
+    const agent = new CriticEvBiddingAgent({
+      critic: new ConstantCritic(0.2),
+      delegateAgent: new RuleBasedAgent(() => 0)
+    });
+
+    const evaluations = await agent.evaluateLegalBiddingActions(observation);
+
+    expect(observation.legalActions).toEqual([{ type: "pass", playerId: "player-0" }]);
+    expect(evaluations[0]).toMatchObject({
+      role: "adjutant",
+      baseWinRateEquivalent: 0.6,
+      effectiveNapoleonWinRate: 0.6
+    });
+    expect(evaluations[0].expectedValue).toBeCloseTo(7.2, 6);
+  });
+
   it("can complete an automated game without illegal actions", async () => {
     const record = await runAutomatedGame({
       seed: 193,
@@ -98,4 +117,50 @@ function createStateWithOpponentMaxBid(): GameState {
   state = applyAction(state, { type: "pass", playerId: "player-3" });
   state = applyAction(state, { type: "pass", playerId: "player-4" });
   return state;
+}
+
+function forcePlayerToHoldCard(state: GameState, playerId: string, cardId: string): GameState {
+  const owner = state.players.find((player) => player.hand.some((card) => card.id === cardId));
+  if (owner?.id === playerId) {
+    return state;
+  }
+
+  const target = state.players.find((player) => player.id === playerId);
+  if (target === undefined) {
+    throw new Error(`Player ${playerId} is not present in state.`);
+  }
+
+  const targetSwapCard = target.hand.find((card) => card.id !== cardId);
+  const forcedCard =
+    owner?.hand.find((card) => card.id === cardId) ??
+    state.unusedCards.find((card) => card.id === cardId);
+  if (targetSwapCard === undefined || forcedCard === undefined) {
+    throw new Error("Cannot swap forced card into target hand.");
+  }
+
+  const players = state.players.map((player): PlayerState => {
+    if (player.id === playerId) {
+      return {
+        ...player,
+        hand: replaceCard(player.hand, targetSwapCard.id, forcedCard)
+      };
+    }
+    if (owner !== undefined && player.id === owner.id) {
+      return {
+        ...player,
+        hand: replaceCard(player.hand, forcedCard.id, targetSwapCard)
+      };
+    }
+    return player;
+  });
+
+  const unusedCards = owner === undefined
+    ? replaceCard(state.unusedCards, forcedCard.id, targetSwapCard)
+    : state.unusedCards;
+
+  return { ...state, players, unusedCards };
+}
+
+function replaceCard(hand: readonly Card[], cardId: string, replacement: Card): readonly Card[] {
+  return hand.map((card) => card.id === cardId ? replacement : card);
 }
