@@ -1455,6 +1455,27 @@ input:focus-visible {
     display: none;
   }
 
+  .app-shell-game-in-progress .top-bar-alert {
+    background: rgb(23 32 51 / 86%);
+    color: #ffffff;
+    display: block;
+    margin: 0;
+    max-width: none;
+    padding: 4px 8px;
+  }
+
+  .app-shell-game-in-progress .top-bar-alert h1 {
+    display: none;
+  }
+
+  .app-shell-game-in-progress .top-bar-alert p {
+    color: inherit;
+    font-size: 0.74rem;
+    font-weight: 800;
+    line-height: 1.25;
+    margin: 0;
+  }
+
   .app-shell-game-active .mode-switch-compact,
   .app-shell-game-active .top-bar-compact {
     flex: 0 0 auto;

@@ -314,21 +314,30 @@ export function App() {
 
       {mode === "game" ? (
         <>
-          <section className={session === undefined ? "top-bar" : "top-bar top-bar-compact"}>
+          <section
+            className={[
+              session === undefined ? "top-bar" : "top-bar top-bar-compact",
+              isGameInProgress && showVisibleMessage ? "top-bar-alert" : ""
+            ]
+              .filter(Boolean)
+              .join(" ")}
+          >
             <div>
               <h1 aria-label="Napoleon Web">{session === undefined ? "Napoleon Web" : "NW"}</h1>
               <p aria-live="polite" className={showVisibleMessage ? undefined : "visually-hidden"}>
                 {message}
               </p>
             </div>
-            <button
-              className="primary-button"
-              disabled={isBusy || hasUnavailableAgentSelection}
-              onClick={handleCreateGame}
-              type="button"
-            >
-              {session === undefined ? "ゲーム開始" : "新規"}
-            </button>
+            {isGameInProgress ? null : (
+              <button
+                className="primary-button"
+                disabled={isBusy || hasUnavailableAgentSelection}
+                onClick={handleCreateGame}
+                type="button"
+              >
+                {session === undefined ? "ゲーム開始" : "新規"}
+              </button>
+            )}
           </section>
 
           {session === undefined ? (
