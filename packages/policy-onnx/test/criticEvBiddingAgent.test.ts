@@ -36,6 +36,16 @@ describe("CriticEvBiddingAgent", () => {
       suit: "clubs",
       targetPointCards: 19
     });
+    const clubs13Evaluation = evaluations.find((evaluation) =>
+      evaluation.action.type === "bid" &&
+      evaluation.action.suit === "clubs" &&
+      evaluation.action.targetPointCards === 13
+    );
+    expect(clubs13Evaluation).toMatchObject({
+      baseWinRateEquivalent: 0.5,
+      effectiveNapoleonWinRate: 0.6
+    });
+    expect(clubs13Evaluation?.expectedValue).toBeCloseTo(6.6, 6);
     expect(await agent.selectAction(observation)).toEqual(action);
   });
 
