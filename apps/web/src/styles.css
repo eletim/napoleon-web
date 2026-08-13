@@ -1429,7 +1429,11 @@ input:focus-visible {
   }
 
   .app-shell-game-in-progress {
-    padding: 0;
+    padding:
+      env(safe-area-inset-top)
+      env(safe-area-inset-right)
+      env(safe-area-inset-bottom)
+      env(safe-area-inset-left);
   }
 
   .top-bar-compact {
@@ -1846,7 +1850,11 @@ input:focus-visible {
   }
 
   .app-shell-game-in-progress {
-    padding: 0;
+    padding:
+      env(safe-area-inset-top)
+      env(safe-area-inset-right)
+      env(safe-area-inset-bottom)
+      env(safe-area-inset-left);
   }
 
   .app-shell-game-active .mode-button {
