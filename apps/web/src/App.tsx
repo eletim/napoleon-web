@@ -328,16 +328,14 @@ export function App() {
                 {message}
               </p>
             </div>
-            {isGameInProgress ? null : (
-              <button
-                className="primary-button"
-                disabled={isBusy || hasUnavailableAgentSelection}
-                onClick={handleCreateGame}
-                type="button"
-              >
-                {session === undefined ? "ゲーム開始" : "新規"}
-              </button>
-            )}
+            <button
+              className="primary-button"
+              disabled={isBusy || hasUnavailableAgentSelection}
+              onClick={handleCreateGame}
+              type="button"
+            >
+              {session === undefined ? "ゲーム開始" : "新規"}
+            </button>
           </section>
 
           {session === undefined ? (

@@ -1468,6 +1468,10 @@ input:focus-visible {
     display: none;
   }
 
+  .app-shell-game-in-progress .top-bar-alert .primary-button {
+    display: none;
+  }
+
   .app-shell-game-in-progress .top-bar-alert p {
     color: inherit;
     font-size: 0.74rem;
