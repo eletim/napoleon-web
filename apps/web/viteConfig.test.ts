@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UserConfig } from "vite";
-import config, { createApiProxyConfig } from "./vite.config";
+import config, { createApiProxyConfig, prefixStrippedBasePathUrl } from "./vite.config";
 import { normalizeViteBasePath } from "./viteBasePath";
 
 const userConfig = config as UserConfig;
@@ -42,5 +42,22 @@ describe("vite development server config", () => {
       changeOrigin: true
     });
     expect(subpathProxy.rewrite("/napoleon/api/games")).toBe("/api/games");
+  });
+
+  it("maps Tailscale-stripped backend request paths back to the Vite base path", () => {
+    expect(prefixStrippedBasePathUrl("/", "/napoleon/")).toBe("/napoleon/");
+    expect(prefixStrippedBasePathUrl("/@vite/client", "/napoleon/")).toBe(
+      "/napoleon/@vite/client"
+    );
+    expect(prefixStrippedBasePathUrl("/src/main.tsx", "/napoleon/")).toBe(
+      "/napoleon/src/main.tsx"
+    );
+    expect(prefixStrippedBasePathUrl("/api/games?seed=1", "/napoleon/")).toBe(
+      "/napoleon/api/games?seed=1"
+    );
+    expect(prefixStrippedBasePathUrl("/napoleon/@vite/client", "/napoleon/")).toBe(
+      "/napoleon/@vite/client"
+    );
+    expect(prefixStrippedBasePathUrl("/@vite/client", "/")).toBe("/@vite/client");
   });
 });
