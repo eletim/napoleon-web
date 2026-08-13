@@ -51,6 +51,7 @@ export interface CriticEvBiddingEvaluation {
 }
 
 const trumpRankPriority: readonly Rank[] = ["A", "K", "Q", "J", "10", "9", "8", "7", "6", "5", "4", "3", "2"];
+const napoleonBidWinRateGapCoefficient = 0.2;
 
 /**
  * Simple Issue #193 EV bidding baseline.
@@ -172,7 +173,8 @@ function evaluateBiddingActionFromCriticValue(
   let expectedValue: number;
 
   if (action.type === "bid") {
-    effectiveNapoleonWinRate = (1 + baseWinRateEquivalent) / 2;
+    effectiveNapoleonWinRate =
+      baseWinRateEquivalent + napoleonBidWinRateGapCoefficient * (1 - baseWinRateEquivalent);
     expectedValue = effectiveNapoleonWinRate * target + (1 - effectiveNapoleonWinRate) * -3;
   } else if (input.role === "adjutant") {
     expectedValue = baseWinRateEquivalent * (target - 7);

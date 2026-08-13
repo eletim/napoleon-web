@@ -128,6 +128,25 @@ The tests create a temporary ONNX model at runtime and compare a fixed sample's
 logits and masked selection against expected ONNX-side values without committing
 an ONNX model file.
 
+## Critic EV bidding inspection
+
+PR #195 の `CriticEvBiddingAgent` の競り判断を手動確認するには、packageをbuildしてから次を実行します。
+
+```sh
+pnpm --filter @napoleon/policy-onnx build
+pnpm --filter @napoleon/policy-onnx inspect:critic-ev-bidding -- --seed 193
+```
+
+この確認コマンドは、repo内の `ppo-separated-v1000` Critic ONNXをCPUでロードし、固定seedの初期手札から競りだけを進めます。各競り手番について `evaluateLegalBiddingActions()` の全合法actionを表で表示し、`action`, `contract`, `role`, `calledAdjutantCardId`, `criticValue`, `baseWinRateEquivalent`, `effectiveNapoleonWinRate`, `expectedValue` と、最後に実際の `selectedAction` を出力します。
+
+複数seedやCUDA確認も指定できます。
+
+```sh
+pnpm --filter @napoleon/policy-onnx inspect:critic-ev-bidding -- --seeds 193,1000 --inference-device cuda
+```
+
+このコマンドは確認用で、競りロジック、報酬、adjutant選択ヒューリスティックは変更しません。
+
 ## CUDA 12 Node runtime
 
 `onnxruntime-node` is pinned to `1.26.0` so fresh installs stay on the CUDA 12

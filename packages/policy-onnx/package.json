@@ -19,6 +19,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "inspect:critic-ev-bidding": "node dist/inspectCriticEvBidding.js",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
