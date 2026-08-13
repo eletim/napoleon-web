@@ -153,6 +153,53 @@ def load_policy_logits_checkpoint(
     return model, cast(dict[str, object], raw)
 
 
+def load_current_policy_logits_checkpoint(
+    path: Path | str,
+) -> tuple[
+    PolicyMlpModel | PolicyActorCriticModel | PolicySeparatedActorCriticModel,
+    dict[str, object],
+]:
+    """Load a current-schema playing checkpoint without requiring a dataset manifest."""
+
+    checkpoint_path = Path(path)
+    raw = _load_raw_checkpoint(checkpoint_path)
+    _validate_current_checkpoint_metadata(raw)
+
+    model_config_raw = raw.get("model_config")
+    if not isinstance(model_config_raw, dict):
+        raise PolicyCheckpointCompatibilityError("checkpoint model_config must be a dictionary.")
+
+    model_config = PolicyMlpConfig.from_dict(model_config_raw)
+    architecture = raw.get("model_architecture", POLICY_MODEL_ARCHITECTURE)
+    if architecture == POLICY_MODEL_ARCHITECTURE:
+        model: PolicyMlpModel | PolicyActorCriticModel | PolicySeparatedActorCriticModel = (
+            PolicyMlpModel(model_config)
+        )
+    elif architecture == ACTOR_CRITIC_MODEL_ARCHITECTURE:
+        model = PolicyActorCriticModel(model_config)
+    elif architecture == SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE:
+        model = PolicySeparatedActorCriticModel(model_config)
+    else:
+        raise PolicyCheckpointCompatibilityError(
+            f"checkpoint model_architecture is unsupported: {architecture!r}."
+        )
+
+    model_state = raw.get("model_state")
+    if not isinstance(model_state, dict):
+        raise PolicyCheckpointCompatibilityError(
+            "checkpoint model_state must be a state dictionary."
+        )
+
+    try:
+        model.load_state_dict(model_state)
+    except RuntimeError as error:
+        raise PolicyCheckpointCompatibilityError(
+            f"checkpoint model_state is incompatible with model_config: {error}"
+        ) from error
+
+    return model, cast(dict[str, object], raw)
+
+
 def migrate_policy_checkpoint_v1_to_v2(
     source_path: Path | str,
     output_path: Path | str,

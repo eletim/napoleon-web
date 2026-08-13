@@ -281,10 +281,14 @@ Repo-managed frozen playing policy artifacts live under
 - `rl-v740` records the source v1 artifact, v1-to-v2 logit-preserving
   migration, committed hashes, and parity results.
 - `ppo-separated-v1000` records the completed PPO separated v1000 run,
-  Actor-only ONNX runtime artifact, and full Actor/Critic checkpoint.
+  Actor-only ONNX runtime artifact, Critic-only ONNX runtime artifact, and
+  full Actor/Critic checkpoint.
 
 The loader validates committed ONNX and metadata SHA-256 values before runtime
-loading.
+loading. The Critic runtime returns a raw playing value, not a calibrated
+probability; the simple EV bidding agent converts it with
+`clamp((value + 1) / 2, 0, 1)` and then applies the Issue #193 heuristic reward
+rules.
 
 For a full-policy comparison, load all four phase artifacts and call
 `runFullPolicyVsRuleBasedEvaluation`:

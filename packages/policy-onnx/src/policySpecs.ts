@@ -19,14 +19,16 @@ import {
   ONNX_BATCH_DIMENSION,
   ONNX_DTYPE,
   ONNX_INPUT_NAME,
+  ONNX_CRITIC_OUTPUT_NAME,
   ONNX_OUTPUT_NAME,
   PLAYING_ENCODER_SCHEMA_VERSION,
   POLICY_CHECKPOINT_SCHEMA_VERSION,
+  POLICY_CRITIC_ONNX_METADATA_SCHEMA_VERSION,
   POLICY_ONNX_METADATA_SCHEMA_VERSION
 } from "./constants.js";
 import type { NonPlayingPolicyType, PolicyOnnxIoMetadata } from "./types.js";
 
-export interface RuntimePolicyOnnxSpec {
+export interface RuntimeOnnxIoSpec {
   policyType: "playing" | NonPlayingPolicyType;
   artifactType?: string;
   metadataSchemaVersion: number;
@@ -35,15 +37,25 @@ export interface RuntimePolicyOnnxSpec {
   encoderSchemaVersion: number;
   modelInputSchemaVersion: number;
   modelInputFeatureCount: number;
-  outputLogitCount: number;
-  actionCount: number;
   inputName: string;
   outputName: string;
   inputShape: readonly [string, number];
-  outputShape: readonly [string, number];
+  outputShape: readonly (string | number)[];
   inputDtype: string;
   outputDtype: string;
+}
+
+export interface RuntimePolicyOnnxSpec extends RuntimeOnnxIoSpec {
+  policyType: "playing" | NonPlayingPolicyType;
+  outputLogitCount: number;
+  actionCount: number;
   discardCount?: number;
+}
+
+export interface RuntimeCriticOnnxSpec extends RuntimeOnnxIoSpec {
+  policyType: "playing";
+  artifactType: string;
+  outputValueCount: 1;
 }
 
 export const PLAYING_POLICY_ONNX_SPEC: RuntimePolicyOnnxSpec = {
@@ -60,6 +72,24 @@ export const PLAYING_POLICY_ONNX_SPEC: RuntimePolicyOnnxSpec = {
   outputName: ONNX_OUTPUT_NAME,
   inputShape: [ONNX_BATCH_DIMENSION, MODEL_INPUT_FEATURE_COUNT],
   outputShape: [ONNX_BATCH_DIMENSION, CARD_COUNT],
+  inputDtype: ONNX_DTYPE,
+  outputDtype: ONNX_DTYPE
+};
+
+export const PLAYING_CRITIC_ONNX_SPEC: RuntimeCriticOnnxSpec = {
+  policyType: "playing",
+  artifactType: "napoleon-playing-critic-onnx",
+  metadataSchemaVersion: POLICY_CRITIC_ONNX_METADATA_SCHEMA_VERSION,
+  checkpointSchemaVersion: POLICY_CHECKPOINT_SCHEMA_VERSION,
+  datasetSchemaVersion: DATASET_SCHEMA_VERSION,
+  encoderSchemaVersion: PLAYING_ENCODER_SCHEMA_VERSION,
+  modelInputSchemaVersion: MODEL_INPUT_SCHEMA_VERSION,
+  modelInputFeatureCount: MODEL_INPUT_FEATURE_COUNT,
+  outputValueCount: 1,
+  inputName: ONNX_INPUT_NAME,
+  outputName: ONNX_CRITIC_OUTPUT_NAME,
+  inputShape: [ONNX_BATCH_DIMENSION, MODEL_INPUT_FEATURE_COUNT],
+  outputShape: [ONNX_BATCH_DIMENSION],
   inputDtype: ONNX_DTYPE,
   outputDtype: ONNX_DTYPE
 };
@@ -127,7 +157,7 @@ export function getNonPlayingPolicyOnnxSpec(policyType: NonPlayingPolicyType): R
 }
 
 export function ioMetadataForSpec(
-  spec: RuntimePolicyOnnxSpec,
+  spec: RuntimeOnnxIoSpec,
   kind: "input" | "output"
 ): PolicyOnnxIoMetadata {
   return {

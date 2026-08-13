@@ -41,7 +41,11 @@ from napoleon_ml.policy.model import (
     PolicyMlpModel,
     PolicySeparatedActorCriticModel,
 )
-from napoleon_ml.policy.onnx_export import build_policy_onnx_metadata
+from napoleon_ml.policy.onnx_export import (
+    ONNX_CRITIC_OUTPUT_NAME,
+    build_policy_onnx_metadata,
+    export_policy_critic_checkpoint_to_onnx,
+)
 from napoleon_ml.policy.reinforce import (
     ReinforceTrainSettings,
     masked_selected_log_probability,
@@ -698,6 +702,52 @@ def test_separated_actor_critic_hidden_dims_migration_preserves_policy_and_value
     torch.testing.assert_close(migrated_value, source_value, rtol=0, atol=1e-6)
     provenance = cast(dict[str, object], migrated["architecture_migration_provenance"])
     assert provenance["valuePredictionPreserved"] is True
+
+
+def test_separated_actor_critic_exports_critic_only_onnx(
+    tmp_path: Path,
+) -> None:
+    onnxruntime = pytest.importorskip("onnxruntime")
+    checkpoint_path = tmp_path / "separated-ac.pt"
+    onnx_path = tmp_path / "critic.onnx"
+    metadata_path = tmp_path / "critic.json"
+    model = PolicySeparatedActorCriticModel(PolicyMlpConfig(hidden_dim=8, hidden_layers=1))
+    torch.save(
+        {
+            "checkpoint_schema_version": 1,
+            "model_architecture": SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+            "model_state": model.state_dict(),
+            "model_config": model.config.to_dict(),
+            "training_config": {},
+            "dataset_schema_version": 1,
+            "playing_encoder_schema_version": 2,
+            "model_input_schema_version": 2,
+            "card_ids_sha256": calculate_card_ids_sha256(),
+        },
+        checkpoint_path,
+    )
+
+    report = export_policy_critic_checkpoint_to_onnx(
+        checkpoint_path=checkpoint_path,
+        onnx_path=onnx_path,
+        metadata_path=metadata_path,
+    )
+
+    assert report.max_abs_value_diff <= 1e-5
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert metadata["artifactType"] == "napoleon-playing-critic-onnx"
+    assert metadata["outputName"] == ONNX_CRITIC_OUTPUT_NAME
+    assert metadata["outputShape"] == ["batch"]
+    assert cast(dict[str, object], metadata["onnx"])["outputs"] == [
+        {"name": ONNX_CRITIC_OUTPUT_NAME, "shape": ["batch"], "dtype": "float32"}
+    ]
+
+    session = onnxruntime.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
+    output = session.run(
+        [ONNX_CRITIC_OUTPUT_NAME],
+        {"model_input": torch.zeros((1, 6246), dtype=torch.float32).numpy()},
+    )[0]
+    assert output.shape == (1,)
 
 
 def test_actor_critic_wrong_behavior_checkpoint_fails_before_save(tmp_path: Path) -> None:
