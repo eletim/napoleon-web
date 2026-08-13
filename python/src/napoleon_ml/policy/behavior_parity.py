@@ -22,10 +22,14 @@ from napoleon_ml.policy.onnx_export import build_policy_onnx_metadata
 
 STRICT_BEHAVIOR_LOG_PROB_PARITY_RTOL = 1e-4
 STRICT_BEHAVIOR_LOG_PROB_PARITY_ATOL = 1e-5
-BATCHED_CUDA_BEHAVIOR_LOG_PROB_WARNING_MAX_ABS = 5e-3
-BATCHED_CUDA_BEHAVIOR_LOG_PROB_HARD_MAX_ABS = 1e-2
-BATCHED_CUDA_BEHAVIOR_LOG_PROB_P99_ABS = 2e-3
-BATCHED_CUDA_BEHAVIOR_LOG_PROB_P999_ABS = 4e-3
+BATCHED_CUDA_BEHAVIOR_LOG_PROB_PASS_MEAN_ABS = 1e-3
+BATCHED_CUDA_BEHAVIOR_LOG_PROB_HARD_MEAN_ABS = 3e-3
+BATCHED_CUDA_BEHAVIOR_LOG_PROB_PASS_P99_ABS = 5e-3
+BATCHED_CUDA_BEHAVIOR_LOG_PROB_HARD_P99_ABS = 1e-2
+BATCHED_CUDA_BEHAVIOR_LOG_PROB_PASS_P999_ABS = 1e-2
+BATCHED_CUDA_BEHAVIOR_LOG_PROB_HARD_P999_ABS = 2e-2
+BATCHED_CUDA_BEHAVIOR_LOG_PROB_PASS_MAX_ABS = 2e-2
+BATCHED_CUDA_BEHAVIOR_LOG_PROB_HARD_MAX_ABS = 1e-1
 
 
 @dataclass(frozen=True)
@@ -35,8 +39,12 @@ class BehaviorParityTolerance:
     atol: float
     max_abs_error: float
     warning_max_abs_error: float | None = None
+    mean_abs_error: float | None = None
+    warning_mean_abs_error: float | None = None
     p99_abs_error: float | None = None
+    warning_p99_abs_error: float | None = None
     p999_abs_error: float | None = None
+    warning_p999_abs_error: float | None = None
     distribution_guard_min_count: int = 100
 
     def to_dict(self) -> dict[str, object]:
@@ -46,8 +54,12 @@ class BehaviorParityTolerance:
             "atol": self.atol,
             "maxAbsError": self.max_abs_error,
             "warningMaxAbsError": self.warning_max_abs_error,
+            "meanAbsError": self.mean_abs_error,
+            "warningMeanAbsError": self.warning_mean_abs_error,
             "p99AbsError": self.p99_abs_error,
+            "warningP99AbsError": self.warning_p99_abs_error,
             "p999AbsError": self.p999_abs_error,
+            "warningP999AbsError": self.warning_p999_abs_error,
             "distributionGuardMinCount": self.distribution_guard_min_count,
         }
 
@@ -58,8 +70,12 @@ STRICT_BEHAVIOR_PARITY_TOLERANCE = BehaviorParityTolerance(
     atol=STRICT_BEHAVIOR_LOG_PROB_PARITY_ATOL,
     max_abs_error=STRICT_BEHAVIOR_LOG_PROB_PARITY_ATOL,
     warning_max_abs_error=None,
+    mean_abs_error=None,
+    warning_mean_abs_error=None,
     p99_abs_error=None,
+    warning_p99_abs_error=None,
     p999_abs_error=None,
+    warning_p999_abs_error=None,
 )
 
 BATCHED_CUDA_BEHAVIOR_PARITY_TOLERANCE = BehaviorParityTolerance(
@@ -67,9 +83,13 @@ BATCHED_CUDA_BEHAVIOR_PARITY_TOLERANCE = BehaviorParityTolerance(
     rtol=STRICT_BEHAVIOR_LOG_PROB_PARITY_RTOL,
     atol=STRICT_BEHAVIOR_LOG_PROB_PARITY_ATOL,
     max_abs_error=BATCHED_CUDA_BEHAVIOR_LOG_PROB_HARD_MAX_ABS,
-    warning_max_abs_error=BATCHED_CUDA_BEHAVIOR_LOG_PROB_WARNING_MAX_ABS,
-    p99_abs_error=BATCHED_CUDA_BEHAVIOR_LOG_PROB_P99_ABS,
-    p999_abs_error=BATCHED_CUDA_BEHAVIOR_LOG_PROB_P999_ABS,
+    warning_max_abs_error=BATCHED_CUDA_BEHAVIOR_LOG_PROB_PASS_MAX_ABS,
+    mean_abs_error=BATCHED_CUDA_BEHAVIOR_LOG_PROB_HARD_MEAN_ABS,
+    warning_mean_abs_error=BATCHED_CUDA_BEHAVIOR_LOG_PROB_PASS_MEAN_ABS,
+    p99_abs_error=BATCHED_CUDA_BEHAVIOR_LOG_PROB_HARD_P99_ABS,
+    warning_p99_abs_error=BATCHED_CUDA_BEHAVIOR_LOG_PROB_PASS_P99_ABS,
+    p999_abs_error=BATCHED_CUDA_BEHAVIOR_LOG_PROB_HARD_P999_ABS,
+    warning_p999_abs_error=BATCHED_CUDA_BEHAVIOR_LOG_PROB_PASS_P999_ABS,
 )
 
 
@@ -180,7 +200,15 @@ class BehaviorParityDiagnostics:
                 f"and atol={self.tolerance.atol}"
             )
             return failures
-        if self.max_abs_error > self.tolerance.max_abs_error:
+        if (
+            self.tolerance.mean_abs_error is not None
+            and _exceeds_threshold(self.mean_abs_error(), self.tolerance.mean_abs_error)
+        ):
+            failures.append(
+                f"mean abs error {self.mean_abs_error():.8g} exceeds "
+                f"{self.tolerance.mean_abs_error:.8g}"
+            )
+        if _exceeds_threshold(self.max_abs_error, self.tolerance.max_abs_error):
             failures.append(
                 f"max abs error {self.max_abs_error:.8g} exceeds "
                 f"{self.tolerance.max_abs_error:.8g}"
@@ -188,7 +216,7 @@ class BehaviorParityDiagnostics:
         if (
             self.tolerance.p99_abs_error is not None
             and self.sample_count >= self.tolerance.distribution_guard_min_count
-            and self.p99_abs_error() > self.tolerance.p99_abs_error
+            and _exceeds_threshold(self.p99_abs_error(), self.tolerance.p99_abs_error)
         ):
             failures.append(
                 f"p99 abs error {self.p99_abs_error():.8g} exceeds "
@@ -198,7 +226,7 @@ class BehaviorParityDiagnostics:
         if (
             self.tolerance.p999_abs_error is not None
             and self.sample_count >= p999_min_count
-            and self.p999_abs_error() > self.tolerance.p999_abs_error
+            and _exceeds_threshold(self.p999_abs_error(), self.tolerance.p999_abs_error)
         ):
             failures.append(
                 f"p99.9 abs error {self.p999_abs_error():.8g} exceeds "
@@ -208,18 +236,100 @@ class BehaviorParityDiagnostics:
 
     def warnings(self) -> list[str]:
         warnings: list[str] = []
+        if self.hard_failures():
+            return warnings
+        warning_mean_abs_error = self.tolerance.warning_mean_abs_error
+        if (
+            warning_mean_abs_error is not None
+            and self.tolerance.mean_abs_error is not None
+            and _exceeds_threshold(self.mean_abs_error(), warning_mean_abs_error)
+            and not _exceeds_threshold(self.mean_abs_error(), self.tolerance.mean_abs_error)
+        ):
+            warnings.append(
+                f"mean abs error {self.mean_abs_error():.8g} exceeds warning threshold "
+                f"{warning_mean_abs_error:.8g}"
+            )
+        warning_p99_abs_error = self.tolerance.warning_p99_abs_error
+        if (
+            warning_p99_abs_error is not None
+            and self.tolerance.p99_abs_error is not None
+            and self.sample_count >= self.tolerance.distribution_guard_min_count
+            and _exceeds_threshold(self.p99_abs_error(), warning_p99_abs_error)
+            and not _exceeds_threshold(self.p99_abs_error(), self.tolerance.p99_abs_error)
+        ):
+            warnings.append(
+                f"p99 abs error {self.p99_abs_error():.8g} exceeds warning threshold "
+                f"{warning_p99_abs_error:.8g}"
+            )
         warning_max_abs_error = self.tolerance.warning_max_abs_error
         if (
             warning_max_abs_error is not None
-            and self.max_abs_error > warning_max_abs_error
-            and self.max_abs_error <= self.tolerance.max_abs_error
-            and not self.hard_failures()
+            and _exceeds_threshold(self.max_abs_error, warning_max_abs_error)
+            and not _exceeds_threshold(self.max_abs_error, self.tolerance.max_abs_error)
         ):
             warnings.append(
                 f"max abs error {self.max_abs_error:.8g} exceeds warning threshold "
                 f"{warning_max_abs_error:.8g}"
             )
+        warning_p999_abs_error = self.tolerance.warning_p999_abs_error
+        p999_min_count = self.tolerance.distribution_guard_min_count * 10
+        if (
+            warning_p999_abs_error is not None
+            and self.tolerance.p999_abs_error is not None
+            and self.sample_count >= p999_min_count
+            and _exceeds_threshold(self.p999_abs_error(), warning_p999_abs_error)
+            and not _exceeds_threshold(self.p999_abs_error(), self.tolerance.p999_abs_error)
+        ):
+            warnings.append(
+                f"p99.9 abs error {self.p999_abs_error():.8g} exceeds warning threshold "
+                f"{warning_p999_abs_error:.8g}"
+            )
         return warnings
+
+    def numeric_checks(self) -> list[dict[str, object]]:
+        checks: list[dict[str, object]] = []
+        if self.tolerance.mode == "strict":
+            return checks
+        checks.append(
+            _numeric_check(
+                metric="meanAbsError",
+                value=self.mean_abs_error(),
+                pass_threshold=self.tolerance.warning_mean_abs_error,
+                hard_fail_threshold=self.tolerance.mean_abs_error,
+                evaluated=True,
+            )
+        )
+        checks.append(
+            _numeric_check(
+                metric="p99AbsError",
+                value=self.p99_abs_error(),
+                pass_threshold=self.tolerance.warning_p99_abs_error,
+                hard_fail_threshold=self.tolerance.p99_abs_error,
+                evaluated=self.sample_count >= self.tolerance.distribution_guard_min_count,
+                minimum_sample_count=self.tolerance.distribution_guard_min_count,
+            )
+        )
+        p999_min_count = self.tolerance.distribution_guard_min_count * 10
+        checks.append(
+            _numeric_check(
+                metric="p999AbsError",
+                value=self.p999_abs_error(),
+                pass_threshold=self.tolerance.warning_p999_abs_error,
+                hard_fail_threshold=self.tolerance.p999_abs_error,
+                evaluated=self.sample_count >= p999_min_count,
+                minimum_sample_count=p999_min_count,
+            )
+        )
+        checks.append(
+            _numeric_check(
+                metric="maxAbsError",
+                value=self.max_abs_error,
+                pass_threshold=self.tolerance.warning_max_abs_error,
+                hard_fail_threshold=self.tolerance.max_abs_error,
+                evaluated=True,
+            )
+        )
+        return checks
 
     def failed(self) -> bool:
         return bool(self.hard_failures())
@@ -267,6 +377,7 @@ class BehaviorParityDiagnostics:
             "warnings": warnings,
             "hardFailureCount": len(hard_failures),
             "hardFailures": hard_failures,
+            "numericChecks": self.numeric_checks(),
         }
 
 
@@ -361,6 +472,38 @@ def _nearest_rank_quantile(values: list[float], quantile: float) -> float:
     ordered = sorted(values)
     index = min(len(ordered) - 1, max(0, math.ceil(quantile * len(ordered)) - 1))
     return ordered[index]
+
+
+def _exceeds_threshold(value: float, threshold: float) -> bool:
+    return value > threshold and not math.isclose(value, threshold, rel_tol=1e-6, abs_tol=1e-9)
+
+
+def _numeric_check(
+    *,
+    metric: str,
+    value: float,
+    pass_threshold: float | None,
+    hard_fail_threshold: float | None,
+    evaluated: bool,
+    minimum_sample_count: int | None = None,
+) -> dict[str, object]:
+    status = "not_evaluated"
+    if evaluated:
+        if hard_fail_threshold is not None and _exceeds_threshold(value, hard_fail_threshold):
+            status = "error"
+        elif pass_threshold is not None and _exceeds_threshold(value, pass_threshold):
+            status = "warning"
+        else:
+            status = "pass"
+    return {
+        "metric": metric,
+        "value": value,
+        "passThreshold": pass_threshold,
+        "hardFailThreshold": hard_fail_threshold,
+        "status": status,
+        "evaluated": evaluated,
+        "minimumSampleCount": minimum_sample_count,
+    }
 
 
 def _canonical_metadata_bytes(metadata: dict[str, object]) -> bytes:

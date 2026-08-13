@@ -4,7 +4,7 @@ import {
 } from "./constants.js";
 import { PolicyOnnxCompatibilityError } from "./errors.js";
 import type { PolicyOnnxIoMetadata, PolicyOnnxMetadata } from "./types.js";
-import { PLAYING_POLICY_ONNX_SPEC, type RuntimePolicyOnnxSpec } from "./policySpecs.js";
+import { PLAYING_POLICY_ONNX_SPEC, type RuntimeOnnxIoSpec } from "./policySpecs.js";
 
 const MODEL_GRAPH_FIELD = 7;
 const GRAPH_INPUT_FIELD = 11;
@@ -22,7 +22,7 @@ const ONNX_FLOAT_ELEM_TYPE = 1;
 export async function validateOnnxModelIo(
   onnxPath: string,
   metadata: Pick<PolicyOnnxMetadata, "onnx">,
-  spec: RuntimePolicyOnnxSpec = PLAYING_POLICY_ONNX_SPEC
+  spec: RuntimeOnnxIoSpec = PLAYING_POLICY_ONNX_SPEC
 ): Promise<void> {
   const bytes = await readFile(onnxPath);
   const modelIo = parseOnnxModelIo(bytes);

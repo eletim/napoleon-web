@@ -8,34 +8,35 @@ import type {
   RunAutomatedSimulationResponse,
   SendActionResponse
 } from "@napoleon/protocol";
+import { resolveAppPath } from "./appPath";
 
 export async function getAgents(): Promise<GetAgentsResponse> {
-  return request<GetAgentsResponse>("/api/agents");
+  return request<GetAgentsResponse>(resolveAppPath("api/agents"));
 }
 
 export async function createGame(requestBody: CreateGameRequest = {}): Promise<CreateGameResponse> {
-  return request<CreateGameResponse>("/api/games", {
+  return request<CreateGameResponse>(resolveAppPath("api/games"), {
     method: "POST",
     body: JSON.stringify(requestBody)
   });
 }
 
 export async function getGame(gameId: string): Promise<GetGameResponse> {
-  return request<GetGameResponse>(`/api/games/${gameId}`);
+  return request<GetGameResponse>(resolveAppPath(`api/games/${gameId}`));
 }
 
 export async function sendAction(
   gameId: string,
   action: PublicGameAction
 ): Promise<SendActionResponse> {
-  return request<SendActionResponse>(`/api/games/${gameId}/actions`, {
+  return request<SendActionResponse>(resolveAppPath(`api/games/${gameId}/actions`), {
     method: "POST",
     body: JSON.stringify({ action })
   });
 }
 
 export async function nextTrick(gameId: string): Promise<NextTrickResponse> {
-  return request<NextTrickResponse>(`/api/games/${gameId}/next-trick`, {
+  return request<NextTrickResponse>(resolveAppPath(`api/games/${gameId}/next-trick`), {
     method: "POST"
   });
 }
@@ -43,7 +44,7 @@ export async function nextTrick(gameId: string): Promise<NextTrickResponse> {
 export async function runAutomatedSimulation(
   seed: number
 ): Promise<RunAutomatedSimulationResponse> {
-  return request<RunAutomatedSimulationResponse>("/api/simulations", {
+  return request<RunAutomatedSimulationResponse>(resolveAppPath("api/simulations"), {
     method: "POST",
     body: JSON.stringify({ seed })
   });

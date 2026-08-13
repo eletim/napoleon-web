@@ -14,7 +14,10 @@ from napoleon_ml.nonplaying_onnx_export import (
     PolicyType,
     export_nonplaying_checkpoint_to_onnx,
 )
-from napoleon_ml.policy.onnx_export import export_policy_checkpoint_to_onnx
+from napoleon_ml.policy.onnx_export import (
+    export_policy_checkpoint_to_onnx,
+    export_policy_critic_checkpoint_to_onnx,
+)
 
 from ._policy_common import load_checked_manifest
 
@@ -24,7 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("dataset_directory", type=Path)
     parser.add_argument(
         "--policy-type",
-        choices=("playing", "bidding", "exchange", "adjutant"),
+        choices=("playing", "bidding", "exchange", "adjutant", "critic"),
         default="playing",
         help="Checkpoint/export contract to use. Defaults to the existing playing exporter.",
     )
@@ -52,6 +55,25 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _run(args: argparse.Namespace) -> int:
     metadata_output = args.metadata_output or args.output.with_suffix(".json")
+    if args.policy_type == "critic":
+        critic_report = export_policy_critic_checkpoint_to_onnx(
+            checkpoint_path=args.checkpoint,
+            onnx_path=args.output,
+            metadata_path=metadata_output,
+        )
+
+        if args.json:
+            print(json.dumps(critic_report.to_dict(), indent=2, sort_keys=True))
+        else:
+            print(f"onnx: {critic_report.onnx_path}")
+            print(f"metadata: {critic_report.metadata_path}")
+            print("parity_sample:")
+            print(f"  max_abs_value_diff: {critic_report.max_abs_value_diff:.8f}")
+            print(f"  pytorch_value: {critic_report.pytorch_value:.8f}")
+            print(f"  onnx_value: {critic_report.onnx_value:.8f}")
+
+        return 0
+
     manifest = load_checked_manifest(args.dataset_directory, command_label="export-policy-onnx")
     if args.policy_type == "playing":
         report = export_policy_checkpoint_to_onnx(

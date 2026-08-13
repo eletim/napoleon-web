@@ -73,6 +73,7 @@ export type {
   PlayerId,
   PlayerState,
   PlayerView,
+  PlayingSelfRole,
   PublicBiddingView,
   PublicPlayerState,
   Rank,

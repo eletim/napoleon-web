@@ -18,10 +18,12 @@ import { DATASET_SCHEMA_VERSION, MULTIPHASE_DATASET_SCHEMA_VERSION } from "@napo
 
 export const POLICY_ONNX_METADATA_SCHEMA_VERSION = 1 as const;
 export const NONPLAYING_ONNX_METADATA_SCHEMA_VERSION = 1 as const;
+export const POLICY_CRITIC_ONNX_METADATA_SCHEMA_VERSION = 1 as const;
 export const POLICY_CHECKPOINT_SCHEMA_VERSION = 1 as const;
 export const ONNX_OPSET_VERSION = 18 as const;
 export const ONNX_INPUT_NAME = "model_input" as const;
 export const ONNX_OUTPUT_NAME = "logits" as const;
+export const ONNX_CRITIC_OUTPUT_NAME = "value" as const;
 export const ONNX_DTYPE = "float32" as const;
 export const ONNX_TENSOR_FLOAT_TYPE = "tensor(float)" as const;
 export const ONNX_BATCH_DIMENSION = "batch" as const;

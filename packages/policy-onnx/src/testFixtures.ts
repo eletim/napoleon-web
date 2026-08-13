@@ -13,14 +13,16 @@ export function createConstantPolicyOnnx(
     inputName?: string;
     inputFeatureCount?: number;
     outputCount?: number;
+    outputShape?: readonly (string | number)[];
+    tensorShape?: readonly number[];
   } = {}
 ): Uint8Array {
   const inputName = options.inputName ?? ONNX_INPUT_NAME;
   const inputFeatureCount = options.inputFeatureCount ?? MODEL_INPUT_FEATURE_COUNT;
   const outputCount = options.outputCount ?? CARD_COUNT;
+  const tensorShape = options.tensorShape ?? [1, outputCount];
   const tensor = message(
-    fieldVarint(1, 1),
-    fieldVarint(1, outputCount),
+    ...tensorShape.map((dimension) => fieldVarint(1, dimension)),
     fieldVarint(2, 1),
     fieldString(8, "constant_logits"),
     fieldBytes(9, new Uint8Array(logits.buffer, logits.byteOffset, logits.byteLength))
@@ -40,7 +42,7 @@ export function createConstantPolicyOnnx(
     fieldBytes(1, node),
     fieldString(2, "policy_graph"),
     fieldBytes(11, valueInfo(inputName, ["batch", inputFeatureCount])),
-    fieldBytes(12, valueInfo(outputName, ["batch", outputCount]))
+    fieldBytes(12, valueInfo(outputName, options.outputShape ?? ["batch", outputCount]))
   );
   const opset = message(fieldVarint(2, ONNX_OPSET_VERSION));
 

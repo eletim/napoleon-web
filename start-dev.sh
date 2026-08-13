@@ -8,7 +8,6 @@ ROOT_DIR="${NAPOLEON_DEV_ROOT:-$DEFAULT_ROOT_DIR}"
 ROOT_ENV_FILE="$ROOT_DIR/.env"
 ROOT_ENV_SAMPLE_FILE="$ROOT_DIR/.env.sample"
 WEB_ENV_FILE="$ROOT_DIR/apps/web/.env.local"
-TAILSCALE_SERVE_COMMAND=(tailscale serve --bg --http=5173 http://127.0.0.1:5173)
 
 trim() {
   local value="$1"
@@ -16,6 +15,36 @@ trim() {
   value="${value%"${value##*[![:space:]]}"}"
   printf '%s' "$value"
 }
+
+normalize_dev_base_path() {
+  local value
+
+  value="$(trim "$1")"
+  if [[ -z "$value" || "$value" == "/" ]]; then
+    printf '/\n'
+    return
+  fi
+
+  if [[ "$value" != /* ]]; then
+    value="/$value"
+  fi
+  if [[ "$value" != */ ]]; then
+    value="$value/"
+  fi
+
+  printf '%s\n' "$value"
+}
+
+DEV_BASE_PATH="$(normalize_dev_base_path "${NAPOLEON_DEV_BASE_PATH:-/napoleon/}")"
+DEV_BASE_PREFIX="${DEV_BASE_PATH%/}"
+if [[ -z "$DEV_BASE_PREFIX" ]]; then
+  TAILSCALE_SERVE_PATH="/"
+  TAILSCALE_SERVE_TARGET="http://127.0.0.1:5173"
+else
+  TAILSCALE_SERVE_PATH="$DEV_BASE_PREFIX"
+  TAILSCALE_SERVE_TARGET="http://127.0.0.1:5173$DEV_BASE_PREFIX"
+fi
+TAILSCALE_SERVE_COMMAND=(tailscale serve --bg --set-path="$TAILSCALE_SERVE_PATH" "$TAILSCALE_SERVE_TARGET")
 
 read_allowed_hosts() {
   local file="$1"
@@ -184,6 +213,7 @@ create_root_env_file_from_sample
 load_root_env_file "$ROOT_ENV_FILE"
 
 unset VITE_ALLOWED_HOSTS
+unset NAPOLEON_WEB_BASE_PATH
 
 if [[ ! -f "$WEB_ENV_FILE" ]]; then
   create_env_file_from_tailscale
@@ -193,8 +223,11 @@ if [[ -f "$WEB_ENV_FILE" ]]; then
   VITE_ALLOWED_HOSTS="$(read_allowed_hosts "$WEB_ENV_FILE")"
   if [[ -n "$VITE_ALLOWED_HOSTS" ]]; then
     export VITE_ALLOWED_HOSTS
+    NAPOLEON_WEB_BASE_PATH="$DEV_BASE_PATH"
+    export NAPOLEON_WEB_BASE_PATH
   else
     unset VITE_ALLOWED_HOSTS
+    unset NAPOLEON_WEB_BASE_PATH
   fi
 fi
 
@@ -212,6 +245,7 @@ if [[ "${NAPOLEON_DEV_DRY_RUN:-}" == "1" ]]; then
     printf 'env_file_exists=false\n'
   fi
   printf 'VITE_ALLOWED_HOSTS=%s\n' "${VITE_ALLOWED_HOSTS:-}"
+  printf 'NAPOLEON_WEB_BASE_PATH=%s\n' "${NAPOLEON_WEB_BASE_PATH:-}"
   if [[ -n "${VITE_ALLOWED_HOSTS:-}" ]]; then
     printf 'tailscale_serve_enabled=true\n'
     printf 'tailscale_serve_command=%s\n' "${TAILSCALE_SERVE_COMMAND[*]}"

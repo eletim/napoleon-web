@@ -264,7 +264,7 @@ def test_reinforce_wrong_checkpoint_fails_before_optimizer_step(tmp_path: Path) 
         split_config=SplitConfig(train=100, validation=0, test=0),
         batch_size=2,
     )
-    with pytest.raises(PolicyCheckpointCompatibilityError, match="別policy"):
+    with pytest.raises(PolicyCheckpointCompatibilityError, match="別policy") as exc_info:
         train_policy_reinforce(
             input_checkpoint=checkpoint_path,
             self_play_dataset_directory=self_play_dataset,
@@ -280,6 +280,7 @@ def test_reinforce_wrong_checkpoint_fails_before_optimizer_step(tmp_path: Path) 
             ),
         )
 
+    assert "behavior log probability parity failed" not in str(exc_info.value)
     assert not (tmp_path / "should-not-exist.pt").exists()
 
 
@@ -382,7 +383,7 @@ def test_reinforce_batched_cuda_numeric_drift_passes_with_diagnostics(
     assert report.output_checkpoint_path.is_file()
 
 
-def test_reinforce_batched_cuda_max_outlier_warning_is_reported(
+def test_reinforce_batched_cuda_numeric_warning_is_reported(
     tmp_path: Path,
 ) -> None:
     self_play_dataset = tmp_path / "self-play"
@@ -396,7 +397,7 @@ def test_reinforce_batched_cuda_max_outlier_warning_is_reported(
         checkpoint=checkpoint,
         checkpoint_path=checkpoint_path,
         rewards=(1,),
-        behavior_log_probability_offset=-0.006,
+        behavior_log_probability_offset=-0.002,
     )
     loader = create_playing_self_play_dataloader(
         self_play_dataset,
@@ -443,7 +444,7 @@ def test_reinforce_batched_cuda_large_numeric_drift_fails(tmp_path: Path) -> Non
         checkpoint=checkpoint,
         checkpoint_path=checkpoint_path,
         rewards=(1,),
-        behavior_log_probability_offset=0.011,
+        behavior_log_probability_offset=0.0031,
     )
     loader = create_playing_self_play_dataloader(
         self_play_dataset,
@@ -452,7 +453,7 @@ def test_reinforce_batched_cuda_large_numeric_drift_fails(tmp_path: Path) -> Non
         batch_size=1,
     )
 
-    with pytest.raises(PolicyCheckpointCompatibilityError, match="max abs error"):
+    with pytest.raises(PolicyCheckpointCompatibilityError, match="mean abs error") as exc_info:
         train_policy_reinforce(
             input_checkpoint=checkpoint_path,
             self_play_dataset_directory=self_play_dataset,
@@ -470,6 +471,9 @@ def test_reinforce_batched_cuda_large_numeric_drift_fails(tmp_path: Path) -> Non
             ),
         )
 
+    message = str(exc_info.value)
+    assert "behavior log probability parity failed" in message
+    assert "別policy" not in message
     assert not (tmp_path / "should-not-exist.pt").exists()
 
 

@@ -11,16 +11,20 @@ import {
   MODEL_INPUT_FEATURE_COUNT,
   MULTIPHASE_DATASET_SCHEMA_VERSION,
   NONPLAYING_ONNX_METADATA_SCHEMA_VERSION,
+  ONNX_CRITIC_OUTPUT_NAME,
   ONNX_INPUT_NAME,
   ONNX_OPSET_VERSION,
   ONNX_OUTPUT_NAME,
   PolicyOnnxCompatibilityError,
   calculateCardIdsSha256,
+  criticValueToWinRateEquivalent,
   calculateLegalPolicyLogProbability,
   loadNonPlayingPolicyOnnxModel,
+  loadPolicyCriticOnnxModel,
   loadPolicyOnnxModel,
   maskIllegalPolicyLogits,
   parseNonPlayingPolicyOnnxMetadata,
+  parsePolicyCriticOnnxMetadata,
   parsePolicyOnnxMetadata,
   sampleLegalPolicyAction,
   selectLegalAdjutantCard,
@@ -54,6 +58,21 @@ describe("policy ONNX metadata", () => {
     expect(() =>
       parsePolicyOnnxMetadata(JSON.stringify({ ...metadata, cardIdsSha256: "0".repeat(64) }))
     ).toThrow(/cardIdsSha256/);
+  });
+});
+
+describe("policy critic ONNX metadata", () => {
+  it("accepts scalar critic metadata and clamps critic values to win-rate equivalents", () => {
+    const metadata = createCriticMetadata();
+
+    expect(parsePolicyCriticOnnxMetadata(JSON.stringify(metadata))).toEqual(metadata);
+    expect(criticValueToWinRateEquivalent(-3)).toBe(0);
+    expect(criticValueToWinRateEquivalent(0)).toBe(0.5);
+    expect(criticValueToWinRateEquivalent(3)).toBe(1);
+
+    expect(() =>
+      parsePolicyCriticOnnxMetadata(JSON.stringify({ ...metadata, outputName: ONNX_OUTPUT_NAME }))
+    ).toThrow(/outputName/);
   });
 });
 
@@ -281,6 +300,25 @@ describe("non-playing legal selection", () => {
 });
 
 describe("policy ONNX Runtime smoke", () => {
+  it("loads a scalar playing critic and predicts a win-rate equivalent", async () => {
+    const directory = await temporaryDirectory();
+    const onnxPath = join(directory, "critic.onnx");
+    const metadataPath = join(directory, "critic.json");
+    const value = new Float32Array([0.25]);
+    await writeFile(onnxPath, createConstantPolicyOnnx(value, ONNX_CRITIC_OUTPUT_NAME, {
+      outputCount: 1,
+      outputShape: ["batch"],
+      tensorShape: [1]
+    }));
+    await writeFile(metadataPath, JSON.stringify(createCriticMetadata()) + "\n", "utf8");
+
+    const model = await loadPolicyCriticOnnxModel({ onnxPath, metadataPath });
+    const prediction = await model.predictWinRateEquivalent(new Float32Array(MODEL_INPUT_FEATURE_COUNT));
+
+    expect(prediction.value).toBeCloseTo(0.25, 6);
+    expect(prediction.winRateEquivalent).toBeCloseTo(0.625, 6);
+  });
+
   it("records explicit CPU inference runtime metadata", async () => {
     const directory = await temporaryDirectory();
     const onnxPath = join(directory, "policy.onnx");
@@ -730,6 +768,49 @@ function createMetadata() {
       ]
     },
     policyModel: {
+      input_dim: MODEL_INPUT_FEATURE_COUNT,
+      hidden_dim: 8,
+      hidden_layers: 1,
+      dropout: 0
+    }
+  };
+}
+
+function createCriticMetadata() {
+  return {
+    metadataSchemaVersion: 1,
+    artifactType: "napoleon-playing-critic-onnx",
+    checkpointSchemaVersion: 1,
+    datasetSchemaVersion: 1,
+    playingEncoderSchemaVersion: 2,
+    modelInputSchemaVersion: 2,
+    modelInputFeatureCount: MODEL_INPUT_FEATURE_COUNT,
+    outputValueCount: 1,
+    cardIdsSha256: calculateCardIdsSha256(),
+    inputName: ONNX_INPUT_NAME,
+    outputName: ONNX_CRITIC_OUTPUT_NAME,
+    inputShape: ["batch", MODEL_INPUT_FEATURE_COUNT],
+    outputShape: ["batch"],
+    inputDtype: "float32",
+    outputDtype: "float32",
+    onnx: {
+      opsetVersion: ONNX_OPSET_VERSION,
+      inputs: [
+        {
+          name: ONNX_INPUT_NAME,
+          shape: ["batch", MODEL_INPUT_FEATURE_COUNT],
+          dtype: "float32"
+        }
+      ],
+      outputs: [
+        {
+          name: ONNX_CRITIC_OUTPUT_NAME,
+          shape: ["batch"],
+          dtype: "float32"
+        }
+      ]
+    },
+    criticModel: {
       input_dim: MODEL_INPUT_FEATURE_COUNT,
       hidden_dim: 8,
       hidden_layers: 1,

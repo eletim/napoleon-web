@@ -41,6 +41,32 @@ export interface PolicyOnnxMetadata {
   sourceCheckpointSha256?: string;
 }
 
+export interface PolicyCriticOnnxMetadata {
+  metadataSchemaVersion: number;
+  artifactType: string;
+  checkpointSchemaVersion: number;
+  datasetSchemaVersion: number;
+  playingEncoderSchemaVersion: number;
+  modelInputSchemaVersion: number;
+  modelInputFeatureCount: number;
+  outputValueCount: 1;
+  cardIdsSha256: string;
+  inputName: string;
+  outputName: string;
+  inputShape: readonly PolicyOnnxDimension[];
+  outputShape: readonly PolicyOnnxDimension[];
+  inputDtype: string;
+  outputDtype: string;
+  onnx: {
+    opsetVersion: number;
+    inputs: readonly PolicyOnnxIoMetadata[];
+    outputs: readonly PolicyOnnxIoMetadata[];
+  };
+  criticModel?: unknown;
+  modelArchitecture?: unknown;
+  sourceCheckpointSha256?: string;
+}
+
 export interface NonPlayingPolicyOnnxMetadata {
   metadataSchemaVersion: number;
   artifactType: string;
@@ -76,6 +102,11 @@ export interface PolicyOnnxLoadOptions {
   inferenceDevice?: PolicyOnnxInferenceDevice;
   inferenceMaxBatchSize?: number;
   sessionFactory?: PolicyOnnxSessionFactory;
+}
+
+export interface PolicyCriticOnnxSelection {
+  value: number;
+  winRateEquivalent: number;
 }
 
 export type PolicyOnnxSessionFactory = (
