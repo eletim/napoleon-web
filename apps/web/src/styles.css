@@ -568,6 +568,9 @@ input:focus-visible {
 }
 
 .trick-board {
+  --played-card-collect-x: 0;
+  --played-card-collect-y: 0;
+
   align-items: center;
   display: grid;
   gap: 12px;
@@ -640,8 +643,6 @@ input:focus-visible {
 }
 
 .played-card {
-  --played-card-collect-x: 0;
-  --played-card-collect-y: 0;
   --played-card-enter-x: 0;
   --played-card-enter-y: 0;
 
