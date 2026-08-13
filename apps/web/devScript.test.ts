@@ -265,7 +265,7 @@ describe("start-dev.sh", () => {
     expect(result.stdout).toContain("dev_server_started=true");
     expect(readFakeTailscaleLog(fakeTailscale.logPath)).toEqual([
       "status",
-      "serve --bg --https=443 --set-path=/napoleon/ http://127.0.0.1:5173"
+      "serve --bg --set-path=/napoleon http://127.0.0.1:5173/napoleon"
     ]);
     rmSync(root, { recursive: true, force: true });
     rmSync(fakeTailscale.root, { recursive: true, force: true });
@@ -354,7 +354,7 @@ describe("start-dev.sh", () => {
     expect(result.stdout).not.toContain("dev_server_started=true");
     expect(readFakeTailscaleLog(fakeTailscale.logPath)).toEqual([
       "status",
-      "serve --bg --https=443 --set-path=/napoleon/ http://127.0.0.1:5173"
+      "serve --bg --set-path=/napoleon http://127.0.0.1:5173/napoleon"
     ]);
     rmSync(root, { recursive: true, force: true });
     rmSync(fakeTailscale.root, { recursive: true, force: true });
@@ -373,7 +373,7 @@ describe("start-dev.sh", () => {
     expect(result.stdout).toContain("tailscale_serve_enabled=true");
     expect(result.stdout).toContain("NAPOLEON_WEB_BASE_PATH=/napoleon/");
     expect(result.stdout).toContain(
-      "tailscale_serve_command=tailscale serve --bg --https=443 --set-path=/napoleon/ http://127.0.0.1:5173"
+      "tailscale_serve_command=tailscale serve --bg --set-path=/napoleon http://127.0.0.1:5173/napoleon"
     );
     expect(result.stdout).toContain("dev_server_started=false");
     expect(existsSync(fakeTailscale.logPath)).toBe(false);
@@ -394,7 +394,26 @@ describe("start-dev.sh", () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("NAPOLEON_WEB_BASE_PATH=/custom-dev/");
     expect(result.stdout).toContain(
-      "tailscale_serve_command=tailscale serve --bg --https=443 --set-path=/custom-dev/ http://127.0.0.1:5173"
+      "tailscale_serve_command=tailscale serve --bg --set-path=/custom-dev http://127.0.0.1:5173/custom-dev"
+    );
+    rmSync(root, { recursive: true, force: true });
+    rmSync(fakeTailscale.root, { recursive: true, force: true });
+  });
+
+  it("keeps root dev base path as a root Serve mount", () => {
+    const root = createTempRoot();
+    const fakeTailscale = createFakeTailscale();
+    writeFileSync(join(root, "apps/web/.env.local"), "VITE_ALLOWED_HOSTS=my-machine.example.ts.net\n");
+
+    const result = runDevScript(root, {
+      basePath: "/",
+      path: fakeTailscale.path
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("NAPOLEON_WEB_BASE_PATH=/");
+    expect(result.stdout).toContain(
+      "tailscale_serve_command=tailscale serve --bg --set-path=/ http://127.0.0.1:5173"
     );
     rmSync(root, { recursive: true, force: true });
     rmSync(fakeTailscale.root, { recursive: true, force: true });

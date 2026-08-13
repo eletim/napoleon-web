@@ -36,7 +36,15 @@ normalize_dev_base_path() {
 }
 
 DEV_BASE_PATH="$(normalize_dev_base_path "${NAPOLEON_DEV_BASE_PATH:-/napoleon/}")"
-TAILSCALE_SERVE_COMMAND=(tailscale serve --bg --https=443 --set-path="$DEV_BASE_PATH" http://127.0.0.1:5173)
+DEV_BASE_PREFIX="${DEV_BASE_PATH%/}"
+if [[ -z "$DEV_BASE_PREFIX" ]]; then
+  TAILSCALE_SERVE_PATH="/"
+  TAILSCALE_SERVE_TARGET="http://127.0.0.1:5173"
+else
+  TAILSCALE_SERVE_PATH="$DEV_BASE_PREFIX"
+  TAILSCALE_SERVE_TARGET="http://127.0.0.1:5173$DEV_BASE_PREFIX"
+fi
+TAILSCALE_SERVE_COMMAND=(tailscale serve --bg --set-path="$TAILSCALE_SERVE_PATH" "$TAILSCALE_SERVE_TARGET")
 
 read_allowed_hosts() {
   local file="$1"
