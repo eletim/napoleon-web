@@ -5,6 +5,7 @@ import json
 import subprocess
 import sys
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -14,17 +15,36 @@ import torch
 import napoleon_ml.policy.onnx_export as onnx_export_module
 from napoleon_ml.cli.evaluate_policy_mlp import main as evaluate_main
 from napoleon_ml.cli.export_policy_onnx import main as export_main
+from napoleon_ml.cli.initialize_policy_checkpoint import main as initialize_main
 from napoleon_ml.cli.migrate_policy_architecture import main as migrate_architecture_main
 from napoleon_ml.cli.train_policy_mlp import main as train_main
-from napoleon_ml.dataset.constants import CARD_COUNT, EXPECTED_CARD_IDS
+from napoleon_ml.dataset.constants import (
+    CARD_COUNT,
+    COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT,
+    COMPLETE_INFO_PLAYING_ENCODER_SCHEMA_VERSION,
+    COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT,
+    COMPLETE_INFO_PLAYING_MODEL_INPUT_SCHEMA_VERSION,
+    EXPECTED_CARD_IDS,
+    MODEL_INPUT_FEATURE_COUNT,
+    PLAYING_ENCODER_SCHEMA_VERSION,
+    PLAYING_MODEL_INPUT_SCHEMA_VERSION,
+    PLAYING_SELF_PLAY_REWARD_TYPE,
+    PLAYING_SELF_PLAY_REWARD_VERSION,
+    PLAYING_SELF_PLAY_SAMPLING_ALGORITHM,
+    PUBLIC_PLAYING_OBSERVATION_VARIANT,
+)
+from napoleon_ml.dataset.manifest import DatasetManifest, DatasetRewardInfo
 from napoleon_ml.dataset.pytorch import create_playing_dataloader
 from napoleon_ml.dataset.reader import iter_tensorized_samples, load_manifest
 from napoleon_ml.dataset.split import DatasetSplit, SplitConfig, split_for_seed
-from napoleon_ml.dataset.tensors import MODEL_INPUT_FEATURE_COUNT
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
+from napoleon_ml.policy.actor_critic import load_checkpoint_for_actor_critic
 from napoleon_ml.policy.checkpoint import (
+    SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE,
     PolicyCheckpointCompatibilityError,
+    initialize_policy_checkpoint,
     load_policy_checkpoint,
+    load_policy_logits_checkpoint,
     migrate_policy_checkpoint_to_hidden_dims,
     migrate_policy_checkpoint_v1_to_v2,
 )
@@ -47,6 +67,10 @@ from napoleon_ml.policy.onnx_export import (
     build_policy_onnx_metadata,
     export_policy_checkpoint_to_onnx,
     validate_policy_onnx_metadata,
+)
+from napoleon_ml.policy.reinforce import (
+    _validate_self_play_manifest,
+    load_policy_checkpoint_for_reinforce,
 )
 
 _FIXTURE_PATH = Path(__file__).parent / "fixtures" / "valid_sample.json"
@@ -115,6 +139,73 @@ def _write_dataset(
     (directory / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
 
+def _playing_manifest(variant: str) -> DatasetManifest:
+    if variant == COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT:
+        playing_encoder_schema_version = COMPLETE_INFO_PLAYING_ENCODER_SCHEMA_VERSION
+        model_input_schema_version = COMPLETE_INFO_PLAYING_MODEL_INPUT_SCHEMA_VERSION
+        model_input_feature_count = COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT
+    else:
+        playing_encoder_schema_version = PLAYING_ENCODER_SCHEMA_VERSION
+        model_input_schema_version = PLAYING_MODEL_INPUT_SCHEMA_VERSION
+        model_input_feature_count = MODEL_INPUT_FEATURE_COUNT
+
+    return DatasetManifest(
+        dataset_schema_version=1,
+        generator_version=1,
+        playing_encoder_schema_version=playing_encoder_schema_version,
+        playing_model_input_schema_version=model_input_schema_version,
+        encoder_schema_version=None,
+        format="jsonl",
+        sample_type="playing-self-play-sample",
+        agent=None,
+        start_seed=0,
+        end_seed=0,
+        game_count=0,
+        sample_count=0,
+        games_per_shard=0,
+        shard_count=0,
+        player_count=5,
+        card_count=CARD_COUNT,
+        card_ids=EXPECTED_CARD_IDS,
+        card_ids_sha256=calculate_card_ids_sha256(),
+        shards=(),
+        playing_observation_variant=variant,
+        model_input_feature_count=model_input_feature_count,
+        sample_schema_version=4,
+    )
+
+
+def _self_play_manifest(variant: str) -> DatasetManifest:
+    return replace(
+        _playing_manifest(variant),
+        dataset_schema_version=4,
+        sample_schema_version=4,
+        temperature=1.0,
+        sampling_algorithm=PLAYING_SELF_PLAY_SAMPLING_ALGORITHM,
+        reward=DatasetRewardInfo(
+            type=PLAYING_SELF_PLAY_REWARD_TYPE,
+            version=PLAYING_SELF_PLAY_REWARD_VERSION,
+        ),
+    )
+
+
+def _assert_state_dicts_equal(
+    left: dict[str, torch.Tensor],
+    right: dict[str, torch.Tensor],
+) -> None:
+    assert left.keys() == right.keys()
+    for key in left:
+        assert torch.equal(left[key], right[key]), key
+
+
+def _state_dicts_differ(
+    left: dict[str, torch.Tensor],
+    right: dict[str, torch.Tensor],
+) -> bool:
+    assert left.keys() == right.keys()
+    return any(not torch.equal(left[key], right[key]) for key in left)
+
+
 def test_policy_mlp_outputs_card_logits() -> None:
     model = PolicyMlpModel(PolicyMlpConfig(hidden_dim=8, hidden_layers=1))
     logits = model(torch.zeros((2, MODEL_INPUT_FEATURE_COUNT), dtype=torch.float32))
@@ -131,6 +222,189 @@ def test_seeded_policy_model_initialization_is_reproducible() -> None:
         first.parameters(), second.parameters(), strict=True
     ):
         assert first_parameter.equal(second_parameter)
+
+
+def test_initialize_complete_info_compact_checkpoint_is_reproducible(
+    tmp_path: Path,
+) -> None:
+    first_path = tmp_path / "complete-info-a.pt"
+    second_path = tmp_path / "complete-info-b.pt"
+    different_seed_path = tmp_path / "complete-info-c.pt"
+
+    first = initialize_policy_checkpoint(
+        first_path,
+        playing_observation_variant=COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT,
+        seed=123,
+        hidden_dims=(16, 12),
+    )
+    second = initialize_policy_checkpoint(
+        second_path,
+        playing_observation_variant=COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT,
+        seed=123,
+        hidden_dims=(16, 12),
+    )
+    different_seed = initialize_policy_checkpoint(
+        different_seed_path,
+        playing_observation_variant=COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT,
+        seed=456,
+        hidden_dims=(16, 12),
+    )
+
+    assert first["playing_observation_variant"] == COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT
+    assert first["playing_encoder_schema_version"] == COMPLETE_INFO_PLAYING_ENCODER_SCHEMA_VERSION
+    assert first["model_input_schema_version"] == COMPLETE_INFO_PLAYING_MODEL_INPUT_SCHEMA_VERSION
+    assert first["model_input_feature_count"] == COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT
+    assert first["model_config"] == {
+        "input_dim": COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT,
+        "hidden_dim": 16,
+        "hidden_layers": 2,
+        "hidden_dims": [16, 12],
+        "dropout": 0.0,
+    }
+    provenance = cast(dict[str, object], first["initialization_provenance"])
+    assert provenance["seed"] == 123
+    assert provenance["modelInputFeatureCount"] == COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT
+
+    _assert_state_dicts_equal(
+        cast(dict[str, torch.Tensor], first["model_state"]),
+        cast(dict[str, torch.Tensor], second["model_state"]),
+    )
+    assert _state_dicts_differ(
+        cast(dict[str, torch.Tensor], first["model_state"]),
+        cast(dict[str, torch.Tensor], different_seed["model_state"]),
+    )
+
+
+def test_initialize_complete_info_compact_checkpoint_loads_for_ppo(
+    tmp_path: Path,
+) -> None:
+    checkpoint_path = tmp_path / "complete-info-policy.pt"
+    initialize_policy_checkpoint(
+        checkpoint_path,
+        playing_observation_variant=COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT,
+        seed=123,
+        hidden_dim=8,
+        hidden_layers=1,
+    )
+    manifest = _playing_manifest(COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT)
+
+    logits_model, logits_checkpoint = load_policy_logits_checkpoint(
+        checkpoint_path,
+        playing_observation_variant=COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT,
+    )
+    assert logits_model.config.input_dim == COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT
+    assert (
+        logits_checkpoint["model_input_feature_count"]
+        == COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT
+    )
+
+    loaded = load_checkpoint_for_actor_critic(
+        checkpoint_path,
+        manifest=manifest,
+        value_head_seed=99,
+        target_model_architecture=SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+    )
+    assert loaded.migrated_from_policy
+    assert loaded.training_model.config.input_dim == COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT
+
+
+def test_complete_info_self_play_manifest_and_reinforce_loader_accept_initialized_checkpoint(
+    tmp_path: Path,
+) -> None:
+    checkpoint_path = tmp_path / "complete-info-policy.pt"
+    initialize_policy_checkpoint(
+        checkpoint_path,
+        playing_observation_variant=COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT,
+        seed=123,
+        hidden_dim=8,
+        hidden_layers=1,
+    )
+    manifest = _self_play_manifest(COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT)
+
+    _validate_self_play_manifest(manifest)
+    loaded = load_policy_checkpoint_for_reinforce(checkpoint_path, manifest=manifest)
+
+    assert loaded.model.config.input_dim == COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT
+
+
+def test_initialize_policy_checkpoint_preserves_public_feature_count(
+    tmp_path: Path,
+) -> None:
+    checkpoint_path = tmp_path / "public-policy.pt"
+    initialize_policy_checkpoint(
+        checkpoint_path,
+        playing_observation_variant=PUBLIC_PLAYING_OBSERVATION_VARIANT,
+        seed=123,
+        hidden_dim=8,
+        hidden_layers=1,
+    )
+
+    loaded_model, loaded = load_policy_checkpoint(
+        checkpoint_path,
+        manifest=_playing_manifest(PUBLIC_PLAYING_OBSERVATION_VARIANT),
+    )
+
+    assert loaded_model.config.input_dim == MODEL_INPUT_FEATURE_COUNT
+    assert loaded["playing_observation_variant"] == PUBLIC_PLAYING_OBSERVATION_VARIANT
+    assert loaded["playing_encoder_schema_version"] == PLAYING_ENCODER_SCHEMA_VERSION
+    assert loaded["model_input_schema_version"] == PLAYING_MODEL_INPUT_SCHEMA_VERSION
+    assert loaded["model_input_feature_count"] == MODEL_INPUT_FEATURE_COUNT
+
+
+def test_actor_critic_loader_rejects_initialized_feature_count_mismatch(
+    tmp_path: Path,
+) -> None:
+    checkpoint_path = tmp_path / "complete-info-policy.pt"
+    initialize_policy_checkpoint(
+        checkpoint_path,
+        playing_observation_variant=COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT,
+        seed=123,
+        hidden_dim=8,
+        hidden_layers=1,
+    )
+    raw = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    raw["model_input_feature_count"] = MODEL_INPUT_FEATURE_COUNT
+    torch.save(raw, checkpoint_path)
+
+    with pytest.raises(PolicyCheckpointCompatibilityError, match="model_input_feature_count"):
+        load_checkpoint_for_actor_critic(
+            checkpoint_path,
+            manifest=_playing_manifest(COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT),
+            target_model_architecture=SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+        )
+
+
+def test_initialize_policy_checkpoint_cli_creates_json_report(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    checkpoint_path = tmp_path / "complete-info-policy.pt"
+
+    exit_code = initialize_main(
+        [
+            "--output",
+            str(checkpoint_path),
+            "--playing-observation-variant",
+            COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT,
+            "--seed",
+            "123",
+            "--hidden-dims",
+            "16,12",
+            "--json",
+        ]
+    )
+
+    assert exit_code == 0
+    assert checkpoint_path.is_file()
+    report = json.loads(capsys.readouterr().out)
+    assert report["playingObservationVariant"] == COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT
+    assert report["modelInputFeatureCount"] == COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT
+    assert report["modelConfig"]["hidden_dims"] == [16, 12]
+    loaded_model, _ = load_policy_logits_checkpoint(
+        checkpoint_path,
+        playing_observation_variant=COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT,
+    )
+    assert loaded_model.config.input_dim == COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT
 
 
 def test_policy_config_loads_legacy_and_roundtrips_hidden_dims() -> None:

@@ -1034,6 +1034,11 @@ def _validate_checkpoint_for_actor_critic(
             f"expected {variant!r}, got {checkpoint_variant!r}."
         )
     expected_input_dim = model_input_feature_count_for_variant(variant)
+    if checkpoint.get("model_input_feature_count", expected_input_dim) != expected_input_dim:
+        raise PolicyCheckpointCompatibilityError(
+            "checkpoint model_input_feature_count mismatch: "
+            f"expected {expected_input_dim}, got {checkpoint.get('model_input_feature_count')!r}."
+        )
     if model_config.get("input_dim") != expected_input_dim:
         raise PolicyCheckpointCompatibilityError(
             "checkpoint model_config.input_dim mismatch: "
