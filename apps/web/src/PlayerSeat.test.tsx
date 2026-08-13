@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { PublicGameState } from "@napoleon/protocol";
@@ -13,6 +15,15 @@ describe("PlayerSeat", () => {
     expect(html).not.toContain("player-1");
     expect(html).toContain("aria-label=\"左側AIの手札は残り10枚\"");
     expect(html).toContain("aria-label=\"左側AIの獲得得点札は0枚\"");
+  });
+
+  it("keeps the mobile in-progress opponent panels in far-side then side order", () => {
+    const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
+    const match = styles.match(
+      /\.app-shell-game-in-progress \.table-grid \{[\s\S]*?grid-template-areas:\n([\s\S]*?)grid-template-rows:/
+    );
+
+    expect(match?.[1]).toContain('"top-left top-right"\n      "left right"\n      "center center";');
   });
 });
 

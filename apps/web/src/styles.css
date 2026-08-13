@@ -1654,8 +1654,8 @@ input:focus-visible {
     --opponent-seat-height: 74px;
 
     grid-template-areas:
-      "left right"
       "top-left top-right"
+      "left right"
       "center center";
     grid-template-rows: var(--opponent-seat-height) var(--opponent-seat-height) minmax(0, 1fr);
   }
