@@ -39,6 +39,7 @@ struct PolicySessionConfig {
   std::string input_name = "model_input";
   std::string output_name = "logits";
   InferenceDevice inference_device = InferenceDevice::Cpu;
+  std::size_t model_input_feature_count = observation::kPlayingModelInputFeatureCount;
 };
 
 struct BatchedPolicyConfig {
@@ -78,7 +79,8 @@ class PolicySession {
  public:
   virtual ~PolicySession() = default;
   virtual std::vector<std::array<float, kPolicyLogitCount>> run_logits_batch(
-      const std::vector<std::array<float, observation::kPlayingModelInputFeatureCount>>& inputs) = 0;
+      const std::vector<std::vector<float>>& inputs) = 0;
+  virtual std::size_t model_input_feature_count() const = 0;
   virtual ExecutionProvider execution_provider() const = 0;
 };
 
@@ -86,11 +88,12 @@ class DeterministicPolicySession final : public PolicySession {
  public:
   explicit DeterministicPolicySession(
       std::array<float, kPolicyLogitCount> logits = default_logits(),
-      ExecutionProvider provider = ExecutionProvider::Cpu);
+      ExecutionProvider provider = ExecutionProvider::Cpu,
+      std::size_t model_input_feature_count = observation::kPlayingModelInputFeatureCount);
 
   std::vector<std::array<float, kPolicyLogitCount>> run_logits_batch(
-      const std::vector<std::array<float, observation::kPlayingModelInputFeatureCount>>& inputs)
-      override;
+      const std::vector<std::vector<float>>& inputs) override;
+  std::size_t model_input_feature_count() const override;
   ExecutionProvider execution_provider() const override;
   std::uint64_t session_run_count() const;
 
@@ -99,6 +102,7 @@ class DeterministicPolicySession final : public PolicySession {
  private:
   std::array<float, kPolicyLogitCount> logits_;
   ExecutionProvider provider_ = ExecutionProvider::Cpu;
+  std::size_t model_input_feature_count_ = observation::kPlayingModelInputFeatureCount;
   std::uint64_t session_run_count_ = 0;
 };
 
@@ -132,6 +136,11 @@ PolicyKey policy_key_from_agent(const AgentIdentity& agent);
 void attach_playing_model_input(
     const GameState& state,
     int player_index,
+    AgentRequest& request);
+void attach_playing_model_input(
+    const GameState& state,
+    int player_index,
+    observation::PlayingObservationVariant variant,
     AgentRequest& request);
 std::string execution_provider_id(ExecutionProvider provider);
 std::string inference_device_id(InferenceDevice device);

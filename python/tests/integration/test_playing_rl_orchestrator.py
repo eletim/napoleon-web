@@ -13,7 +13,11 @@ import torch
 
 from napoleon_ml.cli.run_playing_rl import _config_from_args, build_parser
 from napoleon_ml.cli.train_policy_mlp import main as train_supervised_main
-from napoleon_ml.dataset.constants import CARD_COUNT, EXPECTED_CARD_IDS
+from napoleon_ml.dataset.constants import (
+    CARD_COUNT,
+    COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT,
+    EXPECTED_CARD_IDS,
+)
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 from napoleon_ml.policy.actor_critic import (
     ACTOR_CRITIC_ALGORITHM,
@@ -655,6 +659,35 @@ def test_playing_rl_orchestrator_explicit_cuda_fails_during_config_validation(
 
     with pytest.raises(PlayingRlOrchestratorError, match="explicitly requested"):
         _validate_config(config)
+
+
+def test_complete_info_compact_cpp_backend_is_allowed_after_cpp_rollout_support(
+    tmp_path: Path,
+) -> None:
+    frozen_onnx = tmp_path / "frozen.onnx"
+    frozen_metadata = tmp_path / "frozen.json"
+    frozen_onnx.write_bytes(b"frozen")
+    frozen_metadata.write_text("{}", encoding="utf-8")
+
+    config = PlayingRlRunConfig(
+        run_directory=tmp_path / "run",
+        initial_checkpoint=tmp_path / "missing.pt",
+        supervised_dataset=tmp_path / "missing-dataset",
+        algorithm=PPO_SEPARATED_ACTOR_CRITIC_ALGORITHM,
+        simulation_backend="cpp",
+        playing_observation_variant=COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT,
+        frozen_policy_onnx=frozen_onnx,
+        frozen_policy_metadata=frozen_metadata,
+    )
+
+    _validate_config(config)
+
+    invalid_algorithm = replace(config, algorithm=REINFORCE_ALGORITHM)
+    with pytest.raises(
+        PlayingRlOrchestratorError,
+        match="complete-info compact playing observation variant requires algorithm",
+    ):
+        _validate_config(invalid_algorithm)
 
 
 def test_playing_rl_full_diagnostics_interval_uses_output_generation(

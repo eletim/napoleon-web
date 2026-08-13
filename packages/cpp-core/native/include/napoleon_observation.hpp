@@ -3,19 +3,31 @@
 #include "napoleon_core.hpp"
 
 #include <array>
+#include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace napoleon::observation {
 
 constexpr int kPlayingEncoderSchemaVersion = 2;
 constexpr int kPlayingModelInputSchemaVersion = 2;
+constexpr int kCompleteInfoPlayingEncoderSchemaVersion = 1;
+constexpr int kCompleteInfoPlayingModelInputSchemaVersion = 1;
 constexpr int kCardCount = 53;
 constexpr int kTrickCount = 10;
 constexpr int kCardsPerTrick = 5;
 constexpr int kMaxBiddingActionCount = 117;
 constexpr int kPlayingModelInputFeatureCount = 6246;
+constexpr int kCompleteInfoPlayingModelInputFeatureCount = 385;
 constexpr int kFlatObservationFeatureCount = 684;
+constexpr int kCompleteInfoOwnerClassCount = 6;
+constexpr int kNotInHandOwnerClassIndex = 5;
+
+enum class PlayingObservationVariant : std::uint8_t {
+  Public,
+  CompleteInfoCompact
+};
 
 struct EncodedBiddingHistory {
   std::array<int, kMaxBiddingActionCount> action_type_indices{};
@@ -64,10 +76,29 @@ struct PlayingModelInput {
   std::array<int, kCardCount> legal_play_mask{};
 };
 
+struct VariantPlayingModelInput {
+  PlayingObservationVariant variant = PlayingObservationVariant::Public;
+  int encoder_schema_version = kPlayingEncoderSchemaVersion;
+  int model_input_schema_version = kPlayingModelInputSchemaVersion;
+  int model_input_feature_count = kPlayingModelInputFeatureCount;
+  int player_index = 0;
+  std::vector<float> model_input;
+  std::array<int, kCardCount> legal_play_mask{};
+};
+
 std::optional<PlayingModelInput> create_current_player_playing_model_input(const GameState& state);
 PlayingModelInput create_playing_model_input(const GameState& state, int player_index);
+VariantPlayingModelInput create_playing_model_input(
+    const GameState& state,
+    int player_index,
+    PlayingObservationVariant variant);
 int playing_card_model_index(Card card);
 Card card_from_playing_model_index(int index);
+PlayingObservationVariant parse_playing_observation_variant(const std::string& value);
+std::string playing_observation_variant_id(PlayingObservationVariant variant);
+int playing_encoder_schema_version(PlayingObservationVariant variant);
+int playing_model_input_schema_version(PlayingObservationVariant variant);
+int playing_model_input_feature_count(PlayingObservationVariant variant);
 std::string current_player_playing_model_input_json(const GameState& state);
 std::string canonical_snapshot_with_current_player_playing_model_input_json(const GameState& state);
 

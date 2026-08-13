@@ -48,13 +48,16 @@ std::uint32_t sampling_seed_for_request(
   return mix_u32(value);
 }
 
-std::array<float, observation::kPlayingModelInputFeatureCount> request_model_input(
-    const AgentRequest& request) {
-  if (request.playing_model_input.size() != observation::kPlayingModelInputFeatureCount) {
-    throw std::runtime_error("playing_model_input must contain 6246 features");
+std::vector<float> request_model_input(
+    const AgentRequest& request,
+    std::size_t expected_feature_count) {
+  if (request.playing_model_input.size() != expected_feature_count) {
+    throw std::runtime_error(
+        "playing_model_input feature count mismatch: expected " +
+        std::to_string(expected_feature_count) + ", got " +
+        std::to_string(request.playing_model_input.size()));
   }
-  std::array<float, observation::kPlayingModelInputFeatureCount> input{};
-  std::copy(request.playing_model_input.begin(), request.playing_model_input.end(), input.begin());
+  std::vector<float> input = request.playing_model_input;
   for (float value : input) {
     if (!std::isfinite(value)) {
       throw std::runtime_error("playing_model_input values must be finite");
@@ -238,6 +241,7 @@ class OnnxRuntimePolicySession final : public PolicySession {
         memory_info_(Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)),
         input_name_(config.input_name),
         output_name_(config.output_name),
+        model_input_feature_count_(config.model_input_feature_count),
         provider_(config.inference_device == InferenceDevice::Cuda ? ExecutionProvider::Cuda
                                                                     : ExecutionProvider::Cpu) {
     if (config.onnx_path.empty()) {
@@ -260,21 +264,23 @@ class OnnxRuntimePolicySession final : public PolicySession {
   }
 
   std::vector<std::array<float, kPolicyLogitCount>> run_logits_batch(
-      const std::vector<std::array<float, observation::kPlayingModelInputFeatureCount>>& inputs)
-      override {
+      const std::vector<std::vector<float>>& inputs) override {
     if (inputs.empty()) {
       throw std::runtime_error("ONNX batch must contain at least one input");
     }
 
     std::vector<float> batch_input;
-    batch_input.reserve(inputs.size() * observation::kPlayingModelInputFeatureCount);
+    batch_input.reserve(inputs.size() * model_input_feature_count_);
     for (const auto& input : inputs) {
+      if (input.size() != model_input_feature_count_) {
+        throw std::runtime_error("ONNX policy input feature count mismatch");
+      }
       batch_input.insert(batch_input.end(), input.begin(), input.end());
     }
 
     std::array<std::int64_t, 2> input_shape{
         static_cast<std::int64_t>(inputs.size()),
-        observation::kPlayingModelInputFeatureCount};
+        static_cast<std::int64_t>(model_input_feature_count_)};
     Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
         memory_info_,
         batch_input.data(),
@@ -317,11 +323,16 @@ class OnnxRuntimePolicySession final : public PolicySession {
     return provider_;
   }
 
+  std::size_t model_input_feature_count() const override {
+    return model_input_feature_count_;
+  }
+
  private:
   Ort::Env env_;
   Ort::MemoryInfo memory_info_;
   std::string input_name_;
   std::string output_name_;
+  std::size_t model_input_feature_count_ = observation::kPlayingModelInputFeatureCount;
   ExecutionProvider provider_ = ExecutionProvider::Cpu;
   std::unique_ptr<Ort::Session> session_;
 };
@@ -332,7 +343,7 @@ class OnnxRuntimePolicySession final : public PolicySession {
 
 struct BatchedPolicyExecutor::QueueItem {
   AgentRequest request;
-  std::array<float, observation::kPlayingModelInputFeatureCount> model_input;
+  std::vector<float> model_input;
   std::array<int, observation::kCardCount> legal_play_mask;
 };
 
@@ -344,16 +355,32 @@ struct BatchedPolicyExecutor::PolicyState {
 
 DeterministicPolicySession::DeterministicPolicySession(
     std::array<float, kPolicyLogitCount> logits,
-    ExecutionProvider provider)
-    : logits_(logits), provider_(provider) {}
+    ExecutionProvider provider,
+    std::size_t model_input_feature_count)
+    : logits_(logits),
+      provider_(provider),
+      model_input_feature_count_(model_input_feature_count) {
+  if (model_input_feature_count_ == 0) {
+    throw std::runtime_error("deterministic policy feature count must be positive");
+  }
+}
 
 std::vector<std::array<float, kPolicyLogitCount>> DeterministicPolicySession::run_logits_batch(
-    const std::vector<std::array<float, observation::kPlayingModelInputFeatureCount>>& inputs) {
+    const std::vector<std::vector<float>>& inputs) {
   if (inputs.empty()) {
     throw std::runtime_error("deterministic policy batch must contain at least one input");
   }
+  for (const auto& input : inputs) {
+    if (input.size() != model_input_feature_count_) {
+      throw std::runtime_error("deterministic policy input feature count mismatch");
+    }
+  }
   session_run_count_ += 1;
   return std::vector<std::array<float, kPolicyLogitCount>>(inputs.size(), logits_);
+}
+
+std::size_t DeterministicPolicySession::model_input_feature_count() const {
+  return model_input_feature_count_;
 }
 
 ExecutionProvider DeterministicPolicySession::execution_provider() const {
@@ -427,7 +454,8 @@ void BatchedPolicyExecutor::enqueue(const AgentRequest& request) {
 
   QueueItem item;
   item.request = request;
-  item.model_input = request_model_input(request);
+  item.model_input =
+      request_model_input(request, policy_it->second->session->model_input_feature_count());
   item.legal_play_mask = request_legal_play_mask(request);
   policy_it->second->queue.push_back(std::move(item));
 }
@@ -444,7 +472,7 @@ std::vector<PolicyActionResult> BatchedPolicyExecutor::flush() {
           std::min(config_.max_batch_size, static_cast<std::size_t>(policy.queue.size()));
       std::vector<QueueItem> batch;
       batch.reserve(batch_size);
-      std::vector<std::array<float, observation::kPlayingModelInputFeatureCount>> inputs;
+      std::vector<std::vector<float>> inputs;
       inputs.reserve(batch_size);
       auto queue_it = policy.queue.begin();
       for (std::size_t index = 0; index < batch_size; ++index, ++queue_it) {
@@ -556,12 +584,20 @@ void attach_playing_model_input(
     const GameState& state,
     int player_index,
     AgentRequest& request) {
+  attach_playing_model_input(state, player_index, observation::PlayingObservationVariant::Public, request);
+}
+
+void attach_playing_model_input(
+    const GameState& state,
+    int player_index,
+    observation::PlayingObservationVariant variant,
+    AgentRequest& request) {
   if (request.phase != Phase::Playing) {
     return;
   }
-  const observation::PlayingModelInput input =
-      observation::create_playing_model_input(state, player_index);
-  request.playing_model_input.assign(input.model_input.begin(), input.model_input.end());
+  const observation::VariantPlayingModelInput input =
+      observation::create_playing_model_input(state, player_index, variant);
+  request.playing_model_input = input.model_input;
   request.legal_play_mask.assign(input.legal_play_mask.begin(), input.legal_play_mask.end());
 }
 
