@@ -270,8 +270,18 @@ export function App() {
     }
   }
 
+  const isStartedGame = session !== undefined && mode === "game";
+  const isGameInProgress = isStartedGame && !session.state.isGameOver;
+  const appShellClassName = [
+    "app-shell",
+    isStartedGame ? "app-shell-game-active" : "",
+    isGameInProgress ? "app-shell-game-in-progress" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <main className="app-shell">
+    <main className={appShellClassName}>
       <nav
         className={
           session !== undefined && mode === "game"
@@ -304,7 +314,14 @@ export function App() {
 
       {mode === "game" ? (
         <>
-          <section className={session === undefined ? "top-bar" : "top-bar top-bar-compact"}>
+          <section
+            className={[
+              session === undefined ? "top-bar" : "top-bar top-bar-compact",
+              isGameInProgress && showVisibleMessage ? "top-bar-alert" : ""
+            ]
+              .filter(Boolean)
+              .join(" ")}
+          >
             <div>
               <h1 aria-label="Napoleon Web">{session === undefined ? "Napoleon Web" : "NW"}</h1>
               <p aria-live="polite" className={showVisibleMessage ? undefined : "visually-hidden"}>

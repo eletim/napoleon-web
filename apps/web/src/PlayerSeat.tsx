@@ -50,7 +50,9 @@ export function PlayerSeat({ player, state }: PlayerSeatProps) {
         ) : null}
       </div>
 
-      <BiddingDeclarationBadge playerLabel={player.label} declaration={player.biddingDeclaration} />
+      <div className="seat-bid-slot">
+        <BiddingDeclarationBadge playerLabel={player.label} declaration={player.biddingDeclaration} />
+      </div>
 
       <div
         className="captured-compact"
