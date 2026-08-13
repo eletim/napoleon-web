@@ -1,10 +1,12 @@
-import type { PublicCard, PublicPlayedCard, PublicSuit } from "@napoleon/protocol";
+import type { PublicCard, PublicGameState, PublicPlayedCard, PublicSuit } from "@napoleon/protocol";
 import { determineCurrentWinningPlayer } from "@napoleon/game-core";
 import { isRedSuit, suitSymbols } from "./cardSymbols";
 import type { TablePlayer } from "./tableTypes";
 
 interface TrickBoardProps {
   players: readonly TablePlayer[];
+  adjutant?: PublicGameState["adjutant"];
+  contract?: PublicGameState["contract"];
   currentTrick: readonly PublicPlayedCard[];
   collectingWinnerId?: string;
   highlightWinningCard: boolean;
@@ -14,7 +16,9 @@ interface TrickBoardProps {
 }
 
 export function TrickBoard({
+  adjutant,
   collectingWinnerId,
+  contract,
   players,
   currentTrick,
   highlightWinningCard,
@@ -51,8 +55,9 @@ export function TrickBoard({
           isWinning={winningPlayerId === player.id}
         />
       ))}
-      <div className="trick-message" aria-label={`現在のトリックは${currentTrick.length}枚出ています`}>
-        <strong>{currentTrick.length} / 5</strong>
+      <div className="trick-message" aria-label={createTrickSummaryAriaLabel(contract, adjutant)}>
+        <strong className="trick-contract-summary">{formatContractSummary(contract)}</strong>
+        <span className="trick-adjutant-summary">{formatAdjutantCardSummary(adjutant)}</span>
       </div>
     </div>
   );
@@ -119,4 +124,50 @@ function formatCardForAria(card: PublicCard): string {
   }
 
   return `${card.rank}${suitSymbols[card.suit]}`;
+}
+
+function formatContractSummary(contract: PublicGameState["contract"] | undefined): string {
+  if (contract === undefined || contract === null) {
+    return "-";
+  }
+
+  return `${suitSymbols[contract.trumpSuit]} ${contract.targetPointCards}`;
+}
+
+function formatAdjutantCardSummary(adjutant: PublicGameState["adjutant"] | undefined): string {
+  if (adjutant === undefined || adjutant === null) {
+    return "副官 -";
+  }
+
+  return `副官 ${formatCalledCardId(adjutant.calledCardId)}`;
+}
+
+function formatCalledCardId(cardId: string): string {
+  if (cardId === "joker") {
+    return "ジョーカー";
+  }
+
+  const [suit, rank] = cardId.split("-");
+
+  if (isPublicSuit(suit) && rank !== undefined) {
+    return `${suitSymbols[suit]}${rank}`;
+  }
+
+  return cardId;
+}
+
+function createTrickSummaryAriaLabel(
+  contract: PublicGameState["contract"] | undefined,
+  adjutant: PublicGameState["adjutant"] | undefined
+): string {
+  return `契約 ${formatContractSummary(contract)}、${formatAdjutantCardSummary(adjutant)}`;
+}
+
+function isPublicSuit(value: string | undefined): value is PublicSuit {
+  return (
+    value === "spades" ||
+    value === "hearts" ||
+    value === "diamonds" ||
+    value === "clubs"
+  );
 }

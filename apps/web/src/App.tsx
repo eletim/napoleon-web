@@ -383,7 +383,13 @@ export function App() {
                 <PlayerSeat key={player.seat} player={player} state={session?.state} />
               ))}
 
-              <div className="table-center">
+              <div
+                className={
+                  session !== undefined && session.state.phase !== "bidding"
+                    ? "table-center table-center-trick"
+                    : "table-center"
+                }
+              >
                 <GameStatus display={gameStatusDisplay} />
 
                 {session?.state.phase === "bidding" ? (
@@ -401,7 +407,9 @@ export function App() {
                 ) : (
                   <>
                     <TrickBoard
+                      adjutant={session?.state.adjutant}
                       collectingWinnerId={trickAnimation.collectingWinnerId}
+                      contract={session?.state.contract}
                       currentTrick={trickAnimation.displayedTrick}
                       highlightWinningCard={winningCardHighlightEnabled}
                       isResultEmphasisActive={trickAnimation.isResultEmphasisActive}

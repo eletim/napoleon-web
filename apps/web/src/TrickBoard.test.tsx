@@ -64,6 +64,34 @@ describe("TrickBoard", () => {
     expect(html).toContain("played-card-from-top-left");
     expect(html).toContain("played-card-collecting");
   });
+
+  it("shows the contract and adjutant card in the center summary", () => {
+    const html = renderToStaticMarkup(
+      <TrickBoard
+        adjutant={{ calledCardId: "spades-A", revealedPlayerId: "player-2" }}
+        contract={{
+          napoleonPlayerId: "player-1",
+          trumpSuit: "spades",
+          targetPointCards: 13
+        }}
+        currentTrick={[
+          played("player-1", "hearts", "A"),
+          played("player-2", "spades", "2"),
+          played("player-3", "clubs", "K"),
+          played("player-4", "diamonds", "Q")
+        ]}
+        highlightWinningCard={false}
+        players={players}
+        trickNumber={2}
+        trumpSuit="spades"
+      />
+    );
+
+    expect(html).toContain("♠ 13");
+    expect(html).toContain("副官 ♠A");
+    expect(html).not.toContain("4 / 5");
+    expect(html).not.toContain("副官 ♠A・");
+  });
 });
 
 const players: readonly TablePlayer[] = [
