@@ -397,6 +397,10 @@ input:focus-visible {
   color: #94a3b8;
 }
 
+.seat-bid-slot:empty {
+  display: none;
+}
+
 .compact-hand {
   align-items: center;
   display: flex;
@@ -1532,7 +1536,7 @@ input:focus-visible {
   }
 
   .app-shell-game-in-progress .table-grid {
-    --opponent-seat-height: 66px;
+    --opponent-seat-height: 74px;
 
     grid-template-areas:
       "left right"
@@ -1555,14 +1559,11 @@ input:focus-visible {
     padding: 4px;
   }
 
-  .app-shell-game-active .captured-compact {
-    display: none;
-  }
-
   .app-shell-game-in-progress .player-seat {
     align-self: stretch;
     box-sizing: border-box;
-    grid-template-rows: 18px 16px 20px;
+    gap: 1px;
+    grid-template-rows: repeat(4, 16px);
     height: var(--opponent-seat-height);
     justify-self: stretch;
     min-height: var(--opponent-seat-height);
@@ -1575,12 +1576,40 @@ input:focus-visible {
     overflow: hidden;
   }
 
+  .app-shell-game-in-progress .small-card-back {
+    height: 16px;
+    width: 12px;
+  }
+
+  .app-shell-game-in-progress .compact-hand {
+    gap: 2px;
+  }
+
+  .app-shell-game-in-progress .seat-bid-slot {
+    align-items: center;
+    display: flex;
+    min-height: 16px;
+    min-width: 0;
+  }
+
   .app-shell-game-in-progress .latest-bid-declaration {
     align-self: stretch;
     box-sizing: border-box;
     height: 100%;
     justify-content: center;
     min-height: 0;
+    padding: 1px 4px;
+    width: 100%;
+  }
+
+  .app-shell-game-in-progress .latest-bid-declaration strong {
+    font-size: 0.62rem;
+  }
+
+  .app-shell-game-in-progress .captured-compact {
+    align-self: center;
+    min-height: 16px;
+    overflow: hidden;
   }
 
   .seat-main-row,
@@ -1645,7 +1674,7 @@ input:focus-visible {
 
   .captured-compact,
   .self-points-row {
-    gap: 3px;
+    gap: 2px;
   }
 
   .captured-compact > span,
@@ -1658,6 +1687,18 @@ input:focus-visible {
     font-size: 0.64rem;
     min-width: 22px;
     padding: 3px 4px;
+  }
+
+  .app-shell-game-in-progress .compact-points {
+    min-height: 16px;
+    padding-bottom: 0;
+  }
+
+  .app-shell-game-in-progress .mini-card {
+    border-radius: 3px;
+    font-size: 0.58rem;
+    min-width: 18px;
+    padding: 2px 3px;
   }
 
   .trick-board {
@@ -1933,18 +1974,34 @@ input:focus-visible {
   }
 
   .app-shell-game-in-progress .table-grid {
-    --opponent-seat-height: 58px;
+    --opponent-seat-height: 64px;
   }
 
   .app-shell-game-in-progress .player-seat {
-    gap: 2px;
-    grid-template-rows: 16px 14px 18px;
+    gap: 1px;
+    grid-template-rows: repeat(4, 14px);
     height: var(--opponent-seat-height);
     min-height: var(--opponent-seat-height);
     padding: 2px 3px;
   }
 
+  .app-shell-game-in-progress .small-card-back {
+    height: 14px;
+    width: 10px;
+  }
+
   .app-shell-game-in-progress .player-seat .role-badges {
+    min-height: 14px;
+  }
+
+  .app-shell-game-in-progress .role-badge,
+  .app-shell-game-in-progress .turn-dot {
+    font-size: 0.5rem;
+    height: 14px;
+    width: 14px;
+  }
+
+  .app-shell-game-in-progress .seat-bid-slot {
     min-height: 14px;
   }
 
@@ -1955,7 +2012,29 @@ input:focus-visible {
 
   .app-shell-game-in-progress .latest-bid-declaration {
     min-height: 0;
-    padding: 1px 4px;
+    padding: 0 3px;
+  }
+
+  .app-shell-game-in-progress .latest-bid-declaration strong {
+    font-size: 0.58rem;
+  }
+
+  .app-shell-game-in-progress .captured-compact {
+    min-height: 14px;
+  }
+
+  .app-shell-game-in-progress .captured-compact > span {
+    font-size: 0.6rem;
+  }
+
+  .app-shell-game-in-progress .compact-points {
+    min-height: 14px;
+  }
+
+  .app-shell-game-in-progress .mini-card {
+    font-size: 0.52rem;
+    min-width: 16px;
+    padding: 1px 2px;
   }
 
   .app-shell-game-active .played-card,
@@ -1977,6 +2056,13 @@ input:focus-visible {
   }
 
   .app-shell-game-active .self-points-row {
-    display: none;
+    gap: 2px;
+    margin-bottom: 3px;
+    padding-top: 3px;
+  }
+
+  .app-shell-game-active .self-points-row .compact-points {
+    min-height: 18px;
+    padding-bottom: 0;
   }
 }
