@@ -124,6 +124,7 @@ describe("start-dev.sh", () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("env_file_exists=true");
     expect(result.stdout).toContain("VITE_ALLOWED_HOSTS=test-host.example");
+    expect(result.stdout).toContain("NAPOLEON_WEB_BASE_PATH=/napoleon/");
     expect(result.stdout).not.toContain("生成しますか");
     rmSync(root, { recursive: true, force: true });
   });
@@ -165,6 +166,7 @@ describe("start-dev.sh", () => {
     expect(existsSync(envFile)).toBe(false);
     expect(result.stdout).toContain("env_file_exists=false");
     expect(result.stdout).toContain("VITE_ALLOWED_HOSTS=\n");
+    expect(result.stdout).toContain("NAPOLEON_WEB_BASE_PATH=\n");
     expect(result.stdout).toContain("tailscale_serve_enabled=false");
     expect(result.stdout).not.toContain("生成しますか");
     rmSync(root, { recursive: true, force: true });
@@ -263,7 +265,7 @@ describe("start-dev.sh", () => {
     expect(result.stdout).toContain("dev_server_started=true");
     expect(readFakeTailscaleLog(fakeTailscale.logPath)).toEqual([
       "status",
-      "serve --bg --http=5173 http://127.0.0.1:5173"
+      "serve --bg --set-path=/napoleon http://127.0.0.1:5173/napoleon"
     ]);
     rmSync(root, { recursive: true, force: true });
     rmSync(fakeTailscale.root, { recursive: true, force: true });
@@ -352,7 +354,7 @@ describe("start-dev.sh", () => {
     expect(result.stdout).not.toContain("dev_server_started=true");
     expect(readFakeTailscaleLog(fakeTailscale.logPath)).toEqual([
       "status",
-      "serve --bg --http=5173 http://127.0.0.1:5173"
+      "serve --bg --set-path=/napoleon http://127.0.0.1:5173/napoleon"
     ]);
     rmSync(root, { recursive: true, force: true });
     rmSync(fakeTailscale.root, { recursive: true, force: true });
@@ -369,11 +371,50 @@ describe("start-dev.sh", () => {
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("tailscale_serve_enabled=true");
+    expect(result.stdout).toContain("NAPOLEON_WEB_BASE_PATH=/napoleon/");
     expect(result.stdout).toContain(
-      "tailscale_serve_command=tailscale serve --bg --http=5173 http://127.0.0.1:5173"
+      "tailscale_serve_command=tailscale serve --bg --set-path=/napoleon http://127.0.0.1:5173/napoleon"
     );
     expect(result.stdout).toContain("dev_server_started=false");
     expect(existsSync(fakeTailscale.logPath)).toBe(false);
+    rmSync(root, { recursive: true, force: true });
+    rmSync(fakeTailscale.root, { recursive: true, force: true });
+  });
+
+  it("normalizes a custom Tailscale dev base path override", () => {
+    const root = createTempRoot();
+    const fakeTailscale = createFakeTailscale();
+    writeFileSync(join(root, "apps/web/.env.local"), "VITE_ALLOWED_HOSTS=my-machine.example.ts.net\n");
+
+    const result = runDevScript(root, {
+      basePath: "custom-dev",
+      path: fakeTailscale.path
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("NAPOLEON_WEB_BASE_PATH=/custom-dev/");
+    expect(result.stdout).toContain(
+      "tailscale_serve_command=tailscale serve --bg --set-path=/custom-dev http://127.0.0.1:5173/custom-dev"
+    );
+    rmSync(root, { recursive: true, force: true });
+    rmSync(fakeTailscale.root, { recursive: true, force: true });
+  });
+
+  it("keeps root dev base path as a root Serve mount", () => {
+    const root = createTempRoot();
+    const fakeTailscale = createFakeTailscale();
+    writeFileSync(join(root, "apps/web/.env.local"), "VITE_ALLOWED_HOSTS=my-machine.example.ts.net\n");
+
+    const result = runDevScript(root, {
+      basePath: "/",
+      path: fakeTailscale.path
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("NAPOLEON_WEB_BASE_PATH=/");
+    expect(result.stdout).toContain(
+      "tailscale_serve_command=tailscale serve --bg --set-path=/ http://127.0.0.1:5173"
+    );
     rmSync(root, { recursive: true, force: true });
     rmSync(fakeTailscale.root, { recursive: true, force: true });
   });
@@ -385,6 +426,7 @@ describe("start-dev.sh", () => {
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("tailscale_serve_enabled=false");
+    expect(result.stdout).toContain("NAPOLEON_WEB_BASE_PATH=\n");
     expect(result.stdout).toContain("dev_server_started=false");
     rmSync(root, { recursive: true, force: true });
   });
@@ -420,6 +462,7 @@ function createTempRoot(): string {
 function runDevScript(
   root: string,
   options: {
+    basePath?: string;
     dryRun?: boolean;
     input?: string;
     path?: string;
@@ -443,6 +486,11 @@ function runDevScript(
     env.NAPOLEON_DEV_TEST_MODE = "1";
   } else {
     delete env.NAPOLEON_DEV_TEST_MODE;
+  }
+  if (options.basePath !== undefined) {
+    env.NAPOLEON_DEV_BASE_PATH = options.basePath;
+  } else {
+    delete env.NAPOLEON_DEV_BASE_PATH;
   }
   env.PATH = options.path ?? createPathWithoutTailscale();
 

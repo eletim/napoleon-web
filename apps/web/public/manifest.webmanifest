@@ -2,8 +2,8 @@
   "name": "Napoleon Web",
   "short_name": "Napoleon",
   "description": "Napoleon card game playable from the home screen.",
-  "start_url": "/",
-  "scope": "/",
+  "start_url": ".",
+  "scope": ".",
   "display": "standalone",
   "orientation": "portrait-primary",
   "theme_color": "#2e6b52",
@@ -11,19 +11,19 @@
   "categories": ["games", "card"],
   "icons": [
     {
-      "src": "/icons/napoleon-192.png",
+      "src": "icons/napoleon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/napoleon-512.png",
+      "src": "icons/napoleon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/napoleon-maskable-512.png",
+      "src": "icons/napoleon-maskable-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"

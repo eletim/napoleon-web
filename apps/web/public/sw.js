@@ -1,13 +1,16 @@
 const CACHE_NAME = "napoleon-web-v1";
 const IS_DEV_SERVICE_WORKER = new URL(self.location.href).searchParams.has("dev-sw");
+const SERVICE_WORKER_PATHNAME = new URL(self.location.href).pathname;
+const SCOPE_URL = new URL(self.registration.scope);
+const SCOPE_PATHNAME = SCOPE_URL.pathname;
 const APP_SHELL_URLS = [
-  "/",
-  "/index.html",
-  "/manifest.webmanifest",
-  "/icons/napoleon-192.png",
-  "/icons/napoleon-512.png",
-  "/icons/napoleon-maskable-512.png"
-];
+  "",
+  "index.html",
+  "manifest.webmanifest",
+  "icons/napoleon-192.png",
+  "icons/napoleon-512.png",
+  "icons/napoleon-maskable-512.png"
+].map((path) => new URL(path, SCOPE_URL).href);
 const MAX_RUNTIME_CACHE_ENTRIES = 64;
 
 self.addEventListener("install", (event) => {
@@ -68,8 +71,9 @@ self.addEventListener("fetch", (event) => {
 
   if (
     url.origin !== self.location.origin ||
-    url.pathname === "/sw.js" ||
-    url.pathname.startsWith("/api/")
+    !isWithinScope(url.pathname) ||
+    url.pathname === SERVICE_WORKER_PATHNAME ||
+    url.pathname.startsWith(new URL("api/", SCOPE_URL).pathname)
   ) {
     return;
   }
@@ -94,7 +98,7 @@ async function networkFirst(request) {
 
     return response;
   } catch {
-    return (await cache.match(request)) ?? cache.match("/index.html");
+    return (await cache.match(request)) ?? cache.match(new URL("index.html", SCOPE_URL).href);
   }
 }
 
@@ -124,4 +128,8 @@ async function trimRuntimeCache(cache) {
   }
 
   await cache.delete(requests[0]);
+}
+
+function isWithinScope(pathname) {
+  return pathname === SCOPE_PATHNAME || pathname.startsWith(SCOPE_PATHNAME);
 }

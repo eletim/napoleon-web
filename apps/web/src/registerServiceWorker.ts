@@ -1,13 +1,21 @@
+import { resolveAppPath } from "./appPath";
+
 export function registerServiceWorker(): void {
   if (!("serviceWorker" in navigator)) {
     return;
   }
 
-  const serviceWorkerUrl = import.meta.env.DEV ? "/sw.js?dev-sw" : "/sw.js";
+  const serviceWorkerUrl = resolveAppPath(
+    import.meta.env.DEV ? "sw.js?dev-sw" : "sw.js"
+  );
+  const serviceWorkerScope = resolveAppPath("");
 
   window.addEventListener("load", () => {
     void navigator.serviceWorker
-      .register(serviceWorkerUrl, { updateViaCache: "none" })
+      .register(serviceWorkerUrl, {
+        scope: serviceWorkerScope,
+        updateViaCache: "none"
+      })
       .then((registration) => {
         if (registration.waiting !== null) {
           registration.waiting.postMessage({ type: "SKIP_WAITING" });
