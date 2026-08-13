@@ -41,6 +41,29 @@ describe("TrickBoard", () => {
     expect(html).not.toContain("played-card-winning");
     expect(html).not.toContain("現在勝っています");
   });
+
+  it("marks trick cards with entry and collection direction classes", () => {
+    const html = renderToStaticMarkup(
+      <TrickBoard
+        collectingWinnerId="player-2"
+        currentTrick={[
+          played("player-1", "hearts", "A"),
+          played("player-2", "spades", "2")
+        ]}
+        highlightWinningCard={true}
+        isResultEmphasisActive={true}
+        players={players}
+        trickNumber={2}
+        trumpSuit="spades"
+      />
+    );
+
+    expect(html).toContain("trick-board-result");
+    expect(html).toContain("trick-board-collecting-to-top-left");
+    expect(html).toContain("played-card-from-left");
+    expect(html).toContain("played-card-from-top-left");
+    expect(html).toContain("played-card-collecting");
+  });
 });
 
 const players: readonly TablePlayer[] = [
