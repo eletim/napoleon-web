@@ -1673,6 +1673,10 @@ input:focus-visible {
 
   .app-shell-game-active .action-area {
     gap: 4px;
+    max-height: min(30dvh, 180px);
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   .hand {
@@ -1825,6 +1829,10 @@ input:focus-visible {
   .app-shell-game-active .table {
     gap: 4px;
     padding: 4px;
+  }
+
+  .app-shell-game-active .action-area {
+    max-height: 24dvh;
   }
 
   .app-shell-game-active .player-seat {
