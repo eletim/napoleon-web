@@ -383,7 +383,7 @@ def test_reinforce_batched_cuda_numeric_drift_passes_with_diagnostics(
     assert report.output_checkpoint_path.is_file()
 
 
-def test_reinforce_batched_cuda_max_outlier_warning_is_reported(
+def test_reinforce_batched_cuda_numeric_warning_is_reported(
     tmp_path: Path,
 ) -> None:
     self_play_dataset = tmp_path / "self-play"
@@ -397,7 +397,7 @@ def test_reinforce_batched_cuda_max_outlier_warning_is_reported(
         checkpoint=checkpoint,
         checkpoint_path=checkpoint_path,
         rewards=(1,),
-        behavior_log_probability_offset=-0.006,
+        behavior_log_probability_offset=-0.002,
     )
     loader = create_playing_self_play_dataloader(
         self_play_dataset,
@@ -444,7 +444,7 @@ def test_reinforce_batched_cuda_large_numeric_drift_fails(tmp_path: Path) -> Non
         checkpoint=checkpoint,
         checkpoint_path=checkpoint_path,
         rewards=(1,),
-        behavior_log_probability_offset=0.021,
+        behavior_log_probability_offset=0.0031,
     )
     loader = create_playing_self_play_dataloader(
         self_play_dataset,
@@ -453,7 +453,7 @@ def test_reinforce_batched_cuda_large_numeric_drift_fails(tmp_path: Path) -> Non
         batch_size=1,
     )
 
-    with pytest.raises(PolicyCheckpointCompatibilityError, match="max abs error") as exc_info:
+    with pytest.raises(PolicyCheckpointCompatibilityError, match="mean abs error") as exc_info:
         train_policy_reinforce(
             input_checkpoint=checkpoint_path,
             self_play_dataset_directory=self_play_dataset,
