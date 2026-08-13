@@ -245,6 +245,7 @@ class TensorizedPlayingSelfPlaySample:
     seed: int
     step: int
     acting_player_index: int
+    self_role_index: int
     observation: PlayingObservationTensors
     model_input: np.ndarray
     legal_play_mask: np.ndarray
@@ -1076,6 +1077,7 @@ def tensorize_playing_self_play_sample(
         seed=sample.seed,
         step=sample.step,
         acting_player_index=sample.relative_player_ids.index(sample.acting_player_id),
+        self_role_index=int(observation_tensors.self_role_one_hot.argmax()),
         observation=observation_tensors,
         model_input=model_input,
         legal_play_mask=observation_tensors.legal_play_mask,
@@ -1216,6 +1218,14 @@ def validate_tensorized_playing_self_play_sample(
 
     if tensorized.legal_play_mask[selected] != 1:
         raise SampleValidationError("legal_play_mask at the selected_card_index must be 1.")
+
+    if not 0 <= tensorized.self_role_index < SELF_ROLE_COUNT:
+        raise SampleValidationError(
+            f"self_role_index must be between 0 and {SELF_ROLE_COUNT - 1}, "
+            f"got {tensorized.self_role_index}."
+        )
+    if tensorized.observation.self_role_one_hot[tensorized.self_role_index] != 1:
+        raise SampleValidationError("self_role_index must match observation.self_role_one_hot.")
 
     if tensorized.behavior_log_probability.dtype != np.float32:
         raise SampleValidationError(

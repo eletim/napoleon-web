@@ -664,6 +664,7 @@ def test_playing_self_play_dataloader_batches_rl_fields(tmp_path: Path) -> None:
         "seed",
         "step",
         "acting_player_index",
+        "self_role_index",
     }
     assert batch["model_input"].shape == (1, MODEL_INPUT_FEATURE_COUNT)
     assert batch["model_input"].dtype == torch.float32
@@ -681,6 +682,9 @@ def test_playing_self_play_dataloader_batches_rl_fields(tmp_path: Path) -> None:
     assert batch["seed"].tolist() == [1]
     assert batch["step"].tolist() == [1]
     assert batch["acting_player_index"].tolist() == [0]
+    assert batch["self_role_index"].shape == (1,)
+    assert batch["self_role_index"].dtype == torch.int64
+    assert batch["self_role_index"].tolist() == [0]
 
 
 def test_binary_playing_self_play_dataloader_matches_legacy_json(tmp_path: Path) -> None:
@@ -804,6 +808,7 @@ def test_binary_playing_self_play_dataloader_rejects_out_of_range_selected_card(
     arrays = binary_module._read_shard(
         tmp_path / shard.file,
         shard,
+        manifest,
         verify_integrity=True,
     )
     arrays["selectedCardIndex"][0] = CARD_COUNT
@@ -821,6 +826,7 @@ def test_binary_playing_self_play_dataloader_rejects_empty_binary_arrays(
     arrays = binary_module._read_shard(
         tmp_path / shard.file,
         shard,
+        manifest,
         verify_integrity=True,
     )
     empty_arrays = {name: value[:0] for name, value in arrays.items()}
