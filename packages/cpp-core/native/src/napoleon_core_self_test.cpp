@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <iterator>
 #include <memory>
@@ -57,6 +59,25 @@ std::vector<napoleon::FinishedGame> drive_external_first_legal(
 
   assert(false && "runtime did not finish within iteration budget");
   return {};
+}
+
+std::filesystem::path write_policy_metadata_fixture(
+    const std::string& file_name,
+    const std::string& playing_observation_variant,
+    int playing_encoder_schema_version,
+    int model_input_schema_version,
+    int model_input_feature_count) {
+  const std::filesystem::path path = std::filesystem::temp_directory_path() / file_name;
+  std::ofstream out(path);
+  assert(out.is_open());
+  out << "{\n"
+      << "  \"playingObservationVariant\": \"" << playing_observation_variant << "\",\n"
+      << "  \"playingEncoderSchemaVersion\": " << playing_encoder_schema_version << ",\n"
+      << "  \"modelInputSchemaVersion\": " << model_input_schema_version << ",\n"
+      << "  \"modelInputFeatureCount\": " << model_input_feature_count << ",\n"
+      << "  \"policyModel\": {\"input_dim\": " << model_input_feature_count << "}\n"
+      << "}\n";
+  return path;
 }
 
 std::vector<napoleon::AgentRequest> collect_playing_requests(
@@ -532,8 +553,8 @@ int main() {
             "/tmp/missing-policy.onnx",
             "model_input",
             "logits",
-            napoleon::onnx_policy::InferenceDevice::Cuda});
-  } catch (const std::runtime_error&) {
+            napoleon::onnx_policy::InferenceDevice::Cpu});
+  } catch (const std::exception&) {
     rejected_unenabled_onnxruntime = true;
   }
   assert(rejected_unenabled_onnxruntime);
@@ -604,6 +625,88 @@ int main() {
   assert(eval_artifact.json.find("\"tsCudaBatch1Workers4SecondsPer2000Games\":11.2") !=
          std::string::npos);
   assert(eval_artifact.json.find("\"usesRlDatasetGeneration\":false") != std::string::npos);
+
+  const std::filesystem::path compact_candidate_metadata = write_policy_metadata_fixture(
+      "napoleon-compact-candidate-policy.json",
+      "complete-info-compact",
+      napoleon::observation::kCompleteInfoPlayingEncoderSchemaVersion,
+      napoleon::observation::kCompleteInfoPlayingModelInputSchemaVersion,
+      napoleon::observation::kCompleteInfoPlayingModelInputFeatureCount);
+  const std::filesystem::path public_frozen_metadata = write_policy_metadata_fixture(
+      "napoleon-public-frozen-policy.json",
+      "public",
+      napoleon::observation::kPlayingEncoderSchemaVersion,
+      napoleon::observation::kPlayingModelInputSchemaVersion,
+      napoleon::observation::kPlayingModelInputFeatureCount);
+  const napoleon::evaluation::EvaluationArtifact mixed_dimension_eval =
+      napoleon::evaluation::run_evaluation(napoleon::evaluation::EvaluationOptions{
+          napoleon::evaluation::EvaluationScenario::CandidateVsOpponentPool,
+          101,
+          8,
+          303,
+          8,
+          4,
+          {0, 1, 2, 3, 4},
+          "compact-candidate",
+          "rl-v740",
+          "",
+          compact_candidate_metadata.string(),
+          "",
+          public_frozen_metadata.string()});
+  assert(mixed_dimension_eval.scheduled_games == 40);
+  assert(mixed_dimension_eval.completed_games == 40);
+  assert(mixed_dimension_eval.failed_games == 0);
+  assert(mixed_dimension_eval.json.find("\"candidate-vs-opponent-pool\"") != std::string::npos);
+  assert(mixed_dimension_eval.json.find("\"current-policy:compact-candidate\"") != std::string::npos);
+  assert(mixed_dimension_eval.json.find("\"frozen-policy:rl-v740\"") != std::string::npos);
+
+  const std::filesystem::path mismatched_candidate_metadata = write_policy_metadata_fixture(
+      "napoleon-mismatched-candidate-policy.json",
+      "complete-info-compact",
+      napoleon::observation::kCompleteInfoPlayingEncoderSchemaVersion,
+      napoleon::observation::kCompleteInfoPlayingModelInputSchemaVersion,
+      napoleon::observation::kPlayingModelInputFeatureCount);
+  bool rejected_candidate_metadata_mismatch = false;
+  try {
+    (void)napoleon::evaluation::run_evaluation(napoleon::evaluation::EvaluationOptions{
+        napoleon::evaluation::EvaluationScenario::CandidateVsOpponentPool,
+        101,
+        1,
+        303,
+        2,
+        2,
+        {0},
+        "compact-candidate",
+        "rl-v740",
+        "",
+        mismatched_candidate_metadata.string(),
+        "",
+        public_frozen_metadata.string()});
+  } catch (const std::runtime_error&) {
+    rejected_candidate_metadata_mismatch = true;
+  }
+  assert(rejected_candidate_metadata_mismatch);
+
+  bool rejected_frozen_variant_mismatch = false;
+  try {
+    (void)napoleon::evaluation::run_evaluation(napoleon::evaluation::EvaluationOptions{
+        napoleon::evaluation::EvaluationScenario::CandidateVsOpponentPool,
+        101,
+        1,
+        303,
+        2,
+        2,
+        {0},
+        "compact-candidate",
+        "rl-v740",
+        "",
+        compact_candidate_metadata.string(),
+        "",
+        compact_candidate_metadata.string()});
+  } catch (const std::runtime_error&) {
+    rejected_frozen_variant_mismatch = true;
+  }
+  assert(rejected_frozen_variant_mismatch);
 
   const napoleon::evaluation::EvaluationArtifact tournament_artifact =
       napoleon::evaluation::run_evaluation(napoleon::evaluation::EvaluationOptions{
