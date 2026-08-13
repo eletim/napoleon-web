@@ -381,6 +381,25 @@ describe("start-dev.sh", () => {
     rmSync(fakeTailscale.root, { recursive: true, force: true });
   });
 
+  it("normalizes a custom Tailscale dev base path override", () => {
+    const root = createTempRoot();
+    const fakeTailscale = createFakeTailscale();
+    writeFileSync(join(root, "apps/web/.env.local"), "VITE_ALLOWED_HOSTS=my-machine.example.ts.net\n");
+
+    const result = runDevScript(root, {
+      basePath: "custom-dev",
+      path: fakeTailscale.path
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("NAPOLEON_WEB_BASE_PATH=/custom-dev/");
+    expect(result.stdout).toContain(
+      "tailscale_serve_command=tailscale serve --bg --https=443 --set-path=/custom-dev/ http://127.0.0.1:5173"
+    );
+    rmSync(root, { recursive: true, force: true });
+    rmSync(fakeTailscale.root, { recursive: true, force: true });
+  });
+
   it("prints disabled Tailscale state during dry-run without hosts", () => {
     const root = createTempRoot();
 
@@ -424,6 +443,7 @@ function createTempRoot(): string {
 function runDevScript(
   root: string,
   options: {
+    basePath?: string;
     dryRun?: boolean;
     input?: string;
     path?: string;
@@ -447,6 +467,11 @@ function runDevScript(
     env.NAPOLEON_DEV_TEST_MODE = "1";
   } else {
     delete env.NAPOLEON_DEV_TEST_MODE;
+  }
+  if (options.basePath !== undefined) {
+    env.NAPOLEON_DEV_BASE_PATH = options.basePath;
+  } else {
+    delete env.NAPOLEON_DEV_BASE_PATH;
   }
   env.PATH = options.path ?? createPathWithoutTailscale();
 

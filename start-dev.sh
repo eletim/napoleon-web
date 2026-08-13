@@ -8,8 +8,6 @@ ROOT_DIR="${NAPOLEON_DEV_ROOT:-$DEFAULT_ROOT_DIR}"
 ROOT_ENV_FILE="$ROOT_DIR/.env"
 ROOT_ENV_SAMPLE_FILE="$ROOT_DIR/.env.sample"
 WEB_ENV_FILE="$ROOT_DIR/apps/web/.env.local"
-DEV_BASE_PATH="${NAPOLEON_DEV_BASE_PATH:-/napoleon/}"
-TAILSCALE_SERVE_COMMAND=(tailscale serve --bg --https=443 --set-path="$DEV_BASE_PATH" http://127.0.0.1:5173)
 
 trim() {
   local value="$1"
@@ -17,6 +15,28 @@ trim() {
   value="${value%"${value##*[![:space:]]}"}"
   printf '%s' "$value"
 }
+
+normalize_dev_base_path() {
+  local value
+
+  value="$(trim "$1")"
+  if [[ -z "$value" || "$value" == "/" ]]; then
+    printf '/\n'
+    return
+  fi
+
+  if [[ "$value" != /* ]]; then
+    value="/$value"
+  fi
+  if [[ "$value" != */ ]]; then
+    value="$value/"
+  fi
+
+  printf '%s\n' "$value"
+}
+
+DEV_BASE_PATH="$(normalize_dev_base_path "${NAPOLEON_DEV_BASE_PATH:-/napoleon/}")"
+TAILSCALE_SERVE_COMMAND=(tailscale serve --bg --https=443 --set-path="$DEV_BASE_PATH" http://127.0.0.1:5173)
 
 read_allowed_hosts() {
   local file="$1"
