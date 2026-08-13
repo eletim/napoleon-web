@@ -15,8 +15,6 @@ interface TrickBoardProps {
   trumpSuit: PublicSuit | null | undefined;
 }
 
-const trickSeatOrder = ["top-left", "top-right", "left", "right", "self"] as const;
-
 export function TrickBoard({
   adjutant,
   collectingWinnerId,
@@ -31,10 +29,6 @@ export function TrickBoard({
   const playedCardsByPlayerId = new Map(
     currentTrick.map((played) => [played.playerId, played] as const)
   );
-  const playersBySeat = new Map(players.map((player) => [player.seat, player] as const));
-  const positionedPlayers = trickSeatOrder
-    .map((seat) => playersBySeat.get(seat))
-    .filter((player): player is TablePlayer => player !== undefined);
   const winningPlayerId =
     highlightWinningCard && trumpSuit !== null && trumpSuit !== undefined
       ? getCurrentWinningPlayerId(currentTrick, trumpSuit, trickNumber)
@@ -52,7 +46,7 @@ export function TrickBoard({
 
   return (
     <div className={boardClassName} aria-label="中央の場">
-      {positionedPlayers.map((player) => (
+      {players.map((player) => (
         <TrickSlot
           key={player.seat}
           isCollecting={collectingWinner !== undefined}
