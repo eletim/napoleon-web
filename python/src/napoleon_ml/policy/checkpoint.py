@@ -12,20 +12,23 @@ from torch import nn
 
 from napoleon_ml.dataset.constants import DATASET_SCHEMA_VERSION, PLAYING_ENCODER_SCHEMA_VERSION
 from napoleon_ml.dataset.manifest import DatasetManifest
-from napoleon_ml.dataset.tensors import MODEL_INPUT_FEATURE_COUNT, MODEL_INPUT_SCHEMA_VERSION
-from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 from napoleon_ml.dataset.playing_variants import (
     model_input_feature_count_for_variant,
     normalize_playing_observation_variant,
     playing_encoder_schema_version_for_variant,
     playing_model_input_schema_version_for_variant,
 )
+from napoleon_ml.dataset.tensors import MODEL_INPUT_FEATURE_COUNT, MODEL_INPUT_SCHEMA_VERSION
+from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 
 from .model import (
     PolicyActorCriticModel,
     PolicyMlpConfig,
     PolicyMlpModel,
     PolicySeparatedActorCriticModel,
+    create_seeded_actor_critic_model,
+    create_seeded_policy_model,
+    create_seeded_separated_actor_critic_model,
 )
 
 CHECKPOINT_SCHEMA_VERSION = 1
@@ -71,6 +74,78 @@ def save_policy_checkpoint(
     if extra_metadata is not None:
         checkpoint.update(extra_metadata)
     torch.save(checkpoint, Path(path))
+
+
+def initialize_policy_checkpoint(
+    path: Path | str,
+    *,
+    playing_observation_variant: str,
+    seed: int,
+    hidden_dim: int = 128,
+    hidden_layers: int = 2,
+    hidden_dims: tuple[int, ...] | None = None,
+    dropout: float = 0.0,
+    model_architecture: str = POLICY_MODEL_ARCHITECTURE,
+) -> dict[str, object]:
+    """Create an untrained playing policy checkpoint with current metadata."""
+
+    variant = normalize_playing_observation_variant(playing_observation_variant)
+    input_dim = model_input_feature_count_for_variant(variant)
+    model_config = PolicyMlpConfig(
+        input_dim=input_dim,
+        hidden_dim=hidden_dim,
+        hidden_layers=hidden_layers,
+        hidden_dims=hidden_dims,
+        dropout=dropout,
+    )
+    if model_architecture == POLICY_MODEL_ARCHITECTURE:
+        model: PolicyMlpModel | PolicyActorCriticModel | PolicySeparatedActorCriticModel = (
+            create_seeded_policy_model(model_config, seed=seed)
+        )
+    elif model_architecture == ACTOR_CRITIC_MODEL_ARCHITECTURE:
+        model = create_seeded_actor_critic_model(model_config, seed=seed)
+    elif model_architecture == SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE:
+        model = create_seeded_separated_actor_critic_model(model_config, seed=seed)
+    else:
+        raise PolicyCheckpointCompatibilityError(
+            f"model_architecture is unsupported: {model_architecture!r}."
+        )
+
+    training_config: dict[str, object] = {
+        "source": "random-initialization",
+        "seed": seed,
+        "hidden_dim": model_config.hidden_dim,
+        "hidden_layers": model_config.hidden_layers,
+        "hidden_dims": list(model_config.hidden_widths),
+        "dropout": model_config.dropout,
+        "playingObservationVariant": variant,
+        "modelArchitecture": model_architecture,
+    }
+    checkpoint: dict[str, object] = {
+        "checkpoint_schema_version": CHECKPOINT_SCHEMA_VERSION,
+        "model_state": model.state_dict(),
+        "model_config": model_config.to_dict(),
+        "training_config": training_config,
+        "dataset_schema_version": DATASET_SCHEMA_VERSION,
+        "playing_encoder_schema_version": playing_encoder_schema_version_for_variant(variant),
+        "model_input_schema_version": playing_model_input_schema_version_for_variant(variant),
+        "playing_observation_variant": variant,
+        "model_input_feature_count": input_dim,
+        "card_ids_sha256": calculate_card_ids_sha256(),
+        "model_architecture": model_architecture,
+        "initialization_provenance": {
+            "type": "random-policy-initialization",
+            "seed": seed,
+            "playingObservationVariant": variant,
+            "modelInputFeatureCount": input_dim,
+            "modelArchitecture": model_architecture,
+            "modelConfig": model_config.to_dict(),
+        },
+    }
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(checkpoint, output)
+    return checkpoint
 
 
 def load_policy_checkpoint(

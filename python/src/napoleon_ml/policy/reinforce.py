@@ -18,8 +18,6 @@ from torch.nn import functional as F
 from napoleon_ml.dataset.constants import (
     CARD_COUNT,
     DATASET_SCHEMA_VERSION,
-    PLAYING_ENCODER_SCHEMA_VERSION,
-    PLAYING_MODEL_INPUT_SCHEMA_VERSION,
     PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION,
     PLAYING_SELF_PLAY_LEGACY_DATASET_SCHEMA_VERSION,
     PLAYING_SELF_PLAY_REWARD_TYPE,
@@ -27,8 +25,13 @@ from napoleon_ml.dataset.constants import (
     PLAYING_SELF_PLAY_SAMPLING_ALGORITHM,
 )
 from napoleon_ml.dataset.manifest import DatasetManifest
+from napoleon_ml.dataset.playing_variants import (
+    model_input_feature_count_for_variant,
+    normalize_playing_observation_variant,
+    playing_encoder_schema_version_for_variant,
+    playing_model_input_schema_version_for_variant,
+)
 from napoleon_ml.dataset.pytorch import PlayingSelfPlayTorchSample
-from napoleon_ml.dataset.tensors import MODEL_INPUT_FEATURE_COUNT, MODEL_INPUT_SCHEMA_VERSION
 from napoleon_ml.policy.behavior_parity import (
     BehaviorParityDiagnostics,
     BehaviorPolicyProvenanceDiagnostic,
@@ -594,11 +597,12 @@ def _validate_checkpoint_for_reinforce(
     *,
     manifest: DatasetManifest,
 ) -> None:
+    variant = normalize_playing_observation_variant(manifest.playing_observation_variant)
     expected = {
         "checkpoint_schema_version": CHECKPOINT_SCHEMA_VERSION,
         "dataset_schema_version": DATASET_SCHEMA_VERSION,
         "playing_encoder_schema_version": manifest.playing_encoder_schema_version,
-        "model_input_schema_version": MODEL_INPUT_SCHEMA_VERSION,
+        "model_input_schema_version": manifest.playing_model_input_schema_version,
         "card_ids_sha256": manifest.card_ids_sha256,
     }
     for key, expected_value in expected.items():
@@ -611,6 +615,14 @@ def _validate_checkpoint_for_reinforce(
     model_config = checkpoint.get("model_config")
     if not isinstance(model_config, dict):
         raise PolicyCheckpointCompatibilityError("checkpoint model_config must be a dictionary.")
+    checkpoint_variant = normalize_playing_observation_variant(
+        checkpoint.get("playing_observation_variant")
+    )
+    if checkpoint_variant != variant:
+        raise PolicyCheckpointCompatibilityError(
+            "checkpoint playing_observation_variant mismatch: "
+            f"expected {variant!r}, got {checkpoint_variant!r}."
+        )
     architecture = checkpoint.get("model_architecture", POLICY_MODEL_ARCHITECTURE)
     if architecture in ACTOR_CRITIC_MODEL_ARCHITECTURES:
         raise PolicyCheckpointCompatibilityError(
@@ -628,10 +640,16 @@ def _validate_checkpoint_for_reinforce(
         raise PolicyCheckpointCompatibilityError(
             "REINFORCE training cannot resume from an Actor-Critic checkpoint."
         )
-    if model_config.get("input_dim") != MODEL_INPUT_FEATURE_COUNT:
+    expected_input_dim = model_input_feature_count_for_variant(variant)
+    if checkpoint.get("model_input_feature_count", expected_input_dim) != expected_input_dim:
+        raise PolicyCheckpointCompatibilityError(
+            "checkpoint model_input_feature_count mismatch: "
+            f"expected {expected_input_dim}, got {checkpoint.get('model_input_feature_count')!r}."
+        )
+    if model_config.get("input_dim") != expected_input_dim:
         raise PolicyCheckpointCompatibilityError(
             "checkpoint model_config.input_dim mismatch: "
-            f"expected {MODEL_INPUT_FEATURE_COUNT}, got {model_config.get('input_dim')!r}."
+            f"expected {expected_input_dim}, got {model_config.get('input_dim')!r}."
         )
 
 
@@ -644,10 +662,22 @@ def _validate_self_play_manifest(manifest: DatasetManifest) -> None:
             "REINFORCE training requires a playing self-play dataset schema v3 or v4, "
             f"got {manifest.dataset_schema_version}."
         )
-    if manifest.playing_encoder_schema_version != PLAYING_ENCODER_SCHEMA_VERSION:
+    variant = normalize_playing_observation_variant(manifest.playing_observation_variant)
+    expected_encoder_schema_version = playing_encoder_schema_version_for_variant(variant)
+    if manifest.playing_encoder_schema_version != expected_encoder_schema_version:
         raise ValueError("self-play playing encoder schema is incompatible.")
-    if manifest.playing_model_input_schema_version != PLAYING_MODEL_INPUT_SCHEMA_VERSION:
+    expected_model_input_schema_version = playing_model_input_schema_version_for_variant(variant)
+    if manifest.playing_model_input_schema_version != expected_model_input_schema_version:
         raise ValueError("self-play model input schema is incompatible.")
+    expected_feature_count = model_input_feature_count_for_variant(variant)
+    if (
+        manifest.model_input_feature_count is not None
+        and manifest.model_input_feature_count != expected_feature_count
+    ):
+        raise ValueError(
+            "self-play model input feature count is incompatible: "
+            f"expected {expected_feature_count}, got {manifest.model_input_feature_count}."
+        )
     if manifest.sampling_algorithm != PLAYING_SELF_PLAY_SAMPLING_ALGORITHM:
         raise ValueError(
             "self-play samplingAlgorithm mismatch: "
