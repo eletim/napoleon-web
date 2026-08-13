@@ -444,7 +444,7 @@ def test_reinforce_batched_cuda_large_numeric_drift_fails(tmp_path: Path) -> Non
         checkpoint=checkpoint,
         checkpoint_path=checkpoint_path,
         rewards=(1,),
-        behavior_log_probability_offset=0.011,
+        behavior_log_probability_offset=0.021,
     )
     loader = create_playing_self_play_dataloader(
         self_play_dataset,

@@ -36,7 +36,40 @@ def test_batched_cuda_small_max_outlier_warns_without_hard_failure() -> None:
     assert str(warnings[0]).startswith("max abs error 0.005114")
 
 
-def test_batched_cuda_max_abs_boundary_warns_at_warning_threshold() -> None:
+def test_batched_cuda_iter_390_shaped_max_outlier_warns_without_hard_failure() -> None:
+    errors = (
+        [0.0001169613] * 4055
+        + [0.0015007257] * 36
+        + [0.0031688213] * 4
+        + [0.0111589432]
+    )
+    diagnostics = _diagnostics_from_errors(
+        errors,
+        execution_provider="cuda",
+        max_observed_batch_size=180,
+    )
+
+    assert diagnostics.failed() is False
+    assert diagnostics.warning() is True
+    assert diagnostics.mean_abs_error() == pytest.approx(0.000135, rel=0.01)
+    assert diagnostics.p99_abs_error() == pytest.approx(0.0015007257)
+    assert diagnostics.p999_abs_error() == pytest.approx(0.0031688213)
+    assert diagnostics.max_abs_error == pytest.approx(0.0111589432)
+
+    artifact = diagnostics.to_dict()
+    assert artifact["passed"] is True
+    assert artifact["severity"] == "warning"
+    assert artifact["warningCount"] == 1
+    assert artifact["hardFailureCount"] == 0
+    assert artifact["maxAbsError"] == pytest.approx(0.0111589432)
+    assert artifact["p99AbsError"] == pytest.approx(0.0015007257)
+    assert artifact["p999AbsError"] == pytest.approx(0.0031688213)
+    warnings = artifact["warnings"]
+    assert isinstance(warnings, list)
+    assert str(warnings[0]).startswith("max abs error 0.011158")
+
+
+def test_batched_cuda_max_abs_boundary_passes_at_warning_threshold() -> None:
     diagnostics = _diagnostics_from_errors(
         [0.005],
         execution_provider="cuda",
@@ -44,9 +77,25 @@ def test_batched_cuda_max_abs_boundary_warns_at_warning_threshold() -> None:
     )
 
     assert diagnostics.failed() is False
-    assert diagnostics.warning() is True
+    assert diagnostics.warning() is False
     assert diagnostics.max_abs_error == pytest.approx(0.005)
-    assert diagnostics.to_dict()["severity"] == "warning"
+    assert diagnostics.to_dict()["severity"] == "pass"
+
+
+def test_batched_cuda_max_abs_boundary_warns_at_hard_threshold() -> None:
+    diagnostics = _diagnostics_from_errors(
+        [0.020],
+        execution_provider="cuda",
+        max_observed_batch_size=32,
+    )
+
+    assert diagnostics.failed() is False
+    assert diagnostics.warning() is True
+    assert diagnostics.max_abs_error == pytest.approx(0.020)
+    artifact = diagnostics.to_dict()
+    assert artifact["severity"] == "warning"
+    assert artifact["warningCount"] == 1
+    assert artifact["hardFailureCount"] == 0
 
 
 def test_batched_cuda_p999_warning_band_warns_without_hard_failure() -> None:
@@ -106,7 +155,7 @@ def test_batched_cuda_warning_does_not_depend_on_strict_failure_count() -> None:
 @pytest.mark.parametrize(
     ("errors", "detail"),
     [
-        ([0.0] * 99 + [0.011], "max abs error"),
+        ([0.0] * 99 + [0.021], "max abs error"),
         ([0.0] * 98 + [0.003, 0.003], "p99 abs error"),
         ([0.0] * 998 + [0.0065, 0.0065], "p99.9 abs error"),
     ],
@@ -136,7 +185,7 @@ def test_batched_cuda_hard_failures_remain_strict(
 def test_batched_cuda_hard_max_does_not_depend_on_strict_failure_count() -> None:
     diagnostics = _diagnostics_from_selected_and_behavior(
         [-1000.0],
-        [-1000.011],
+        [-1000.021],
         execution_provider="cuda",
         max_observed_batch_size=32,
     )

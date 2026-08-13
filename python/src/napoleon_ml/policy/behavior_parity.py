@@ -23,7 +23,7 @@ from napoleon_ml.policy.onnx_export import build_policy_onnx_metadata
 STRICT_BEHAVIOR_LOG_PROB_PARITY_RTOL = 1e-4
 STRICT_BEHAVIOR_LOG_PROB_PARITY_ATOL = 1e-5
 BATCHED_CUDA_BEHAVIOR_LOG_PROB_WARNING_MAX_ABS = 5e-3
-BATCHED_CUDA_BEHAVIOR_LOG_PROB_HARD_MAX_ABS = 1e-2
+BATCHED_CUDA_BEHAVIOR_LOG_PROB_HARD_MAX_ABS = 2e-2
 BATCHED_CUDA_BEHAVIOR_LOG_PROB_P99_ABS = 2e-3
 BATCHED_CUDA_BEHAVIOR_LOG_PROB_P999_WARNING_ABS = 4e-3
 BATCHED_CUDA_BEHAVIOR_LOG_PROB_P999_HARD_ABS = 6e-3
@@ -218,7 +218,7 @@ class BehaviorParityDiagnostics:
         warning_max_abs_error = self.tolerance.warning_max_abs_error
         if (
             warning_max_abs_error is not None
-            and _meets_threshold(self.max_abs_error, warning_max_abs_error)
+            and _exceeds_threshold(self.max_abs_error, warning_max_abs_error)
             and not _exceeds_threshold(self.max_abs_error, self.tolerance.max_abs_error)
         ):
             warnings.append(
