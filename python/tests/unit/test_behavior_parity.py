@@ -36,6 +36,46 @@ def test_batched_cuda_small_max_outlier_warns_without_hard_failure() -> None:
     assert str(warnings[0]).startswith("max abs error 0.005114")
 
 
+def test_batched_cuda_p999_warning_band_warns_without_hard_failure() -> None:
+    errors = [0.0] * 998 + [0.0045] * 2
+    diagnostics = _diagnostics_from_errors(
+        errors,
+        execution_provider="cuda",
+        max_observed_batch_size=32,
+    )
+
+    assert diagnostics.failed() is False
+    assert diagnostics.warning() is True
+    assert diagnostics.p99_abs_error() <= 0.002
+    assert diagnostics.p999_abs_error() == pytest.approx(0.0045)
+
+    artifact = diagnostics.to_dict()
+    tolerance = artifact["tolerance"]
+    assert isinstance(tolerance, dict)
+    assert tolerance["warningP999AbsError"] == pytest.approx(0.004)
+    assert tolerance["p999AbsError"] == pytest.approx(0.006)
+    assert artifact["passed"] is True
+    assert artifact["severity"] == "warning"
+    assert artifact["warningCount"] == 1
+    warnings = artifact["warnings"]
+    assert isinstance(warnings, list)
+    assert str(warnings[0]).startswith("p99.9 abs error")
+    assert "warning threshold 0.004" in str(warnings[0])
+
+
+def test_batched_cuda_p999_boundary_passes_at_warning_threshold() -> None:
+    diagnostics = _diagnostics_from_errors(
+        [0.0] * 998 + [0.004] * 2,
+        execution_provider="cuda",
+        max_observed_batch_size=32,
+    )
+
+    assert diagnostics.failed() is False
+    assert diagnostics.warning() is False
+    assert diagnostics.p999_abs_error() == pytest.approx(0.004)
+    assert diagnostics.to_dict()["severity"] == "pass"
+
+
 def test_batched_cuda_warning_does_not_depend_on_strict_failure_count() -> None:
     diagnostics = _diagnostics_from_selected_and_behavior(
         [-1000.0],
@@ -55,7 +95,7 @@ def test_batched_cuda_warning_does_not_depend_on_strict_failure_count() -> None:
     [
         ([0.0] * 99 + [0.011], "max abs error"),
         ([0.0] * 98 + [0.003, 0.003], "p99 abs error"),
-        ([0.0] * 998 + [0.0045, 0.0045], "p99.9 abs error"),
+        ([0.0] * 998 + [0.0065, 0.0065], "p99.9 abs error"),
     ],
 )
 def test_batched_cuda_hard_failures_remain_strict(
