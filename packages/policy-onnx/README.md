@@ -250,6 +250,7 @@ seed set.
 
 ```ts
 import {
+  PPO_SEPARATED_V1000_BENCHMARK_POLICY_ID,
   RL_V740_BENCHMARK_POLICY_ID,
   loadRepoManagedPlayingPolicyBenchmark,
   runStandardPlayingPolicyBenchmarks
@@ -257,6 +258,9 @@ import {
 
 const rlV740 = await loadRepoManagedPlayingPolicyBenchmark(RL_V740_BENCHMARK_POLICY_ID);
 console.log(rlV740.artifact.onnxSha256);
+
+const ppoV1000 = await loadRepoManagedPlayingPolicyBenchmark(PPO_SEPARATED_V1000_BENCHMARK_POLICY_ID);
+console.log(ppoV1000.artifact.checkpointSha256);
 
 const suite = await runStandardPlayingPolicyBenchmarks({
   candidatePolicy: policy,
@@ -271,11 +275,16 @@ The built-in minimum standard suite evaluates:
 - `rl-v740-x4`
 - `rule-based-x2-rl-v740-x2`
 
-The repo-managed RL v740 artifact lives under
-`benchmarks/playing-policies/rl-v740`. Its loader validates the committed ONNX
-and metadata SHA-256 values before runtime loading, and `provenance.json`
-records the source v1 artifact, v1-to-v2 logit-preserving migration, committed
-hashes, and parity results.
+Repo-managed frozen playing policy artifacts live under
+`benchmarks/playing-policies`:
+
+- `rl-v740` records the source v1 artifact, v1-to-v2 logit-preserving
+  migration, committed hashes, and parity results.
+- `ppo-separated-v1000` records the completed PPO separated v1000 run,
+  Actor-only ONNX runtime artifact, and full Actor/Critic checkpoint.
+
+The loader validates committed ONNX and metadata SHA-256 values before runtime
+loading.
 
 For a full-policy comparison, load all four phase artifacts and call
 `runFullPolicyVsRuleBasedEvaluation`:
