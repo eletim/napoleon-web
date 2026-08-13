@@ -353,7 +353,9 @@ EvaluationRun drive_schedule(const EvaluationOptions& options, const std::vector
       options.start_seed,
       options.roster_seed,
       options.max_concurrent_games,
-      onnx_policy::attach_playing_model_input});
+      [](const GameState& state, int player_index, AgentRequest& request) {
+        onnx_policy::attach_playing_model_input(state, player_index, request);
+      }});
   auto executor = create_policy_executor(options);
 
   EvaluationRun run;

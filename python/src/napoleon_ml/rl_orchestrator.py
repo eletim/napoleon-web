@@ -1494,14 +1494,6 @@ def _validate_config(config: PlayingRlRunConfig) -> None:
             "complete-info compact playing observation variant requires "
             f"algorithm={PPO_SEPARATED_ACTOR_CRITIC_ALGORITHM!r}."
         )
-    if (
-        config.playing_observation_variant != PUBLIC_PLAYING_OBSERVATION_VARIANT
-        and config.simulation_backend != "typescript"
-    ):
-        raise PlayingRlOrchestratorError(
-            "complete-info compact playing observation variant requires "
-            "simulation_backend='typescript'."
-        )
     if config.simulation_backend == "cpp":
         if config.frozen_policy_onnx is None or config.frozen_policy_metadata is None:
             raise PlayingRlOrchestratorError(
@@ -1693,6 +1685,8 @@ def _run_rollout_backend(
             config.inference_device,
             "--policy-backend",
             _cpp_policy_backend(config),
+            "--playing-observation-variant",
+            config.playing_observation_variant,
         ],
         cwd=_repo_root(),
     )

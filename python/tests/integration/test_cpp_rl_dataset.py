@@ -12,7 +12,12 @@ import pytest
 import torch
 
 from napoleon_ml.dataset import load_manifest
-from napoleon_ml.dataset.constants import EXPECTED_CARD_IDS, MODEL_INPUT_FEATURE_COUNT
+from napoleon_ml.dataset.constants import (
+    COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT,
+    COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT,
+    EXPECTED_CARD_IDS,
+    MODEL_INPUT_FEATURE_COUNT,
+)
 from napoleon_ml.dataset.pytorch import create_playing_self_play_dataloader
 from napoleon_ml.dataset.split import DatasetSplit, SplitConfig
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
@@ -180,6 +185,172 @@ def test_cpp_generated_rl_binary_dataset_loads_current_python_trainer_batch() ->
             for seed in all_seeds.unique(sorted=True)
         }
         assert actor_by_seed == {0: [0], 1: [1], 2: [2]}
+
+
+@pytest.mark.integration
+def test_cpp_generated_complete_info_rl_binary_dataset_uses_public_frozen_pool() -> None:
+    with tempfile.TemporaryDirectory(prefix="napoleon-cpp-complete-info-rl-dataset-") as tmp_dir_name:
+        tmp_root = Path(tmp_dir_name)
+        output_directory = tmp_root / "dataset"
+        compact_onnx = tmp_root / "compact-current.onnx"
+        compact_metadata = tmp_root / "compact-current.json"
+        compact_onnx.write_bytes(b"deterministic compact current placeholder")
+        compact_metadata.write_text(
+            json.dumps(
+                {
+                    "metadataSchemaVersion": 1,
+                    "checkpointSchemaVersion": 1,
+                    "datasetSchemaVersion": 1,
+                    "playingEncoderSchemaVersion": 1,
+                    "modelInputSchemaVersion": 1,
+                    "playingObservationVariant": COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT,
+                    "modelInputFeatureCount": COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT,
+                    "cardIdsSha256": calculate_card_ids_sha256(),
+                    "policyModel": {
+                        "input_dim": COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT,
+                        "hidden_dim": 16,
+                        "hidden_layers": 1,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        _build_cpp_core()
+        result = subprocess.run(
+            [
+                str(_REPO_ROOT / "packages/cpp-core/build/napoleon_rl_dataset_cli"),
+                "--output",
+                str(output_directory),
+                "--start-seed",
+                "10",
+                "--games",
+                "3",
+                "--games-per-shard",
+                "2",
+                "--policy-onnx",
+                str(compact_onnx),
+                "--policy-metadata",
+                str(compact_metadata),
+                "--policy-artifact-id",
+                "compact-current",
+                "--frozen-onnx",
+                str(_REPO_ROOT / "benchmarks/playing-policies/rl-v740/policy.onnx"),
+                "--frozen-metadata",
+                str(_REPO_ROOT / "benchmarks/playing-policies/rl-v740/policy.json"),
+                "--frozen-artifact-id",
+                "rl-v740",
+                "--roster-seed",
+                "29",
+                "--playing-observation-variant",
+                COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT,
+            ],
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+
+        assert result.returncode == 0, (
+            f"napoleon_rl_dataset_cli failed (exit {result.returncode}):\n"
+            f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+        )
+        cli_summary = json.loads(result.stdout)
+        assert cli_summary["playingObservationVariant"] == COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT
+        assert cli_summary["modelInputFeatureCount"] == COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT
+
+        manifest = load_manifest(output_directory)
+        assert manifest.playing_observation_variant == COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT
+        assert manifest.playing_encoder_schema_version == 1
+        assert manifest.playing_model_input_schema_version == 1
+        assert manifest.model_input_feature_count == COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT
+        assert manifest.tensor_schema is not None
+        assert manifest.tensor_schema.fields[0].shape == (
+            COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT,
+        )
+        assert manifest.behavior_policy is not None
+        assert manifest.behavior_policy.metadata["policyModel"]["input_dim"] == (
+            COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT
+        )
+        assert manifest.provenance["playingObservationVariant"] == (
+            COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT
+        )
+        assert manifest.provenance["modelInputFeatureCount"] == (
+            COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT
+        )
+        assert manifest.provenance["frozenPlayingObservationVariant"] == "public"
+        assert manifest.provenance["frozenModelInputFeatureCount"] == MODEL_INPUT_FEATURE_COUNT
+        assert manifest.provenance["behaviorSamples"] == "current-policy-only"
+        assert manifest.opponent_pool == {
+            "weighted": [
+                {"source": "rule-based", "weight": 1},
+                {"source": "frozen-onnx", "artifactId": "rl-v740", "weight": 1},
+            ]
+        }
+        assert manifest.seat_rotation == {
+            "current": "game-index-mod-player-count",
+            "rosterSeed": 29,
+        }
+
+        loader = create_playing_self_play_dataloader(
+            output_directory,
+            split=DatasetSplit.TRAIN,
+            split_config=SplitConfig(train=100, validation=0, test=0),
+            batch_size=5,
+        )
+        batches = list(loader)
+        first = batches[0]
+        assert first["model_input"].shape == (5, COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT)
+        assert first["legal_play_mask"].shape == (5, 53)
+
+        all_seeds = torch.cat([batch["seed"] for batch in batches])
+        all_actors = torch.cat([batch["acting_player_index"] for batch in batches])
+        actor_by_seed = {
+            int(seed): sorted(set(all_actors[all_seeds == seed].tolist()))
+            for seed in all_seeds.unique(sorted=True)
+        }
+        assert actor_by_seed == {10: [0], 11: [1], 12: [2]}
+        assert sum(int(batch["seed"].shape[0]) for batch in batches) == 30
+
+
+@pytest.mark.integration
+def test_cpp_rl_dataset_rejects_current_policy_variant_metadata_mismatch() -> None:
+    with tempfile.TemporaryDirectory(prefix="napoleon-cpp-rl-variant-mismatch-") as tmp_dir_name:
+        tmp_root = Path(tmp_dir_name)
+        output_directory = tmp_root / "dataset"
+
+        _build_cpp_core()
+        result = subprocess.run(
+            [
+                str(_REPO_ROOT / "packages/cpp-core/build/napoleon_rl_dataset_cli"),
+                "--output",
+                str(output_directory),
+                "--start-seed",
+                "0",
+                "--games",
+                "1",
+                "--games-per-shard",
+                "1",
+                "--policy-onnx",
+                str(_REPO_ROOT / "benchmarks/playing-policies/rl-v740/policy.onnx"),
+                "--policy-metadata",
+                str(_REPO_ROOT / "benchmarks/playing-policies/rl-v740/policy.json"),
+                "--frozen-onnx",
+                str(_REPO_ROOT / "benchmarks/playing-policies/rl-v740/policy.onnx"),
+                "--frozen-metadata",
+                str(_REPO_ROOT / "benchmarks/playing-policies/rl-v740/policy.json"),
+                "--playing-observation-variant",
+                COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT,
+            ],
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+
+        assert result.returncode != 0
+        assert "current policy metadata playingObservationVariant mismatch" in result.stderr
+        assert not output_directory.exists()
 
 
 def _build_cpp_core() -> None:

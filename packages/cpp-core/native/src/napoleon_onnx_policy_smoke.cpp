@@ -159,7 +159,9 @@ int main(int argc, char** argv) {
         options.base_seed,
         options.roster_seed,
         std::max<std::size_t>(1, options.games),
-        napoleon::onnx_policy::attach_playing_model_input});
+        [](const napoleon::GameState& state, int player_index, napoleon::AgentRequest& request) {
+          napoleon::onnx_policy::attach_playing_model_input(state, player_index, request);
+        }});
     runtime.add_games(options.games);
 
     std::size_t finished_count = 0;
