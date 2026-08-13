@@ -1592,6 +1592,8 @@ input:focus-visible {
     gap: 4px;
     margin: 0;
     min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   .app-shell-game-active .trick-board {
