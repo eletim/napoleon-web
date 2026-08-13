@@ -29,6 +29,7 @@ export function useTrickAnimation({
   const [isResultEmphasisActive, setIsResultEmphasisActive] = useState(false);
   const [collectingWinnerId, setCollectingWinnerId] = useState<string | undefined>();
   const displayedTrickRef = useRef<readonly PublicPlayedCard[]>([]);
+  const displayedTrickNumberRef = useRef<number | undefined>(undefined);
   const collectionInProgressRef = useRef(false);
   const targetKeyRef = useRef("");
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -51,14 +52,28 @@ export function useTrickAnimation({
 
     if (state === undefined || targetTrick.length === 0) {
       setDisplayedTrick([]);
+      displayedTrickRef.current = [];
+      displayedTrickNumberRef.current = state?.trickNumber;
       setIsPlayingSequence(false);
       return;
     }
 
-    const currentLength = displayedTrickRef.current.length;
+    const hasMovedToNewTrick =
+      displayedTrickNumberRef.current !== undefined &&
+      displayedTrickNumberRef.current !== state.trickNumber;
+    const currentDisplayedTrick = hasMovedToNewTrick ? [] : displayedTrickRef.current;
+
+    if (hasMovedToNewTrick) {
+      setDisplayedTrick([]);
+      displayedTrickRef.current = [];
+    }
+
+    displayedTrickNumberRef.current = state.trickNumber;
+
+    const currentLength = currentDisplayedTrick.length;
     const isSameTrickGrowth =
       currentLength <= targetTrick.length &&
-      matchesPrefix(displayedTrickRef.current, targetTrick);
+      matchesPrefix(currentDisplayedTrick, targetTrick);
 
     if (!isSameTrickGrowth || prefersReducedMotion) {
       setDisplayedTrick(targetTrick);
