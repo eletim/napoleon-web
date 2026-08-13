@@ -721,13 +721,14 @@ def test_actor_critic_wrong_behavior_checkpoint_fails_before_save(tmp_path: Path
     state[final_bias_key][16] += 5.0
     torch.save(wrong_raw, checkpoint_path)
 
-    with pytest.raises(PolicyCheckpointCompatibilityError, match="別policy"):
+    with pytest.raises(PolicyCheckpointCompatibilityError, match="別policy") as exc_info:
         _run_actor_critic(
             input_checkpoint=checkpoint_path,
             self_play_dataset=self_play_dataset,
             output_checkpoint=tmp_path / "should-not-exist.pt",
         )
 
+    assert "behavior log probability parity failed" not in str(exc_info.value)
     assert not (tmp_path / "should-not-exist.pt").exists()
 
 
@@ -814,7 +815,7 @@ def test_actor_critic_batched_cuda_large_numeric_drift_fails(tmp_path: Path) -> 
         behavior_log_probability_offset=0.011,
     )
 
-    with pytest.raises(PolicyCheckpointCompatibilityError, match="max abs error"):
+    with pytest.raises(PolicyCheckpointCompatibilityError, match="max abs error") as exc_info:
         _run_actor_critic(
             input_checkpoint=checkpoint_path,
             self_play_dataset=self_play_dataset,
@@ -823,6 +824,9 @@ def test_actor_critic_batched_cuda_large_numeric_drift_fails(tmp_path: Path) -> 
             behavior_parity_max_observed_batch_size=32,
         )
 
+    message = str(exc_info.value)
+    assert "behavior log probability parity failed" in message
+    assert "別policy" not in message
     assert not (tmp_path / "should-not-exist.pt").exists()
 
 

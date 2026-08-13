@@ -264,7 +264,7 @@ def test_reinforce_wrong_checkpoint_fails_before_optimizer_step(tmp_path: Path) 
         split_config=SplitConfig(train=100, validation=0, test=0),
         batch_size=2,
     )
-    with pytest.raises(PolicyCheckpointCompatibilityError, match="別policy"):
+    with pytest.raises(PolicyCheckpointCompatibilityError, match="別policy") as exc_info:
         train_policy_reinforce(
             input_checkpoint=checkpoint_path,
             self_play_dataset_directory=self_play_dataset,
@@ -280,6 +280,7 @@ def test_reinforce_wrong_checkpoint_fails_before_optimizer_step(tmp_path: Path) 
             ),
         )
 
+    assert "behavior log probability parity failed" not in str(exc_info.value)
     assert not (tmp_path / "should-not-exist.pt").exists()
 
 
@@ -452,7 +453,7 @@ def test_reinforce_batched_cuda_large_numeric_drift_fails(tmp_path: Path) -> Non
         batch_size=1,
     )
 
-    with pytest.raises(PolicyCheckpointCompatibilityError, match="max abs error"):
+    with pytest.raises(PolicyCheckpointCompatibilityError, match="max abs error") as exc_info:
         train_policy_reinforce(
             input_checkpoint=checkpoint_path,
             self_play_dataset_directory=self_play_dataset,
@@ -470,6 +471,9 @@ def test_reinforce_batched_cuda_large_numeric_drift_fails(tmp_path: Path) -> Non
             ),
         )
 
+    message = str(exc_info.value)
+    assert "behavior log probability parity failed" in message
+    assert "別policy" not in message
     assert not (tmp_path / "should-not-exist.pt").exists()
 
 

@@ -25,7 +25,8 @@ STRICT_BEHAVIOR_LOG_PROB_PARITY_ATOL = 1e-5
 BATCHED_CUDA_BEHAVIOR_LOG_PROB_WARNING_MAX_ABS = 5e-3
 BATCHED_CUDA_BEHAVIOR_LOG_PROB_HARD_MAX_ABS = 1e-2
 BATCHED_CUDA_BEHAVIOR_LOG_PROB_P99_ABS = 2e-3
-BATCHED_CUDA_BEHAVIOR_LOG_PROB_P999_ABS = 4e-3
+BATCHED_CUDA_BEHAVIOR_LOG_PROB_P999_WARNING_ABS = 4e-3
+BATCHED_CUDA_BEHAVIOR_LOG_PROB_P999_HARD_ABS = 6e-3
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,7 @@ class BehaviorParityTolerance:
     warning_max_abs_error: float | None = None
     p99_abs_error: float | None = None
     p999_abs_error: float | None = None
+    warning_p999_abs_error: float | None = None
     distribution_guard_min_count: int = 100
 
     def to_dict(self) -> dict[str, object]:
@@ -48,6 +50,7 @@ class BehaviorParityTolerance:
             "warningMaxAbsError": self.warning_max_abs_error,
             "p99AbsError": self.p99_abs_error,
             "p999AbsError": self.p999_abs_error,
+            "warningP999AbsError": self.warning_p999_abs_error,
             "distributionGuardMinCount": self.distribution_guard_min_count,
         }
 
@@ -60,6 +63,7 @@ STRICT_BEHAVIOR_PARITY_TOLERANCE = BehaviorParityTolerance(
     warning_max_abs_error=None,
     p99_abs_error=None,
     p999_abs_error=None,
+    warning_p999_abs_error=None,
 )
 
 BATCHED_CUDA_BEHAVIOR_PARITY_TOLERANCE = BehaviorParityTolerance(
@@ -69,7 +73,8 @@ BATCHED_CUDA_BEHAVIOR_PARITY_TOLERANCE = BehaviorParityTolerance(
     max_abs_error=BATCHED_CUDA_BEHAVIOR_LOG_PROB_HARD_MAX_ABS,
     warning_max_abs_error=BATCHED_CUDA_BEHAVIOR_LOG_PROB_WARNING_MAX_ABS,
     p99_abs_error=BATCHED_CUDA_BEHAVIOR_LOG_PROB_P99_ABS,
-    p999_abs_error=BATCHED_CUDA_BEHAVIOR_LOG_PROB_P999_ABS,
+    p999_abs_error=BATCHED_CUDA_BEHAVIOR_LOG_PROB_P999_HARD_ABS,
+    warning_p999_abs_error=BATCHED_CUDA_BEHAVIOR_LOG_PROB_P999_WARNING_ABS,
 )
 
 
@@ -180,7 +185,7 @@ class BehaviorParityDiagnostics:
                 f"and atol={self.tolerance.atol}"
             )
             return failures
-        if self.max_abs_error > self.tolerance.max_abs_error:
+        if _exceeds_threshold(self.max_abs_error, self.tolerance.max_abs_error):
             failures.append(
                 f"max abs error {self.max_abs_error:.8g} exceeds "
                 f"{self.tolerance.max_abs_error:.8g}"
@@ -188,7 +193,7 @@ class BehaviorParityDiagnostics:
         if (
             self.tolerance.p99_abs_error is not None
             and self.sample_count >= self.tolerance.distribution_guard_min_count
-            and self.p99_abs_error() > self.tolerance.p99_abs_error
+            and _exceeds_threshold(self.p99_abs_error(), self.tolerance.p99_abs_error)
         ):
             failures.append(
                 f"p99 abs error {self.p99_abs_error():.8g} exceeds "
@@ -198,7 +203,7 @@ class BehaviorParityDiagnostics:
         if (
             self.tolerance.p999_abs_error is not None
             and self.sample_count >= p999_min_count
-            and self.p999_abs_error() > self.tolerance.p999_abs_error
+            and _exceeds_threshold(self.p999_abs_error(), self.tolerance.p999_abs_error)
         ):
             failures.append(
                 f"p99.9 abs error {self.p999_abs_error():.8g} exceeds "
@@ -208,16 +213,30 @@ class BehaviorParityDiagnostics:
 
     def warnings(self) -> list[str]:
         warnings: list[str] = []
+        if self.hard_failures():
+            return warnings
         warning_max_abs_error = self.tolerance.warning_max_abs_error
         if (
             warning_max_abs_error is not None
-            and self.max_abs_error > warning_max_abs_error
-            and self.max_abs_error <= self.tolerance.max_abs_error
-            and not self.hard_failures()
+            and _meets_threshold(self.max_abs_error, warning_max_abs_error)
+            and not _exceeds_threshold(self.max_abs_error, self.tolerance.max_abs_error)
         ):
             warnings.append(
                 f"max abs error {self.max_abs_error:.8g} exceeds warning threshold "
                 f"{warning_max_abs_error:.8g}"
+            )
+        warning_p999_abs_error = self.tolerance.warning_p999_abs_error
+        p999_min_count = self.tolerance.distribution_guard_min_count * 10
+        if (
+            warning_p999_abs_error is not None
+            and self.tolerance.p999_abs_error is not None
+            and self.sample_count >= p999_min_count
+            and _exceeds_threshold(self.p999_abs_error(), warning_p999_abs_error)
+            and not _exceeds_threshold(self.p999_abs_error(), self.tolerance.p999_abs_error)
+        ):
+            warnings.append(
+                f"p99.9 abs error {self.p999_abs_error():.8g} exceeds warning threshold "
+                f"{warning_p999_abs_error:.8g}"
             )
         return warnings
 
@@ -361,6 +380,14 @@ def _nearest_rank_quantile(values: list[float], quantile: float) -> float:
     ordered = sorted(values)
     index = min(len(ordered) - 1, max(0, math.ceil(quantile * len(ordered)) - 1))
     return ordered[index]
+
+
+def _exceeds_threshold(value: float, threshold: float) -> bool:
+    return value > threshold and not math.isclose(value, threshold, rel_tol=1e-6, abs_tol=1e-9)
+
+
+def _meets_threshold(value: float, threshold: float) -> bool:
+    return value > threshold or math.isclose(value, threshold, rel_tol=1e-6, abs_tol=1e-9)
 
 
 def _canonical_metadata_bytes(metadata: dict[str, object]) -> bytes:

@@ -1034,8 +1034,7 @@ def _assert_behavior_parity(parity: _EvaluationAccumulator) -> None:
         raise PolicyCheckpointCompatibilityError(
             "behavior log probability parity failed: "
             f"{diagnostics.failure_detail()}; "
-            f"max abs error {max_error:.8g}; diagnostics={diagnostics.to_dict()}. "
-            "このtrajectoryは別policyから生成された可能性がある"
+            f"max abs error {max_error:.8g}; diagnostics={diagnostics.to_dict()}."
         )
 
 
