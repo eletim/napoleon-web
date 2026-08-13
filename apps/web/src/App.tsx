@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   CreateGameAgentSelection,
   PublicAgentDescriptor,
@@ -35,6 +35,7 @@ import {
   formatWinningTeam
 } from "./displayText";
 import { createTablePlayers } from "./tablePlayers";
+import { useTrickAnimation } from "./useTrickAnimation";
 import "./styles.css";
 
 interface Session {
@@ -71,6 +72,7 @@ export function App() {
     useState<AdjutantSelection>(defaultAdjutantSelection);
   const [hasRequestError, setHasRequestError] = useState(false);
   const [winningCardHighlightEnabled, setWinningCardHighlightEnabled] = useState(true);
+  const requestInFlightRef = useRef(false);
 
   const legalCardIds = useMemo(() => {
     const actions = session?.state.legalActions ?? [];
@@ -132,6 +134,8 @@ export function App() {
     hasActionPrompt ||
     session.state.latestEvent?.type === "buried-cards-resolved" ||
     hasRequestError;
+  const trickAnimation = useTrickAnimation({ state: session?.state });
+  const isInteractionLocked = isBusy || trickAnimation.isAnimating;
 
   useEffect(() => {
     let cancelled = false;
@@ -181,7 +185,7 @@ export function App() {
   }
 
   async function handlePlay(card: PublicCard): Promise<void> {
-    if (session === undefined) {
+    if (session === undefined || isInteractionLocked) {
       return;
     }
 
@@ -203,7 +207,7 @@ export function App() {
   }
 
   async function handleSendAction(action: PublicGameAction): Promise<void> {
-    if (session === undefined) {
+    if (session === undefined || isInteractionLocked) {
       return;
     }
 
@@ -224,7 +228,7 @@ export function App() {
   }
 
   function toggleDiscardSelection(cardId: string): void {
-    if (!canExchange) {
+    if (!canExchange || isInteractionLocked) {
       return;
     }
 
@@ -242,20 +246,27 @@ export function App() {
   }
 
   async function handleNextTrick(): Promise<void> {
-    if (session === undefined) {
+    if (session === undefined || isInteractionLocked) {
       return;
     }
 
-    await runRequest(async () => {
-      const response = await nextTrick(session.gameId);
-      setSession(response);
-      setMessage(
-        createMessage(response.state, response.playerId, createTablePlayers(response.state))
-      );
-    });
+    await trickAnimation.playCollectionBefore(() =>
+      runRequest(async () => {
+        const response = await nextTrick(session.gameId);
+        setSession(response);
+        setMessage(
+          createMessage(response.state, response.playerId, createTablePlayers(response.state))
+        );
+      })
+    );
   }
 
   async function runRequest(work: () => Promise<void>): Promise<void> {
+    if (requestInFlightRef.current) {
+      return;
+    }
+
+    requestInFlightRef.current = true;
     setIsBusy(true);
     setHasRequestError(false);
     setMessage("通信中です。");
@@ -266,6 +277,7 @@ export function App() {
       setHasRequestError(true);
       setMessage(error instanceof Error ? error.message : "予期しないエラーが発生しました。");
     } finally {
+      requestInFlightRef.current = false;
       setIsBusy(false);
     }
   }
@@ -330,7 +342,7 @@ export function App() {
             </div>
             <button
               className="primary-button"
-              disabled={isBusy || hasUnavailableAgentSelection}
+              disabled={isInteractionLocked || hasUnavailableAgentSelection}
               onClick={handleCreateGame}
               type="button"
             >
@@ -380,7 +392,7 @@ export function App() {
                     canPass={canPass}
                     currentPlayerId={session.state.currentPlayerId}
                     formatPlayerLabel={(playerId) => formatPlayerLabel(playerId, tablePlayers)}
-                    isBusy={isBusy}
+                    isBusy={isInteractionLocked}
                     legalBidActions={legalBidActions}
                     onBid={(action) => void handleSendAction(action)}
                     onPass={() => void handleSendAction({ type: "pass" })}
@@ -389,8 +401,10 @@ export function App() {
                 ) : (
                   <>
                     <TrickBoard
-                      currentTrick={session?.state.currentTrick ?? []}
+                      collectingWinnerId={trickAnimation.collectingWinnerId}
+                      currentTrick={trickAnimation.displayedTrick}
                       highlightWinningCard={winningCardHighlightEnabled}
+                      isResultEmphasisActive={trickAnimation.isResultEmphasisActive}
                       players={tablePlayers}
                       trickNumber={session?.state.trickNumber}
                       trumpSuit={session?.state.trumpSuit}
@@ -402,7 +416,7 @@ export function App() {
                         !session?.state.isTrickComplete ||
                         session.state.isGameOver ||
                         session.state.phase !== "playing" ||
-                        isBusy
+                        isInteractionLocked
                       }
                       onClick={handleNextTrick}
                       type="button"
@@ -427,7 +441,7 @@ export function App() {
                 disabled={
                   !canExchange ||
                   selectedDiscardCardIds.length !== requiredDiscardCount ||
-                  isBusy
+                  isInteractionLocked
                 }
                 onClick={() =>
                   void handleSendAction({
@@ -472,7 +486,7 @@ export function App() {
                           ? "adjutant-shortcut-button adjutant-shortcut-selected"
                           : "adjutant-shortcut-button"
                       }
-                      disabled={!canChooseAdjutant || isBusy}
+                      disabled={!canChooseAdjutant || isInteractionLocked}
                       key={shortcut.id}
                       onClick={() =>
                         setAdjutantSelection((current) =>
@@ -492,7 +506,7 @@ export function App() {
                   札
                   <select
                     aria-label="副官に指定するカード種別"
-                    disabled={!canChooseAdjutant || isBusy}
+                    disabled={!canChooseAdjutant || isInteractionLocked}
                     onChange={(event) =>
                       setAdjutantSelection((current) =>
                         selectAdjutantSuitOption(
@@ -517,7 +531,7 @@ export function App() {
                     aria-label="副官に指定するランク"
                     disabled={
                       !canChooseAdjutant ||
-                      isBusy ||
+                      isInteractionLocked ||
                       adjutantSelection.suitOption === "joker"
                     }
                     onChange={(event) =>
@@ -537,7 +551,7 @@ export function App() {
                 <button
                   aria-label="副官を指定"
                   className="secondary-button"
-                  disabled={!canChooseAdjutant || isBusy}
+                  disabled={!canChooseAdjutant || isInteractionLocked}
                   onClick={() =>
                     void handleSendAction({
                       type: "choose-adjutant",
@@ -578,7 +592,7 @@ export function App() {
 
             <SelfHandPanel
               canExchange={canExchange}
-              isBusy={isBusy}
+              isBusy={isInteractionLocked}
               legalCardIds={legalCardIds}
               onToggleWinningCardHighlight={() =>
                 setWinningCardHighlightEnabled((current) => !current)

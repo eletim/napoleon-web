@@ -568,6 +568,9 @@ input:focus-visible {
 }
 
 .trick-board {
+  --played-card-collect-x: 0;
+  --played-card-collect-y: 0;
+
   align-items: center;
   display: grid;
   gap: 12px;
@@ -640,10 +643,36 @@ input:focus-visible {
 }
 
 .played-card {
+  --played-card-enter-x: 0;
+  --played-card-enter-y: 0;
+
+  animation: played-card-enter 180ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
   transition:
     box-shadow 120ms ease,
     transform 120ms ease,
     border-color 120ms ease;
+}
+
+.played-card-from-left {
+  --played-card-enter-x: -70px;
+}
+
+.played-card-from-top-left {
+  --played-card-enter-x: -38px;
+  --played-card-enter-y: -70px;
+}
+
+.played-card-from-top-right {
+  --played-card-enter-x: 38px;
+  --played-card-enter-y: -70px;
+}
+
+.played-card-from-right {
+  --played-card-enter-x: 70px;
+}
+
+.played-card-from-self {
+  --played-card-enter-y: 82px;
 }
 
 .played-card-winning {
@@ -652,6 +681,37 @@ input:focus-visible {
     0 0 0 3px rgb(250 204 21 / 34%),
     0 12px 24px rgb(15 23 42 / 24%);
   transform: translateY(-4px);
+}
+
+.trick-board-result .played-card-winning {
+  animation: winning-card-pulse 520ms ease-out;
+}
+
+.trick-board-collecting-to-left {
+  --played-card-collect-x: -86px;
+}
+
+.trick-board-collecting-to-top-left {
+  --played-card-collect-x: -42px;
+  --played-card-collect-y: -78px;
+}
+
+.trick-board-collecting-to-top-right {
+  --played-card-collect-x: 42px;
+  --played-card-collect-y: -78px;
+}
+
+.trick-board-collecting-to-right {
+  --played-card-collect-x: 86px;
+}
+
+.trick-board-collecting-to-self {
+  --played-card-collect-y: 82px;
+}
+
+.trick-board-collecting .played-card {
+  animation: played-card-collect 240ms cubic-bezier(0.4, 0, 0.8, 0.2) forwards;
+  pointer-events: none;
 }
 
 .empty-played-card {
@@ -663,6 +723,44 @@ input:focus-visible {
   color: #e2e8f0;
   font-size: 0.76rem;
   font-weight: 800;
+}
+
+@keyframes played-card-enter {
+  from {
+    opacity: 0.58;
+    transform: translate(var(--played-card-enter-x), var(--played-card-enter-y)) scale(0.94);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+@keyframes winning-card-pulse {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+
+  45% {
+    filter: brightness(1.12);
+  }
+}
+
+@keyframes played-card-collect {
+  to {
+    opacity: 0;
+    transform: translate(var(--played-card-collect-x), var(--played-card-collect-y)) scale(0.72);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .played-card,
+  .trick-board-result .played-card-winning,
+  .trick-board-collecting .played-card {
+    animation: none;
+  }
 }
 
 .next-trick-button {

@@ -6,15 +6,19 @@ import type { TablePlayer } from "./tableTypes";
 interface TrickBoardProps {
   players: readonly TablePlayer[];
   currentTrick: readonly PublicPlayedCard[];
+  collectingWinnerId?: string;
   highlightWinningCard: boolean;
+  isResultEmphasisActive?: boolean;
   trickNumber: number | undefined;
   trumpSuit: PublicSuit | null | undefined;
 }
 
 export function TrickBoard({
+  collectingWinnerId,
   players,
   currentTrick,
   highlightWinningCard,
+  isResultEmphasisActive = false,
   trickNumber,
   trumpSuit
 }: TrickBoardProps) {
@@ -25,12 +29,23 @@ export function TrickBoard({
     highlightWinningCard && trumpSuit !== null && trumpSuit !== undefined
       ? getCurrentWinningPlayerId(currentTrick, trumpSuit, trickNumber)
       : undefined;
+  const collectingWinner = players.find((player) => player.id === collectingWinnerId);
+  const boardClassName = [
+    "trick-board",
+    isResultEmphasisActive ? "trick-board-result" : "",
+    collectingWinner === undefined
+      ? ""
+      : `trick-board-collecting trick-board-collecting-to-${collectingWinner.seat}`
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
-    <div className="trick-board" aria-label="中央の場">
+    <div className={boardClassName} aria-label="中央の場">
       {players.map((player) => (
         <TrickSlot
           key={player.seat}
+          isCollecting={collectingWinner !== undefined}
           player={player}
           played={playedCardsByPlayerId.get(player.id)}
           isWinning={winningPlayerId === player.id}
@@ -46,10 +61,20 @@ export function TrickBoard({
 interface TrickSlotProps {
   player: TablePlayer;
   played: PublicPlayedCard | undefined;
+  isCollecting: boolean;
   isWinning: boolean;
 }
 
-function TrickSlot({ player, played, isWinning }: TrickSlotProps) {
+function TrickSlot({ player, played, isCollecting, isWinning }: TrickSlotProps) {
+  const playedCardClassName = [
+    "played-card",
+    `played-card-from-${player.seat}`,
+    isWinning ? "played-card-winning" : "",
+    isCollecting ? "played-card-collecting" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
     <div className={`trick-slot trick-${player.seat}`}>
       <span className="played-owner">{player.label}</span>
@@ -60,7 +85,7 @@ function TrickSlot({ player, played, isWinning }: TrickSlotProps) {
           aria-label={`${player.label}が${formatCardForAria(played.card)}を出しました${
             isWinning ? "。現在勝っています" : ""
           }`}
-          className={isWinning ? "played-card played-card-winning" : "played-card"}
+          className={playedCardClassName}
         >
           {played.card.type === "joker" ? (
             <span className="joker-text">JOKER</span>
