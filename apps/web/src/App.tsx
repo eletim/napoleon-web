@@ -270,10 +270,15 @@ export function App() {
     }
   }
 
-  const appShellClassName =
-    session !== undefined && mode === "game"
-      ? "app-shell app-shell-game-active"
-      : "app-shell";
+  const isStartedGame = session !== undefined && mode === "game";
+  const isGameInProgress = isStartedGame && !session.state.isGameOver;
+  const appShellClassName = [
+    "app-shell",
+    isStartedGame ? "app-shell-game-active" : "",
+    isGameInProgress ? "app-shell-game-in-progress" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <main className={appShellClassName}>

@@ -1428,6 +1428,10 @@ input:focus-visible {
     overflow: hidden;
   }
 
+  .app-shell-game-in-progress {
+    padding: 0;
+  }
+
   .top-bar-compact {
     display: grid;
     gap: 6px;
@@ -1440,6 +1444,11 @@ input:focus-visible {
 
   .mode-switch-compact {
     margin-bottom: 4px;
+  }
+
+  .app-shell-game-in-progress .mode-switch-compact,
+  .app-shell-game-in-progress .top-bar-compact {
+    display: none;
   }
 
   .app-shell-game-active .mode-switch-compact,
@@ -1464,6 +1473,15 @@ input:focus-visible {
     overflow: hidden;
   }
 
+  .app-shell-game-in-progress .table {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    margin: 0;
+    max-width: none;
+    width: 100%;
+  }
+
   .table-grid {
     gap: 6px;
     grid-template-areas:
@@ -1476,11 +1494,19 @@ input:focus-visible {
   .app-shell-game-active .table-grid {
     flex: 1 1 auto;
     grid-template-areas:
-      "left top-left top-right right"
-      "center center center center";
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    grid-template-rows: auto minmax(0, 1fr);
+      "top-left top-right"
+      "left right"
+      "center center";
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: auto auto minmax(0, 1fr);
     min-height: 0;
+  }
+
+  .app-shell-game-in-progress .table-grid {
+    grid-template-areas:
+      "left right"
+      "top-left top-right"
+      "center center";
   }
 
   .player-seat {
@@ -1499,6 +1525,10 @@ input:focus-visible {
 
   .app-shell-game-active .captured-compact {
     display: none;
+  }
+
+  .app-shell-game-in-progress .player-seat {
+    padding: 3px 4px;
   }
 
   .seat-main-row,
@@ -1813,6 +1843,10 @@ input:focus-visible {
       max(4px, env(safe-area-inset-right))
       max(4px, env(safe-area-inset-bottom))
       max(4px, env(safe-area-inset-left));
+  }
+
+  .app-shell-game-in-progress {
+    padding: 0;
   }
 
   .app-shell-game-active .mode-button {
