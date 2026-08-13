@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { PublicPlayedCard, PublicRank, PublicSuit } from "@napoleon/protocol";
@@ -92,6 +94,46 @@ describe("TrickBoard", () => {
     expect(html).toContain("trick-mobile-status-summary");
     expect(html).toContain("trick-count-summary");
     expect(html).not.toContain("副官 ♠A・");
+  });
+
+  it("renders slots in the fixed board seat order without relying on player array order", () => {
+    const html = renderToStaticMarkup(
+      <TrickBoard
+        currentTrick={[]}
+        highlightWinningCard={false}
+        players={[players[4], players[3], players[2], players[0], players[1]]}
+        trickNumber={2}
+        trumpSuit="spades"
+      />
+    );
+    const renderedSeats = [...html.matchAll(/<div class="trick-slot trick-([^"]+)">/g)].map(
+      (match) => match[1]
+    );
+
+    expect(renderedSeats).toEqual(["top-left", "top-right", "left", "right", "self"]);
+    expect(html).toMatch(/class="trick-slot trick-top-left"><span class="played-owner">奥左AI/);
+    expect(html).toMatch(/class="trick-slot trick-top-right"><span class="played-owner">奥右AI/);
+    expect(html).toMatch(/class="trick-slot trick-left"><span class="played-owner">左側AI/);
+    expect(html).toMatch(/class="trick-slot trick-right"><span class="played-owner">右側AI/);
+    expect(html).toMatch(/class="trick-slot trick-self"><span class="played-owner">自分/);
+  });
+
+  it("defines mobile grid areas for the fixed board seat positions", () => {
+    const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
+
+    expect(styles).toContain(".trick-top-left {\n  grid-area: top-left;\n}");
+    expect(styles).toContain(".trick-top-right {\n  grid-area: top-right;\n}");
+    expect(styles).toContain(".trick-left {\n  grid-area: left;\n}");
+    expect(styles).toContain(".trick-right {\n  grid-area: right;\n}");
+    expect(styles).toContain(".trick-self {\n  grid-area: self;\n}");
+    expect(styles).toContain(
+      [
+        'grid-template-areas:',
+        '      "top-left . top-right"',
+        '      "left message right"',
+        '      ". self .";'
+      ].join("\n")
+    );
   });
 });
 
