@@ -16,9 +16,11 @@ import {
   ONNX_INPUT_NAME,
   ONNX_OPSET_VERSION,
   ONNX_OUTPUT_NAME,
+  PPO_SEPARATED_V1000_BENCHMARK_POLICY_ID,
   PolicyOnnxCompatibilityError,
   RL_V740_BENCHMARK_POLICY_ID,
   calculateCardIdsSha256,
+  getRepoManagedPlayingPolicyBenchmark,
   loadNonPlayingPolicyOnnxModel,
   loadPolicyOnnxModel,
   loadRepoManagedPlayingPolicyBenchmark,
@@ -214,6 +216,25 @@ describe("runPolicyVsRuleBasedEvaluation", () => {
 });
 
 describe("runPlayingPolicyRosterEvaluation", () => {
+  it("validates repo-managed frozen playing policy artifact references", async () => {
+    const rlV740 = getRepoManagedPlayingPolicyBenchmark(RL_V740_BENCHMARK_POLICY_ID);
+    const ppoV1000 = getRepoManagedPlayingPolicyBenchmark(PPO_SEPARATED_V1000_BENCHMARK_POLICY_ID);
+
+    await expect(validatePlayingPolicyArtifactReference(rlV740)).resolves.toMatchObject({
+      policyModel: { input_dim: MODEL_INPUT_FEATURE_COUNT }
+    });
+    await expect(validatePlayingPolicyArtifactReference(ppoV1000)).resolves.toMatchObject({
+      modelArchitecture: "playing-separated-actor-critic-v1",
+      policyModel: {
+        input_dim: MODEL_INPUT_FEATURE_COUNT,
+        hidden_dims: [512, 512, 256, 256]
+      }
+    });
+    expect(ppoV1000.checkpointSha256).toBe(
+      "36c543b8e3026283269fd40b382abf12aeb085296a8de52e52d3bf65b4c24376"
+    );
+  });
+
   it("evaluates a candidate against frozen RL v740 in all four opponent seats", async () => {
     const candidate = await createIncreasingLogitPolicy();
     const rlV740 = await loadRepoManagedPlayingPolicyBenchmark(RL_V740_BENCHMARK_POLICY_ID);

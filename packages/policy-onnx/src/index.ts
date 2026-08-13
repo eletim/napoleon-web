@@ -58,6 +58,7 @@ export type {
   PolicyOnnxPlayInput
 } from "./policyOnnxAgent.js";
 export {
+  PPO_SEPARATED_V1000_BENCHMARK_POLICY_ID,
   RL_V740_BENCHMARK_POLICY_ID,
   getRepoManagedPlayingPolicyBenchmark,
   loadRepoManagedPlayingPolicyBenchmark,

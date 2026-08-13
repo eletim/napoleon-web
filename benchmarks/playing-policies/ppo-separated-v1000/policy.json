@@ -1,0 +1,45 @@
+{
+  "cardIdsSha256": "7ea0fdb58078f835bc5f7e6307a2a0c869430db343dd9e50ed1226f0452aaf38",
+  "checkpointSchemaVersion": 1,
+  "datasetSchemaVersion": 1,
+  "metadataSchemaVersion": 1,
+  "modelArchitecture": "playing-separated-actor-critic-v1",
+  "modelInputSchemaVersion": 2,
+  "onnx": {
+    "inputs": [
+      {
+        "dtype": "float32",
+        "name": "model_input",
+        "shape": [
+          "batch",
+          6246
+        ]
+      }
+    ],
+    "opsetVersion": 18,
+    "outputs": [
+      {
+        "dtype": "float32",
+        "name": "logits",
+        "shape": [
+          "batch",
+          53
+        ]
+      }
+    ]
+  },
+  "playingEncoderSchemaVersion": 2,
+  "policyModel": {
+    "dropout": 0.0,
+    "hidden_dim": 512,
+    "hidden_dims": [
+      512,
+      512,
+      256,
+      256
+    ],
+    "hidden_layers": 4,
+    "input_dim": 6246
+  },
+  "sourceCheckpointSha256": "36c543b8e3026283269fd40b382abf12aeb085296a8de52e52d3bf65b4c24376"
+}
