@@ -81,12 +81,26 @@ describe("PWA assets", () => {
     const registration = readFileSync(registrationPath, "utf8");
     const serviceWorker = readFileSync(serviceWorkerPath, "utf8");
 
-    expect(registration).toContain("navigator.serviceWorker.register(\"/sw.js\")");
+    expect(registration).toContain("import.meta.env.DEV ? \"/sw.js?dev-sw\" : \"/sw.js\"");
+    expect(registration).toContain(
+      "navigator.serviceWorker\n      .register(serviceWorkerUrl, { updateViaCache: \"none\" })"
+    );
     expect(registration).not.toContain("window.location.reload()");
     expect(serviceWorker).toContain("self.skipWaiting()");
     expect(serviceWorker).toContain("self.clients.claim()");
     expect(serviceWorker).toContain("networkFirst(request)");
     expect(serviceWorker).toContain("url.pathname === \"/sw.js\"");
     expect(serviceWorker).toContain("url.pathname.startsWith(\"/api/\")");
+  });
+
+  it("keeps the development service worker installable without static asset caching", () => {
+    const registration = readFileSync(registrationPath, "utf8");
+    const serviceWorker = readFileSync(serviceWorkerPath, "utf8");
+
+    expect(registration).not.toContain("import.meta.env.PROD");
+    expect(serviceWorker).toContain("IS_DEV_SERVICE_WORKER");
+    expect(serviceWorker).toContain("searchParams.has(\"dev-sw\")");
+    expect(serviceWorker).toContain("if (IS_DEV_SERVICE_WORKER) {\n    return;\n  }");
+    expect(serviceWorker).toContain("cacheName.startsWith(\"napoleon-web-\")");
   });
 });
