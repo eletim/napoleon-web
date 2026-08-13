@@ -93,6 +93,46 @@ describe("TrickBoard", () => {
     expect(html).toContain("trick-count-summary");
     expect(html).not.toContain("副官 ♠A・");
   });
+
+  it("marks red suit contract and adjutant summaries with the red text class", () => {
+    const redHtml = renderToStaticMarkup(
+      <TrickBoard
+        adjutant={{ calledCardId: "diamonds-J", revealedPlayerId: "player-2" }}
+        contract={{
+          napoleonPlayerId: "player-1",
+          trumpSuit: "hearts",
+          targetPointCards: 13
+        }}
+        currentTrick={[]}
+        highlightWinningCard={false}
+        players={players}
+        trickNumber={2}
+        trumpSuit="hearts"
+      />
+    );
+    const blackHtml = renderToStaticMarkup(
+      <TrickBoard
+        adjutant={{ calledCardId: "clubs-J", revealedPlayerId: "player-2" }}
+        contract={{
+          napoleonPlayerId: "player-1",
+          trumpSuit: "spades",
+          targetPointCards: 13
+        }}
+        currentTrick={[]}
+        highlightWinningCard={false}
+        players={players}
+        trickNumber={2}
+        trumpSuit="spades"
+      />
+    );
+
+    expect(redHtml).toContain('class="trick-contract-summary red-text">♥ 13');
+    expect(redHtml).toContain('副官 <span class="red-text">♦J</span>');
+    expect(blackHtml).toContain('class="trick-contract-summary">♠ 13');
+    expect(blackHtml).toContain("副官 ♣J");
+    expect(blackHtml).not.toContain('class="trick-contract-summary red-text">♠ 13');
+    expect(blackHtml).not.toContain('<span class="red-text">♣J</span>');
+  });
 });
 
 const players: readonly TablePlayer[] = [

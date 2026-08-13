@@ -61,8 +61,12 @@ export function TrickBoard({
       >
         <strong className="trick-count-summary">{currentTrick.length} / 5</strong>
         <span className="trick-mobile-status-summary" aria-hidden="true">
-          <strong className="trick-contract-summary">{formatContractSummary(contract)}</strong>
-          <span className="trick-adjutant-summary">{formatAdjutantCardSummary(adjutant)}</span>
+          <strong className={createContractSummaryClassName(contract)}>
+            {formatContractSummary(contract)}
+          </strong>
+          <span className="trick-adjutant-summary">
+            副官 {renderAdjutantCardSummary(adjutant)}
+          </span>
         </span>
       </div>
     </div>
@@ -148,6 +152,31 @@ function formatAdjutantCardSummary(adjutant: PublicGameState["adjutant"] | undef
   return `副官 ${formatCalledCardId(adjutant.calledCardId)}`;
 }
 
+function renderAdjutantCardSummary(adjutant: PublicGameState["adjutant"] | undefined) {
+  if (adjutant === undefined || adjutant === null) {
+    return "-";
+  }
+
+  const suit = getCalledCardSuit(adjutant.calledCardId);
+
+  if (suit !== undefined && isRedSuit(suit)) {
+    return <span className="red-text">{formatCalledCardId(adjutant.calledCardId)}</span>;
+  }
+
+  return formatCalledCardId(adjutant.calledCardId);
+}
+
+function createContractSummaryClassName(
+  contract: PublicGameState["contract"] | undefined
+): string {
+  return [
+    "trick-contract-summary",
+    contract !== undefined && contract !== null && isRedSuit(contract.trumpSuit) ? "red-text" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 function formatCalledCardId(cardId: string): string {
   if (cardId === "joker") {
     return "ジョーカー";
@@ -160,6 +189,12 @@ function formatCalledCardId(cardId: string): string {
   }
 
   return cardId;
+}
+
+function getCalledCardSuit(cardId: string): PublicSuit | undefined {
+  const [suit] = cardId.split("-");
+
+  return isPublicSuit(suit) ? suit : undefined;
 }
 
 function createTrickSummaryAriaLabel(
