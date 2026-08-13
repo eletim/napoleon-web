@@ -4,11 +4,14 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <memory>
 #include <map>
 #include <numeric>
+#include <optional>
 #include <ostream>
+#include <regex>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
@@ -34,6 +37,19 @@ struct PolicyInferenceStats {
   std::uint64_t batch_item_total = 0;
   std::uint64_t max_batch = 0;
   std::uint64_t elapsed_ns = 0;
+};
+
+struct PolicyMetadataSpec {
+  onnx_policy::PolicyKey key;
+  observation::PlayingObservationVariant playing_observation_variant =
+      observation::PlayingObservationVariant::Public;
+  std::size_t model_input_feature_count = observation::kPlayingModelInputFeatureCount;
+};
+
+struct EvaluationPolicySpecs {
+  PolicyMetadataSpec candidate;
+  PolicyMetadataSpec frozen;
+  PolicyMetadataSpec frozen_alt;
 };
 
 struct CompletedRecord {
@@ -86,6 +102,124 @@ std::string agent_key(const AgentIdentity& agent) {
 
 bool same_agent(const AgentIdentity& left, const AgentIdentity& right) {
   return left.type == right.type && left.id == right.id;
+}
+
+std::string read_text_file(const std::filesystem::path& path) {
+  std::ifstream in(path);
+  if (!in.is_open()) {
+    throw std::runtime_error("failed opening metadata JSON: " + path.string());
+  }
+  std::ostringstream buffer;
+  buffer << in.rdbuf();
+  if (!in.good() && !in.eof()) {
+    throw std::runtime_error("failed reading metadata JSON: " + path.string());
+  }
+  return buffer.str();
+}
+
+std::optional<std::string> json_string_field(const std::string& json, const std::string& key) {
+  const std::regex pattern("\"" + key + "\"\\s*:\\s*\"([^\"]*)\"");
+  std::smatch match;
+  if (!std::regex_search(json, match, pattern)) {
+    return std::nullopt;
+  }
+  return match[1].str();
+}
+
+std::optional<int> json_integer_field(const std::string& json, const std::string& key) {
+  const std::regex pattern("\"" + key + "\"\\s*:\\s*(\\d+)");
+  std::smatch match;
+  if (!std::regex_search(json, match, pattern)) {
+    return std::nullopt;
+  }
+  return std::stoi(match[1].str());
+}
+
+PolicyMetadataSpec default_policy_spec(onnx_policy::PolicyKey key) {
+  return PolicyMetadataSpec{
+      std::move(key),
+      observation::PlayingObservationVariant::Public,
+      observation::kPlayingModelInputFeatureCount};
+}
+
+PolicyMetadataSpec policy_spec_from_metadata(
+    onnx_policy::PolicyKey key,
+    const std::string& label,
+    const std::string& metadata_path,
+    std::optional<observation::PlayingObservationVariant> required_variant = std::nullopt) {
+  PolicyMetadataSpec spec = default_policy_spec(std::move(key));
+  if (metadata_path.empty()) {
+    if (required_variant.has_value()) {
+      spec.playing_observation_variant = *required_variant;
+      spec.model_input_feature_count =
+          static_cast<std::size_t>(observation::playing_model_input_feature_count(*required_variant));
+    }
+    return spec;
+  }
+
+  const std::string metadata_json = read_text_file(metadata_path);
+  const std::string variant_id =
+      json_string_field(metadata_json, "playingObservationVariant").value_or("public");
+  spec.playing_observation_variant = observation::parse_playing_observation_variant(variant_id);
+  if (required_variant.has_value() && spec.playing_observation_variant != *required_variant) {
+    throw std::runtime_error(
+        label + " metadata playingObservationVariant mismatch: expected " +
+        observation::playing_observation_variant_id(*required_variant) + ", got " +
+        variant_id);
+  }
+
+  const int expected_encoder_schema =
+      observation::playing_encoder_schema_version(spec.playing_observation_variant);
+  const int expected_model_input_schema =
+      observation::playing_model_input_schema_version(spec.playing_observation_variant);
+  const int expected_feature_count =
+      observation::playing_model_input_feature_count(spec.playing_observation_variant);
+
+  const auto require_int = [&](const std::string& key_name, int expected) {
+    const std::optional<int> actual = json_integer_field(metadata_json, key_name);
+    if (!actual.has_value() || *actual != expected) {
+      throw std::runtime_error(
+          label + " metadata " + key_name + " mismatch: expected " +
+          std::to_string(expected) + ", got " +
+          (actual.has_value() ? std::to_string(*actual) : std::string("<missing>")));
+    }
+  };
+
+  require_int("playingEncoderSchemaVersion", expected_encoder_schema);
+  require_int("modelInputSchemaVersion", expected_model_input_schema);
+  const std::optional<int> model_input_feature_count =
+      json_integer_field(metadata_json, "modelInputFeatureCount");
+  if (model_input_feature_count.has_value() && *model_input_feature_count != expected_feature_count) {
+    throw std::runtime_error(
+        label + " metadata modelInputFeatureCount mismatch: expected " +
+        std::to_string(expected_feature_count) + ", got " +
+        std::to_string(*model_input_feature_count));
+  }
+  require_int("input_dim", expected_feature_count);
+
+  spec.model_input_feature_count = static_cast<std::size_t>(expected_feature_count);
+  return spec;
+}
+
+EvaluationPolicySpecs create_policy_specs(const EvaluationOptions& options) {
+  const onnx_policy::PolicyKey candidate_key{AgentType::CurrentPolicy, options.candidate_id};
+  const onnx_policy::PolicyKey frozen_key{AgentType::FrozenPolicy, options.frozen_id};
+  const onnx_policy::PolicyKey frozen_alt_key{AgentType::FrozenPolicy, options.frozen_id + "-alt"};
+  return EvaluationPolicySpecs{
+      policy_spec_from_metadata(
+          candidate_key,
+          "candidate",
+          options.candidate_metadata_path),
+      policy_spec_from_metadata(
+          frozen_key,
+          "frozen policy",
+          options.frozen_metadata_path,
+          observation::PlayingObservationVariant::Public),
+      policy_spec_from_metadata(
+          frozen_alt_key,
+          "frozen policy",
+          options.frozen_metadata_path,
+          observation::PlayingObservationVariant::Public)};
 }
 
 std::string winning_team_for_seat(const GameResult& result, int seat_index) {
@@ -286,41 +420,41 @@ onnx_policy::InferenceDevice policy_inference_device(const EvaluationOptions& op
 
 std::unique_ptr<onnx_policy::PolicySession> create_policy_session(
     const EvaluationOptions& options,
-    onnx_policy::PolicyKey key,
+    const PolicyMetadataSpec& spec,
     const std::string& onnx_path) {
   if (options.policy_backend == "onnx") {
     return onnx_policy::create_onnxruntime_policy_session(onnx_policy::PolicySessionConfig{
-        key,
+        spec.key,
         onnx_path,
         "model_input",
         "logits",
-        policy_inference_device(options)});
+        policy_inference_device(options),
+        spec.model_input_feature_count});
   }
   return std::make_unique<onnx_policy::DeterministicPolicySession>(
       onnx_policy::DeterministicPolicySession::default_logits(),
       options.inference_device == "cuda" ? onnx_policy::ExecutionProvider::Cuda
-                                         : onnx_policy::ExecutionProvider::Cpu);
+                                         : onnx_policy::ExecutionProvider::Cpu,
+      spec.model_input_feature_count);
 }
 
 std::unique_ptr<onnx_policy::BatchedPolicyExecutor> create_policy_executor(
-    const EvaluationOptions& options) {
+    const EvaluationOptions& options,
+    const EvaluationPolicySpecs& specs) {
   auto executor = std::make_unique<onnx_policy::BatchedPolicyExecutor>(
       onnx_policy::BatchedPolicyConfig{
           std::max<std::size_t>(1, options.inference_max_batch_size),
           1.0,
           options.roster_seed});
-  const onnx_policy::PolicyKey candidate_key{AgentType::CurrentPolicy, options.candidate_id};
-  const onnx_policy::PolicyKey frozen_key{AgentType::FrozenPolicy, options.frozen_id};
-  const onnx_policy::PolicyKey frozen_alt_key{AgentType::FrozenPolicy, options.frozen_id + "-alt"};
   executor->add_policy(
-      candidate_key,
-      create_policy_session(options, candidate_key, options.candidate_onnx_path));
+      specs.candidate.key,
+      create_policy_session(options, specs.candidate, options.candidate_onnx_path));
   executor->add_policy(
-      frozen_key,
-      create_policy_session(options, frozen_key, options.frozen_onnx_path));
+      specs.frozen.key,
+      create_policy_session(options, specs.frozen, options.frozen_onnx_path));
   executor->add_policy(
-      frozen_alt_key,
-      create_policy_session(options, frozen_alt_key, options.frozen_onnx_path));
+      specs.frozen_alt.key,
+      create_policy_session(options, specs.frozen_alt, options.frozen_onnx_path));
   return executor;
 }
 
@@ -346,17 +480,33 @@ void copy_executor_stats(
   }
 }
 
-EvaluationRun drive_schedule(const EvaluationOptions& options, const std::vector<ScheduledGame>& schedule) {
+observation::PlayingObservationVariant request_variant_for_agent(
+    const AgentIdentity& agent,
+    const EvaluationPolicySpecs& specs) {
+  if (agent.type == AgentType::CurrentPolicy && agent.id == specs.candidate.key.agent_id) {
+    return specs.candidate.playing_observation_variant;
+  }
+  return observation::PlayingObservationVariant::Public;
+}
+
+EvaluationRun drive_schedule(
+    const EvaluationOptions& options,
+    const std::vector<ScheduledGame>& schedule,
+    const EvaluationPolicySpecs& specs) {
   const auto total_started = std::chrono::steady_clock::now();
   SimulationRuntime runtime(SimulationRuntimeConfig{
       fixed_roster({rule_based_agent(), rule_based_agent(), rule_based_agent(), rule_based_agent(), rule_based_agent()}),
       options.start_seed,
       options.roster_seed,
       options.max_concurrent_games,
-      [](const GameState& state, int player_index, AgentRequest& request) {
-        onnx_policy::attach_playing_model_input(state, player_index, request);
+      [&specs](const GameState& state, int player_index, AgentRequest& request) {
+        onnx_policy::attach_playing_model_input(
+            state,
+            player_index,
+            request_variant_for_agent(request.agent, specs),
+            request);
       }});
-  auto executor = create_policy_executor(options);
+  auto executor = create_policy_executor(options, specs);
 
   EvaluationRun run;
   std::size_t next_schedule_index = 0;
@@ -656,8 +806,9 @@ EvaluationArtifact run_evaluation(const EvaluationOptions& options) {
     throw std::runtime_error("inference_max_batch_size must be positive");
   }
 
+  const EvaluationPolicySpecs specs = create_policy_specs(options);
   const std::vector<ScheduledGame> schedule = create_schedule(options);
-  const EvaluationRun run = drive_schedule(options, schedule);
+  const EvaluationRun run = drive_schedule(options, schedule, specs);
   return EvaluationArtifact{
       create_artifact_json(options, run),
       static_cast<std::uint32_t>(schedule.size()),
