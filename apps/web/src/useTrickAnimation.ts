@@ -168,9 +168,14 @@ export function useTrickAnimation({
     }
   }
 
+  const hasRenderedNewTrickBeforeReset =
+    state !== undefined &&
+    displayedTrickNumberRef.current !== undefined &&
+    displayedTrickNumberRef.current !== state.trickNumber;
+
   return {
     collectingWinnerId,
-    displayedTrick,
+    displayedTrick: hasRenderedNewTrickBeforeReset ? [] : displayedTrick,
     isAnimating: isPlayingSequence || isResultEmphasisActive || collectingWinnerId !== undefined,
     isResultEmphasisActive,
     playCollectionBefore
