@@ -5,6 +5,7 @@ import type {
   RunAutomatedSimulationResponse
 } from "@napoleon/protocol";
 import { createGame, getAgents, runAutomatedSimulation } from "./api";
+import { resolveAppPath } from "./appPath";
 
 describe("api client", () => {
   afterEach(() => {
@@ -157,5 +158,10 @@ describe("api client", () => {
         "Content-Type": "application/json"
       }
     });
+  });
+
+  it("resolves API URLs under the configured app base path", () => {
+    expect(resolveAppPath("api/agents", "/napoleon/")).toBe("/napoleon/api/agents");
+    expect(resolveAppPath("/api/games", "napoleon")).toBe("/napoleon/api/games");
   });
 });

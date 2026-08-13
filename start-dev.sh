@@ -8,7 +8,8 @@ ROOT_DIR="${NAPOLEON_DEV_ROOT:-$DEFAULT_ROOT_DIR}"
 ROOT_ENV_FILE="$ROOT_DIR/.env"
 ROOT_ENV_SAMPLE_FILE="$ROOT_DIR/.env.sample"
 WEB_ENV_FILE="$ROOT_DIR/apps/web/.env.local"
-TAILSCALE_SERVE_COMMAND=(tailscale serve --bg --http=5173 http://127.0.0.1:5173)
+DEV_BASE_PATH="${NAPOLEON_DEV_BASE_PATH:-/napoleon/}"
+TAILSCALE_SERVE_COMMAND=(tailscale serve --bg --https=443 --set-path="$DEV_BASE_PATH" http://127.0.0.1:5173)
 
 trim() {
   local value="$1"
@@ -184,6 +185,7 @@ create_root_env_file_from_sample
 load_root_env_file "$ROOT_ENV_FILE"
 
 unset VITE_ALLOWED_HOSTS
+unset NAPOLEON_WEB_BASE_PATH
 
 if [[ ! -f "$WEB_ENV_FILE" ]]; then
   create_env_file_from_tailscale
@@ -193,8 +195,11 @@ if [[ -f "$WEB_ENV_FILE" ]]; then
   VITE_ALLOWED_HOSTS="$(read_allowed_hosts "$WEB_ENV_FILE")"
   if [[ -n "$VITE_ALLOWED_HOSTS" ]]; then
     export VITE_ALLOWED_HOSTS
+    NAPOLEON_WEB_BASE_PATH="$DEV_BASE_PATH"
+    export NAPOLEON_WEB_BASE_PATH
   else
     unset VITE_ALLOWED_HOSTS
+    unset NAPOLEON_WEB_BASE_PATH
   fi
 fi
 
@@ -212,6 +217,7 @@ if [[ "${NAPOLEON_DEV_DRY_RUN:-}" == "1" ]]; then
     printf 'env_file_exists=false\n'
   fi
   printf 'VITE_ALLOWED_HOSTS=%s\n' "${VITE_ALLOWED_HOSTS:-}"
+  printf 'NAPOLEON_WEB_BASE_PATH=%s\n' "${NAPOLEON_WEB_BASE_PATH:-}"
   if [[ -n "${VITE_ALLOWED_HOSTS:-}" ]]; then
     printf 'tailscale_serve_enabled=true\n'
     printf 'tailscale_serve_command=%s\n' "${TAILSCALE_SERVE_COMMAND[*]}"
