@@ -12,6 +12,12 @@ from torch import nn
 
 from napoleon_ml.dataset.constants import DATASET_SCHEMA_VERSION, PLAYING_ENCODER_SCHEMA_VERSION
 from napoleon_ml.dataset.manifest import DatasetManifest
+from napoleon_ml.dataset.playing_variants import (
+    model_input_feature_count_for_variant,
+    normalize_playing_observation_variant,
+    playing_encoder_schema_version_for_variant,
+    playing_model_input_schema_version_for_variant,
+)
 from napoleon_ml.dataset.tensors import MODEL_INPUT_FEATURE_COUNT, MODEL_INPUT_SCHEMA_VERSION
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 
@@ -20,6 +26,9 @@ from .model import (
     PolicyMlpConfig,
     PolicyMlpModel,
     PolicySeparatedActorCriticModel,
+    create_seeded_actor_critic_model,
+    create_seeded_policy_model,
+    create_seeded_separated_actor_critic_model,
 )
 
 CHECKPOINT_SCHEMA_VERSION = 1
@@ -45,6 +54,9 @@ def save_policy_checkpoint(
     manifest: DatasetManifest,
     extra_metadata: dict[str, object] | None = None,
 ) -> None:
+    playing_observation_variant = normalize_playing_observation_variant(
+        manifest.playing_observation_variant
+    )
     checkpoint = {
         "checkpoint_schema_version": CHECKPOINT_SCHEMA_VERSION,
         "model_state": model.state_dict(),
@@ -52,12 +64,88 @@ def save_policy_checkpoint(
         "training_config": dict(training_config),
         "dataset_schema_version": manifest.dataset_schema_version,
         "playing_encoder_schema_version": manifest.playing_encoder_schema_version,
-        "model_input_schema_version": MODEL_INPUT_SCHEMA_VERSION,
+        "model_input_schema_version": playing_model_input_schema_version_for_variant(
+            playing_observation_variant
+        ),
+        "playing_observation_variant": playing_observation_variant,
+        "model_input_feature_count": model.config.input_dim,
         "card_ids_sha256": calculate_card_ids_sha256(),
     }
     if extra_metadata is not None:
         checkpoint.update(extra_metadata)
     torch.save(checkpoint, Path(path))
+
+
+def initialize_policy_checkpoint(
+    path: Path | str,
+    *,
+    playing_observation_variant: str,
+    seed: int,
+    hidden_dim: int = 128,
+    hidden_layers: int = 2,
+    hidden_dims: tuple[int, ...] | None = None,
+    dropout: float = 0.0,
+    model_architecture: str = POLICY_MODEL_ARCHITECTURE,
+) -> dict[str, object]:
+    """Create an untrained playing policy checkpoint with current metadata."""
+
+    variant = normalize_playing_observation_variant(playing_observation_variant)
+    input_dim = model_input_feature_count_for_variant(variant)
+    model_config = PolicyMlpConfig(
+        input_dim=input_dim,
+        hidden_dim=hidden_dim,
+        hidden_layers=hidden_layers,
+        hidden_dims=hidden_dims,
+        dropout=dropout,
+    )
+    if model_architecture == POLICY_MODEL_ARCHITECTURE:
+        model: PolicyMlpModel | PolicyActorCriticModel | PolicySeparatedActorCriticModel = (
+            create_seeded_policy_model(model_config, seed=seed)
+        )
+    elif model_architecture == ACTOR_CRITIC_MODEL_ARCHITECTURE:
+        model = create_seeded_actor_critic_model(model_config, seed=seed)
+    elif model_architecture == SEPARATED_ACTOR_CRITIC_MODEL_ARCHITECTURE:
+        model = create_seeded_separated_actor_critic_model(model_config, seed=seed)
+    else:
+        raise PolicyCheckpointCompatibilityError(
+            f"model_architecture is unsupported: {model_architecture!r}."
+        )
+
+    training_config: dict[str, object] = {
+        "source": "random-initialization",
+        "seed": seed,
+        "hidden_dim": model_config.hidden_dim,
+        "hidden_layers": model_config.hidden_layers,
+        "hidden_dims": list(model_config.hidden_widths),
+        "dropout": model_config.dropout,
+        "playingObservationVariant": variant,
+        "modelArchitecture": model_architecture,
+    }
+    checkpoint: dict[str, object] = {
+        "checkpoint_schema_version": CHECKPOINT_SCHEMA_VERSION,
+        "model_state": model.state_dict(),
+        "model_config": model_config.to_dict(),
+        "training_config": training_config,
+        "dataset_schema_version": DATASET_SCHEMA_VERSION,
+        "playing_encoder_schema_version": playing_encoder_schema_version_for_variant(variant),
+        "model_input_schema_version": playing_model_input_schema_version_for_variant(variant),
+        "playing_observation_variant": variant,
+        "model_input_feature_count": input_dim,
+        "card_ids_sha256": calculate_card_ids_sha256(),
+        "model_architecture": model_architecture,
+        "initialization_provenance": {
+            "type": "random-policy-initialization",
+            "seed": seed,
+            "playingObservationVariant": variant,
+            "modelInputFeatureCount": input_dim,
+            "modelArchitecture": model_architecture,
+            "modelConfig": model_config.to_dict(),
+        },
+    }
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(checkpoint, output)
+    return checkpoint
 
 
 def load_policy_checkpoint(
@@ -107,7 +195,8 @@ def load_policy_checkpoint(
 def load_policy_logits_checkpoint(
     path: Path | str,
     *,
-    manifest: DatasetManifest,
+    manifest: DatasetManifest | None = None,
+    playing_observation_variant: str | None = None,
 ) -> tuple[
     PolicyMlpModel | PolicyActorCriticModel | PolicySeparatedActorCriticModel,
     dict[str, object],
@@ -116,7 +205,19 @@ def load_policy_logits_checkpoint(
 
     checkpoint_path = Path(path)
     raw = _load_raw_checkpoint(checkpoint_path)
-    _validate_metadata(raw, manifest=manifest)
+    if manifest is not None:
+        _validate_metadata(raw, manifest=manifest)
+    else:
+        _validate_current_checkpoint_metadata(raw)
+        expected_variant = normalize_playing_observation_variant(playing_observation_variant)
+        actual_variant = normalize_playing_observation_variant(
+            raw.get("playing_observation_variant")
+        )
+        if actual_variant != expected_variant:
+            raise PolicyCheckpointCompatibilityError(
+                "checkpoint playing_observation_variant mismatch: "
+                f"expected {expected_variant!r}, got {actual_variant!r}."
+            )
 
     model_config_raw = raw.get("model_config")
     if not isinstance(model_config_raw, dict):
@@ -368,11 +469,14 @@ def migrate_policy_checkpoint_to_hidden_dims(
 
 
 def _validate_metadata(raw: dict[Any, Any], *, manifest: DatasetManifest) -> None:
+    variant = normalize_playing_observation_variant(
+        raw.get("playing_observation_variant", manifest.playing_observation_variant)
+    )
     expected_values = {
         "checkpoint_schema_version": CHECKPOINT_SCHEMA_VERSION,
         "dataset_schema_version": DATASET_SCHEMA_VERSION,
-        "playing_encoder_schema_version": PLAYING_ENCODER_SCHEMA_VERSION,
-        "model_input_schema_version": MODEL_INPUT_SCHEMA_VERSION,
+        "playing_encoder_schema_version": playing_encoder_schema_version_for_variant(variant),
+        "model_input_schema_version": playing_model_input_schema_version_for_variant(variant),
         "card_ids_sha256": calculate_card_ids_sha256(),
     }
 
@@ -382,10 +486,21 @@ def _validate_metadata(raw: dict[Any, Any], *, manifest: DatasetManifest) -> Non
             raise PolicyCheckpointCompatibilityError(
                 f"checkpoint {key} mismatch: expected {expected!r}, got {actual!r}."
             )
+    expected_feature_count = model_input_feature_count_for_variant(variant)
+    if raw.get("model_input_feature_count", expected_feature_count) != expected_feature_count:
+        raise PolicyCheckpointCompatibilityError(
+            "checkpoint model_input_feature_count mismatch: "
+            f"expected {expected_feature_count}, got {raw.get('model_input_feature_count')!r}."
+        )
 
     manifest_values = {
         "dataset_schema_version": manifest.dataset_schema_version,
-        "playing_encoder_schema_version": manifest.playing_encoder_schema_version,
+        "playing_encoder_schema_version": playing_encoder_schema_version_for_variant(
+            manifest.playing_observation_variant
+        ),
+        "model_input_schema_version": playing_model_input_schema_version_for_variant(
+            manifest.playing_observation_variant
+        ),
         "card_ids_sha256": manifest.card_ids_sha256,
     }
 
@@ -395,14 +510,30 @@ def _validate_metadata(raw: dict[Any, Any], *, manifest: DatasetManifest) -> Non
             raise PolicyCheckpointCompatibilityError(
                 f"checkpoint {key} does not match dataset: expected {expected!r}, got {actual!r}."
             )
+    manifest_variant = normalize_playing_observation_variant(manifest.playing_observation_variant)
+    checkpoint_variant = normalize_playing_observation_variant(
+        raw.get("playing_observation_variant")
+    )
+    if checkpoint_variant != manifest_variant:
+        raise PolicyCheckpointCompatibilityError(
+            "checkpoint playing_observation_variant mismatch: "
+            f"expected {manifest_variant!r}, got {checkpoint_variant!r}."
+        )
+    expected_feature_count = model_input_feature_count_for_variant(manifest_variant)
+    if raw.get("model_input_feature_count", expected_feature_count) != expected_feature_count:
+        raise PolicyCheckpointCompatibilityError(
+            "checkpoint model_input_feature_count mismatch: "
+            f"expected {expected_feature_count}, got {raw.get('model_input_feature_count')!r}."
+        )
 
 
 def _validate_current_checkpoint_metadata(raw: dict[Any, Any]) -> None:
+    variant = normalize_playing_observation_variant(raw.get("playing_observation_variant"))
     expected_values = {
         "checkpoint_schema_version": CHECKPOINT_SCHEMA_VERSION,
         "dataset_schema_version": DATASET_SCHEMA_VERSION,
-        "playing_encoder_schema_version": PLAYING_ENCODER_SCHEMA_VERSION,
-        "model_input_schema_version": MODEL_INPUT_SCHEMA_VERSION,
+        "playing_encoder_schema_version": playing_encoder_schema_version_for_variant(variant),
+        "model_input_schema_version": playing_model_input_schema_version_for_variant(variant),
         "card_ids_sha256": calculate_card_ids_sha256(),
     }
 
@@ -412,6 +543,12 @@ def _validate_current_checkpoint_metadata(raw: dict[Any, Any]) -> None:
             raise PolicyCheckpointCompatibilityError(
                 f"checkpoint {key} mismatch: expected {expected!r}, got {actual!r}."
             )
+    expected_feature_count = model_input_feature_count_for_variant(variant)
+    if raw.get("model_input_feature_count", expected_feature_count) != expected_feature_count:
+        raise PolicyCheckpointCompatibilityError(
+            "checkpoint model_input_feature_count mismatch: "
+            f"expected {expected_feature_count}, got {raw.get('model_input_feature_count')!r}."
+        )
 
 
 def _migrated_training_config(

@@ -8,6 +8,8 @@ import {
   BIDDING_MODEL_INPUT_FEATURE_COUNT,
   BIDDING_MODEL_INPUT_LAYOUT,
   CARD_COUNT,
+  COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT,
+  COMPLETE_INFO_PLAYING_MODEL_INPUT_LAYOUT,
   EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
   EXCHANGE_MODEL_INPUT_LAYOUT,
   FLAT_OBSERVATION_FEATURE_COUNT,
@@ -19,10 +21,13 @@ import {
   MODEL_INPUT_ONEHOT_LAYOUT,
   createAdjutantTrainingSample,
   createBiddingTrainingSample,
+  createCompleteInfoPlayingModelInput,
   createExchangeTrainingSample,
   createPlayingTrainingSample,
   encodeAdjutantModelInput,
   encodeBiddingModelInput,
+  encodeCompleteInfoPlayingModelInput,
+  encodeCompleteInfoPlayingObservation,
   encodeExchangeModelInput,
   encodePlayingModelInput,
   getCardIndex
@@ -239,6 +244,89 @@ describe("encodePlayingModelInput", () => {
     const selectedCardIndex = getCardIndex(decision.action.cardId);
 
     expect(modelInput[legalMaskOffset + selectedCardIndex]).toBe(1);
+  });
+});
+
+describe("encodeCompleteInfoPlayingModelInput", () => {
+  it("fixes the compact complete-information playing layout at 385 features", () => {
+    expect(COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT).toBe(385);
+    expect(COMPLETE_INFO_PLAYING_MODEL_INPUT_LAYOUT).toEqual([
+      { name: "cardOwnerClassByCardOneHot", start: 0, stop: 318, shape: [53, 6], dtype: "float32" },
+      { name: "capturedPointCardCountByPlayer", start: 318, stop: 323, shape: [5], dtype: "float32" },
+      { name: "trumpSuitOneHot", start: 323, stop: 327, shape: [4], dtype: "float32" },
+      { name: "contractTargetPointCards", start: 327, stop: 328, shape: [1], dtype: "float32" },
+      { name: "napoleonPlayerOneHot", start: 328, stop: 333, shape: [5], dtype: "float32" },
+      { name: "revealedAdjutantPlayerOneHot", start: 333, stop: 339, shape: [6], dtype: "float32" },
+      { name: "selfRoleOneHot", start: 339, stop: 343, shape: [4], dtype: "float32" },
+      { name: "calledAdjutantCardIndex", start: 343, stop: 344, shape: [1], dtype: "float32" },
+      { name: "specialCardIndices", start: 344, stop: 348, shape: [4], dtype: "float32" },
+      { name: "currentTrickSlotMask", start: 348, stop: 353, shape: [5], dtype: "float32" },
+      { name: "currentTrickCardIndices", start: 353, stop: 358, shape: [5], dtype: "float32" },
+      { name: "currentTrickPlayerIndicesOneHot", start: 358, stop: 383, shape: [5, 5], dtype: "float32" },
+      { name: "trickNumber", start: 383, stop: 384, shape: [1], dtype: "float32" },
+      { name: "completedTrickCount", start: 384, stop: 385, shape: [1], dtype: "float32" }
+    ]);
+    expect(COMPLETE_INFO_PLAYING_MODEL_INPUT_LAYOUT.map((slice) => slice.name)).not.toContain(
+      "legalPlayMask"
+    );
+  });
+
+  it("builds deterministic compact input and returns legal play mask separately", async () => {
+    const record = await runAutomatedGame({
+      seed: 12345,
+      createAgent: ({ rng }) => new RuleBasedAgent(rng)
+    });
+    const decision = record.decisions.find((candidate) => candidate.phase === "playing");
+
+    if (decision === undefined) {
+      throw new Error("Expected a playing decision.");
+    }
+
+    const observation = encodeCompleteInfoPlayingObservation(
+      decision.observation,
+      decision.actualState,
+      record.playerIds
+    );
+    const wrapped = createCompleteInfoPlayingModelInput(observation);
+    const direct = encodeCompleteInfoPlayingModelInput(observation);
+    const repeated = encodeCompleteInfoPlayingModelInput(observation);
+
+    expect(wrapped.modelInput).toBeInstanceOf(Float32Array);
+    expect(wrapped.modelInput).toHaveLength(COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT);
+    expect(wrapped.legalPlayMask).toEqual(observation.legalPlayMask);
+    expect(Array.from(wrapped.modelInput)).toEqual(Array.from(direct));
+    expect(Buffer.from(direct.buffer)).toEqual(Buffer.from(repeated.buffer));
+  });
+
+  it("one-hot encodes card ownership in the compact model input", async () => {
+    const record = await runAutomatedGame({
+      seed: 777,
+      createAgent: ({ rng }) => new RuleBasedAgent(rng)
+    });
+    const decision = record.decisions.find((candidate) => candidate.phase === "playing");
+
+    if (decision === undefined) {
+      throw new Error("Expected a playing decision.");
+    }
+
+    const observation = encodeCompleteInfoPlayingObservation(
+      decision.observation,
+      decision.actualState,
+      record.playerIds
+    );
+    const modelInput = encodeCompleteInfoPlayingModelInput(observation);
+    const ownerRegion = modelInput.slice(0, CARD_COUNT * 6);
+
+    observation.cardOwnerClassByCard.forEach((ownerClass, cardIndex) => {
+      const row = Array.from(ownerRegion.slice(cardIndex * 6, (cardIndex + 1) * 6));
+
+      expect(row[ownerClass]).toBe(1);
+      expect(row.reduce((sum, value) => sum + value, 0)).toBe(1);
+    });
+  });
+
+  it("leaves the existing public playing model input count unchanged", () => {
+    expect(MODEL_INPUT_FEATURE_COUNT).toBe(6246);
   });
 });
 

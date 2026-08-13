@@ -83,6 +83,12 @@ from .constants import (
 )
 from .errors import ManifestValidationError, SampleValidationError, ShardIntegrityError
 from .manifest import DatasetManifest, DatasetShardManifest
+from .playing_variants import (
+    model_input_feature_count_for_variant,
+    normalize_playing_observation_variant,
+    playing_encoder_schema_version_for_variant,
+    playing_model_input_schema_version_for_variant,
+)
 from .sample import (
     AdjutantTrainingSample,
     BiddingTrainingSample,
@@ -364,18 +370,31 @@ def _validate_playing_self_play_manifest_identity(manifest: DatasetManifest) -> 
             f"got {manifest.sample_schema_version}."
         )
 
-    if manifest.playing_encoder_schema_version != PLAYING_ENCODER_SCHEMA_VERSION:
+    variant = normalize_playing_observation_variant(manifest.playing_observation_variant)
+    expected_encoder_schema_version = playing_encoder_schema_version_for_variant(variant)
+    if manifest.playing_encoder_schema_version != expected_encoder_schema_version:
         raise ManifestValidationError(
             "self-play manifest.playingEncoderSchemaVersion mismatch: "
-            f"expected {PLAYING_ENCODER_SCHEMA_VERSION}, "
+            f"expected {expected_encoder_schema_version}, "
             f"got {manifest.playing_encoder_schema_version}."
         )
 
-    if manifest.playing_model_input_schema_version != PLAYING_MODEL_INPUT_SCHEMA_VERSION:
+    expected_model_input_schema_version = playing_model_input_schema_version_for_variant(variant)
+    if manifest.playing_model_input_schema_version != expected_model_input_schema_version:
         raise ManifestValidationError(
             "self-play manifest.playingModelInputSchemaVersion mismatch: "
-            f"expected {PLAYING_MODEL_INPUT_SCHEMA_VERSION}, "
+            f"expected {expected_model_input_schema_version}, "
             f"got {manifest.playing_model_input_schema_version}."
+        )
+    expected_model_input_feature_count = model_input_feature_count_for_variant(variant)
+    if (
+        manifest.model_input_feature_count is not None
+        and manifest.model_input_feature_count != expected_model_input_feature_count
+    ):
+        raise ManifestValidationError(
+            "self-play manifest.modelInputFeatureCount mismatch: "
+            f"expected {expected_model_input_feature_count}, "
+            f"got {manifest.model_input_feature_count}."
         )
 
     policy = manifest.behavior_policy
@@ -516,8 +535,11 @@ def _validate_tensor_schema(manifest: DatasetManifest) -> None:
     if schema.compression not in {"none", "gzip"}:
         raise ManifestValidationError("binary self-play tensorSchema.compression mismatch.")
 
+    expected_model_input_feature_count = model_input_feature_count_for_variant(
+        manifest.playing_observation_variant
+    )
     expected_fields = (
-        ("modelInput", "float32", (MODEL_INPUT_FEATURE_COUNT,)),
+        ("modelInput", "float32", (expected_model_input_feature_count,)),
         ("legalPlayMask", "uint8", (CARD_COUNT,)),
         ("selectedCardIndex", "uint8", ()),
         ("behaviorLogProbability", "float32", ()),

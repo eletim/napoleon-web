@@ -5,6 +5,9 @@ export {
   BIDDING_ENCODER_SCHEMA_VERSION,
   BIDDING_MODEL_INPUT_FEATURE_COUNT,
   CARD_COUNT,
+  COMPLETE_INFO_PLAYING_ENCODER_SCHEMA_VERSION,
+  COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT,
+  COMPLETE_INFO_PLAYING_MODEL_INPUT_SCHEMA_VERSION,
   DATASET_SCHEMA_VERSION,
   EXCHANGE_DISCARD_COUNT,
   EXCHANGE_ENCODER_SCHEMA_VERSION,
@@ -49,10 +52,17 @@ export {
   selectLegalPolicyAction
 } from "./policyOnnx.js";
 export {
+  COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT,
+  PUBLIC_PLAYING_OBSERVATION_VARIANT,
+  getPlayingPolicyOnnxSpec
+} from "./policySpecs.js";
+export type { PlayingObservationVariant } from "./policySpecs.js";
+export {
   PolicyOnnxAgent,
   createPolicyOnnxAgentDecisionMetrics,
   createPolicyOnnxAdjutantInput,
   createPolicyOnnxBiddingInput,
+  createPolicyOnnxCompleteInfoPlayInput,
   createPolicyOnnxExchangeInput,
   createPolicyOnnxPlayInput
 } from "./policyOnnxAgent.js";
@@ -70,6 +80,7 @@ export type {
   PolicyOnnxAgentOptions,
   PolicyOnnxAgentDecisionMetrics,
   PolicyOnnxBiddingInput,
+  PolicyOnnxCompleteInfoPlayInputContext,
   PolicyOnnxExchangeInput,
   PolicyOnnxPlayInput
 } from "./policyOnnxAgent.js";

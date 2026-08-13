@@ -17,6 +17,7 @@ constexpr int kBiddingActionTypeBid = 1;
 constexpr int kMinBiddingTargetPointCards = 13;
 constexpr int kBiddingTargetPointCardsClassCount = 7;
 constexpr int kCompletedTrickCardSlotCount = kTrickCount * kCardsPerTrick;
+constexpr int kSelfRoleCount = 4;
 
 std::string player_id(int player_index) {
   return "player-" + std::to_string(player_index);
@@ -378,6 +379,82 @@ std::array<float, kPlayingModelInputFeatureCount> encode_model_input(
   return result;
 }
 
+std::vector<float> encode_complete_info_model_input(
+    const EncodedPlayingObservation& observation,
+    const std::array<int, kCardCount>& card_owner_class_by_card,
+    const std::array<int, kPlayerCount>& captured_point_card_count_by_player) {
+  std::vector<float> values;
+  values.reserve(kCompleteInfoPlayingModelInputFeatureCount);
+
+  append_one_hot(
+      values,
+      to_vector(card_owner_class_by_card),
+      kCardCount,
+      kCompleteInfoOwnerClassCount,
+      0,
+      {});
+  append_values(values, captured_point_card_count_by_player);
+  append_values(values, observation.trump_suit_one_hot);
+  values.push_back(static_cast<float>(observation.contract_target_point_cards));
+  append_values(values, observation.napoleon_player_one_hot);
+  append_values(values, observation.revealed_adjutant_player_one_hot);
+  append_values(values, observation.self_role_one_hot);
+  const auto called_it = std::find(
+      observation.called_adjutant_card_mask.begin(),
+      observation.called_adjutant_card_mask.end(),
+      1);
+  if (called_it == observation.called_adjutant_card_mask.end()) {
+    throw std::runtime_error("complete-info observation has no called adjutant card");
+  }
+  values.push_back(static_cast<float>(
+      std::distance(observation.called_adjutant_card_mask.begin(), called_it)));
+  append_values(values, observation.special_card_indices);
+  append_values(values, observation.current_trick_slot_mask);
+  append_values(values, observation.current_trick_card_indices);
+  append_one_hot(
+      values,
+      to_vector(observation.current_trick_player_indices),
+      kCardsPerTrick,
+      kPlayerCount,
+      0,
+      {kEmptyPlayerIndex});
+  values.push_back(static_cast<float>(observation.trick_number));
+  values.push_back(static_cast<float>(observation.completed_trick_count));
+
+  if (static_cast<int>(values.size()) != kCompleteInfoPlayingModelInputFeatureCount) {
+    throw std::runtime_error("complete-info playing model input feature count drift");
+  }
+  return values;
+}
+
+std::array<int, kCardCount> complete_info_card_owner_classes(
+    const GameState& state,
+    const EncodedPlayingObservation& observation) {
+  std::array<int, kCardCount> owner_classes{};
+  owner_classes.fill(kNotInHandOwnerClassIndex);
+
+  for (int relative_index = 0; relative_index < kPlayerCount; ++relative_index) {
+    const int absolute_index = observation.relative_player_indices[static_cast<std::size_t>(relative_index)];
+    for (Card card : state.hands[static_cast<std::size_t>(absolute_index)]) {
+      owner_classes[static_cast<std::size_t>(card_model_index(card))] = relative_index;
+    }
+  }
+  return owner_classes;
+}
+
+std::array<int, kPlayerCount> awarded_point_card_counts_by_player(
+    const GameState& state,
+    const EncodedPlayingObservation& observation) {
+  std::array<int, kPlayerCount> counts{};
+  for (const AwardedPointCards& award : state.awarded_point_cards) {
+    const int relative_index = relative_player_index(
+        observation.relative_player_indices[0],
+        award.player_index);
+    counts[static_cast<std::size_t>(relative_index)] += static_cast<int>(award.cards.size());
+  }
+  return counts;
+}
+
 void json_escape(std::ostream& out, const std::string& value) {
   out << '"';
   for (char ch : value) {
@@ -633,12 +710,90 @@ PlayingModelInput create_playing_model_input(const GameState& state, int player_
   return result;
 }
 
+VariantPlayingModelInput create_playing_model_input(
+    const GameState& state,
+    int player_index,
+    PlayingObservationVariant variant) {
+  const PlayingModelInput public_input = create_playing_model_input(state, player_index);
+
+  VariantPlayingModelInput result;
+  result.variant = variant;
+  result.encoder_schema_version = playing_encoder_schema_version(variant);
+  result.model_input_schema_version = playing_model_input_schema_version(variant);
+  result.model_input_feature_count = playing_model_input_feature_count(variant);
+  result.player_index = player_index;
+  result.legal_play_mask = public_input.legal_play_mask;
+
+  if (variant == PlayingObservationVariant::Public) {
+    result.model_input.assign(public_input.model_input.begin(), public_input.model_input.end());
+    return result;
+  }
+
+  const std::array<int, kCardCount> owner_classes =
+      complete_info_card_owner_classes(state, public_input.observation);
+  const std::array<int, kPlayerCount> captured_counts =
+      awarded_point_card_counts_by_player(state, public_input.observation);
+  result.model_input =
+      encode_complete_info_model_input(public_input.observation, owner_classes, captured_counts);
+  return result;
+}
+
 int playing_card_model_index(Card card) {
   return card_model_index(card);
 }
 
 Card card_from_playing_model_index(int index) {
   return card_from_model_index(index);
+}
+
+PlayingObservationVariant parse_playing_observation_variant(const std::string& value) {
+  if (value == "public") {
+    return PlayingObservationVariant::Public;
+  }
+  if (value == "complete-info-compact") {
+    return PlayingObservationVariant::CompleteInfoCompact;
+  }
+  throw std::runtime_error("playing observation variant must be public or complete-info-compact");
+}
+
+std::string playing_observation_variant_id(PlayingObservationVariant variant) {
+  switch (variant) {
+    case PlayingObservationVariant::Public:
+      return "public";
+    case PlayingObservationVariant::CompleteInfoCompact:
+      return "complete-info-compact";
+  }
+  throw std::runtime_error("invalid playing observation variant");
+}
+
+int playing_encoder_schema_version(PlayingObservationVariant variant) {
+  switch (variant) {
+    case PlayingObservationVariant::Public:
+      return kPlayingEncoderSchemaVersion;
+    case PlayingObservationVariant::CompleteInfoCompact:
+      return kCompleteInfoPlayingEncoderSchemaVersion;
+  }
+  throw std::runtime_error("invalid playing observation variant");
+}
+
+int playing_model_input_schema_version(PlayingObservationVariant variant) {
+  switch (variant) {
+    case PlayingObservationVariant::Public:
+      return kPlayingModelInputSchemaVersion;
+    case PlayingObservationVariant::CompleteInfoCompact:
+      return kCompleteInfoPlayingModelInputSchemaVersion;
+  }
+  throw std::runtime_error("invalid playing observation variant");
+}
+
+int playing_model_input_feature_count(PlayingObservationVariant variant) {
+  switch (variant) {
+    case PlayingObservationVariant::Public:
+      return kPlayingModelInputFeatureCount;
+    case PlayingObservationVariant::CompleteInfoCompact:
+      return kCompleteInfoPlayingModelInputFeatureCount;
+  }
+  throw std::runtime_error("invalid playing observation variant");
 }
 
 std::optional<PlayingModelInput> create_current_player_playing_model_input(const GameState& state) {

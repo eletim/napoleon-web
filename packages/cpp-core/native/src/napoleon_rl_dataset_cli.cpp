@@ -18,6 +18,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <regex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -43,7 +44,6 @@ constexpr std::uint32_t kShardSchemaVersion = 1;
 constexpr std::uint32_t kRuleBasedAgentVersion = 1;
 constexpr std::uint32_t kRewardVersion = 1;
 constexpr int kCardCount = napoleon::observation::kCardCount;
-constexpr int kModelInputFeatureCount = napoleon::observation::kPlayingModelInputFeatureCount;
 constexpr int kSelfRoleCount = 4;
 constexpr char kBinaryMagic[] = "NPSPBD01";
 
@@ -192,11 +192,13 @@ struct CliOptions {
   double temperature = 1.0;
   std::string inference_device = "cpu";
   std::string policy_backend = "deterministic";
+  napoleon::observation::PlayingObservationVariant playing_observation_variant =
+      napoleon::observation::PlayingObservationVariant::Public;
   bool all_current = false;
 };
 
 struct TensorSample {
-  std::array<float, kModelInputFeatureCount> model_input{};
+  std::vector<float> model_input;
   std::array<std::uint8_t, kCardCount> legal_play_mask{};
   std::uint8_t selected_card_index = 0;
   float behavior_log_probability = 0.0F;
@@ -281,11 +283,15 @@ class BinaryShardWriter {
       const std::filesystem::path& output_directory,
       const std::filesystem::path& temp_root,
       std::uint32_t shard_index,
-      std::uint32_t start_seed)
+      std::uint32_t start_seed,
+      napoleon::observation::PlayingObservationVariant playing_observation_variant)
       : output_directory_(output_directory),
         temp_directory_(temp_root / ("shard-" + std::to_string(shard_index))),
         file_name_(shard_file_name(shard_index)),
-        start_seed_(start_seed) {
+        start_seed_(start_seed),
+        playing_observation_variant_(playing_observation_variant),
+        model_input_feature_count_(static_cast<std::size_t>(
+            napoleon::observation::playing_model_input_feature_count(playing_observation_variant))) {
     std::filesystem::create_directories(temp_directory_);
     for (std::size_t index = 0; index < field_files_.size(); ++index) {
       field_files_[index] = temp_directory_ / ("field-" + std::to_string(index) + ".bin");
@@ -305,6 +311,9 @@ class BinaryShardWriter {
   }
 
   void write_sample(const TensorSample& sample) {
+    if (sample.model_input.size() != model_input_feature_count_) {
+      throw std::runtime_error("tensor sample model input feature count mismatch");
+    }
     for (float value : sample.model_input) {
       write_float32_le(streams_[0], value);
     }
@@ -402,8 +411,16 @@ class BinaryShardWriter {
         "selfRoleIndex"};
     static constexpr std::array<const char*, 9> dtypes{
         "float32", "uint8", "uint8", "float32", "int8", "uint32", "uint16", "uint8", "uint8"};
-    static constexpr std::array<const char*, 9> shapes{
-        "[6246]", "[53]", "[]", "[]", "[]", "[]", "[]", "[]", "[]"};
+    const std::array<std::string, 9> shapes{
+        "[" + std::to_string(model_input_feature_count_) + "]",
+        "[53]",
+        "[]",
+        "[]",
+        "[]",
+        "[]",
+        "[]",
+        "[]",
+        "[]"};
 
     std::ostringstream out;
     std::uint64_t offset = 0;
@@ -411,7 +428,9 @@ class BinaryShardWriter {
         << ",\"sampleType\":\"playing-self-play-sample\""
         << ",\"sampleSchemaVersion\":" << kSampleSchemaVersion
         << ",\"sampleCount\":" << sample_count_
-        << ",\"modelInputFeatureCount\":" << kModelInputFeatureCount
+        << ",\"playingObservationVariant\":";
+    json_escape(out, napoleon::observation::playing_observation_variant_id(playing_observation_variant_));
+    out << ",\"modelInputFeatureCount\":" << model_input_feature_count_
         << ",\"cardCount\":" << kCardCount
         << ",\"byteOrder\":\"little-endian\""
         << ",\"compression\":\"none\""
@@ -442,6 +461,8 @@ class BinaryShardWriter {
   std::array<std::ofstream, 9> streams_{};
   std::string file_name_;
   std::uint32_t start_seed_ = 0;
+  napoleon::observation::PlayingObservationVariant playing_observation_variant_;
+  std::size_t model_input_feature_count_ = napoleon::observation::kPlayingModelInputFeatureCount;
   std::uint64_t sample_count_ = 0;
 };
 
@@ -485,6 +506,11 @@ std::string parse_policy_backend(const std::string& value) {
   throw std::runtime_error("--policy-backend must be one of deterministic, onnx");
 }
 
+napoleon::observation::PlayingObservationVariant parse_playing_observation_variant(
+    const std::string& value) {
+  return napoleon::observation::parse_playing_observation_variant(value);
+}
+
 CliOptions parse_args(int argc, char** argv) {
   CliOptions options;
   for (int index = 1; index < argc; ++index) {
@@ -526,6 +552,9 @@ CliOptions parse_args(int argc, char** argv) {
       options.inference_device = parse_inference_device(require_value(arg));
     } else if (arg == "--policy-backend") {
       options.policy_backend = parse_policy_backend(require_value(arg));
+    } else if (arg == "--playing-observation-variant") {
+      options.playing_observation_variant =
+          parse_playing_observation_variant(require_value(arg));
     } else if (arg == "--temperature") {
       options.temperature = parse_temperature(require_value(arg));
     } else if (arg == "--all-current") {
@@ -539,7 +568,7 @@ CliOptions parse_args(int argc, char** argv) {
           "[--roster-seed <uint32>] [--temperature <positive>] "
           "[--max-concurrent-games <n>] [--inference-max-batch-size <n>] "
           "[--inference-device cpu|auto|cuda] [--policy-backend deterministic|onnx] "
-          "[--all-current]");
+          "[--playing-observation-variant public|complete-info-compact] [--all-current]");
     }
   }
 
@@ -588,9 +617,15 @@ CliOptions parse_args(int argc, char** argv) {
 TensorSample create_current_policy_sample(
     const napoleon::AgentRequest& request,
     const napoleon::AgentResult& result,
-    std::uint32_t seed) {
-  if (request.playing_model_input.size() != static_cast<std::size_t>(kModelInputFeatureCount)) {
-    throw std::runtime_error("playing request model input must contain 6246 features");
+    std::uint32_t seed,
+    napoleon::observation::PlayingObservationVariant observation_variant) {
+  const std::size_t model_input_feature_count = static_cast<std::size_t>(
+      napoleon::observation::playing_model_input_feature_count(observation_variant));
+  if (request.playing_model_input.size() != model_input_feature_count) {
+    throw std::runtime_error(
+        "playing request model input feature count mismatch: expected " +
+        std::to_string(model_input_feature_count) + ", got " +
+        std::to_string(request.playing_model_input.size()));
   }
   if (request.legal_play_mask.size() != static_cast<std::size_t>(kCardCount)) {
     throw std::runtime_error("playing request legal mask must contain 53 entries");
@@ -606,7 +641,7 @@ TensorSample create_current_policy_sample(
   }
 
   TensorSample sample;
-  std::copy(request.playing_model_input.begin(), request.playing_model_input.end(), sample.model_input.begin());
+  sample.model_input = request.playing_model_input;
   for (std::size_t index = 0; index < request.legal_play_mask.size(); ++index) {
     const int value = request.legal_play_mask[index];
     if (value != 0 && value != 1) {
@@ -619,9 +654,12 @@ TensorSample create_current_policy_sample(
   sample.seed = seed;
   sample.step = static_cast<std::uint16_t>(request.game_decision_count);
   sample.acting_player_index = static_cast<std::uint8_t>(request.player_index);
+  const std::size_t self_role_offset =
+      observation_variant == napoleon::observation::PlayingObservationVariant::Public
+          ? model_input_feature_count - kSelfRoleCount
+          : 339;
   for (int index = 0; index < kSelfRoleCount; ++index) {
-    const float value = sample.model_input[
-        static_cast<std::size_t>(kModelInputFeatureCount - kSelfRoleCount + index)];
+    const float value = sample.model_input[self_role_offset + static_cast<std::size_t>(index)];
     if (value == 1.0F) {
       sample.self_role_index = static_cast<std::uint8_t>(index);
       return sample;
@@ -645,7 +683,10 @@ napoleon::onnx_policy::InferenceDevice policy_inference_device(const CliOptions&
 std::unique_ptr<napoleon::onnx_policy::PolicySession> create_policy_session(
     const CliOptions& options,
     napoleon::onnx_policy::PolicyKey key,
-    const std::filesystem::path& onnx_path) {
+    const std::filesystem::path& onnx_path,
+    napoleon::observation::PlayingObservationVariant observation_variant) {
+  const std::size_t model_input_feature_count = static_cast<std::size_t>(
+      napoleon::observation::playing_model_input_feature_count(observation_variant));
   if (options.policy_backend == "onnx") {
     return napoleon::onnx_policy::create_onnxruntime_policy_session(
         napoleon::onnx_policy::PolicySessionConfig{
@@ -653,14 +694,16 @@ std::unique_ptr<napoleon::onnx_policy::PolicySession> create_policy_session(
             onnx_path.string(),
             "model_input",
             "logits",
-            policy_inference_device(options)});
+            policy_inference_device(options),
+            model_input_feature_count});
   }
 
   return std::make_unique<napoleon::onnx_policy::DeterministicPolicySession>(
       napoleon::onnx_policy::DeterministicPolicySession::default_logits(),
       options.inference_device == "cuda"
           ? napoleon::onnx_policy::ExecutionProvider::Cuda
-          : napoleon::onnx_policy::ExecutionProvider::Cpu);
+          : napoleon::onnx_policy::ExecutionProvider::Cpu,
+      model_input_feature_count);
 }
 
 std::unique_ptr<napoleon::onnx_policy::BatchedPolicyExecutor> create_policy_executor(
@@ -678,10 +721,18 @@ std::unique_ptr<napoleon::onnx_policy::BatchedPolicyExecutor> create_policy_exec
       options.frozen_artifact_id};
   executor->add_policy(
       current_key,
-      create_policy_session(options, current_key, options.policy_onnx_path));
+      create_policy_session(
+          options,
+          current_key,
+          options.policy_onnx_path,
+          options.playing_observation_variant));
   executor->add_policy(
       frozen_key,
-      create_policy_session(options, frozen_key, options.frozen_onnx_path));
+      create_policy_session(
+          options,
+          frozen_key,
+          options.frozen_onnx_path,
+          napoleon::observation::PlayingObservationVariant::Public));
   return executor;
 }
 
@@ -691,6 +742,7 @@ void submit_dataset_policy_requests(
     const std::vector<napoleon::AgentRequest>& requests,
     std::vector<std::vector<TensorSample>>& samples_by_game,
     std::uint32_t start_seed,
+    napoleon::observation::PlayingObservationVariant observation_variant,
     std::size_t max_batch_size) {
   std::vector<napoleon::AgentResult> results;
   results.reserve(requests.size());
@@ -739,7 +791,8 @@ void submit_dataset_policy_requests(
               create_current_policy_sample(
                   request,
                   policy_result.result,
-                  start_seed + request.game_index));
+                  start_seed + request.game_index,
+                  observation_variant));
         }
         results.push_back(policy_result.result);
       }
@@ -810,6 +863,74 @@ std::string read_text_file(const std::filesystem::path& path) {
   return buffer.str();
 }
 
+std::optional<std::string> json_string_field(const std::string& json, const std::string& key) {
+  const std::regex pattern("\"" + key + "\"\\s*:\\s*\"([^\"]*)\"");
+  std::smatch match;
+  if (!std::regex_search(json, match, pattern)) {
+    return std::nullopt;
+  }
+  return match[1].str();
+}
+
+std::optional<int> json_integer_field(const std::string& json, const std::string& key) {
+  const std::regex pattern("\"" + key + "\"\\s*:\\s*(\\d+)");
+  std::smatch match;
+  if (!std::regex_search(json, match, pattern)) {
+    return std::nullopt;
+  }
+  return std::stoi(match[1].str());
+}
+
+void validate_policy_metadata(
+    const std::string& label,
+    const std::string& metadata_json,
+    napoleon::observation::PlayingObservationVariant expected_variant) {
+  const std::string expected_variant_id =
+      napoleon::observation::playing_observation_variant_id(expected_variant);
+  const int expected_encoder_schema =
+      napoleon::observation::playing_encoder_schema_version(expected_variant);
+  const int expected_model_input_schema =
+      napoleon::observation::playing_model_input_schema_version(expected_variant);
+  const int expected_feature_count =
+      napoleon::observation::playing_model_input_feature_count(expected_variant);
+
+  const std::string actual_variant_id =
+      json_string_field(metadata_json, "playingObservationVariant").value_or("public");
+  if (actual_variant_id != expected_variant_id) {
+    throw std::runtime_error(
+        label + " metadata playingObservationVariant mismatch: expected " +
+        expected_variant_id + ", got " + actual_variant_id);
+  }
+
+  const auto require_int = [&](const std::string& key, int expected) {
+    const std::optional<int> actual = json_integer_field(metadata_json, key);
+    if (!actual.has_value() || *actual != expected) {
+      throw std::runtime_error(
+          label + " metadata " + key + " mismatch: expected " +
+          std::to_string(expected) + ", got " +
+          (actual.has_value() ? std::to_string(*actual) : std::string("<missing>")));
+    }
+  };
+
+  require_int("playingEncoderSchemaVersion", expected_encoder_schema);
+  require_int("modelInputSchemaVersion", expected_model_input_schema);
+  const std::optional<int> model_input_feature_count =
+      json_integer_field(metadata_json, "modelInputFeatureCount");
+  if (model_input_feature_count.has_value() && *model_input_feature_count != expected_feature_count) {
+    throw std::runtime_error(
+        label + " metadata modelInputFeatureCount mismatch: expected " +
+        std::to_string(expected_feature_count) + ", got " +
+        std::to_string(*model_input_feature_count));
+  }
+  const std::optional<int> input_dim = json_integer_field(metadata_json, "input_dim");
+  if (!input_dim.has_value() || *input_dim != expected_feature_count) {
+    throw std::runtime_error(
+        label + " metadata policyModel.input_dim mismatch: expected " +
+        std::to_string(expected_feature_count) + ", got " +
+        (input_dim.has_value() ? std::to_string(*input_dim) : std::string("<missing>")));
+  }
+}
+
 std::string resolved_inference_device(const CliOptions& options) {
   return options.inference_device == "cuda" ? "cuda" : "cpu";
 }
@@ -861,6 +982,10 @@ void write_manifest(
   const std::string policy_metadata_json = read_text_file(options.policy_metadata_path);
   const std::string frozen_metadata_json = read_text_file(options.frozen_metadata_path);
   const std::uint32_t end_seed = options.start_seed + options.game_count - 1u;
+  const int model_input_feature_count =
+      napoleon::observation::playing_model_input_feature_count(options.playing_observation_variant);
+  const std::string observation_variant_id =
+      napoleon::observation::playing_observation_variant_id(options.playing_observation_variant);
   std::ofstream out(output_directory / "manifest.json");
   if (!out.is_open()) {
     throw std::runtime_error("failed opening manifest.json");
@@ -918,10 +1043,16 @@ void write_manifest(
     out << (index + 1 == shards.size() ? "\n" : ",\n");
   }
   out << "  ],\n";
-  out << "  \"playingEncoderSchemaVersion\": " << napoleon::observation::kPlayingEncoderSchemaVersion
+  out << "  \"playingEncoderSchemaVersion\": "
+      << napoleon::observation::playing_encoder_schema_version(options.playing_observation_variant)
       << ",\n";
   out << "  \"playingModelInputSchemaVersion\": "
-      << napoleon::observation::kPlayingModelInputSchemaVersion << ",\n";
+      << napoleon::observation::playing_model_input_schema_version(options.playing_observation_variant)
+      << ",\n";
+  out << "  \"playingObservationVariant\": ";
+  json_escape(out, observation_variant_id);
+  out << ",\n";
+  out << "  \"modelInputFeatureCount\": " << model_input_feature_count << ",\n";
   out << "  \"behaviorPolicy\": {\n";
   out << "    \"type\": \"playing-onnx\",\n";
   out << "    \"artifactId\": ";
@@ -970,7 +1101,12 @@ void write_manifest(
   json_escape(out, options.frozen_artifact_id);
   out << ", \"frozenOnnxSha256\": \"" << frozen_onnx_sha256
       << "\", \"frozenMetadataSha256\": \"" << frozen_metadata_sha256
-      << "\", \"behaviorSamples\": \"current-policy-only\", \"rawCacheCompatible\": true, "
+      << "\", \"playingObservationVariant\": ";
+  json_escape(out, observation_variant_id);
+  out << ", \"modelInputFeatureCount\": " << model_input_feature_count
+      << ", \"frozenPlayingObservationVariant\": \"public\", "
+      << "\"frozenModelInputFeatureCount\": " << napoleon::observation::kPlayingModelInputFeatureCount
+      << ", \"behaviorSamples\": \"current-policy-only\", \"rawCacheCompatible\": true, "
       << "\"rosterSpec\": {\"kind\": \"current-plus-opponent-pool\", "
       << "\"currentSeatRotation\": \"game-index-mod-player-count\", "
       << "\"opponentPool\": [\"rule-based\", \"frozen-onnx\"]}},\n";
@@ -1009,7 +1145,7 @@ void write_manifest(
   out << "]},\n";
   out << "  \"tensorSchema\": {\"shardSchemaVersion\": 1, \"byteOrder\": \"little-endian\", "
       << "\"compression\": \"none\", \"fields\": [";
-  out << "{\"name\":\"modelInput\",\"dtype\":\"float32\",\"shape\":[6246]},";
+  out << "{\"name\":\"modelInput\",\"dtype\":\"float32\",\"shape\":[" << model_input_feature_count << "]},";
   out << "{\"name\":\"legalPlayMask\",\"dtype\":\"uint8\",\"shape\":[53]},";
   out << "{\"name\":\"selectedCardIndex\",\"dtype\":\"uint8\",\"shape\":[]},";
   out << "{\"name\":\"behaviorLogProbability\",\"dtype\":\"float32\",\"shape\":[]},";
@@ -1042,6 +1178,17 @@ RosterSpec create_roster_spec(const CliOptions& options) {
 
 void generate_dataset(const CliOptions& options) {
   const std::filesystem::path output = std::filesystem::absolute(options.output_directory);
+  const std::string policy_metadata_json = read_text_file(options.policy_metadata_path);
+  const std::string frozen_metadata_json = read_text_file(options.frozen_metadata_path);
+  validate_policy_metadata(
+      "current policy",
+      policy_metadata_json,
+      options.playing_observation_variant);
+  validate_policy_metadata(
+      "frozen policy",
+      frozen_metadata_json,
+      napoleon::observation::PlayingObservationVariant::Public);
+
   if (std::filesystem::exists(output)) {
     throw std::runtime_error("output directory already exists: " + output.string());
   }
@@ -1064,12 +1211,28 @@ void generate_dataset(const CliOptions& options) {
     std::uint32_t shard_start_seed = options.start_seed;
     std::uint32_t shard_game_count = 0;
 
+    const auto build_payload =
+        [variant = options.playing_observation_variant](
+            const GameState& state,
+            int player_index,
+            napoleon::AgentRequest& request) {
+          const napoleon::observation::PlayingObservationVariant request_variant =
+              request.agent.type == AgentType::CurrentPolicy
+                  ? variant
+                  : napoleon::observation::PlayingObservationVariant::Public;
+          napoleon::onnx_policy::attach_playing_model_input(
+              state,
+              player_index,
+              request_variant,
+              request);
+        };
+
     napoleon::SimulationRuntime runtime(napoleon::SimulationRuntimeConfig{
         roster_spec,
         options.start_seed,
         options.roster_seed,
         std::max<std::size_t>(1, options.max_concurrent_games),
-        napoleon::onnx_policy::attach_playing_model_input});
+        build_payload});
     std::vector<std::vector<TensorSample>> samples_by_game(options.game_count);
     std::vector<bool> completed(options.game_count, false);
     std::uint32_t next_game_to_add = 0;
@@ -1102,6 +1265,7 @@ void generate_dataset(const CliOptions& options) {
             requests,
             samples_by_game,
             options.start_seed,
+            options.playing_observation_variant,
             std::max<std::size_t>(1, options.inference_max_batch_size));
       }
 
@@ -1126,7 +1290,12 @@ void generate_dataset(const CliOptions& options) {
         const std::uint32_t seed = options.start_seed + next_game_to_write;
         if (!writer.has_value()) {
           shard_start_seed = seed;
-          writer.emplace(output, temp, shard_index, shard_start_seed);
+          writer.emplace(
+              output,
+              temp,
+              shard_index,
+              shard_start_seed,
+              options.playing_observation_variant);
           shard_game_count = 0;
         }
         for (const TensorSample& sample : samples_by_game[next_game_to_write]) {
@@ -1160,6 +1329,12 @@ void generate_dataset(const CliOptions& options) {
             << ",\"sampleCount\":" << total_samples
             << ",\"shardCount\":" << shards.size()
             << ",\"format\":\"playing-self-play-binary-v1\""
+            << ",\"playingObservationVariant\":"
+            << json_string(napoleon::observation::playing_observation_variant_id(
+                   options.playing_observation_variant))
+            << ",\"modelInputFeatureCount\":"
+            << napoleon::observation::playing_model_input_feature_count(
+                   options.playing_observation_variant)
             << ",\"requestedInferenceDevice\":" << json_string(options.inference_device)
             << ",\"resolvedInferenceDevice\":" << json_string(resolved_inference_device(options))
             << ",\"executionProvider\":" << json_string(resolved_inference_device(options))

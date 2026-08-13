@@ -61,6 +61,13 @@ export {
 } from "./encodeBeliefTarget.js";
 export type { EncodedBeliefTarget } from "./encodeBeliefTarget.js";
 export {
+  encodeCompleteInfoPlayingObservation,
+  validateEncodedCompleteInfoPlayingObservation
+} from "./encodeCompleteInfoPlayingObservation.js";
+export type {
+  EncodedCompleteInfoPlayingObservation
+} from "./encodeCompleteInfoPlayingObservation.js";
+export {
   encodeDiscardAction,
   validateEncodedExchangeAction,
   validateLegalDiscardCardMask
@@ -83,12 +90,15 @@ export type { EncodedPlayingObservation } from "./encodePlayingObservation.js";
 export {
   ADJUTANT_MODEL_INPUT_LAYOUT,
   BIDDING_MODEL_INPUT_LAYOUT,
+  COMPLETE_INFO_PLAYING_MODEL_INPUT_LAYOUT,
   createAdjutantModelInput,
   createBiddingModelInput,
+  createCompleteInfoPlayingModelInput,
   createExchangeModelInput,
   createPlayingModelInput,
   encodeAdjutantModelInput,
   encodeBiddingModelInput,
+  encodeCompleteInfoPlayingModelInput,
   encodeExchangeModelInput,
   encodePlayingModelInput,
   EXCHANGE_MODEL_INPUT_LAYOUT,
@@ -99,6 +109,7 @@ export {
 export type {
   AdjutantModelInput,
   BiddingModelInput,
+  CompleteInfoPlayingModelInput,
   ExchangeModelInput,
   ModelInputFeatureSlice,
   PlayingModelInput
@@ -120,6 +131,9 @@ export {
   EMPTY_CARD_INDEX,
   EMPTY_BIDDING_ACTION_TYPE,
   EMPTY_BIDDING_SUIT_INDEX,
+  COMPLETE_INFO_PLAYING_ENCODER_SCHEMA_VERSION,
+  COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT,
+  COMPLETE_INFO_PLAYING_MODEL_INPUT_SCHEMA_VERSION,
   EMPTY_PLAYER_INDEX,
   EXCHANGE_ENCODER_SCHEMA_VERSION,
   EXCHANGE_MODEL_INPUT_FEATURE_COUNT,

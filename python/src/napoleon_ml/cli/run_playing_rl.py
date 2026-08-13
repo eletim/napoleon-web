@@ -34,11 +34,13 @@ from napoleon_ml.rl_orchestrator import (
     DEFAULT_ROLLOUT_WORKERS,
     DEFAULT_SELF_PLAY_SEED_BASE,
     DEFAULT_SIMULATION_BACKEND,
+    DEFAULT_PLAYING_OBSERVATION_VARIANT,
     DEFAULT_TEMPERATURE,
     DEFAULT_TRAINING_SEED_BASE,
     PLAYING_RL_ALGORITHMS,
     SUPPORTED_INFERENCE_DEVICES,
     SUPPORTED_SIMULATION_BACKENDS,
+    SUPPORTED_PLAYING_OBSERVATION_VARIANTS,
     PlayingRlOrchestratorError,
     PlayingRlRunConfig,
     run_playing_rl_experiment,
@@ -69,6 +71,7 @@ _OPTION_TO_CONFIG_KEY = {
     "--inference-device": "inferenceDevice",
     "--retain-self-play-data": "retainSelfPlayData",
     "--simulation-backend": "simulationBackend",
+    "--playing-observation-variant": "playingObservationVariant",
     "--frozen-policy-onnx": "frozenPolicyOnnxSha256",
     "--frozen-policy-metadata": "frozenPolicyMetadataSha256",
     "--frozen-policy-artifact-id": "frozenPolicyArtifactId",
@@ -139,6 +142,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--simulation-backend",
         choices=SUPPORTED_SIMULATION_BACKENDS,
         default=DEFAULT_SIMULATION_BACKEND,
+    )
+    parser.add_argument(
+        "--playing-observation-variant",
+        choices=SUPPORTED_PLAYING_OBSERVATION_VARIANTS,
+        default=DEFAULT_PLAYING_OBSERVATION_VARIANT,
     )
     parser.add_argument("--frozen-policy-onnx", type=Path)
     parser.add_argument("--frozen-policy-metadata", type=Path)
@@ -219,6 +227,7 @@ def _config_from_args(
         inference_device=args.inference_device,
         retain_self_play_data=args.retain_self_play_data,
         simulation_backend=args.simulation_backend,
+        playing_observation_variant=args.playing_observation_variant,
         frozen_policy_onnx=frozen_policy_onnx,
         frozen_policy_metadata=frozen_policy_metadata,
         frozen_policy_artifact_id=args.frozen_policy_artifact_id,

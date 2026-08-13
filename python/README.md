@@ -707,6 +707,16 @@ deterministic shard/seed sample order; no shuffle option is exposed.
 Playing self-play RL updates support REINFORCE v1 and Actor-Critic v1 on
 CPU or CUDA:
 
+Create a random, untrained initial checkpoint without a supervised dataset:
+
+```bash
+napoleon-initialize-policy-checkpoint \
+  --output ./models/complete-info-compact-policy-v0.pt \
+  --playing-observation-variant complete-info-compact \
+  --seed 0 \
+  --hidden-dims 512,512,256,256
+```
+
 ```bash
 napoleon-train-policy-reinforce ./datasets/playing-self-play-v1 \
   --input-checkpoint ./models/policy-v0.pt \

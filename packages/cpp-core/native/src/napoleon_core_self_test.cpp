@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <iterator>
 #include <memory>
@@ -57,6 +59,25 @@ std::vector<napoleon::FinishedGame> drive_external_first_legal(
 
   assert(false && "runtime did not finish within iteration budget");
   return {};
+}
+
+std::filesystem::path write_policy_metadata_fixture(
+    const std::string& file_name,
+    const std::string& playing_observation_variant,
+    int playing_encoder_schema_version,
+    int model_input_schema_version,
+    int model_input_feature_count) {
+  const std::filesystem::path path = std::filesystem::temp_directory_path() / file_name;
+  std::ofstream out(path);
+  assert(out.is_open());
+  out << "{\n"
+      << "  \"playingObservationVariant\": \"" << playing_observation_variant << "\",\n"
+      << "  \"playingEncoderSchemaVersion\": " << playing_encoder_schema_version << ",\n"
+      << "  \"modelInputSchemaVersion\": " << model_input_schema_version << ",\n"
+      << "  \"modelInputFeatureCount\": " << model_input_feature_count << ",\n"
+      << "  \"policyModel\": {\"input_dim\": " << model_input_feature_count << "}\n"
+      << "}\n";
+  return path;
 }
 
 std::vector<napoleon::AgentRequest> collect_playing_requests(
@@ -324,7 +345,9 @@ int main() {
       2024,
       3030,
       8,
-      napoleon::onnx_policy::attach_playing_model_input});
+      [](const napoleon::GameState& state, int player_index, napoleon::AgentRequest& request) {
+        napoleon::onnx_policy::attach_playing_model_input(state, player_index, request);
+      }});
   onnx_request_runtime.add_games(5);
   std::vector<napoleon::AgentRequest> playing_requests =
       collect_playing_requests(onnx_request_runtime, 5);
@@ -335,6 +358,37 @@ int main() {
     assert(request.legal_play_mask.size() == napoleon::observation::kCardCount);
     assert(std::accumulate(request.legal_play_mask.begin(), request.legal_play_mask.end(), 0) > 0);
   }
+
+  napoleon::AgentRequest compact_request = playing_requests.front();
+  napoleon::GameState compact_state = napoleon::create_initial_game(2024);
+  for (int player_index = 0; player_index < 5; ++player_index) {
+    napoleon::Action pass;
+    pass.type = napoleon::Action::Type::Pass;
+    pass.player_index = player_index;
+    napoleon::apply_action(compact_state, pass);
+  }
+  napoleon::Action choose_compact_adjutant;
+  choose_compact_adjutant.type = napoleon::Action::Type::ChooseAdjutant;
+  choose_compact_adjutant.player_index = compact_state.current_player_index;
+  choose_compact_adjutant.card = napoleon::parse_card_id("joker");
+  napoleon::apply_action(compact_state, choose_compact_adjutant);
+  napoleon::Action compact_discard;
+  compact_discard.type = napoleon::Action::Type::DiscardCards;
+  compact_discard.player_index = compact_state.current_player_index;
+  compact_discard.cards = {
+      compact_state.hands[static_cast<std::size_t>(compact_discard.player_index)][0],
+      compact_state.hands[static_cast<std::size_t>(compact_discard.player_index)][1],
+      compact_state.hands[static_cast<std::size_t>(compact_discard.player_index)][2]};
+  napoleon::apply_action(compact_state, compact_discard);
+  napoleon::onnx_policy::attach_playing_model_input(
+      compact_state,
+      compact_state.current_player_index,
+      napoleon::observation::PlayingObservationVariant::CompleteInfoCompact,
+      compact_request);
+  assert(compact_request.playing_model_input.size() ==
+         napoleon::observation::kCompleteInfoPlayingModelInputFeatureCount);
+  assert(compact_request.legal_play_mask.size() == napoleon::observation::kCardCount);
+  assert(std::accumulate(compact_request.legal_play_mask.begin(), compact_request.legal_play_mask.end(), 0) > 0);
 
   std::array<float, napoleon::onnx_policy::kPolicyLogitCount> logits{};
   logits.fill(0.0F);
@@ -411,6 +465,49 @@ int main() {
   assert(mixed_stats.policy_stats.at("frozen-policy:rl-v740").request_count == 2);
   assert(mixed_stats.policy_stats.at("frozen-policy:rl-v740").session_run_count == 1);
 
+  std::vector<napoleon::AgentRequest> mixed_dimension_requests;
+  napoleon::AgentRequest current_compact_request = compact_request;
+  current_compact_request.request_id = 1001;
+  current_compact_request.sequence = 1001;
+  current_compact_request.agent = current;
+  napoleon::AgentRequest frozen_public_request = playing_requests.front();
+  frozen_public_request.request_id = 1002;
+  frozen_public_request.sequence = 1002;
+  frozen_public_request.agent = frozen;
+  mixed_dimension_requests.push_back(current_compact_request);
+  mixed_dimension_requests.push_back(frozen_public_request);
+  napoleon::onnx_policy::BatchedPolicyExecutor mixed_dimension_executor(
+      napoleon::onnx_policy::BatchedPolicyConfig{2, 1.0, 778});
+  mixed_dimension_executor.add_policy(
+      napoleon::onnx_policy::policy_key_from_agent(current),
+      std::make_unique<napoleon::onnx_policy::DeterministicPolicySession>(
+          logits,
+          napoleon::onnx_policy::ExecutionProvider::Cpu,
+          napoleon::observation::kCompleteInfoPlayingModelInputFeatureCount));
+  mixed_dimension_executor.add_policy(
+      napoleon::onnx_policy::policy_key_from_agent(frozen),
+      std::make_unique<napoleon::onnx_policy::DeterministicPolicySession>(
+          logits,
+          napoleon::onnx_policy::ExecutionProvider::Cpu,
+          napoleon::observation::kPlayingModelInputFeatureCount));
+  assert(mixed_dimension_executor.run(mixed_dimension_requests).size() == 2);
+
+  bool rejected_compact_for_public_session = false;
+  try {
+    napoleon::onnx_policy::BatchedPolicyExecutor mismatch_executor(
+        napoleon::onnx_policy::BatchedPolicyConfig{2, 1.0, 779});
+    mismatch_executor.add_policy(
+        napoleon::onnx_policy::policy_key_from_agent(current),
+        std::make_unique<napoleon::onnx_policy::DeterministicPolicySession>(
+            logits,
+            napoleon::onnx_policy::ExecutionProvider::Cpu,
+            napoleon::observation::kPlayingModelInputFeatureCount));
+    mismatch_executor.run({current_compact_request});
+  } catch (const std::runtime_error&) {
+    rejected_compact_for_public_session = true;
+  }
+  assert(rejected_compact_for_public_session);
+
   napoleon::AgentRequest forced_request = playing_requests.front();
   forced_request.legal_actions = {playing_requests.front().legal_actions.front()};
   forced_request.legal_play_mask.assign(napoleon::observation::kCardCount, 0);
@@ -456,8 +553,8 @@ int main() {
             "/tmp/missing-policy.onnx",
             "model_input",
             "logits",
-            napoleon::onnx_policy::InferenceDevice::Cuda});
-  } catch (const std::runtime_error&) {
+            napoleon::onnx_policy::InferenceDevice::Cpu});
+  } catch (const std::exception&) {
     rejected_unenabled_onnxruntime = true;
   }
   assert(rejected_unenabled_onnxruntime);
@@ -528,6 +625,88 @@ int main() {
   assert(eval_artifact.json.find("\"tsCudaBatch1Workers4SecondsPer2000Games\":11.2") !=
          std::string::npos);
   assert(eval_artifact.json.find("\"usesRlDatasetGeneration\":false") != std::string::npos);
+
+  const std::filesystem::path compact_candidate_metadata = write_policy_metadata_fixture(
+      "napoleon-compact-candidate-policy.json",
+      "complete-info-compact",
+      napoleon::observation::kCompleteInfoPlayingEncoderSchemaVersion,
+      napoleon::observation::kCompleteInfoPlayingModelInputSchemaVersion,
+      napoleon::observation::kCompleteInfoPlayingModelInputFeatureCount);
+  const std::filesystem::path public_frozen_metadata = write_policy_metadata_fixture(
+      "napoleon-public-frozen-policy.json",
+      "public",
+      napoleon::observation::kPlayingEncoderSchemaVersion,
+      napoleon::observation::kPlayingModelInputSchemaVersion,
+      napoleon::observation::kPlayingModelInputFeatureCount);
+  const napoleon::evaluation::EvaluationArtifact mixed_dimension_eval =
+      napoleon::evaluation::run_evaluation(napoleon::evaluation::EvaluationOptions{
+          napoleon::evaluation::EvaluationScenario::CandidateVsOpponentPool,
+          101,
+          8,
+          303,
+          8,
+          4,
+          {0, 1, 2, 3, 4},
+          "compact-candidate",
+          "rl-v740",
+          "",
+          compact_candidate_metadata.string(),
+          "",
+          public_frozen_metadata.string()});
+  assert(mixed_dimension_eval.scheduled_games == 40);
+  assert(mixed_dimension_eval.completed_games == 40);
+  assert(mixed_dimension_eval.failed_games == 0);
+  assert(mixed_dimension_eval.json.find("\"candidate-vs-opponent-pool\"") != std::string::npos);
+  assert(mixed_dimension_eval.json.find("\"current-policy:compact-candidate\"") != std::string::npos);
+  assert(mixed_dimension_eval.json.find("\"frozen-policy:rl-v740\"") != std::string::npos);
+
+  const std::filesystem::path mismatched_candidate_metadata = write_policy_metadata_fixture(
+      "napoleon-mismatched-candidate-policy.json",
+      "complete-info-compact",
+      napoleon::observation::kCompleteInfoPlayingEncoderSchemaVersion,
+      napoleon::observation::kCompleteInfoPlayingModelInputSchemaVersion,
+      napoleon::observation::kPlayingModelInputFeatureCount);
+  bool rejected_candidate_metadata_mismatch = false;
+  try {
+    (void)napoleon::evaluation::run_evaluation(napoleon::evaluation::EvaluationOptions{
+        napoleon::evaluation::EvaluationScenario::CandidateVsOpponentPool,
+        101,
+        1,
+        303,
+        2,
+        2,
+        {0},
+        "compact-candidate",
+        "rl-v740",
+        "",
+        mismatched_candidate_metadata.string(),
+        "",
+        public_frozen_metadata.string()});
+  } catch (const std::runtime_error&) {
+    rejected_candidate_metadata_mismatch = true;
+  }
+  assert(rejected_candidate_metadata_mismatch);
+
+  bool rejected_frozen_variant_mismatch = false;
+  try {
+    (void)napoleon::evaluation::run_evaluation(napoleon::evaluation::EvaluationOptions{
+        napoleon::evaluation::EvaluationScenario::CandidateVsOpponentPool,
+        101,
+        1,
+        303,
+        2,
+        2,
+        {0},
+        "compact-candidate",
+        "rl-v740",
+        "",
+        compact_candidate_metadata.string(),
+        "",
+        compact_candidate_metadata.string()});
+  } catch (const std::runtime_error&) {
+    rejected_frozen_variant_mismatch = true;
+  }
+  assert(rejected_frozen_variant_mismatch);
 
   const napoleon::evaluation::EvaluationArtifact tournament_artifact =
       napoleon::evaluation::run_evaluation(napoleon::evaluation::EvaluationOptions{

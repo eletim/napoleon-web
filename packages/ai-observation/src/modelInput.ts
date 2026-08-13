@@ -3,6 +3,8 @@ import { validateEncodedAdjutantObservation } from "./encodeAdjutantObservation.
 import type { EncodedBiddingHistory } from "./encodeBiddingHistory.js";
 import type { EncodedBiddingObservation } from "./encodeBiddingObservation.js";
 import { validateEncodedBiddingObservation } from "./encodeBiddingObservation.js";
+import type { EncodedCompleteInfoPlayingObservation } from "./encodeCompleteInfoPlayingObservation.js";
+import { validateEncodedCompleteInfoPlayingObservation } from "./encodeCompleteInfoPlayingObservation.js";
 import type { EncodedExchangeObservation } from "./encodeExchangeObservation.js";
 import { validateEncodedExchangeObservation } from "./encodeExchangeObservation.js";
 import type { EncodedPlayingObservation } from "./encodePlayingObservation.js";
@@ -16,6 +18,8 @@ import {
   BIDDING_MODEL_INPUT_SCHEMA_VERSION,
   CARD_COUNT,
   CARDS_PER_TRICK,
+  COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT,
+  COMPLETE_INFO_PLAYING_MODEL_INPUT_SCHEMA_VERSION,
   EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
   EXCHANGE_MODEL_INPUT_SCHEMA_VERSION,
   FLAT_OBSERVATION_FEATURE_COUNT,
@@ -32,6 +36,7 @@ import {
 const COMPLETED_TRICK_CARD_SLOT_COUNT = TRICK_COUNT * CARDS_PER_TRICK;
 const SPECIAL_CARD_INDEX_COUNT = 4;
 const BIDDING_ACTION_TYPE_CLASS_COUNT = 2;
+const COMPLETE_INFO_PLAYING_OWNER_CLASS_COUNT = PLAYER_COUNT + 1;
 const BIDDING_TARGET_POINT_CARDS_CLASS_COUNT =
   MAX_BIDDING_TARGET_POINT_CARDS - MIN_BIDDING_TARGET_POINT_CARDS + 1;
 const CONTRACT_TARGET_POINT_CARDS_CLASS_COUNT =
@@ -56,6 +61,11 @@ export interface ModelInputFeatureSlice {
 }
 
 export interface PlayingModelInput {
+  modelInput: Float32Array;
+  legalPlayMask: readonly number[];
+}
+
+export interface CompleteInfoPlayingModelInput {
   modelInput: Float32Array;
   legalPlayMask: readonly number[];
 }
@@ -108,6 +118,23 @@ const MODEL_INPUT_ONEHOT_SPEC: readonly (readonly [string, readonly number[]])[]
   ["biddingHistorySuitIndicesOneHot", [MAX_BIDDING_ACTION_COUNT, BIDDING_HISTORY_SUIT_ORDER.length]],
   ["biddingHistoryTargetPointCardsOneHot", [MAX_BIDDING_ACTION_COUNT, BIDDING_TARGET_POINT_CARDS_CLASS_COUNT]],
   ["selfRoleOneHot", [SELF_ROLE_COUNT]]
+];
+
+const COMPLETE_INFO_PLAYING_MODEL_INPUT_SPEC: readonly (readonly [string, readonly number[]])[] = [
+  ["cardOwnerClassByCardOneHot", [CARD_COUNT, COMPLETE_INFO_PLAYING_OWNER_CLASS_COUNT]],
+  ["capturedPointCardCountByPlayer", [PLAYER_COUNT]],
+  ["trumpSuitOneHot", [BIDDING_HISTORY_SUIT_ORDER.length]],
+  ["contractTargetPointCards", [1]],
+  ["napoleonPlayerOneHot", [PLAYER_COUNT]],
+  ["revealedAdjutantPlayerOneHot", [PLAYER_COUNT + 1]],
+  ["selfRoleOneHot", [SELF_ROLE_COUNT]],
+  ["calledAdjutantCardIndex", [1]],
+  ["specialCardIndices", [SPECIAL_CARD_INDEX_COUNT]],
+  ["currentTrickSlotMask", [CARDS_PER_TRICK]],
+  ["currentTrickCardIndices", [CARDS_PER_TRICK]],
+  ["currentTrickPlayerIndicesOneHot", [CARDS_PER_TRICK, PLAYER_COUNT]],
+  ["trickNumber", [1]],
+  ["completedTrickCount", [1]]
 ];
 
 const BIDDING_HISTORY_ONEHOT_SPEC: readonly (readonly [string, readonly number[]])[] = [
@@ -164,6 +191,8 @@ export const MODEL_INPUT_LAYOUT: readonly ModelInputFeatureSlice[] = [
   ...FLAT_OBSERVATION_LAYOUT,
   ...MODEL_INPUT_ONEHOT_LAYOUT
 ];
+export const COMPLETE_INFO_PLAYING_MODEL_INPUT_LAYOUT: readonly ModelInputFeatureSlice[] =
+  buildLayout(COMPLETE_INFO_PLAYING_MODEL_INPUT_SPEC, 0);
 export const BIDDING_MODEL_INPUT_LAYOUT: readonly ModelInputFeatureSlice[] = buildLayout(
   BIDDING_MODEL_INPUT_SPEC,
   0
@@ -186,6 +215,12 @@ validateLayout(
 );
 validateLayout(MODEL_INPUT_LAYOUT, 0, MODEL_INPUT_FEATURE_COUNT, "MODEL_INPUT_LAYOUT");
 validateLayout(
+  COMPLETE_INFO_PLAYING_MODEL_INPUT_LAYOUT,
+  0,
+  COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT,
+  "COMPLETE_INFO_PLAYING_MODEL_INPUT_LAYOUT"
+);
+validateLayout(
   BIDDING_MODEL_INPUT_LAYOUT,
   0,
   BIDDING_MODEL_INPUT_FEATURE_COUNT,
@@ -205,11 +240,12 @@ validateLayout(
 );
 
 if (
+  COMPLETE_INFO_PLAYING_MODEL_INPUT_SCHEMA_VERSION !== 1 ||
   BIDDING_MODEL_INPUT_SCHEMA_VERSION !== 1 ||
   EXCHANGE_MODEL_INPUT_SCHEMA_VERSION !== 1 ||
   ADJUTANT_MODEL_INPUT_SCHEMA_VERSION !== 1
 ) {
-  throw new Error("Non-playing model_input schema versions must match schema v1.");
+  throw new Error("Complete-info/non-playing model_input schema versions must match schema v1.");
 }
 
 export function createPlayingModelInput(
@@ -241,6 +277,62 @@ export function encodePlayingModelInput(
   }
 
   return Float32Array.from(modelInputParts);
+}
+
+export function createCompleteInfoPlayingModelInput(
+  observation: EncodedCompleteInfoPlayingObservation
+): CompleteInfoPlayingModelInput {
+  return {
+    modelInput: encodeCompleteInfoPlayingModelInput(observation),
+    legalPlayMask: observation.legalPlayMask
+  };
+}
+
+export function encodeCompleteInfoPlayingModelInput(
+  observation: EncodedCompleteInfoPlayingObservation
+): Float32Array {
+  validateEncodedCompleteInfoPlayingObservation(observation);
+
+  const modelInputParts: number[] = [];
+
+  appendOneHotIndexField(modelInputParts, {
+    name: "cardOwnerClassByCardOneHot",
+    indices: observation.cardOwnerClassByCard,
+    slotCount: CARD_COUNT,
+    classCount: COMPLETE_INFO_PLAYING_OWNER_CLASS_COUNT,
+    minValue: 0,
+    emptyValues: []
+  });
+  append(modelInputParts, observation.capturedPointCardCountByPlayer);
+  append(modelInputParts, observation.trumpSuitOneHot);
+  modelInputParts.push(observation.contractTargetPointCards);
+  append(modelInputParts, observation.napoleonPlayerOneHot);
+  append(modelInputParts, observation.revealedAdjutantPlayerOneHot);
+  append(modelInputParts, observation.selfRoleOneHot);
+  modelInputParts.push(observation.calledAdjutantCardIndex);
+  modelInputParts.push(
+    observation.specialCardIndices.oruma,
+    observation.specialCardIndices.yoromeki,
+    observation.specialCardIndices.seiJack,
+    observation.specialCardIndices.uraJack
+  );
+  append(modelInputParts, observation.currentTrickSlotMask);
+  append(modelInputParts, observation.currentTrickCardIndices);
+  appendOneHotIndexField(modelInputParts, {
+    name: "currentTrickPlayerIndicesOneHot",
+    indices: observation.currentTrickPlayerIndices,
+    slotCount: CARDS_PER_TRICK,
+    classCount: PLAYER_COUNT,
+    minValue: 0,
+    emptyValues: [-1]
+  });
+  modelInputParts.push(observation.trickNumber, observation.completedTrickCount);
+
+  return toCheckedFloat32Array(
+    modelInputParts,
+    COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT,
+    "complete-info playing model_input"
+  );
 }
 
 export function createBiddingModelInput(

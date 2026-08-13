@@ -38,6 +38,7 @@ interface ParsedArgs {
   artifactId: string | undefined;
   rolloutRoster: string | undefined;
   progressPrefix: string;
+  observationVariant: "public" | "complete-info-compact";
 }
 
 const optionNames = new Set([
@@ -54,7 +55,8 @@ const optionNames = new Set([
   "--inference-device",
   "--artifact-id",
   "--rollout-roster",
-  "--progress-prefix"
+  "--progress-prefix",
+  "--playing-observation-variant"
 ]);
 
 export async function runPlayingSelfPlayCli(
@@ -92,7 +94,8 @@ export async function runPlayingSelfPlayCli(
             ...await createPolicyFingerprint(args.onnx, args.metadata)
           },
           rolloutRoster: rolloutRoster.workerSeats,
-          temperature: args.temperature
+          temperature: args.temperature,
+          observationVariant: args.observationVariant
         });
     const result = await generatePlayingSelfPlayDataset({
       outputDirectory: args.output,
@@ -110,6 +113,7 @@ export async function runPlayingSelfPlayCli(
       inferenceMaxBatchSize: args.inferenceMaxBatchSize,
       temperature: args.temperature,
       rolloutRoster: rolloutRoster.options,
+      observationVariant: args.observationVariant,
       onProgress: createProgressReporter(
         args.games,
         (text) => io.stderr.write(`${args.progressPrefix}${text}`),
@@ -195,7 +199,10 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
     inferenceDevice: parseInferenceDevice(optionalValue(values, "--inference-device") ?? "cpu"),
     artifactId: optionalValue(values, "--artifact-id"),
     rolloutRoster: optionalValue(values, "--rollout-roster"),
-    progressPrefix: optionalValue(values, "--progress-prefix") ?? ""
+    progressPrefix: optionalValue(values, "--progress-prefix") ?? "",
+    observationVariant: parsePlayingObservationVariant(
+      optionalValue(values, "--playing-observation-variant") ?? "public"
+    )
   };
 }
 
@@ -330,6 +337,14 @@ function parseInferenceDevice(value: string): "cpu" | "auto" | "cuda" {
     return value;
   }
   throw new Error("--inference-device must be one of cpu, auto, cuda.");
+}
+
+function parsePlayingObservationVariant(value: string): "public" | "complete-info-compact" {
+  if (value === "public" || value === "complete-info-compact") {
+    return value;
+  }
+
+  throw new Error("--playing-observation-variant must be public or complete-info-compact.");
 }
 
 async function createPolicyFingerprint(
