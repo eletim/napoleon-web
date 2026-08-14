@@ -9,10 +9,12 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Protocol, cast
 
-from napoleon_ml.bidding.ppo import NON_PLAYING_RL_SAMPLE_TYPE
+from napoleon_ml.adjutant.ppo import NON_PLAYING_RL_SAMPLE_TYPE as ADJUTANT_RL_SAMPLE_TYPE
+from napoleon_ml.bidding.ppo import NON_PLAYING_RL_SAMPLE_TYPE as BIDDING_RL_SAMPLE_TYPE
 from napoleon_ml.dataset.errors import DatasetError
 from napoleon_ml.nonplaying_onnx_export import (
     PolicyType,
+    export_adjutant_rl_checkpoint_to_onnx,
     export_bidding_rl_checkpoint_to_onnx,
     export_nonplaying_checkpoint_to_onnx,
 )
@@ -81,9 +83,8 @@ def _run(args: argparse.Namespace) -> int:
 
         return 0
 
-    if args.policy_type == "bidding" and _dataset_sample_type(args.dataset_directory) == (
-        NON_PLAYING_RL_SAMPLE_TYPE
-    ):
+    sample_type = _dataset_sample_type(args.dataset_directory)
+    if args.policy_type == "bidding" and sample_type == BIDDING_RL_SAMPLE_TYPE:
         bidding_rl_report = export_bidding_rl_checkpoint_to_onnx(
             dataset_directory=args.dataset_directory,
             checkpoint_path=args.checkpoint,
@@ -91,6 +92,16 @@ def _run(args: argparse.Namespace) -> int:
             metadata_path=metadata_output,
         )
         _print_nonplaying_report(bidding_rl_report, as_json=args.json)
+        return 0
+
+    if args.policy_type == "adjutant" and sample_type == ADJUTANT_RL_SAMPLE_TYPE:
+        adjutant_rl_report = export_adjutant_rl_checkpoint_to_onnx(
+            dataset_directory=args.dataset_directory,
+            checkpoint_path=args.checkpoint,
+            onnx_path=args.output,
+            metadata_path=metadata_output,
+        )
+        _print_nonplaying_report(adjutant_rl_report, as_json=args.json)
         return 0
 
     manifest = load_checked_manifest(args.dataset_directory, command_label="export-policy-onnx")

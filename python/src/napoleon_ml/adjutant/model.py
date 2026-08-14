@@ -83,6 +83,34 @@ class AdjutantMlpModel(nn.Module):
         return cast(Tensor, self.network(model_input))
 
 
+class AdjutantActorCriticModel(nn.Module):
+    """Separated adjutant Actor-Critic model."""
+
+    def __init__(self, config: AdjutantMlpConfig) -> None:
+        super().__init__()
+        self.config = config
+        self.actor = AdjutantMlpModel(config)
+        self.critic = _build_critic(config)
+
+    def forward(self, model_input: Tensor) -> Tensor:
+        return cast(Tensor, self.actor(model_input))
+
+    def value(self, model_input: Tensor) -> Tensor:
+        if model_input.ndim != 2:
+            raise ValueError(
+                f"model_input must have shape (batch, features), got {model_input.shape}."
+            )
+
+        if model_input.shape[1] != self.config.input_dim:
+            raise ValueError(
+                f"model_input feature count must be {self.config.input_dim}, "
+                f"got {model_input.shape[1]}."
+            )
+
+        value = cast(Tensor, self.critic(model_input))
+        return value.squeeze(-1)
+
+
 def create_seeded_adjutant_model(config: AdjutantMlpConfig, *, seed: int) -> AdjutantMlpModel:
     """Create a model after setting PyTorch's CPU RNG seed."""
 
@@ -91,6 +119,33 @@ def create_seeded_adjutant_model(config: AdjutantMlpConfig, *, seed: int) -> Adj
 
     torch.manual_seed(seed)
     return AdjutantMlpModel(config)
+
+
+def create_seeded_adjutant_actor_critic_model(
+    config: AdjutantMlpConfig, *, seed: int
+) -> AdjutantActorCriticModel:
+    """Create a separated Actor-Critic model after setting PyTorch's CPU RNG seed."""
+
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise ValueError(f"seed must be an integer, got {type(seed).__name__}.")
+
+    torch.manual_seed(seed)
+    return AdjutantActorCriticModel(config)
+
+
+def _build_critic(config: AdjutantMlpConfig) -> nn.Sequential:
+    layers: list[nn.Module] = []
+    input_dim = config.input_dim
+
+    for _ in range(config.hidden_layers):
+        layers.append(nn.Linear(input_dim, config.hidden_dim))
+        layers.append(nn.ReLU())
+        if config.dropout > 0.0:
+            layers.append(nn.Dropout(config.dropout))
+        input_dim = config.hidden_dim
+
+    layers.append(nn.Linear(input_dim, 1))
+    return nn.Sequential(*layers)
 
 
 def _require_int(value: dict[str, Any], key: str) -> int:

@@ -568,6 +568,13 @@ describe("runFullPolicyVsRuleBasedEvaluation", () => {
       expect(first.diagnostics.policyAgentDecisionCounts.adjutantOnnxCallCount).toBeGreaterThan(0);
       expect(first.diagnostics.policyAgentDecisionCounts.exchangeOnnxCallCount).toBeGreaterThan(0);
       expect(first.diagnostics.policyAgentDecisionCounts.playingOnnxCallCount).toBeGreaterThan(0);
+      expect(first.diagnostics.adjutantSelection.decisionCount).toBe(
+        first.diagnostics.policyAgentDecisionCounts.adjutantOnnxCallCount
+      );
+      expect(Object.values(first.diagnostics.adjutantSelection.cardIds).reduce(
+        (sum, count) => sum + count,
+        0
+      )).toBe(first.diagnostics.adjutantSelection.decisionCount);
 
       expect(second.run).toEqual(first.run);
       expect(second.comparison).toEqual(first.comparison);

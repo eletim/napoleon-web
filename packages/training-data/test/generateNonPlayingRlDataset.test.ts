@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
   BIDDING_ACTION_COUNT,
   BIDDING_MODEL_INPUT_FEATURE_COUNT,
   CARD_COUNT,
@@ -28,13 +29,18 @@ import {
   NON_PLAYING_RL_REWARD_TYPE,
   NON_PLAYING_RL_REWARD_VERSION,
   NON_PLAYING_RL_SAMPLING_ALGORITHM,
+  calculateNonPlayingAdjutantLogProbability,
   calculateNonPlayingBiddingLogProbability,
   calculateNonPlayingTerminalRoleReward,
+  generateNonPlayingAdjutantRlDataset,
   generateNonPlayingBiddingRlDataset,
+  validateNonPlayingAdjutantRlDatasetManifest,
+  validateNonPlayingAdjutantRlSample,
   validateNonPlayingBiddingRlSample,
   validateNonPlayingRlDatasetManifest
 } from "../src/index.js";
 import type {
+  NonPlayingAdjutantRlSample,
   NonPlayingBiddingRlOutcome,
   NonPlayingBiddingRlSample,
   NonPlayingRlDatasetManifest
@@ -176,6 +182,73 @@ describe("generateNonPlayingBiddingRlDataset", () => {
     });
   });
 
+  it("generates deterministic adjutant RL samples with 53-card legal masks", async () => {
+    await withTempDir(async (directory) => {
+      const playingArtifact = await createPlayingPolicyFixture(join(directory, "playing"));
+      const adjutantArtifact = await createAdjutantPolicyFixture(join(directory, "adjutant"));
+      const playingPolicy = await loadPolicyOnnxModel(playingArtifact);
+      const adjutantPolicy = await loadNonPlayingPolicyOnnxModel(adjutantArtifact);
+      const output = join(directory, "adjutant-rl");
+      const result = await generateNonPlayingAdjutantRlDataset({
+        outputDirectory: output,
+        adjutantPolicy,
+        adjutantPolicyArtifact: adjutantArtifact,
+        playingPolicy,
+        playingPolicyArtifact: playingArtifact,
+        startSeed: 21,
+        gameCount: 2,
+        gamesPerShard: 1,
+        temperature: 0.05
+      });
+
+      const manifest = await readManifest(output);
+      const lines = await readAllShardLines(output, manifest);
+      const samples = lines.map((line) => JSON.parse(line) as NonPlayingAdjutantRlSample);
+
+      expect(result.manifest).toEqual(manifest);
+      validateNonPlayingAdjutantRlDatasetManifest(manifest);
+      expect(manifest.sampleType).toBe("non-playing-adjutant-rl-sample");
+      expect(manifest.phaseScope).toBe("adjutant-only");
+      expect(manifest.learnedPhases).toEqual(["choosing-adjutant"]);
+      expect(manifest.ruleBasedPhases).toEqual(["bidding", "exchanging"]);
+      expect(manifest.fixedPhases).toEqual(["playing"]);
+      expect(manifest.adjutantModelInputFeatureCount).toBe(ADJUTANT_MODEL_INPUT_FEATURE_COUNT);
+      expect(manifest.actionCount).toBe(CARD_COUNT);
+      expect(manifest.behaviorPolicy).toMatchObject({
+        type: "adjutant-onnx",
+        artifactId: "test-adjutant-policy"
+      });
+      expect(manifest.nonLearningAgents.bidding).toMatchObject({
+        type: "rule-based"
+      });
+      expect(manifest.sampleCount).toBe(samples.length);
+      expect(samples.length).toBeGreaterThan(0);
+
+      for (const sample of samples) {
+        validateNonPlayingAdjutantRlSample(sample, sample.seed);
+        expect(sample.phase).toBe("choosing-adjutant");
+        expect(sample.modelInput).toHaveLength(ADJUTANT_MODEL_INPUT_FEATURE_COUNT);
+        expect(sample.legalAdjutantMask).toHaveLength(CARD_COUNT);
+        expect(sum(sample.legalAdjutantMask)).toBe(CARD_COUNT);
+        expect(sample.legalAdjutantMask[sample.selectedActionIndex]).toBe(1);
+        expect(sample.terminalReward).toBe(calculateNonPlayingTerminalRoleReward(sample.outcome));
+
+        const logits = await adjutantPolicy.predictLogits(sample.modelInput);
+        const recomputedLogProbability = calculateNonPlayingAdjutantLogProbability({
+          logits,
+          legalAdjutantMask: sample.legalAdjutantMask,
+          selectedActionIndex: sample.selectedActionIndex,
+          temperature: manifest.temperature
+        });
+
+        expect(sample.behaviorLogProbability).toBeCloseTo(recomputedLogProbability, 5);
+        expect(sample.behaviorLogProbability).toBeLessThanOrEqual(0);
+      }
+
+      assertNoCompleteStateFields(lines);
+    });
+  });
+
   it("calculates terminal role rewards from the v1 reward table", () => {
     expectReward({ winner: "napoleon-team", targetPointCards: 18, actingPlayerRole: "napoleon" }, 18);
     expectReward({ winner: "napoleon-team", targetPointCards: 18, actingPlayerRole: "adjutant" }, 11);
@@ -280,6 +353,39 @@ async function createBiddingPolicyFixture(directory: string): Promise<{
   };
 }
 
+async function createAdjutantPolicyFixture(directory: string): Promise<{
+  onnxPath: string;
+  metadataPath: string;
+  artifactId: string;
+}> {
+  await mkdir(directory, { recursive: true });
+  const onnxPath = join(directory, "adjutant-policy.onnx");
+  const metadataPath = join(directory, "adjutant-policy.json");
+  const logits = new Float32Array(CARD_COUNT);
+  for (let index = 0; index < logits.length; index += 1) {
+    logits[index] = index / 10;
+  }
+
+  await writeFile(
+    onnxPath,
+    createConstantPolicyOnnx(logits, ONNX_OUTPUT_NAME, {
+      inputFeatureCount: ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
+      outputCount: CARD_COUNT
+    })
+  );
+  await writeFile(
+    metadataPath,
+    JSON.stringify(createNonPlayingMetadata("adjutant")) + "\n",
+    "utf8"
+  );
+
+  return {
+    onnxPath,
+    metadataPath,
+    artifactId: "test-adjutant-policy"
+  };
+}
+
 function createPlayingMetadata() {
   return {
     metadataSchemaVersion: 1,
@@ -315,22 +421,28 @@ function createPlayingMetadata() {
 }
 
 function createNonPlayingMetadata(policyType: NonPlayingPolicyType): NonPlayingPolicyOnnxMetadata {
+  const inputFeatureCount = policyType === "adjutant"
+    ? ADJUTANT_MODEL_INPUT_FEATURE_COUNT
+    : BIDDING_MODEL_INPUT_FEATURE_COUNT;
+  const outputCount = policyType === "adjutant" ? CARD_COUNT : BIDDING_ACTION_COUNT;
   return {
     metadataSchemaVersion: 1,
-    artifactType: "napoleon-bidding-policy-onnx",
+    artifactType: policyType === "adjutant"
+      ? "napoleon-adjutant-policy-onnx"
+      : "napoleon-bidding-policy-onnx",
     policyType,
     checkpointSchemaVersion: 1,
     datasetSchemaVersion: 2,
     encoderSchemaVersion: 1,
     modelInputSchemaVersion: 1,
-    modelInputFeatureCount: BIDDING_MODEL_INPUT_FEATURE_COUNT,
-    outputLogitCount: BIDDING_ACTION_COUNT,
-    actionCount: BIDDING_ACTION_COUNT,
+    modelInputFeatureCount: inputFeatureCount,
+    outputLogitCount: outputCount,
+    actionCount: outputCount,
     cardIdsSha256: calculateCardIdsSha256(),
     inputName: ONNX_INPUT_NAME,
     outputName: ONNX_OUTPUT_NAME,
-    inputShape: ["batch", BIDDING_MODEL_INPUT_FEATURE_COUNT],
-    outputShape: ["batch", BIDDING_ACTION_COUNT],
+    inputShape: ["batch", inputFeatureCount],
+    outputShape: ["batch", outputCount],
     inputDtype: "float32",
     outputDtype: "float32",
     onnx: {
@@ -338,28 +450,28 @@ function createNonPlayingMetadata(policyType: NonPlayingPolicyType): NonPlayingP
       inputs: [
         {
           name: ONNX_INPUT_NAME,
-          shape: ["batch", BIDDING_MODEL_INPUT_FEATURE_COUNT],
+          shape: ["batch", inputFeatureCount],
           dtype: "float32"
         }
       ],
       outputs: [
         {
           name: ONNX_OUTPUT_NAME,
-          shape: ["batch", BIDDING_ACTION_COUNT],
+          shape: ["batch", outputCount],
           dtype: "float32"
         }
       ]
     },
     modelConfig: {
-      input_dim: BIDDING_MODEL_INPUT_FEATURE_COUNT,
+      input_dim: inputFeatureCount,
       hidden_dim: 8,
       hidden_layers: 1,
       dropout: 0
     },
     checkpointSeed: 123,
     checkpointCompatibilityMetadata: {
-      modelInputFeatureCount: BIDDING_MODEL_INPUT_FEATURE_COUNT,
-      outputCount: BIDDING_ACTION_COUNT
+      modelInputFeatureCount: inputFeatureCount,
+      outputCount
     }
   };
 }

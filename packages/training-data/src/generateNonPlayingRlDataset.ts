@@ -14,15 +14,21 @@ import {
   BIDDING_ENCODER_SCHEMA_VERSION,
   BIDDING_MODEL_INPUT_FEATURE_COUNT,
   BIDDING_MODEL_INPUT_SCHEMA_VERSION,
+  ADJUTANT_ENCODER_SCHEMA_VERSION,
+  ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
+  ADJUTANT_MODEL_INPUT_SCHEMA_VERSION,
   CARD_COUNT,
   CARD_IDS,
   MODEL_INPUT_FEATURE_COUNT,
   MODEL_INPUT_SCHEMA_VERSION,
   PLAYER_COUNT,
+  createAdjutantModelInput,
   createBiddingModelInput,
   createPlayingModelInput,
   createRelativePlayerOrder,
+  decodeAdjutantAction,
   decodeBiddingAction,
+  encodeAdjutantObservation,
   encodeBiddingObservation,
   encodeBiddingHistoryFromPublicActions,
   encodePlayingObservation,
@@ -38,7 +44,9 @@ import type { DatasetGenerationProgress, DatasetShardManifest } from "./types.js
 import { createJsonlShardWriter, type JsonlShardWriter } from "./shardWriter.js";
 import { calculateCardIdsSha256, serializeManifest } from "./serialization.js";
 
-export const NON_PLAYING_RL_DATASET_SAMPLE_TYPE = "non-playing-bidding-rl-sample" as const;
+export const NON_PLAYING_BIDDING_RL_DATASET_SAMPLE_TYPE = "non-playing-bidding-rl-sample" as const;
+export const NON_PLAYING_ADJUTANT_RL_DATASET_SAMPLE_TYPE = "non-playing-adjutant-rl-sample" as const;
+export const NON_PLAYING_RL_DATASET_SAMPLE_TYPE = NON_PLAYING_BIDDING_RL_DATASET_SAMPLE_TYPE;
 export const NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION = 1 as const;
 export const NON_PLAYING_RL_DATASET_SCHEMA_VERSION = 1 as const;
 export const NON_PLAYING_RL_DATASET_GENERATOR_VERSION = 1 as const;
@@ -47,7 +55,9 @@ export const NON_PLAYING_RL_REWARD_VERSION = 1 as const;
 export const NON_PLAYING_RL_REWARD_ID = "non-playing-terminal-role-reward-v1" as const;
 export const NON_PLAYING_RL_SAMPLING_ALGORITHM = "masked-categorical" as const;
 export const DEFAULT_NON_PLAYING_RL_TEMPERATURE = 1.0 as const;
-export const NON_PLAYING_RL_PHASE_SCOPE = "bidding-only" as const;
+export const NON_PLAYING_BIDDING_RL_PHASE_SCOPE = "bidding-only" as const;
+export const NON_PLAYING_ADJUTANT_RL_PHASE_SCOPE = "adjutant-only" as const;
+export const NON_PLAYING_RL_PHASE_SCOPE = NON_PLAYING_BIDDING_RL_PHASE_SCOPE;
 
 export type NonPlayingBiddingRlRole =
   | "napoleon"
@@ -56,6 +66,12 @@ export type NonPlayingBiddingRlRole =
   | "napoleon-adjutant";
 
 export interface NonPlayingBiddingRlPolicy {
+  metadata: unknown;
+  runtime?: PolicyRuntimeInfo;
+  predictLogits: (modelInput: Float32Array | readonly number[]) => Promise<Float32Array>;
+}
+
+export interface NonPlayingAdjutantRlPolicy {
   metadata: unknown;
   runtime?: PolicyRuntimeInfo;
   predictLogits: (modelInput: Float32Array | readonly number[]) => Promise<Float32Array>;
@@ -87,7 +103,7 @@ export interface NonPlayingBiddingRlOutcome {
 }
 
 export interface NonPlayingBiddingRlSample {
-  sampleType: typeof NON_PLAYING_RL_DATASET_SAMPLE_TYPE;
+  sampleType: typeof NON_PLAYING_BIDDING_RL_DATASET_SAMPLE_TYPE;
   schemaVersion: typeof NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION;
   seed: number;
   step: number;
@@ -103,15 +119,32 @@ export interface NonPlayingBiddingRlSample {
   outcome: NonPlayingBiddingRlOutcome;
 }
 
+export interface NonPlayingAdjutantRlSample {
+  sampleType: typeof NON_PLAYING_ADJUTANT_RL_DATASET_SAMPLE_TYPE;
+  schemaVersion: typeof NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION;
+  seed: number;
+  step: number;
+  phase: "choosing-adjutant";
+  actingPlayerId: PlayerId;
+  actingPlayerIndex: number;
+  relativePlayerIds: readonly PlayerId[];
+  modelInput: readonly number[];
+  legalAdjutantMask: readonly number[];
+  selectedActionIndex: number;
+  behaviorLogProbability: number;
+  terminalReward: number;
+  outcome: NonPlayingBiddingRlOutcome;
+}
+
 export interface NonPlayingRlDatasetManifest {
   datasetSchemaVersion: typeof NON_PLAYING_RL_DATASET_SCHEMA_VERSION;
   generatorVersion: typeof NON_PLAYING_RL_DATASET_GENERATOR_VERSION;
   format: typeof DATASET_FORMAT;
-  sampleType: typeof NON_PLAYING_RL_DATASET_SAMPLE_TYPE;
+  sampleType: typeof NON_PLAYING_BIDDING_RL_DATASET_SAMPLE_TYPE | typeof NON_PLAYING_ADJUTANT_RL_DATASET_SAMPLE_TYPE;
   sampleSchemaVersion: typeof NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION;
-  phaseScope: typeof NON_PLAYING_RL_PHASE_SCOPE;
-  learnedPhases: readonly ["bidding"];
-  ruleBasedPhases: readonly ["choosing-adjutant", "exchanging"];
+  phaseScope: typeof NON_PLAYING_BIDDING_RL_PHASE_SCOPE | typeof NON_PLAYING_ADJUTANT_RL_PHASE_SCOPE;
+  learnedPhases: readonly ["bidding"] | readonly ["choosing-adjutant"];
+  ruleBasedPhases: readonly ["choosing-adjutant", "exchanging"] | readonly ["bidding", "exchanging"];
   fixedPhases: readonly ["playing"];
   startSeed: number;
   endSeed: number;
@@ -126,9 +159,12 @@ export interface NonPlayingRlDatasetManifest {
   biddingEncoderSchemaVersion: typeof BIDDING_ENCODER_SCHEMA_VERSION;
   biddingModelInputSchemaVersion: typeof BIDDING_MODEL_INPUT_SCHEMA_VERSION;
   biddingModelInputFeatureCount: typeof BIDDING_MODEL_INPUT_FEATURE_COUNT;
+  adjutantEncoderSchemaVersion?: typeof ADJUTANT_ENCODER_SCHEMA_VERSION;
+  adjutantModelInputSchemaVersion?: typeof ADJUTANT_MODEL_INPUT_SCHEMA_VERSION;
+  adjutantModelInputFeatureCount?: typeof ADJUTANT_MODEL_INPUT_FEATURE_COUNT;
   playingModelInputSchemaVersion: typeof MODEL_INPUT_SCHEMA_VERSION;
   playingModelInputFeatureCount: typeof MODEL_INPUT_FEATURE_COUNT;
-  actionCount: typeof BIDDING_ACTION_COUNT;
+  actionCount: typeof BIDDING_ACTION_COUNT | typeof CARD_COUNT;
   behaviorPolicy: NonPlayingRlPolicyArtifactManifest;
   fixedPlayingPolicy: NonPlayingRlPolicyArtifactManifest;
   samplingAlgorithm: typeof NON_PLAYING_RL_SAMPLING_ALGORITHM;
@@ -139,6 +175,10 @@ export interface NonPlayingRlDatasetManifest {
     id: typeof NON_PLAYING_RL_REWARD_ID;
   };
   nonLearningAgents: {
+    bidding?: {
+      type: "rule-based";
+      version: typeof RULE_BASED_AGENT_VERSION;
+    };
     choosingAdjutant: {
       type: "rule-based";
       version: typeof RULE_BASED_AGENT_VERSION;
@@ -152,7 +192,7 @@ export interface NonPlayingRlDatasetManifest {
 }
 
 export interface NonPlayingRlPolicyArtifactManifest {
-  type: "bidding-onnx" | "playing-onnx";
+  type: "bidding-onnx" | "adjutant-onnx" | "playing-onnx";
   artifactId: string;
   onnxFileName: string;
   metadataFileName: string;
@@ -183,6 +223,25 @@ export interface GenerateNonPlayingBiddingRlDatasetResult {
   manifest: NonPlayingRlDatasetManifest;
 }
 
+export interface GenerateNonPlayingAdjutantRlDatasetOptions {
+  outputDirectory: string;
+  adjutantPolicy: NonPlayingAdjutantRlPolicy;
+  adjutantPolicyArtifact: NonPlayingRlPolicyArtifactOptions;
+  playingPolicy: FixedPlayingPolicy;
+  playingPolicyArtifact: NonPlayingRlPolicyArtifactOptions;
+  startSeed: number;
+  gameCount: number;
+  gamesPerShard: number;
+  temperature?: number;
+  maxDecisionSteps?: number;
+  onProgress?: (progress: DatasetGenerationProgress) => void;
+}
+
+export interface GenerateNonPlayingAdjutantRlDatasetResult {
+  outputDirectory: string;
+  manifest: NonPlayingRlDatasetManifest;
+}
+
 export interface BiddingRlSampleDraft {
   step: number;
   playerId: PlayerId;
@@ -196,6 +255,21 @@ export interface BiddingRlSampleDraft {
 export interface BiddingRlGameRunResult {
   record: AutomatedGameRecord;
   drafts: readonly BiddingRlSampleDraft[];
+}
+
+export interface AdjutantRlSampleDraft {
+  step: number;
+  playerId: PlayerId;
+  relativePlayerIds: readonly PlayerId[];
+  modelInput: Float32Array;
+  legalAdjutantMask: readonly number[];
+  selectedActionIndex: number;
+  behaviorLogProbability: number;
+}
+
+export interface AdjutantRlGameRunResult {
+  record: AutomatedGameRecord;
+  drafts: readonly AdjutantRlSampleDraft[];
 }
 
 export async function generateNonPlayingBiddingRlDataset(
@@ -310,6 +384,118 @@ export async function generateNonPlayingBiddingRlDataset(
   }
 }
 
+export async function generateNonPlayingAdjutantRlDataset(
+  options: GenerateNonPlayingAdjutantRlDatasetOptions
+): Promise<GenerateNonPlayingAdjutantRlDatasetResult> {
+  const temperature = options.temperature ?? DEFAULT_NON_PLAYING_RL_TEMPERATURE;
+  validateNonPlayingAdjutantRlGenerationOptions({ ...options, temperature });
+
+  const outputDirectory = resolve(options.outputDirectory);
+  await ensureOutputDoesNotExist(outputDirectory);
+  await mkdir(dirname(outputDirectory), { recursive: true });
+
+  const behaviorPolicy = await createPolicyArtifactManifest({
+    type: "adjutant-onnx",
+    artifact: options.adjutantPolicyArtifact,
+    policy: options.adjutantPolicy
+  });
+  const fixedPlayingPolicy = await createPolicyArtifactManifest({
+    type: "playing-onnx",
+    artifact: options.playingPolicyArtifact,
+    policy: options.playingPolicy
+  });
+  const tempDirectory = await mkdtemp(
+    join(dirname(outputDirectory), `.${basenameForTemp(outputDirectory)}.tmp-`)
+  );
+  let activeShard: JsonlShardWriter<NonPlayingAdjutantRlSample> | null = null;
+
+  try {
+    const shards: DatasetShardManifest[] = [];
+    let totalSampleCount = 0;
+    let shardGameCount = 0;
+
+    for (let gameOffset = 0; gameOffset < options.gameCount; gameOffset += 1) {
+      const seed = options.startSeed + gameOffset;
+
+      if (activeShard === null) {
+        activeShard = createJsonlShardWriter(
+          tempDirectory,
+          shards.length,
+          seed,
+          serializeNonPlayingAdjutantRlSample
+        );
+        shardGameCount = 0;
+      }
+
+      const result = await runNonPlayingAdjutantRlGame({
+        seed,
+        adjutantPolicy: options.adjutantPolicy,
+        playingPolicy: options.playingPolicy,
+        temperature,
+        maxDecisionSteps: options.maxDecisionSteps
+      });
+      const samples = completeNonPlayingAdjutantRlSamples(result.record, result.drafts);
+
+      for (const sample of samples) {
+        validateNonPlayingAdjutantRlSample(sample, seed);
+        await activeShard.writeSample(sample);
+      }
+
+      totalSampleCount += samples.length;
+      shardGameCount += 1;
+
+      const shardIsComplete =
+        shardGameCount === options.gamesPerShard || gameOffset === options.gameCount - 1;
+
+      if (shardIsComplete) {
+        const completedShard = await activeShard.close(seed, shardGameCount);
+        shards.push(completedShard);
+        activeShard = null;
+      }
+
+      options.onProgress?.({
+        completedGames: gameOffset + 1,
+        totalGames: options.gameCount,
+        sampleCount: totalSampleCount,
+        completedShards: shards.length,
+        currentSeed: seed
+      });
+    }
+
+    const manifest = createNonPlayingAdjutantRlDatasetManifest({
+      options,
+      temperature,
+      sampleCount: totalSampleCount,
+      shards,
+      behaviorPolicy,
+      fixedPlayingPolicy
+    });
+
+    validateNonPlayingAdjutantRlDatasetManifest(manifest);
+    await writeFile(join(tempDirectory, "manifest.json"), serializeManifest(manifest), "utf8");
+    await rename(tempDirectory, outputDirectory);
+
+    return {
+      outputDirectory: options.outputDirectory,
+      manifest
+    };
+  } catch (error) {
+    if (activeShard !== null) {
+      await activeShard.abort().catch(() => undefined);
+    }
+
+    await rm(tempDirectory, { recursive: true, force: true }).catch((cleanupError: unknown) => {
+      const message = cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
+
+      if (error instanceof Error) {
+        error.message = `${error.message} Cleanup failed: ${message}`;
+      }
+    });
+
+    throw error;
+  }
+}
+
 export async function runNonPlayingBiddingRlGame(options: {
   seed: number;
   biddingPolicy: NonPlayingBiddingRlPolicy;
@@ -326,6 +512,34 @@ export async function runNonPlayingBiddingRlGame(options: {
     maxDecisionSteps: options.maxDecisionSteps,
     createAgent: ({ rng }) => new NonPlayingBiddingRlAgent({
       biddingPolicy: options.biddingPolicy,
+      playingPolicy: options.playingPolicy,
+      rng,
+      temperature,
+      recordSample: (sample) => {
+        drafts.push(sample);
+      }
+    })
+  });
+
+  return { record, drafts };
+}
+
+export async function runNonPlayingAdjutantRlGame(options: {
+  seed: number;
+  adjutantPolicy: NonPlayingAdjutantRlPolicy;
+  playingPolicy: FixedPlayingPolicy;
+  temperature?: number;
+  maxDecisionSteps?: number;
+}): Promise<AdjutantRlGameRunResult> {
+  const drafts: AdjutantRlSampleDraft[] = [];
+  const temperature = options.temperature ?? DEFAULT_NON_PLAYING_RL_TEMPERATURE;
+  validateTemperature(temperature);
+
+  const record = await runAutomatedGame({
+    seed: options.seed,
+    maxDecisionSteps: options.maxDecisionSteps,
+    createAgent: ({ rng }) => new NonPlayingAdjutantRlAgent({
+      adjutantPolicy: options.adjutantPolicy,
       playingPolicy: options.playingPolicy,
       rng,
       temperature,
@@ -392,6 +606,62 @@ export function completeNonPlayingBiddingRlSamples(
   return samples;
 }
 
+export function completeNonPlayingAdjutantRlSamples(
+  record: AutomatedGameRecord,
+  drafts: readonly AdjutantRlSampleDraft[]
+): readonly NonPlayingAdjutantRlSample[] {
+  const samples: NonPlayingAdjutantRlSample[] = [];
+  let draftIndex = 0;
+
+  for (const decision of record.decisions) {
+    if (decision.phase !== "choosing-adjutant") {
+      continue;
+    }
+
+    const draft = drafts[draftIndex];
+    draftIndex += 1;
+
+    if (draft === undefined) {
+      throw new Error("Missing sampled adjutant action for non-playing RL sample.");
+    }
+    if (draft.step !== decision.step || draft.playerId !== decision.playerId) {
+      throw new Error("Sampled adjutant action does not match automated decision order.");
+    }
+    if (decision.action.type !== "choose-adjutant") {
+      throw new Error(
+        `Adjutant RL decision action must be choose-adjutant, got ${decision.action.type}.`
+      );
+    }
+
+    const outcome = createBiddingRlOutcome(record.result, decision.playerId);
+    const sample: NonPlayingAdjutantRlSample = {
+      sampleType: NON_PLAYING_ADJUTANT_RL_DATASET_SAMPLE_TYPE,
+      schemaVersion: NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION,
+      seed: record.seed,
+      step: decision.step,
+      phase: "choosing-adjutant",
+      actingPlayerId: decision.playerId,
+      actingPlayerIndex: record.playerIds.indexOf(decision.playerId),
+      relativePlayerIds: draft.relativePlayerIds,
+      modelInput: Array.from(draft.modelInput),
+      legalAdjutantMask: [...draft.legalAdjutantMask],
+      selectedActionIndex: draft.selectedActionIndex,
+      behaviorLogProbability: draft.behaviorLogProbability,
+      terminalReward: calculateNonPlayingTerminalRoleReward(outcome),
+      outcome
+    };
+
+    validateNonPlayingAdjutantRlSample(sample, record.seed);
+    samples.push(sample);
+  }
+
+  if (draftIndex !== drafts.length) {
+    throw new Error("Unused sampled adjutant actions remain after completing RL samples.");
+  }
+
+  return samples;
+}
+
 export function calculateNonPlayingTerminalRoleReward(
   outcome: Pick<NonPlayingBiddingRlOutcome, "winner" | "targetPointCards" | "actingPlayerRole">
 ): number {
@@ -433,14 +703,73 @@ export function calculateNonPlayingBiddingLogProbability(options: {
   return distribution.logProbabilities[index];
 }
 
+export function calculateNonPlayingAdjutantLogProbability(options: {
+  logits: Float32Array | readonly number[];
+  legalAdjutantMask: ArrayLike<number | boolean>;
+  selectedActionIndex: number;
+  temperature?: number;
+}): number {
+  const distribution = createMaskedCategoricalDistribution(
+    options.logits,
+    options.legalAdjutantMask,
+    CARD_COUNT,
+    options.temperature ?? DEFAULT_NON_PLAYING_RL_TEMPERATURE
+  );
+  const index = distribution.legalIndices.indexOf(options.selectedActionIndex);
+
+  if (index === -1) {
+    throw new Error(
+      `selectedActionIndex ${options.selectedActionIndex} is not legal under legalAdjutantMask.`
+    );
+  }
+
+  return distribution.logProbabilities[index];
+}
+
 export function serializeNonPlayingBiddingRlSample(
   sample: NonPlayingBiddingRlSample
 ): string {
   return `${JSON.stringify(sample)}\n`;
 }
 
+export function serializeNonPlayingAdjutantRlSample(
+  sample: NonPlayingAdjutantRlSample
+): string {
+  return `${JSON.stringify(sample)}\n`;
+}
+
 export function validateNonPlayingBiddingRlGenerationOptions(
   options: GenerateNonPlayingBiddingRlDatasetOptions & { temperature?: number }
+): void {
+  validateUint32("startSeed", options.startSeed);
+  validatePositiveInteger("gameCount", options.gameCount);
+  validatePositiveInteger("gamesPerShard", options.gamesPerShard);
+  validateTemperature(options.temperature ?? DEFAULT_NON_PLAYING_RL_TEMPERATURE);
+
+  if (options.outputDirectory.length === 0) {
+    throw new Error("outputDirectory must be a non-empty path.");
+  }
+
+  const endSeed = options.startSeed + options.gameCount - 1;
+
+  if (!Number.isSafeInteger(endSeed) || endSeed > UINT32_MAX) {
+    throw new Error(`Seed range exceeds uint32: ${options.startSeed}..${endSeed}`);
+  }
+
+  const expectedShardCount = calculateExpectedShardCount(
+    options.gameCount,
+    options.gamesPerShard
+  );
+
+  if (expectedShardCount > MAX_SHARD_COUNT) {
+    throw new Error(
+      `Dataset would require ${expectedShardCount} shards, exceeding the maximum ${MAX_SHARD_COUNT}.`
+    );
+  }
+}
+
+export function validateNonPlayingAdjutantRlGenerationOptions(
+  options: GenerateNonPlayingAdjutantRlDatasetOptions & { temperature?: number }
 ): void {
   validateUint32("startSeed", options.startSeed);
   validatePositiveInteger("gameCount", options.gameCount);
@@ -501,6 +830,54 @@ export function validateNonPlayingBiddingRlSample(
   validateBiddingActionIndex(sample.selectedActionIndex);
   if (sample.legalBidMask[sample.selectedActionIndex] !== 1) {
     throw new Error("selectedActionIndex must be legal in legalBidMask.");
+  }
+  if (
+    !Number.isFinite(sample.behaviorLogProbability) ||
+    sample.behaviorLogProbability > 1e-12
+  ) {
+    throw new Error("behaviorLogProbability must be finite and <= 0.");
+  }
+  if (!Number.isFinite(sample.terminalReward)) {
+    throw new Error("terminalReward must be finite.");
+  }
+  validateOutcome(sample.outcome);
+  if (sample.terminalReward !== calculateNonPlayingTerminalRoleReward(sample.outcome)) {
+    throw new Error("terminalReward must match reward version formula.");
+  }
+}
+
+export function validateNonPlayingAdjutantRlSample(
+  sample: NonPlayingAdjutantRlSample,
+  expectedSeed: number
+): void {
+  validateJsonSafeValue("sample", sample);
+
+  if (sample.sampleType !== NON_PLAYING_ADJUTANT_RL_DATASET_SAMPLE_TYPE) {
+    throw new Error(`Sample sampleType must be ${NON_PLAYING_ADJUTANT_RL_DATASET_SAMPLE_TYPE}.`);
+  }
+  if (sample.schemaVersion !== NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION) {
+    throw new Error(`Unexpected non-playing RL sample schemaVersion: ${sample.schemaVersion}`);
+  }
+  if (sample.seed !== expectedSeed) {
+    throw new Error(`Sample seed must match current seed: ${sample.seed} !== ${expectedSeed}`);
+  }
+  validateUint32("Sample seed", sample.seed);
+  validatePositiveInteger("Sample step", sample.step);
+  validatePlayerIndex("actingPlayerIndex", sample.actingPlayerIndex);
+  expectLength("relativePlayerIds", sample.relativePlayerIds, PLAYER_COUNT);
+  if (sample.relativePlayerIds[0] !== sample.actingPlayerId) {
+    throw new Error("actingPlayerId must match relativePlayerIds[0].");
+  }
+  expectLength("modelInput", sample.modelInput, ADJUTANT_MODEL_INPUT_FEATURE_COUNT);
+  for (const [index, value] of sample.modelInput.entries()) {
+    if (!Number.isFinite(value)) {
+      throw new Error(`modelInput[${index}] must be finite.`);
+    }
+  }
+  validateLegalAdjutantMask(sample.legalAdjutantMask);
+  validateCardActionIndex(sample.selectedActionIndex);
+  if (sample.legalAdjutantMask[sample.selectedActionIndex] !== 1) {
+    throw new Error("selectedActionIndex must be legal in legalAdjutantMask.");
   }
   if (
     !Number.isFinite(sample.behaviorLogProbability) ||
@@ -600,6 +977,105 @@ export function validateNonPlayingRlDatasetManifest(
     throw new Error("Non-playing RL manifest non-learning agent metadata mismatch.");
   }
   validateShards(manifest);
+}
+
+export function validateNonPlayingAdjutantRlDatasetManifest(
+  manifest: NonPlayingRlDatasetManifest
+): void {
+  validateCommonNonPlayingRlDatasetManifest(manifest);
+  if (
+    manifest.sampleType !== NON_PLAYING_ADJUTANT_RL_DATASET_SAMPLE_TYPE ||
+    manifest.sampleSchemaVersion !== NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION
+  ) {
+    throw new Error("Non-playing adjutant RL manifest sample type mismatch.");
+  }
+  if (
+    manifest.phaseScope !== NON_PLAYING_ADJUTANT_RL_PHASE_SCOPE ||
+    !sameStringArray(manifest.learnedPhases, ["choosing-adjutant"]) ||
+    !sameStringArray(manifest.ruleBasedPhases, ["bidding", "exchanging"]) ||
+    !sameStringArray(manifest.fixedPhases, ["playing"])
+  ) {
+    throw new Error("Non-playing adjutant RL manifest phase scope mismatch.");
+  }
+  if (
+    manifest.adjutantEncoderSchemaVersion !== ADJUTANT_ENCODER_SCHEMA_VERSION ||
+    manifest.adjutantModelInputSchemaVersion !== ADJUTANT_MODEL_INPUT_SCHEMA_VERSION ||
+    manifest.adjutantModelInputFeatureCount !== ADJUTANT_MODEL_INPUT_FEATURE_COUNT ||
+    manifest.playingModelInputSchemaVersion !== MODEL_INPUT_SCHEMA_VERSION ||
+    manifest.playingModelInputFeatureCount !== MODEL_INPUT_FEATURE_COUNT ||
+    manifest.actionCount !== CARD_COUNT
+  ) {
+    throw new Error("Non-playing adjutant RL manifest model schema metadata mismatch.");
+  }
+  validatePolicyArtifactManifest(manifest.behaviorPolicy, "adjutant-onnx");
+  validatePolicyArtifactManifest(manifest.fixedPlayingPolicy, "playing-onnx");
+  validateCommonNonPlayingRlPolicyMetadata(manifest);
+  if (
+    manifest.nonLearningAgents.bidding?.type !== "rule-based" ||
+    manifest.nonLearningAgents.bidding.version !== RULE_BASED_AGENT_VERSION
+  ) {
+    throw new Error("Non-playing adjutant RL manifest bidding agent metadata mismatch.");
+  }
+  validateShards(manifest);
+}
+
+function validateCommonNonPlayingRlDatasetManifest(manifest: NonPlayingRlDatasetManifest): void {
+  if (manifest.datasetSchemaVersion !== NON_PLAYING_RL_DATASET_SCHEMA_VERSION) {
+    throw new Error("Non-playing RL manifest datasetSchemaVersion mismatch.");
+  }
+  if (manifest.generatorVersion !== NON_PLAYING_RL_DATASET_GENERATOR_VERSION) {
+    throw new Error("Non-playing RL manifest generatorVersion mismatch.");
+  }
+  if (manifest.format !== DATASET_FORMAT) {
+    throw new Error("Non-playing RL manifest format mismatch.");
+  }
+  validateUint32("Manifest startSeed", manifest.startSeed);
+  validateUint32("Manifest endSeed", manifest.endSeed);
+  if (manifest.endSeed !== manifest.startSeed + manifest.gameCount - 1) {
+    throw new Error("Non-playing RL manifest seed range mismatch.");
+  }
+  validatePositiveInteger("Manifest gameCount", manifest.gameCount);
+  validatePositiveInteger("Manifest sampleCount", manifest.sampleCount);
+  validatePositiveInteger("Manifest gamesPerShard", manifest.gamesPerShard);
+  validatePositiveInteger("Manifest shardCount", manifest.shardCount);
+  if (manifest.shardCount !== calculateExpectedShardCount(manifest.gameCount, manifest.gamesPerShard)) {
+    throw new Error("Non-playing RL manifest shardCount mismatch.");
+  }
+  if (manifest.shardCount !== manifest.shards.length) {
+    throw new Error("Non-playing RL manifest shardCount must match shards length.");
+  }
+  if (manifest.sampleCount !== sum(manifest.shards.map((shard) => shard.sampleCount))) {
+    throw new Error("Non-playing RL manifest sampleCount must equal shard sample counts.");
+  }
+  if (manifest.playerCount !== PLAYER_COUNT || manifest.cardCount !== CARD_COUNT) {
+    throw new Error("Non-playing RL manifest fixed dimensions mismatch.");
+  }
+  if (!sameStringArray(manifest.cardIds, CARD_IDS)) {
+    throw new Error("Non-playing RL manifest cardIds mismatch.");
+  }
+  if (manifest.cardIdsSha256 !== calculateCardIdsSha256()) {
+    throw new Error("Non-playing RL manifest cardIdsSha256 mismatch.");
+  }
+}
+
+function validateCommonNonPlayingRlPolicyMetadata(manifest: NonPlayingRlDatasetManifest): void {
+  if (manifest.samplingAlgorithm !== NON_PLAYING_RL_SAMPLING_ALGORITHM) {
+    throw new Error("Non-playing RL manifest samplingAlgorithm mismatch.");
+  }
+  validateTemperature(manifest.temperature);
+  if (
+    manifest.reward.type !== NON_PLAYING_RL_REWARD_TYPE ||
+    manifest.reward.version !== NON_PLAYING_RL_REWARD_VERSION ||
+    manifest.reward.id !== NON_PLAYING_RL_REWARD_ID
+  ) {
+    throw new Error("Non-playing RL manifest reward metadata mismatch.");
+  }
+  if (
+    manifest.nonLearningAgents.exchanging.type !== "rule-based" ||
+    manifest.nonLearningAgents.exchanging.version !== RULE_BASED_AGENT_VERSION
+  ) {
+    throw new Error("Non-playing RL manifest non-learning agent metadata mismatch.");
+  }
 }
 
 class NonPlayingBiddingRlAgent implements Agent {
@@ -703,6 +1179,130 @@ class NonPlayingBiddingRlAgent implements Agent {
 
     return selectedAction;
   }
+}
+
+class NonPlayingAdjutantRlAgent implements Agent {
+  private readonly ruleBasedAgent: RuleBasedAgent;
+
+  constructor(
+    private readonly options: {
+      adjutantPolicy: NonPlayingAdjutantRlPolicy;
+      playingPolicy: FixedPlayingPolicy;
+      rng: () => number;
+      temperature: number;
+      recordSample: (sample: AdjutantRlSampleDraft) => void;
+    }
+  ) {
+    this.ruleBasedAgent = new RuleBasedAgent(options.rng);
+  }
+
+  async selectAction(observation: PlayerObservation): Promise<GameAction> {
+    return this.selectActionWithContext(observation);
+  }
+
+  async selectActionWithContext(
+    observation: PlayerObservation,
+    context?: { actualState: ActualCardState; playerIds: readonly PlayerId[] }
+  ): Promise<GameAction> {
+    switch (observation.view.phase) {
+      case "choosing-adjutant":
+        return this.selectAdjutantAction(observation);
+      case "playing":
+        return this.selectPlayingAction(observation, context);
+      case "bidding":
+      case "exchanging":
+      case "finished":
+        return this.ruleBasedAgent.selectAction(observation);
+    }
+  }
+
+  private async selectAdjutantAction(observation: PlayerObservation): Promise<GameAction> {
+    if (observation.publicActionHistory === undefined) {
+      throw new Error("Adjutant policy input requires publicActionHistory.");
+    }
+    const absolutePlayerIds = observation.view.players.map((player) => player.id);
+    const relativePlayerIds = createRelativePlayerOrder(absolutePlayerIds, observation.playerId);
+    const biddingHistory = encodeBiddingHistoryFromPublicActions(
+      observation.publicActionHistory,
+      relativePlayerIds
+    );
+    const encoded = encodeAdjutantObservation(observation, absolutePlayerIds, biddingHistory);
+    const { modelInput, legalAdjutantMask } = createAdjutantModelInput(encoded);
+    const logits = await this.options.adjutantPolicy.predictLogits(modelInput);
+    const selection = sampleMaskedCategoricalAction({
+      logits,
+      legalMask: legalAdjutantMask,
+      actionCount: CARD_COUNT,
+      rng: this.options.rng,
+      temperature: this.options.temperature
+    });
+    const selectedAction = decodeAdjutantAction(selection.selectedIndex, observation.playerId);
+    const legalAction = observation.legalActions.find((action) =>
+      adjutantActionsEqual(action, selectedAction)
+    );
+
+    if (legalAction === undefined) {
+      throw new Error(
+        `Adjutant policy selected card index ${selection.selectedIndex} outside legal actions.`
+      );
+    }
+
+    this.options.recordSample({
+      step: nextDecisionStep(observation),
+      playerId: observation.playerId,
+      relativePlayerIds: encoded.relativePlayerIds,
+      modelInput: Float32Array.from(modelInput),
+      legalAdjutantMask: [...legalAdjutantMask],
+      selectedActionIndex: selection.selectedIndex,
+      behaviorLogProbability: selection.logProbability
+    });
+
+    return legalAction;
+  }
+
+  private async selectPlayingAction(
+    observation: PlayerObservation,
+    context: { actualState: ActualCardState; playerIds: readonly PlayerId[] } | undefined
+  ): Promise<GameAction> {
+    return selectFixedPlayingAction({
+      observation,
+      context,
+      playingPolicy: this.options.playingPolicy
+    });
+  }
+}
+
+async function selectFixedPlayingAction(options: {
+  observation: PlayerObservation;
+  context: { actualState: ActualCardState; playerIds: readonly PlayerId[] } | undefined;
+  playingPolicy: FixedPlayingPolicy;
+}): Promise<GameAction> {
+  const { observation, context } = options;
+  if (observation.publicActionHistory === undefined) {
+    throw new Error("Fixed playing policy input requires publicActionHistory.");
+  }
+  const absolutePlayerIds = context?.playerIds ?? observation.view.players.map((player) => player.id);
+  const relativePlayerIds = createRelativePlayerOrder(absolutePlayerIds, observation.playerId);
+  const biddingHistory = encodeBiddingHistoryFromPublicActions(
+    observation.publicActionHistory,
+    relativePlayerIds
+  );
+  const encoded = encodePlayingObservation(observation, absolutePlayerIds, biddingHistory);
+  const { modelInput, legalPlayMask } = createPlayingModelInput(encoded);
+  const logits = await options.playingPolicy.predictLogits(modelInput);
+  const selectedCardIndex = selectHighestLegalIndex(logits, legalPlayMask, CARD_COUNT);
+  const selectedCardId = getCardId(selectedCardIndex);
+  const selectedAction = observation.legalActions.find(
+    (action) => action.type === "play-card" && action.cardId === selectedCardId
+  );
+
+  if (selectedAction === undefined) {
+    throw new Error(
+      `Fixed playing policy selected card index ${selectedCardIndex} (${selectedCardId}) outside legal actions.`
+    );
+  }
+
+  return selectedAction;
 }
 
 function createBiddingRlOutcome(
@@ -929,6 +1529,70 @@ function createNonPlayingRlDatasetManifest(input: {
   };
 }
 
+function createNonPlayingAdjutantRlDatasetManifest(input: {
+  options: GenerateNonPlayingAdjutantRlDatasetOptions;
+  temperature: number;
+  sampleCount: number;
+  shards: readonly DatasetShardManifest[];
+  behaviorPolicy: NonPlayingRlPolicyArtifactManifest;
+  fixedPlayingPolicy: NonPlayingRlPolicyArtifactManifest;
+}): NonPlayingRlDatasetManifest {
+  return {
+    datasetSchemaVersion: NON_PLAYING_RL_DATASET_SCHEMA_VERSION,
+    generatorVersion: NON_PLAYING_RL_DATASET_GENERATOR_VERSION,
+    format: DATASET_FORMAT,
+    sampleType: NON_PLAYING_ADJUTANT_RL_DATASET_SAMPLE_TYPE,
+    sampleSchemaVersion: NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION,
+    phaseScope: NON_PLAYING_ADJUTANT_RL_PHASE_SCOPE,
+    learnedPhases: ["choosing-adjutant"],
+    ruleBasedPhases: ["bidding", "exchanging"],
+    fixedPhases: ["playing"],
+    startSeed: input.options.startSeed,
+    endSeed: input.options.startSeed + input.options.gameCount - 1,
+    gameCount: input.options.gameCount,
+    sampleCount: input.sampleCount,
+    gamesPerShard: input.options.gamesPerShard,
+    shardCount: input.shards.length,
+    playerCount: PLAYER_COUNT,
+    cardCount: CARD_COUNT,
+    cardIds: CARD_IDS,
+    cardIdsSha256: calculateCardIdsSha256(),
+    biddingEncoderSchemaVersion: BIDDING_ENCODER_SCHEMA_VERSION,
+    biddingModelInputSchemaVersion: BIDDING_MODEL_INPUT_SCHEMA_VERSION,
+    biddingModelInputFeatureCount: BIDDING_MODEL_INPUT_FEATURE_COUNT,
+    adjutantEncoderSchemaVersion: ADJUTANT_ENCODER_SCHEMA_VERSION,
+    adjutantModelInputSchemaVersion: ADJUTANT_MODEL_INPUT_SCHEMA_VERSION,
+    adjutantModelInputFeatureCount: ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
+    playingModelInputSchemaVersion: MODEL_INPUT_SCHEMA_VERSION,
+    playingModelInputFeatureCount: MODEL_INPUT_FEATURE_COUNT,
+    actionCount: CARD_COUNT,
+    behaviorPolicy: input.behaviorPolicy,
+    fixedPlayingPolicy: input.fixedPlayingPolicy,
+    samplingAlgorithm: NON_PLAYING_RL_SAMPLING_ALGORITHM,
+    temperature: input.temperature,
+    reward: {
+      type: NON_PLAYING_RL_REWARD_TYPE,
+      version: NON_PLAYING_RL_REWARD_VERSION,
+      id: NON_PLAYING_RL_REWARD_ID
+    },
+    nonLearningAgents: {
+      bidding: {
+        type: "rule-based",
+        version: RULE_BASED_AGENT_VERSION
+      },
+      choosingAdjutant: {
+        type: "rule-based",
+        version: RULE_BASED_AGENT_VERSION
+      },
+      exchanging: {
+        type: "rule-based",
+        version: RULE_BASED_AGENT_VERSION
+      }
+    },
+    shards: input.shards
+  };
+}
+
 async function createPolicyArtifactManifest(input: {
   type: NonPlayingRlPolicyArtifactManifest["type"];
   artifact: NonPlayingRlPolicyArtifactOptions;
@@ -1054,9 +1718,31 @@ function validateLegalBidMask(mask: readonly number[]): void {
   }
 }
 
+function validateLegalAdjutantMask(mask: readonly number[]): void {
+  expectLength("legalAdjutantMask", mask, CARD_COUNT);
+  let legalCount = 0;
+
+  for (const value of mask) {
+    if (!Number.isFinite(value) || !Number.isInteger(value) || (value !== 0 && value !== 1)) {
+      throw new Error("legalAdjutantMask must contain only 0/1 values.");
+    }
+    legalCount += value;
+  }
+
+  if (legalCount === 0) {
+    throw new Error("legalAdjutantMask must contain at least one legal action.");
+  }
+}
+
 function validateBiddingActionIndex(value: number): void {
   if (!Number.isSafeInteger(value) || value < 0 || value >= BIDDING_ACTION_COUNT) {
     throw new Error(`selectedActionIndex must be between 0 and ${BIDDING_ACTION_COUNT - 1}.`);
+  }
+}
+
+function validateCardActionIndex(value: number): void {
+  if (!Number.isSafeInteger(value) || value < 0 || value >= CARD_COUNT) {
+    throw new Error(`selectedActionIndex must be between 0 and ${CARD_COUNT - 1}.`);
   }
 }
 
@@ -1116,6 +1802,13 @@ function biddingActionsEqual(left: GameAction, right: GameAction): boolean {
   return right.type === "bid" &&
     left.suit === right.suit &&
     left.targetPointCards === right.targetPointCards;
+}
+
+function adjutantActionsEqual(left: GameAction, right: GameAction): boolean {
+  return left.type === "choose-adjutant" &&
+    right.type === "choose-adjutant" &&
+    left.playerId === right.playerId &&
+    left.cardId === right.cardId;
 }
 
 function calculateExpectedShardCount(gameCount: number, gamesPerShard: number): number {
