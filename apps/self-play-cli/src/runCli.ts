@@ -1,5 +1,6 @@
 import { generateRuleBasedDataset } from "@napoleon/training-data";
 import { createProgressReporter } from "./formatProgress.js";
+import { runNonPlayingRlCli } from "./nonPlayingRlCli.js";
 import { parseArgs } from "./parseArgs.js";
 
 export interface CliIo {
@@ -13,6 +14,11 @@ export interface CliIo {
 
 export async function runCli(argv: readonly string[], io: CliIo): Promise<number> {
   try {
+    const [command, ...rest] = argv;
+    if (command === "non-playing-rollout" || command === "full-policy-evaluate") {
+      return runNonPlayingRlCli(command, rest, io);
+    }
+
     const parsed = parseArgs(argv);
 
     if (parsed.type === "help") {

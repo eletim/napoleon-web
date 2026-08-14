@@ -20,6 +20,10 @@ from napoleon_ml.adjutant.checkpoint import (
 )
 from napoleon_ml.adjutant.checkpoint import load_adjutant_checkpoint
 from napoleon_ml.adjutant.metrics import select_adjutant_action
+from napoleon_ml.adjutant.model import (
+    AdjutantMlpConfig,
+    create_seeded_adjutant_actor_critic_model,
+)
 from napoleon_ml.adjutant.ppo import (
     ADJUTANT_ACTOR_CRITIC_MODEL_ARCHITECTURE,
     ADJUTANT_PPO_ALGORITHM,
@@ -35,6 +39,7 @@ from napoleon_ml.bidding.checkpoint import (
 )
 from napoleon_ml.bidding.checkpoint import load_bidding_checkpoint
 from napoleon_ml.bidding.metrics import select_bidding_action
+from napoleon_ml.bidding.model import BiddingMlpConfig, create_seeded_bidding_actor_critic_model
 from napoleon_ml.bidding.ppo import (
     BIDDING_ACTOR_CRITIC_MODEL_ARCHITECTURE,
     BIDDING_PPO_ALGORITHM,
@@ -74,6 +79,7 @@ from napoleon_ml.exchange.checkpoint import (
 )
 from napoleon_ml.exchange.checkpoint import load_exchange_checkpoint
 from napoleon_ml.exchange.metrics import DISCARD_COUNT, select_exchange_discards
+from napoleon_ml.exchange.model import ExchangeMlpConfig, create_seeded_exchange_actor_critic_model
 from napoleon_ml.exchange.ppo import (
     EXCHANGE_ACTOR_CRITIC_MODEL_ARCHITECTURE,
     EXCHANGE_DECISION_MODE,
@@ -544,6 +550,71 @@ def export_exchange_rl_checkpoint_to_onnx(
     )
 
 
+def export_seeded_nonplaying_bootstrap_policy_to_onnx(
+    *,
+    policy_type: PolicyType,
+    onnx_path: Path | str,
+    metadata_path: Path | str,
+    seed: int,
+    hidden_dim: int = 128,
+    hidden_layers: int = 2,
+    dropout: float = 0.0,
+) -> dict[str, object]:
+    """Export a seeded untrained non-playing policy for first rollout generation.
+
+    This intentionally keeps the same runtime ONNX and metadata contracts as trained
+    non-playing artifacts, but skips dataset-sample parity because the first rollout
+    dataset does not exist yet.
+    """
+
+    spec = _SPECS[policy_type]
+    output = Path(onnx_path)
+    metadata_output = Path(metadata_path)
+    _validate_bootstrap_export_paths(onnx_path=output, metadata_path=metadata_output)
+    model, checkpoint = _create_bootstrap_model_and_checkpoint(
+        policy_type=policy_type,
+        seed=seed,
+        hidden_dim=hidden_dim,
+        hidden_layers=hidden_layers,
+        dropout=dropout,
+    )
+    _validate_checkpoint_metadata_for_export(spec, checkpoint, model=model)
+    _validate_model_for_export(spec, model)
+
+    model.eval()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    metadata_output.parent.mkdir(parents=True, exist_ok=True)
+
+    dummy_input = torch.zeros((2, spec.model_input_feature_count), dtype=torch.float32)
+    staged_output = _temporary_sibling(output)
+    staged_metadata = _temporary_sibling(metadata_output)
+    try:
+        with torch.no_grad():
+            _export_onnx(model=model, dummy_input=dummy_input, output=staged_output)
+        metadata = build_nonplaying_onnx_metadata(
+            policy_type=policy_type,
+            model=model,
+            checkpoint=checkpoint,
+        )
+        staged_metadata.write_text(
+            json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        staged_output.replace(output)
+        staged_metadata.replace(metadata_output)
+    except Exception:
+        staged_output.unlink(missing_ok=True)
+        staged_metadata.unlink(missing_ok=True)
+        raise
+
+    return {
+        "policyType": policy_type,
+        "onnxPath": str(output),
+        "metadataPath": str(metadata_output),
+        "seed": seed,
+    }
+
+
 def build_nonplaying_onnx_metadata(
     *,
     policy_type: PolicyType,
@@ -667,6 +738,117 @@ def validate_nonplaying_onnx_metadata(metadata: dict[str, Any]) -> None:
         expected_dtype=_FLOAT32_DTYPE,
         label="output",
     )
+
+
+def _validate_bootstrap_export_paths(*, onnx_path: Path, metadata_path: Path) -> None:
+    resolved_onnx = onnx_path.resolve()
+    resolved_metadata = metadata_path.resolve()
+
+    if resolved_onnx == resolved_metadata:
+        raise NonPlayingOnnxExportError(
+            "ONNX output and metadata output must be different paths."
+        )
+    if _is_nested_path(resolved_onnx, resolved_metadata):
+        raise NonPlayingOnnxExportError(
+            "ONNX output and metadata output must not be nested under each other."
+        )
+    _validate_writable_artifact_path(onnx_path, label="ONNX output")
+    _validate_writable_artifact_path(metadata_path, label="metadata output")
+
+
+def _create_bootstrap_model_and_checkpoint(
+    *,
+    policy_type: PolicyType,
+    seed: int,
+    hidden_dim: int,
+    hidden_layers: int,
+    dropout: float,
+) -> tuple[nn.Module, dict[str, object]]:
+    if policy_type == "bidding":
+        bidding_config = BiddingMlpConfig(
+            hidden_dim=hidden_dim,
+            hidden_layers=hidden_layers,
+            dropout=dropout,
+        )
+        model: nn.Module = create_seeded_bidding_actor_critic_model(bidding_config, seed=seed)
+        return model, {
+            "checkpoint_schema_version": BIDDING_PPO_CHECKPOINT_SCHEMA_VERSION,
+            "model_architecture": BIDDING_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+            "algorithm": BIDDING_PPO_ALGORITHM,
+            "model_config": bidding_config.to_dict(),
+            "training_config": {
+                "algorithm": BIDDING_PPO_ALGORITHM,
+                "bootstrap": True,
+            },
+            "dataset_schema_version": MULTIPHASE_DATASET_SCHEMA_VERSION,
+            "sample_type": NON_PLAYING_RL_SAMPLE_TYPE,
+            "sample_schema_version": 1,
+            "phase_scope": "bidding-only",
+            "bidding_encoder_schema_version": BIDDING_ENCODER_SCHEMA_VERSION,
+            "model_input_schema_version": BIDDING_MODEL_INPUT_SCHEMA_VERSION,
+            "model_input_feature_count": BIDDING_MODEL_INPUT_FEATURE_COUNT,
+            "action_count": BIDDING_ACTION_COUNT,
+            "card_ids_sha256": calculate_card_ids_sha256(),
+            "seed": seed,
+        }
+
+    if policy_type == "adjutant":
+        adjutant_config = AdjutantMlpConfig(
+            hidden_dim=hidden_dim,
+            hidden_layers=hidden_layers,
+            dropout=dropout,
+        )
+        model = create_seeded_adjutant_actor_critic_model(adjutant_config, seed=seed)
+        return model, {
+            "checkpoint_schema_version": ADJUTANT_PPO_CHECKPOINT_SCHEMA_VERSION,
+            "model_architecture": ADJUTANT_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+            "algorithm": ADJUTANT_PPO_ALGORITHM,
+            "model_config": adjutant_config.to_dict(),
+            "training_config": {
+                "algorithm": ADJUTANT_PPO_ALGORITHM,
+                "bootstrap": True,
+            },
+            "dataset_schema_version": MULTIPHASE_DATASET_SCHEMA_VERSION,
+            "sample_type": ADJUTANT_PPO_SAMPLE_TYPE,
+            "sample_schema_version": 1,
+            "phase_scope": "adjutant-only",
+            "adjutant_encoder_schema_version": ADJUTANT_ENCODER_SCHEMA_VERSION,
+            "adjutant_model_input_schema_version": ADJUTANT_MODEL_INPUT_SCHEMA_VERSION,
+            "model_input_schema_version": ADJUTANT_MODEL_INPUT_SCHEMA_VERSION,
+            "model_input_feature_count": ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
+            "action_count": CARD_COUNT,
+            "card_ids_sha256": calculate_card_ids_sha256(),
+            "seed": seed,
+        }
+
+    exchange_config = ExchangeMlpConfig(
+        hidden_dim=hidden_dim,
+        hidden_layers=hidden_layers,
+        dropout=dropout,
+    )
+    model = create_seeded_exchange_actor_critic_model(exchange_config, seed=seed)
+    return model, {
+        "checkpoint_schema_version": EXCHANGE_PPO_CHECKPOINT_SCHEMA_VERSION,
+        "model_architecture": EXCHANGE_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+        "algorithm": EXCHANGE_PPO_ALGORITHM,
+        "model_config": exchange_config.to_dict(),
+        "training_config": {
+            "algorithm": EXCHANGE_PPO_ALGORITHM,
+            "bootstrap": True,
+        },
+        "dataset_schema_version": MULTIPHASE_DATASET_SCHEMA_VERSION,
+        "sample_type": EXCHANGE_PPO_SAMPLE_TYPE,
+        "sample_schema_version": 1,
+        "phase_scope": "exchange-only",
+        "decision_mode": EXCHANGE_DECISION_MODE,
+        "exchange_encoder_schema_version": EXCHANGE_ENCODER_SCHEMA_VERSION,
+        "exchange_model_input_schema_version": EXCHANGE_MODEL_INPUT_SCHEMA_VERSION,
+        "model_input_schema_version": EXCHANGE_MODEL_INPUT_SCHEMA_VERSION,
+        "model_input_feature_count": EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
+        "action_count": CARD_COUNT,
+        "card_ids_sha256": calculate_card_ids_sha256(),
+        "seed": seed,
+    }
 
 
 def _temporary_sibling(path: Path) -> Path:
