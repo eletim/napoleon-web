@@ -287,7 +287,8 @@ export function App() {
   const appShellClassName = [
     "app-shell",
     isStartedGame ? "app-shell-game-active" : "",
-    isGameInProgress ? "app-shell-game-in-progress" : ""
+    isGameInProgress ? "app-shell-game-in-progress" : "",
+    isGameInProgress ? `app-shell-phase-${session.state.phase}` : ""
   ]
     .filter(Boolean)
     .join(" ");
