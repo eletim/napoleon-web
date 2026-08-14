@@ -43,6 +43,7 @@ export function SelfHandPanel({
     () => getDisplayedHandCards(self?.hand ?? [], handOrderMode),
     [handOrderMode, self?.hand]
   );
+  const emptyHandSlotCount = Math.max(0, 10 - displayedHand.length);
 
   return (
     <article
@@ -138,6 +139,13 @@ export function SelfHandPanel({
             />
           );
         })}
+        {Array.from({ length: emptyHandSlotCount }, (_, index) => (
+          <span
+            aria-hidden="true"
+            className="hand-card-empty-slot"
+            key={`empty-hand-slot-${index}`}
+          />
+        ))}
       </div>
     </article>
   );

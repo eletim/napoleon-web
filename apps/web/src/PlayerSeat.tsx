@@ -60,7 +60,7 @@ export function PlayerSeat({ player, state }: PlayerSeatProps) {
       >
         <span aria-hidden="true">★{player.capturedPointCards.length}</span>
         <div className="inline-cards compact-points">
-          <PointCards cards={player.capturedPointCards} />
+          <PointCards cards={player.capturedPointCards} fixedSlotCount={10} />
         </div>
       </div>
     </article>

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { PublicGameState } from "@napoleon/protocol";
+import type { PublicGameState, PublicRank, PublicStandardCard, PublicSuit } from "@napoleon/protocol";
 import { PlayerSeat } from "./PlayerSeat";
 import type { TablePlayer } from "./tableTypes";
 
@@ -25,18 +25,60 @@ describe("PlayerSeat", () => {
 
     expect(match?.[1]).toContain('"top-left top-right"\n      "left right"\n      "center center";');
   });
+
+  it("reserves ten captured point card slots for opponent panels", () => {
+    const emptyHtml = renderToStaticMarkup(
+      <PlayerSeat player={createPlayer()} state={createState()} />
+    );
+    const capturedCards = [
+      pointCard("spades", "A"),
+      pointCard("hearts", "K"),
+      pointCard("diamonds", "Q")
+    ];
+    const capturedHtml = renderToStaticMarkup(
+      <PlayerSeat player={createPlayer(capturedCards)} state={createState()} />
+    );
+
+    expect(emptyHtml).toContain("なし");
+    expect(countOccurrences(emptyHtml, "class=\"point-card-empty-slot\"")).toBe(10);
+    expect(countOccurrences(capturedHtml, "class=\"mini-card ")).toBe(3);
+    expect(countOccurrences(capturedHtml, "class=\"point-card-empty-slot\"")).toBe(7);
+  });
+
+  it("defines a five by two mobile captured point card grid", () => {
+    const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
+    const match = styles.match(
+      /\.app-shell-game-in-progress \.captured-compact \.compact-points \{[\s\S]*?grid-template-columns: ([^;]+);[\s\S]*?grid-template-rows: ([^;]+);/
+    );
+
+    expect(match?.[1]).toBe("repeat(5, minmax(0, 1fr))");
+    expect(match?.[2]).toBe("repeat(2, 12px)");
+  });
 });
 
-function createPlayer(): TablePlayer {
+function createPlayer(capturedPointCards: readonly PublicStandardCard[] = []): TablePlayer {
   return {
     id: "player-1",
     label: "左側AI",
     seat: "left",
     handCount: 10,
-    capturedPointCards: [],
+    capturedPointCards,
     isSelf: false,
     biddingDeclaration: undefined
   };
+}
+
+function pointCard(suit: PublicSuit, rank: PublicRank): PublicStandardCard {
+  return {
+    type: "standard",
+    id: `${suit}-${rank}`,
+    suit,
+    rank
+  };
+}
+
+function countOccurrences(value: string, pattern: string): number {
+  return value.split(pattern).length - 1;
 }
 
 function createState(): PublicGameState {
