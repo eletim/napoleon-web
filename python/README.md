@@ -68,6 +68,28 @@ For ONNX export and ONNX Runtime parity checks:
 python -m pip install -e "./python[export]"
 ```
 
+## One-command non-playing RL smoke
+
+The non-playing pipeline can generate short rollout datasets, train PPO
+policies, export ONNX artifacts, and run a fixed-seed full-policy evaluation
+with the repository's frozen playing policy:
+
+```bash
+uv run --project python --extra dev napoleon-run-non-playing-rl \
+  --output-dir /tmp/napoleon-non-playing-smoke \
+  --games 2 \
+  --evaluation-games 1 \
+  --epochs 1 \
+  --batch-size 8 \
+  --hidden-dim 16 \
+  --hidden-layers 1 \
+  --seed 202
+```
+
+The command writes phase artifacts under `bidding/`, `adjutant/`, and
+`exchange/`, plus `evaluation.json` and `run-summary.json`. It refuses to use
+a non-empty output directory unless `--overwrite` is provided.
+
 ## Generating a dataset
 
 Datasets are produced by the TypeScript CLI, from the repository root:
