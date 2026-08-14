@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -104,6 +105,82 @@ describe("SelfHandPanel", () => {
     expect(html).not.toContain("残り2枚");
     expect(html).toContain("aria-label=\"自分の手札\"");
     expect(html).toContain("aria-label=\"自分の獲得得点札は0枚\"");
+  });
+
+  it("reserves ten hand slots without changing existing card controls", () => {
+    const hand = [
+      standardCard("spades", "A"),
+      standardCard("spades", "K"),
+      standardCard("hearts", "Q"),
+      standardCard("diamonds", "J"),
+      standardCard("clubs", "10"),
+      standardCard("clubs", "9")
+    ];
+    const state = createState(hand);
+
+    const html = renderToStaticMarkup(
+      <SelfHandPanel
+        canExchange={false}
+        isBusy={false}
+        legalCardIds={new Set(["spades-A"])}
+        onToggleWinningCardHighlight={vi.fn()}
+        onPlay={vi.fn()}
+        selectedDiscardCardIds={[]}
+        self={state.self}
+        selfPlayer={undefined}
+        state={state}
+        winningCardHighlightEnabled={true}
+      />
+    );
+
+    expect(countOccurrences(html, "class=\"hand-card-empty-slot\"")).toBe(4);
+    expect(countOccurrences(html, "class=\"card ")).toBe(6);
+    expect(buttonMarkup(html, "A♠")).toContain("card-legal");
+  });
+
+  it("does not reserve empty hand slots before a game or after it ends", () => {
+    const unstartedHtml = renderToStaticMarkup(
+      <SelfHandPanel
+        canExchange={false}
+        isBusy={false}
+        legalCardIds={new Set()}
+        onToggleWinningCardHighlight={vi.fn()}
+        onPlay={vi.fn()}
+        selectedDiscardCardIds={[]}
+        self={undefined}
+        selfPlayer={undefined}
+        state={undefined}
+        winningCardHighlightEnabled={true}
+      />
+    );
+    const finishedState = { ...createState([]), isGameOver: true };
+    const finishedHtml = renderToStaticMarkup(
+      <SelfHandPanel
+        canExchange={false}
+        isBusy={false}
+        legalCardIds={new Set()}
+        onToggleWinningCardHighlight={vi.fn()}
+        onPlay={vi.fn()}
+        selectedDiscardCardIds={[]}
+        self={finishedState.self}
+        selfPlayer={undefined}
+        state={finishedState}
+        winningCardHighlightEnabled={true}
+      />
+    );
+
+    expect(unstartedHtml).not.toContain("class=\"hand-card-empty-slot\"");
+    expect(finishedHtml).not.toContain("class=\"hand-card-empty-slot\"");
+  });
+
+  it("defines a five by two mobile hand grid", () => {
+    const styles = readFileSync("src/styles.css", "utf8");
+    const match = styles.match(
+      /\.app-shell-game-in-progress \.hand \{[\s\S]*?grid-template-columns: ([^;]+);[\s\S]*?grid-template-rows: ([^;]+);/
+    );
+
+    expect(match?.[1]).toBe("repeat(5, minmax(0, 1fr))");
+    expect(match?.[2]).toBe("repeat(2, 58px)");
   });
 
   it("toggles riipai from one sort control without sending a card action", () => {
@@ -310,4 +387,8 @@ function getCardButton(container: Element, ariaLabel: string): HTMLButtonElement
   }
 
   return button;
+}
+
+function countOccurrences(value: string, pattern: string): number {
+  return value.split(pattern).length - 1;
 }

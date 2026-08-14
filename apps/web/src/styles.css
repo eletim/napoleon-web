@@ -397,6 +397,10 @@ input:focus-visible {
   color: #94a3b8;
 }
 
+.seat-bid-slot:empty {
+  display: none;
+}
+
 .compact-hand {
   align-items: center;
   display: flex;
@@ -470,6 +474,11 @@ input:focus-visible {
   min-width: 28px;
   padding: 4px 6px;
   text-align: center;
+}
+
+.hand-card-empty-slot,
+.point-card-empty-slot {
+  display: none;
 }
 
 .table-center {
@@ -564,6 +573,9 @@ input:focus-visible {
 }
 
 .trick-board {
+  --played-card-collect-x: 0;
+  --played-card-collect-y: 0;
+
   align-items: center;
   display: grid;
   gap: 12px;
@@ -618,8 +630,25 @@ input:focus-visible {
   padding: 12px;
 }
 
-.trick-message strong {
+.trick-count-summary {
   font-size: 1.05rem;
+}
+
+.trick-mobile-status-summary {
+  display: none;
+}
+
+.trick-contract-summary {
+  font-size: 1.42rem;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.trick-adjutant-summary {
+  font-size: 0.94rem;
+  font-weight: 900;
+  line-height: 1.1;
+  text-align: center;
 }
 
 .played-card,
@@ -636,10 +665,36 @@ input:focus-visible {
 }
 
 .played-card {
+  --played-card-enter-x: 0;
+  --played-card-enter-y: 0;
+
+  animation: played-card-enter 180ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
   transition:
     box-shadow 120ms ease,
     transform 120ms ease,
     border-color 120ms ease;
+}
+
+.played-card-from-left {
+  --played-card-enter-x: -70px;
+}
+
+.played-card-from-top-left {
+  --played-card-enter-x: -38px;
+  --played-card-enter-y: -70px;
+}
+
+.played-card-from-top-right {
+  --played-card-enter-x: 38px;
+  --played-card-enter-y: -70px;
+}
+
+.played-card-from-right {
+  --played-card-enter-x: 70px;
+}
+
+.played-card-from-self {
+  --played-card-enter-y: 82px;
 }
 
 .played-card-winning {
@@ -648,6 +703,37 @@ input:focus-visible {
     0 0 0 3px rgb(250 204 21 / 34%),
     0 12px 24px rgb(15 23 42 / 24%);
   transform: translateY(-4px);
+}
+
+.trick-board-result .played-card-winning {
+  animation: winning-card-pulse 520ms ease-out;
+}
+
+.trick-board-collecting-to-left {
+  --played-card-collect-x: -86px;
+}
+
+.trick-board-collecting-to-top-left {
+  --played-card-collect-x: -42px;
+  --played-card-collect-y: -78px;
+}
+
+.trick-board-collecting-to-top-right {
+  --played-card-collect-x: 42px;
+  --played-card-collect-y: -78px;
+}
+
+.trick-board-collecting-to-right {
+  --played-card-collect-x: 86px;
+}
+
+.trick-board-collecting-to-self {
+  --played-card-collect-y: 82px;
+}
+
+.trick-board-collecting .played-card {
+  animation: played-card-collect 240ms cubic-bezier(0.4, 0, 0.8, 0.2) forwards;
+  pointer-events: none;
 }
 
 .empty-played-card {
@@ -661,6 +747,44 @@ input:focus-visible {
   font-weight: 800;
 }
 
+@keyframes played-card-enter {
+  from {
+    opacity: 0.58;
+    transform: translate(var(--played-card-enter-x), var(--played-card-enter-y)) scale(0.94);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+@keyframes winning-card-pulse {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+
+  45% {
+    filter: brightness(1.12);
+  }
+}
+
+@keyframes played-card-collect {
+  to {
+    opacity: 0;
+    transform: translate(var(--played-card-collect-x), var(--played-card-collect-y)) scale(0.72);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .played-card,
+  .trick-board-result .played-card-winning,
+  .trick-board-collecting .played-card {
+    animation: none;
+  }
+}
+
 .next-trick-button {
   margin-top: 2px;
 }
@@ -669,6 +793,10 @@ input:focus-visible {
   display: grid;
   gap: 10px;
   justify-items: center;
+}
+
+.action-area:empty {
+  display: none;
 }
 
 .bidding-panel,
@@ -1416,6 +1544,22 @@ input:focus-visible {
       max(6px, env(safe-area-inset-left));
   }
 
+  .app-shell-game-active {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .app-shell-game-in-progress {
+    padding:
+      env(safe-area-inset-top)
+      env(safe-area-inset-right)
+      env(safe-area-inset-bottom)
+      env(safe-area-inset-left);
+  }
+
   .top-bar-compact {
     display: grid;
     gap: 6px;
@@ -1430,9 +1574,65 @@ input:focus-visible {
     margin-bottom: 4px;
   }
 
+  .app-shell-game-in-progress .mode-switch-compact,
+  .app-shell-game-in-progress .top-bar-compact {
+    display: none;
+  }
+
+  .app-shell-game-in-progress .top-bar-alert {
+    background: rgb(23 32 51 / 86%);
+    color: #ffffff;
+    display: block;
+    margin: 0;
+    max-width: none;
+    padding: 4px 8px;
+  }
+
+  .app-shell-game-in-progress .top-bar-alert h1 {
+    display: none;
+  }
+
+  .app-shell-game-in-progress .top-bar-alert .primary-button {
+    display: none;
+  }
+
+  .app-shell-game-in-progress .top-bar-alert p {
+    color: inherit;
+    font-size: 0.74rem;
+    font-weight: 800;
+    line-height: 1.25;
+    margin: 0;
+  }
+
+  .app-shell-game-active .mode-switch-compact,
+  .app-shell-game-active .top-bar-compact {
+    flex: 0 0 auto;
+  }
+
+  .app-shell-game-active .top-bar-compact {
+    margin-bottom: 4px;
+  }
+
   .table {
     gap: 6px;
     padding: 6px;
+  }
+
+  .app-shell-game-active .table {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .app-shell-game-in-progress .table {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    margin: 0;
+    max-width: none;
+    width: 100%;
   }
 
   .table-grid {
@@ -1444,15 +1644,148 @@ input:focus-visible {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .app-shell-game-active .table-grid {
+    flex: 1 1 auto;
+    grid-template-areas:
+      "top-left top-right"
+      "left right"
+      "center center";
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: auto auto minmax(0, 1fr);
+    min-height: 0;
+  }
+
+  .app-shell-game-in-progress .table-grid {
+    --opponent-seat-height: 74px;
+
+    gap: 4px;
+    grid-template-areas:
+      "top-left top-right"
+      "left right"
+      "center center";
+    grid-template-rows: var(--opponent-seat-height) var(--opponent-seat-height) minmax(0, 1fr);
+  }
+
   .player-seat {
     gap: 4px;
     min-height: 68px;
     padding: 5px;
   }
 
+  .app-shell-game-active .player-seat {
+    gap: 3px;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+    padding: 4px;
+  }
+
+  .app-shell-game-in-progress .player-seat {
+    align-self: stretch;
+    box-sizing: border-box;
+    gap: 1px;
+    grid-template-rows: 14px 12px 8px 29px;
+    height: var(--opponent-seat-height);
+    justify-self: stretch;
+    min-height: var(--opponent-seat-height);
+    padding: 2px 3px;
+  }
+
+  .app-shell-game-in-progress .player-seat .role-badges {
+    flex-wrap: nowrap;
+    min-height: 12px;
+    overflow: hidden;
+  }
+
+  .app-shell-game-in-progress .small-card-back {
+    height: 14px;
+    width: 10px;
+  }
+
+  .app-shell-game-in-progress .role-badge,
+  .app-shell-game-in-progress .turn-dot {
+    height: 12px;
+    width: 12px;
+  }
+
+  .app-shell-game-in-progress .compact-hand {
+    gap: 2px;
+  }
+
+  .app-shell-game-in-progress .seat-bid-slot {
+    align-items: center;
+    display: flex;
+    min-height: 8px;
+    min-width: 0;
+  }
+
+  .app-shell-game-in-progress .latest-bid-declaration {
+    align-self: stretch;
+    box-sizing: border-box;
+    height: 100%;
+    justify-content: center;
+    min-height: 0;
+    padding: 1px 4px;
+    width: 100%;
+  }
+
+  .app-shell-game-in-progress .latest-bid-declaration strong {
+    font-size: 0.58rem;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-in-progress .player-seat {
+    grid-template-rows: 14px 10px 13px 26px;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-in-progress .seat-bid-slot {
+    min-height: 13px;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-in-progress .latest-bid-declaration {
+    border-width: 1px;
+    padding: 0 3px;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-in-progress .latest-bid-declaration strong {
+    font-size: 0.54rem;
+    line-height: 1;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-in-progress .captured-compact {
+    min-height: 26px;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-in-progress .captured-compact .compact-points {
+    grid-template-rows: repeat(2, 12px);
+    min-height: 26px;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-in-progress .captured-compact .point-card-empty-slot,
+  .app-shell-phase-bidding.app-shell-game-in-progress .captured-compact .mini-card {
+    height: 12px;
+  }
+
+  .app-shell-game-in-progress .captured-compact {
+    align-self: stretch;
+    align-items: start;
+    min-height: 29px;
+    overflow: hidden;
+  }
+
   .seat-main-row,
   .self-heading {
     gap: 5px;
+  }
+
+  .app-shell-game-active .seat-main-row,
+  .app-shell-game-active .seat-title {
+    min-width: 0;
+  }
+
+  .app-shell-game-active .seat-title h2 {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .seat-title h2,
@@ -1478,6 +1811,10 @@ input:focus-visible {
     min-height: 16px;
   }
 
+  .app-shell-game-active .role-badges {
+    min-height: 0;
+  }
+
   .role-badge,
   .turn-dot {
     font-size: 0.54rem;
@@ -1497,7 +1834,7 @@ input:focus-visible {
 
   .captured-compact,
   .self-points-row {
-    gap: 3px;
+    gap: 2px;
   }
 
   .captured-compact > span,
@@ -1512,6 +1849,55 @@ input:focus-visible {
     padding: 3px 4px;
   }
 
+  .app-shell-game-in-progress .compact-points {
+    min-height: 28px;
+    padding-bottom: 0;
+  }
+
+  .app-shell-game-in-progress .mini-card {
+    border-radius: 3px;
+    font-size: 0.62rem;
+    min-width: 18px;
+    padding: 1px 2px;
+  }
+
+  .app-shell-game-in-progress .captured-compact .compact-points {
+    display: grid;
+    gap: 2px 1px;
+    grid-auto-columns: calc((100% - 4px) / 5);
+    grid-template-columns: repeat(5, calc((100% - 4px) / 5));
+    grid-template-rows: repeat(2, 13px);
+    min-height: 28px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 0;
+    touch-action: pan-x;
+  }
+
+  .app-shell-game-in-progress .captured-compact .point-cards-empty-label {
+    display: none;
+  }
+
+  .app-shell-game-in-progress .captured-compact .point-card-empty-slot {
+    display: block;
+    height: 13px;
+    min-width: 0;
+    visibility: hidden;
+  }
+
+  .app-shell-game-in-progress .captured-compact .mini-card {
+    align-items: center;
+    box-sizing: border-box;
+    display: grid;
+    height: 13px;
+    justify-items: center;
+    line-height: 1;
+    min-width: 0;
+    overflow: hidden;
+    padding: 0 1px;
+    width: 100%;
+  }
+
   .trick-board {
     gap: 6px;
     grid-template-areas:
@@ -1519,6 +1905,34 @@ input:focus-visible {
       "left right"
       "self self"
       "message message";
+  }
+
+  .app-shell-game-active .table-center {
+    align-content: start;
+    align-content: safe center;
+    gap: 2px;
+    margin: 0;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .app-shell-game-in-progress .table-center-trick .game-status {
+    display: none;
+  }
+
+  .app-shell-game-active .trick-board {
+    gap: 3px 5px;
+    grid-template-areas:
+      "top-left . top-right"
+      "left message right"
+      ". self .";
+    grid-template-columns: minmax(56px, 1fr) minmax(68px, 0.9fr) minmax(56px, 1fr);
+    grid-template-rows: repeat(3, auto);
+  }
+
+  .app-shell-game-active .trick-slot {
+    gap: 4px;
   }
 
   .compact-status-row {
@@ -1540,8 +1954,27 @@ input:focus-visible {
     padding: 8px;
   }
 
-  .trick-message strong {
-    font-size: 0.86rem;
+  .app-shell-game-active .trick-message {
+    min-height: 48px;
+    padding: 5px;
+  }
+
+  .app-shell-game-active .trick-count-summary {
+    display: none;
+  }
+
+  .app-shell-game-active .trick-mobile-status-summary {
+    display: grid;
+    gap: 4px;
+    justify-items: center;
+  }
+
+  .app-shell-game-active .trick-contract-summary {
+    font-size: 1.28rem;
+  }
+
+  .app-shell-game-active .trick-adjutant-summary {
+    font-size: 0.78rem;
   }
 
   .played-card,
@@ -1552,13 +1985,48 @@ input:focus-visible {
     width: 58px;
   }
 
+  .app-shell-game-active .played-card,
+  .app-shell-game-active .empty-played-card {
+    border-radius: 7px;
+    height: 72px;
+    padding: 4px;
+    width: 52px;
+  }
+
+  .app-shell-game-active .played-owner {
+    font-size: 0.7rem;
+    line-height: 1;
+  }
+
   .played-card .red-text,
   .played-card .black-text {
     font-size: 1.35rem;
   }
 
+  .app-shell-game-active .played-card .red-text,
+  .app-shell-game-active .played-card .black-text {
+    font-size: 1.16rem;
+  }
+
   .joker-text {
     font-size: 0.78rem;
+  }
+
+  .app-shell-game-active .joker-text {
+    font-size: 0.68rem;
+  }
+
+  .app-shell-game-active .next-trick-button {
+    margin-top: 0;
+    min-height: 32px;
+  }
+
+  .app-shell-game-active .action-area {
+    gap: 3px;
+    max-height: min(30dvh, 180px);
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   .hand {
@@ -1568,11 +2036,25 @@ input:focus-visible {
     min-height: 0;
   }
 
+  .app-shell-game-in-progress .hand {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-rows: repeat(2, 58px);
+  }
+
   .card {
     border-radius: 6px;
     height: 58px;
     padding: 3px;
     width: 100%;
+  }
+
+  .app-shell-game-active .hand-card-empty-slot {
+    border: 2px solid transparent;
+    border-radius: 6px;
+    box-sizing: border-box;
+    display: block;
+    height: 58px;
+    min-width: 0;
   }
 
   .card-suit {
@@ -1665,6 +2147,10 @@ input:focus-visible {
     padding: 6px;
   }
 
+  .app-shell-game-active .self-panel {
+    flex: 0 0 auto;
+  }
+
   .self-points-row {
     margin-bottom: 6px;
     padding-top: 6px;
@@ -1673,5 +2159,207 @@ input:focus-visible {
   .hand-sort-button {
     min-height: 26px;
     padding: 4px 7px;
+  }
+}
+
+@media (max-width: 560px) and (max-height: 640px) {
+  .app-shell-game-active {
+    padding: 4px;
+    padding:
+      max(4px, env(safe-area-inset-top))
+      max(4px, env(safe-area-inset-right))
+      max(4px, env(safe-area-inset-bottom))
+      max(4px, env(safe-area-inset-left));
+  }
+
+  .app-shell-game-in-progress {
+    padding:
+      env(safe-area-inset-top)
+      env(safe-area-inset-right)
+      env(safe-area-inset-bottom)
+      env(safe-area-inset-left);
+  }
+
+  .app-shell-game-active .mode-button {
+    font-size: 0.72rem;
+    min-height: 26px;
+    padding: 0 8px;
+  }
+
+  .app-shell-game-active .top-bar-compact {
+    gap: 3px;
+  }
+
+  .app-shell-game-active .top-bar-compact .primary-button {
+    min-height: 28px;
+  }
+
+  .app-shell-game-active .table {
+    gap: 4px;
+    padding: 4px;
+  }
+
+  .app-shell-game-active .action-area {
+    max-height: 24dvh;
+  }
+
+  .app-shell-game-active .player-seat {
+    padding: 3px;
+  }
+
+  .app-shell-game-in-progress .table-grid {
+    --opponent-seat-height: 64px;
+  }
+
+  .app-shell-game-in-progress .player-seat {
+    gap: 1px;
+    grid-template-rows: 12px 10px 8px 25px;
+    height: var(--opponent-seat-height);
+    min-height: var(--opponent-seat-height);
+    padding: 2px 3px;
+  }
+
+  .app-shell-game-in-progress .small-card-back {
+    height: 12px;
+    width: 9px;
+  }
+
+  .app-shell-game-in-progress .player-seat .role-badges {
+    min-height: 10px;
+  }
+
+  .app-shell-game-in-progress .role-badge,
+  .app-shell-game-in-progress .turn-dot {
+    font-size: 0.46rem;
+    height: 10px;
+    width: 10px;
+  }
+
+  .app-shell-game-in-progress .seat-bid-slot {
+    min-height: 8px;
+  }
+
+  .app-shell-game-active .latest-bid-declaration {
+    min-height: 20px;
+    padding: 2px 4px;
+  }
+
+  .app-shell-game-in-progress .latest-bid-declaration {
+    min-height: 0;
+    padding: 0 3px;
+  }
+
+  .app-shell-game-in-progress .latest-bid-declaration strong {
+    font-size: 0.58rem;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-in-progress .player-seat {
+    grid-template-rows: 12px 8px 12px 21px;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-in-progress .seat-bid-slot {
+    min-height: 12px;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-in-progress .latest-bid-declaration {
+    border-width: 1px;
+    padding: 0 2px;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-in-progress .latest-bid-declaration strong {
+    font-size: 0.52rem;
+    line-height: 1;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-in-progress .captured-compact {
+    min-height: 21px;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-in-progress .captured-compact .compact-points {
+    grid-template-rows: repeat(2, 10px);
+    min-height: 21px;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-in-progress .captured-compact .point-card-empty-slot,
+  .app-shell-phase-bidding.app-shell-game-in-progress .captured-compact .mini-card {
+    height: 10px;
+  }
+
+  .app-shell-game-in-progress .captured-compact {
+    min-height: 25px;
+  }
+
+  .app-shell-game-in-progress .captured-compact > span {
+    font-size: 0.6rem;
+  }
+
+  .app-shell-game-in-progress .compact-points {
+    min-height: 24px;
+  }
+
+  .app-shell-game-in-progress .mini-card {
+    font-size: 0.56rem;
+    min-width: 16px;
+    padding: 1px 2px;
+  }
+
+  .app-shell-game-in-progress .captured-compact .compact-points {
+    grid-template-rows: repeat(2, 11px);
+    min-height: 24px;
+  }
+
+  .app-shell-game-in-progress .captured-compact .point-card-empty-slot,
+  .app-shell-game-in-progress .captured-compact .mini-card {
+    height: 11px;
+  }
+
+  .app-shell-game-in-progress .captured-compact .mini-card {
+    font-size: 0.54rem;
+    padding: 0 1px;
+  }
+
+  .app-shell-game-active .played-card,
+  .app-shell-game-active .empty-played-card {
+    height: 64px;
+    width: 46px;
+  }
+
+  .app-shell-game-active .trick-message {
+    min-height: 40px;
+  }
+
+  .app-shell-game-active .trick-contract-summary {
+    font-size: 1.12rem;
+  }
+
+  .app-shell-game-active .trick-adjutant-summary {
+    font-size: 0.7rem;
+  }
+
+  .app-shell-game-active .card {
+    height: 52px;
+  }
+
+  .app-shell-game-active .hand {
+    grid-template-rows: repeat(2, 52px);
+  }
+
+  .app-shell-game-active .hand-card-empty-slot {
+    height: 52px;
+  }
+
+  .app-shell-game-active .self-panel {
+    padding: 4px;
+  }
+
+  .app-shell-game-active .self-points-row {
+    gap: 2px;
+    margin-bottom: 3px;
+    padding-top: 3px;
+  }
+
+  .app-shell-game-active .self-points-row .compact-points {
+    min-height: 18px;
+    padding-bottom: 0;
   }
 }

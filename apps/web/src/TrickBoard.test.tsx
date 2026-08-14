@@ -41,6 +41,98 @@ describe("TrickBoard", () => {
     expect(html).not.toContain("played-card-winning");
     expect(html).not.toContain("現在勝っています");
   });
+
+  it("marks trick cards with entry and collection direction classes", () => {
+    const html = renderToStaticMarkup(
+      <TrickBoard
+        collectingWinnerId="player-2"
+        currentTrick={[
+          played("player-1", "hearts", "A"),
+          played("player-2", "spades", "2")
+        ]}
+        highlightWinningCard={true}
+        isResultEmphasisActive={true}
+        players={players}
+        trickNumber={2}
+        trumpSuit="spades"
+      />
+    );
+
+    expect(html).toContain("trick-board-result");
+    expect(html).toContain("trick-board-collecting-to-top-left");
+    expect(html).toContain("played-card-from-left");
+    expect(html).toContain("played-card-from-top-left");
+    expect(html).toContain("played-card-collecting");
+  });
+
+  it("renders a mobile center summary for the contract and adjutant card", () => {
+    const html = renderToStaticMarkup(
+      <TrickBoard
+        adjutant={{ calledCardId: "spades-A", revealedPlayerId: "player-2" }}
+        contract={{
+          napoleonPlayerId: "player-1",
+          trumpSuit: "spades",
+          targetPointCards: 13
+        }}
+        currentTrick={[
+          played("player-1", "hearts", "A"),
+          played("player-2", "spades", "2"),
+          played("player-3", "clubs", "K"),
+          played("player-4", "diamonds", "Q")
+        ]}
+        highlightWinningCard={false}
+        players={players}
+        trickNumber={2}
+        trumpSuit="spades"
+      />
+    );
+
+    expect(html).toContain("♠ 13");
+    expect(html).toContain("副官 ♠A");
+    expect(html).toContain("trick-mobile-status-summary");
+    expect(html).toContain("trick-count-summary");
+    expect(html).not.toContain("副官 ♠A・");
+  });
+
+  it("marks red suit contract and adjutant summaries with the red text class", () => {
+    const redHtml = renderToStaticMarkup(
+      <TrickBoard
+        adjutant={{ calledCardId: "diamonds-J", revealedPlayerId: "player-2" }}
+        contract={{
+          napoleonPlayerId: "player-1",
+          trumpSuit: "hearts",
+          targetPointCards: 13
+        }}
+        currentTrick={[]}
+        highlightWinningCard={false}
+        players={players}
+        trickNumber={2}
+        trumpSuit="hearts"
+      />
+    );
+    const blackHtml = renderToStaticMarkup(
+      <TrickBoard
+        adjutant={{ calledCardId: "clubs-J", revealedPlayerId: "player-2" }}
+        contract={{
+          napoleonPlayerId: "player-1",
+          trumpSuit: "spades",
+          targetPointCards: 13
+        }}
+        currentTrick={[]}
+        highlightWinningCard={false}
+        players={players}
+        trickNumber={2}
+        trumpSuit="spades"
+      />
+    );
+
+    expect(redHtml).toContain('class="trick-contract-summary red-text">♥ 13');
+    expect(redHtml).toContain('副官 <span class="red-text">♦J</span>');
+    expect(blackHtml).toContain('class="trick-contract-summary">♠ 13');
+    expect(blackHtml).toContain("副官 ♣J");
+    expect(blackHtml).not.toContain('class="trick-contract-summary red-text">♠ 13');
+    expect(blackHtml).not.toContain('<span class="red-text">♣J</span>');
+  });
 });
 
 const players: readonly TablePlayer[] = [
