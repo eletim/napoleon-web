@@ -24,6 +24,7 @@ import {
   loadNonPlayingPolicyOnnxModel,
   loadPolicyOnnxModel,
   loadRepoManagedPlayingPolicyBenchmark,
+  runBiddingPolicyBenchmark,
   runFullPolicyVsRuleBasedEvaluation,
   runPlayingPolicyRosterEvaluation,
   runStandardPlayingPolicyBenchmarks,
@@ -35,6 +36,7 @@ import type {
   NonPlayingPolicyOnnxMetadata,
   NonPlayingPolicyOnnxModel,
   NonPlayingPolicyType,
+  PolicyCriticValueModel,
   PolicyOnnxModel,
   SelectLegalPlayInput
 } from "../src/index.js";
@@ -356,6 +358,68 @@ describe("runPlayingPolicyRosterEvaluation", () => {
     await expect(validatePlayingPolicyArtifactReference(artifact)).rejects.toThrow(
       /playingEncoderSchemaVersion mismatch/
     );
+  });
+});
+
+describe("runBiddingPolicyBenchmark", () => {
+  it("compares RuleBased, Critic-EV, and PPO bidding on the same fixed seed", async () => {
+    const playingPolicy = await createIncreasingLogitPolicy();
+    const ppoBiddingPolicy = await createNonPlayingPolicy("bidding");
+    const result = await runBiddingPolicyBenchmark({
+      playingPolicy,
+      ppoBiddingPolicy,
+      criticEvBiddingCritic: new ConstantCritic(0),
+      startSeed: 1500,
+      gameCount: 1,
+      rotationOffsets: [0],
+      playerIds
+    });
+
+    expect(result.schemaVersion).toBe(1);
+    expect(result.configuration).toMatchObject({
+      startSeed: 1500,
+      endSeed: 1500,
+      gameCount: 1,
+      rotationOffsets: [0],
+      playerIds
+    });
+    expect(result.candidates.map((candidate) => candidate.kind)).toEqual([
+      "rule-based",
+      "critic-ev",
+      "ppo"
+    ]);
+
+    for (const candidate of result.candidates) {
+      expect(candidate.run.games).toHaveLength(1);
+      expect(candidate.run.completedCount).toBe(1);
+      expect(candidate.illegalActionCount).toBe(0);
+      expect(candidate.bidding.decisionCount).toBeGreaterThan(0);
+      expect(candidate.bidding.passCount + candidate.bidding.bidCount)
+        .toBe(candidate.bidding.decisionCount);
+      expect(candidate.bidding.passRate).not.toBeNull();
+      expect(Object.keys(candidate.bidding.targetPointCards)).toEqual([
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19"
+      ]);
+      expect(Object.keys(candidate.bidding.suits)).toEqual([
+        "spades",
+        "hearts",
+        "diamonds",
+        "clubs"
+      ]);
+      expect(candidate.contracts.completedGameCount).toBe(1);
+      expect(candidate.contracts.declarationSuccessRate).not.toBeNull();
+      expect(candidate.roleRewards.reduce((sum, role) => sum + role.sampleCount, 0)).toBe(1);
+    }
+
+    const ppo = result.candidates.find((candidate) => candidate.kind === "ppo");
+    expect(ppo?.biddingOnnxDecisionCount).toBe(ppo?.bidding.decisionCount);
   });
 });
 
@@ -762,6 +826,16 @@ async function createNonPlayingPolicy(
   await writeFile(metadataPath, JSON.stringify(createNonPlayingMetadata(policyType)) + "\n", "utf8");
 
   return loadNonPlayingPolicyOnnxModel({ onnxPath, metadataPath });
+}
+
+class ConstantCritic implements PolicyCriticValueModel {
+  constructor(private readonly value: number) {}
+
+  async predictValuesBatch(
+    modelInputs: readonly (Float32Array | readonly number[])[]
+  ): Promise<readonly number[]> {
+    return modelInputs.map(() => this.value);
+  }
 }
 
 function createMetadata() {

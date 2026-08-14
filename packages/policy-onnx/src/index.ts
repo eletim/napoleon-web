@@ -97,12 +97,18 @@ export type {
   RepoManagedPlayingPolicyBenchmarkId
 } from "./benchmarkArtifacts.js";
 export {
+  runBiddingPolicyBenchmark,
   runFullPolicyVsRuleBasedEvaluation,
   runPlayingPolicyRosterEvaluation,
   runStandardPlayingPolicyBenchmarks,
   runPolicyVsRuleBasedEvaluation
 } from "./policyVsRuleBasedEvaluation.js";
 export type {
+  BiddingActionDistributionSummary,
+  BiddingContractSummary,
+  BiddingPolicyBenchmarkCandidateResult,
+  BiddingPolicyBenchmarkResult,
+  BiddingRoleRewardSummary,
   FailedPolicyVsRuleBasedGame,
   FullPolicyVsRuleBasedDiagnostics,
   FullPolicyVsRuleBasedEvaluationConfiguration,
@@ -117,6 +123,7 @@ export type {
   PolicyVsRuleBasedComparisonReport,
   PolicyVsRuleBasedEvaluationConfiguration,
   PolicyVsRuleBasedEvaluationResult,
+  RunBiddingPolicyBenchmarkOptions,
   RunFullPolicyVsRuleBasedEvaluationOptions,
   RunPlayingPolicyRosterEvaluationOptions,
   RunPolicyVsRuleBasedEvaluationOptions,
