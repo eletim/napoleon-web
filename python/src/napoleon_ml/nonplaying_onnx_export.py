@@ -74,6 +74,18 @@ from napoleon_ml.exchange.checkpoint import (
 )
 from napoleon_ml.exchange.checkpoint import load_exchange_checkpoint
 from napoleon_ml.exchange.metrics import DISCARD_COUNT, select_exchange_discards
+from napoleon_ml.exchange.ppo import (
+    EXCHANGE_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+    EXCHANGE_DECISION_MODE,
+    EXCHANGE_PPO_ALGORITHM,
+    EXCHANGE_PPO_CHECKPOINT_SCHEMA_VERSION,
+    iter_non_playing_exchange_rl_samples,
+    load_exchange_logits_checkpoint,
+    load_exchange_ppo_checkpoint,
+)
+from napoleon_ml.exchange.ppo import (
+    NON_PLAYING_RL_SAMPLE_TYPE as EXCHANGE_PPO_SAMPLE_TYPE,
+)
 
 PolicyType = Literal["bidding", "exchange", "adjutant"]
 
@@ -81,6 +93,7 @@ ONNX_INPUT_NAME = "model_input"
 ONNX_OUTPUT_NAME = "logits"
 ONNX_OPSET_VERSION = 18
 NONPLAYING_ONNX_METADATA_SCHEMA_VERSION = 1
+NONPLAYING_POLICY_CHECKPOINT_SCHEMA_VERSION = 1
 _FLOAT32_DTYPE = "float32"
 _BATCH_DIMENSION = "batch"
 _PARITY_RTOL = 1e-4
@@ -158,6 +171,11 @@ def _load_bidding(
 def _load_exchange(
     path: Path | str, manifest: DatasetManifest
 ) -> tuple[nn.Module, dict[str, object]]:
+    checkpoint = torch.load(Path(path), map_location="cpu", weights_only=True)
+    if isinstance(checkpoint, dict) and checkpoint.get("model_architecture") == (
+        EXCHANGE_ACTOR_CRITIC_MODEL_ARCHITECTURE
+    ):
+        return load_exchange_ppo_checkpoint(path)
     return load_exchange_checkpoint(path, manifest=manifest)
 
 
@@ -194,7 +212,7 @@ _SPECS: dict[PolicyType, _NonPlayingPolicySpec] = {
         policy_type="exchange",
         artifact_type="napoleon-exchange-policy-onnx",
         sample_type=EXCHANGE_DATASET_SAMPLE_TYPE,
-        checkpoint_schema_version=EXCHANGE_CHECKPOINT_SCHEMA_VERSION,
+        checkpoint_schema_version=NONPLAYING_POLICY_CHECKPOINT_SCHEMA_VERSION,
         encoder_schema_version=EXCHANGE_ENCODER_SCHEMA_VERSION,
         model_input_schema_version=EXCHANGE_MODEL_INPUT_SCHEMA_VERSION,
         model_input_feature_count=EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
@@ -455,6 +473,77 @@ def export_adjutant_rl_checkpoint_to_onnx(
     )
 
 
+def export_exchange_rl_checkpoint_to_onnx(
+    *,
+    dataset_directory: Path | str,
+    checkpoint_path: Path | str,
+    onnx_path: Path | str,
+    metadata_path: Path | str,
+) -> NonPlayingOnnxExportReport:
+    """Export a sequential-card exchange PPO checkpoint using a non-playing RL sample."""
+
+    spec = _SPECS["exchange"]
+    checkpoint_file = Path(checkpoint_path)
+    output = Path(onnx_path)
+    metadata_output = Path(metadata_path)
+    _validate_export_paths(
+        checkpoint_path=checkpoint_file,
+        onnx_path=output,
+        metadata_path=metadata_output,
+    )
+    model, checkpoint = load_exchange_logits_checkpoint(checkpoint_file)
+    _validate_checkpoint_metadata_for_export(spec, checkpoint, model=model)
+    _validate_model_for_export(spec, model)
+
+    sample = next(iter_non_playing_exchange_rl_samples(dataset_directory), None)
+    if sample is None:
+        raise NonPlayingOnnxExportError("exchange RL dataset contains no samples.")
+
+    model.eval()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    metadata_output.parent.mkdir(parents=True, exist_ok=True)
+
+    dummy_input = torch.zeros((2, spec.model_input_feature_count), dtype=torch.float32)
+    staged_output = _temporary_sibling(output)
+    staged_metadata = _temporary_sibling(metadata_output)
+    try:
+        with torch.no_grad():
+            _export_onnx(model=model, dummy_input=dummy_input, output=staged_output)
+        metadata = build_nonplaying_onnx_metadata(
+            policy_type="exchange",
+            model=model,
+            checkpoint=checkpoint,
+        )
+        parity = _check_onnx_runtime_parity(
+            spec=spec,
+            model=model,
+            onnx_path=staged_output,
+            sample=sample,
+            metadata=metadata,
+        )
+        staged_metadata.write_text(
+            json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        staged_output.replace(output)
+        staged_metadata.replace(metadata_output)
+    except Exception:
+        staged_output.unlink(missing_ok=True)
+        staged_metadata.unlink(missing_ok=True)
+        raise
+
+    return NonPlayingOnnxExportReport(
+        policy_type="exchange",
+        onnx_path=output,
+        metadata_path=metadata_output,
+        sample_seed=sample.seed,
+        sample_step=sample.step,
+        max_abs_logit_diff=parity.max_abs_logit_diff,
+        pytorch_selection=parity.pytorch_selection,
+        onnx_selection=parity.onnx_selection,
+    )
+
+
 def build_nonplaying_onnx_metadata(
     *,
     policy_type: PolicyType,
@@ -510,6 +599,8 @@ def build_nonplaying_onnx_metadata(
     }
     if spec.discard_count is not None:
         metadata["discardCount"] = spec.discard_count
+    if spec.policy_type == "exchange":
+        metadata["decisionMode"] = checkpoint.get("decision_mode", "top3-set-v1")
     return metadata
 
 
@@ -540,6 +631,12 @@ def validate_nonplaying_onnx_metadata(metadata: dict[str, Any]) -> None:
     }
     if spec.discard_count is not None:
         expected["discardCount"] = spec.discard_count
+    if spec.policy_type == "exchange":
+        decision_mode = metadata.get("decisionMode", "top3-set-v1")
+        if decision_mode not in ("top3-set-v1", EXCHANGE_DECISION_MODE):
+            raise NonPlayingOnnxExportError(
+                f"metadata decisionMode is unsupported: {decision_mode!r}."
+            )
 
     for key, value in expected.items():
         actual = metadata.get(key)
@@ -659,8 +756,18 @@ def _validate_checkpoint_metadata_for_export(
     ):
         _validate_adjutant_ppo_checkpoint_for_export(checkpoint, model_config=model_config)
         return
+    if (
+        spec.policy_type == "exchange"
+        and checkpoint.get("model_architecture") == EXCHANGE_ACTOR_CRITIC_MODEL_ARCHITECTURE
+    ):
+        _validate_exchange_ppo_checkpoint_for_export(checkpoint, model_config=model_config)
+        return
     expected_values: dict[str, object] = {
-        "checkpoint_schema_version": spec.checkpoint_schema_version,
+        "checkpoint_schema_version": (
+            EXCHANGE_CHECKPOINT_SCHEMA_VERSION
+            if spec.policy_type == "exchange"
+            else spec.checkpoint_schema_version
+        ),
         "dataset_schema_version": MULTIPHASE_DATASET_SCHEMA_VERSION,
         "sample_type": spec.sample_type,
         spec.encoder_checkpoint_key: spec.encoder_schema_version,
@@ -751,6 +858,37 @@ def _validate_adjutant_ppo_checkpoint_for_export(
         raise NonPlayingOnnxExportError("adjutant PPO checkpoint seed must be an integer.")
 
 
+def _validate_exchange_ppo_checkpoint_for_export(
+    checkpoint: dict[str, object],
+    *,
+    model_config: dict[str, object],
+) -> None:
+    expected_values: dict[str, object] = {
+        "checkpoint_schema_version": EXCHANGE_PPO_CHECKPOINT_SCHEMA_VERSION,
+        "model_architecture": EXCHANGE_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+        "algorithm": EXCHANGE_PPO_ALGORITHM,
+        "sample_type": EXCHANGE_PPO_SAMPLE_TYPE,
+        "phase_scope": "exchange-only",
+        "decision_mode": EXCHANGE_DECISION_MODE,
+        "exchange_encoder_schema_version": EXCHANGE_ENCODER_SCHEMA_VERSION,
+        "model_input_schema_version": EXCHANGE_MODEL_INPUT_SCHEMA_VERSION,
+        "model_input_feature_count": EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
+        "action_count": CARD_COUNT,
+        "card_ids_sha256": calculate_card_ids_sha256(),
+        "model_config": model_config,
+    }
+    for key, expected in expected_values.items():
+        actual = checkpoint.get(key)
+        if actual != expected:
+            raise NonPlayingOnnxExportError(
+                f"exchange PPO checkpoint {key} mismatch: "
+                f"expected {expected!r}, got {actual!r}."
+            )
+    seed = checkpoint.get("seed")
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise NonPlayingOnnxExportError("exchange PPO checkpoint seed must be an integer.")
+
+
 def _checkpoint_compatibility_metadata(
     spec: _NonPlayingPolicySpec,
     *,
@@ -761,7 +899,10 @@ def _checkpoint_compatibility_metadata(
         "checkpointSchemaVersion": spec.checkpoint_schema_version,
         "datasetSchemaVersion": checkpoint["dataset_schema_version"],
         "sampleType": checkpoint["sample_type"],
-        "encoderSchemaVersion": checkpoint[spec.encoder_checkpoint_key],
+        "encoderSchemaVersion": checkpoint.get(
+            spec.encoder_checkpoint_key,
+            checkpoint.get("exchange_encoder_schema_version"),
+        ),
         "modelInputSchemaVersion": checkpoint[spec.model_input_checkpoint_key],
         "modelInputFeatureCount": spec.model_input_feature_count,
         "outputCount": checkpoint[spec.output_count_checkpoint_key],
@@ -770,7 +911,9 @@ def _checkpoint_compatibility_metadata(
         "seed": checkpoint["seed"],
     }
     if spec.discard_count is not None:
-        metadata["discardCount"] = checkpoint["discard_count"]
+        metadata["discardCount"] = checkpoint.get("discard_count", spec.discard_count)
+    if spec.policy_type == "exchange" and "decision_mode" in checkpoint:
+        metadata["decisionMode"] = checkpoint["decision_mode"]
     return metadata
 
 
@@ -841,7 +984,12 @@ def _check_onnx_runtime_parity(
         model_input_torch = torch.from_numpy(model_input_np)
         legal_mask_torch = torch.from_numpy(legal_mask_np)
         pytorch_logits = model(model_input_torch)
-        pytorch_selection = _select(spec, pytorch_logits, legal_mask_torch)
+        pytorch_selection = _select(
+            spec,
+            pytorch_logits,
+            legal_mask_torch,
+            decision_mode=metadata.get("decisionMode"),
+        )
 
     session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
     _validate_onnx_runtime_io(spec, session)
@@ -871,7 +1019,12 @@ def _check_onnx_runtime_parity(
             "PyTorch and ONNX Runtime logits differ beyond tolerance."
         ) from error
 
-    onnx_selection = _select(spec, torch.from_numpy(onnx_logits_np), legal_mask_torch)
+    onnx_selection = _select(
+        spec,
+        torch.from_numpy(onnx_logits_np),
+        legal_mask_torch,
+        decision_mode=metadata.get("decisionMode"),
+    )
     pytorch_value = _selection_value(spec, pytorch_selection)
     onnx_value = _selection_value(spec, onnx_selection)
     if pytorch_value != onnx_value:
@@ -891,16 +1044,28 @@ def _check_onnx_runtime_parity(
     )
 
 
-def _select(spec: _NonPlayingPolicySpec, logits: Tensor, legal_mask: Tensor) -> Tensor:
+def _select(
+    spec: _NonPlayingPolicySpec,
+    logits: Tensor,
+    legal_mask: Tensor,
+    *,
+    decision_mode: object = None,
+) -> Tensor:
     if spec.policy_type == "bidding":
         return select_bidding_action(logits, legal_mask)
     if spec.policy_type == "exchange":
+        if decision_mode == EXCHANGE_DECISION_MODE:
+            masked = logits.masked_fill(
+                ~legal_mask.to(dtype=torch.bool),
+                torch.finfo(logits.dtype).min,
+            )
+            return torch.argmax(masked, dim=1)
         return select_exchange_discards(logits, legal_mask)
     return select_adjutant_action(logits, legal_mask)
 
 
 def _selection_value(spec: _NonPlayingPolicySpec, selection: Tensor) -> int | tuple[int, ...]:
-    if spec.selection_kind == "top3":
+    if selection.ndim == 2 and selection.shape[1] == DISCARD_COUNT:
         selected = tuple(sorted(int(index) for index in selection[0].tolist()))
         if len(selected) != DISCARD_COUNT or len(set(selected)) != DISCARD_COUNT:
             raise NonPlayingOnnxExportError(
@@ -917,7 +1082,7 @@ def _validate_selection_is_legal(
     selection: Tensor,
     legal_mask: Tensor,
 ) -> None:
-    if spec.selection_kind == "top3":
+    if selection.ndim == 2 and selection.shape[1] == DISCARD_COUNT:
         if selection.shape != (1, DISCARD_COUNT):
             raise NonPlayingOnnxExportError(
                 f"{spec.policy_type} selection must have shape (1, {DISCARD_COUNT})."

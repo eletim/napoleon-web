@@ -22,7 +22,10 @@ export interface EncodedExchangeObservation {
   trumpSuitOneHot: readonly number[];
   calledAdjutantCardMask: readonly number[];
   selfHandMask: readonly number[];
+  partialDiscardMask: readonly number[];
   legalDiscardCardMask: readonly number[];
+  exchangeStepIndex: number;
+  remainingDiscardCount: number;
   handCountByPlayer: readonly number[];
   specialCardIndices: {
     oruma: number;
@@ -89,6 +92,7 @@ export function encodeExchangeObservation(
 
   const relativePlayerIds = createRelativePlayerOrder(absolutePlayerIds, observation.playerId);
   const selfHandMask = createMask(self.hand.map((card) => card.id));
+  const partialDiscardMask = createEmptyMask();
   const encoded: EncodedExchangeObservation = {
     schemaVersion: EXCHANGE_ENCODER_SCHEMA_VERSION,
     relativePlayerIds,
@@ -96,7 +100,10 @@ export function encodeExchangeObservation(
     trumpSuitOneHot: encodeSuitOneHot(view.trumpSuit),
     calledAdjutantCardMask: createMask([view.adjutant.calledCardId]),
     selfHandMask,
+    partialDiscardMask,
     legalDiscardCardMask: selfHandMask,
+    exchangeStepIndex: 0,
+    remainingDiscardCount: 3,
     handCountByPlayer: relativePlayerIds.map((playerId) => {
       const player = playersById.get(playerId);
 
@@ -137,6 +144,7 @@ export function validateEncodedExchangeObservation(
   expectLength("trumpSuitOneHot", observation.trumpSuitOneHot, SUIT_ORDER.length);
   expectLength("calledAdjutantCardMask", observation.calledAdjutantCardMask, CARD_COUNT);
   expectLength("selfHandMask", observation.selfHandMask, CARD_COUNT);
+  expectLength("partialDiscardMask", observation.partialDiscardMask, CARD_COUNT);
   validateLegalDiscardCardMask(observation.legalDiscardCardMask);
   expectLength("handCountByPlayer", observation.handCountByPlayer, PLAYER_COUNT);
   validateEncodedBiddingHistory(observation.biddingHistory);
@@ -152,9 +160,30 @@ export function validateEncodedExchangeObservation(
   expectSum("calledAdjutantCardMask", observation.calledAdjutantCardMask, 1);
   validateMask("selfHandMask", observation.selfHandMask);
   expectSum("selfHandMask", observation.selfHandMask, 13);
+  validateMask("partialDiscardMask", observation.partialDiscardMask);
+  expectIntegerInRange("exchangeStepIndex", observation.exchangeStepIndex, 0, 2);
+  expectIntegerInRange("remainingDiscardCount", observation.remainingDiscardCount, 1, 3);
+  if (observation.remainingDiscardCount !== 3 - observation.exchangeStepIndex) {
+    throw new Error("remainingDiscardCount must equal 3 - exchangeStepIndex.");
+  }
 
-  if (!sameMask(observation.legalDiscardCardMask, observation.selfHandMask)) {
-    throw new Error("legalDiscardCardMask must equal selfHandMask at exchange.");
+  let partialDiscardCount = 0;
+  for (let index = 0; index < CARD_COUNT; index += 1) {
+    if (observation.partialDiscardMask[index] === 1) {
+      partialDiscardCount += 1;
+      if (observation.selfHandMask[index] !== 1) {
+        throw new Error("partialDiscardMask must be a subset of selfHandMask.");
+      }
+    }
+    const expectedLegal = observation.selfHandMask[index] === 1 && observation.partialDiscardMask[index] === 0
+      ? 1
+      : 0;
+    if (observation.legalDiscardCardMask[index] !== expectedLegal) {
+      throw new Error("legalDiscardCardMask must equal selfHandMask minus partialDiscardMask.");
+    }
+  }
+  if (partialDiscardCount !== observation.exchangeStepIndex) {
+    throw new Error("partialDiscardMask count must equal exchangeStepIndex.");
   }
 
   observation.handCountByPlayer.forEach((value, index) =>
@@ -185,13 +214,17 @@ function encodeSuitOneHot(trumpSuit: Suit): readonly number[] {
 }
 
 function createMask(cardIds: readonly string[]): readonly number[] {
-  const mask = Array(CARD_COUNT).fill(0);
+  const mask = createEmptyMask();
 
   for (const cardId of cardIds) {
     mask[getCardIndex(cardId)] = 1;
   }
 
   return mask;
+}
+
+function createEmptyMask(): number[] {
+  return Array(CARD_COUNT).fill(0);
 }
 
 function requiredSpecialCardId(name: string, cardId: string | null): string {
@@ -265,8 +298,4 @@ function validateSpecialCardIndices(
   );
   expectIntegerInRange("specialCardIndices.seiJack", specialCardIndices.seiJack, 0, CARD_COUNT - 1);
   expectIntegerInRange("specialCardIndices.uraJack", specialCardIndices.uraJack, 0, CARD_COUNT - 1);
-}
-
-function sameMask(left: readonly number[], right: readonly number[]): boolean {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
 }

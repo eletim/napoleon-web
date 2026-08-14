@@ -1,5 +1,6 @@
 export type PolicyOnnxDimension = string | number;
 export type NonPlayingPolicyType = "bidding" | "exchange" | "adjutant";
+export type ExchangePolicyDecisionMode = "top3-set-v1" | "sequential-card-v1";
 export type PolicyOnnxInferenceDevice = "cpu" | "auto" | "cuda";
 export type PolicyOnnxExecutionProvider = "cpu" | "cuda";
 
@@ -86,6 +87,7 @@ export interface NonPlayingPolicyOnnxMetadata {
   inputDtype: string;
   outputDtype: string;
   discardCount?: number;
+  decisionMode?: ExchangePolicyDecisionMode;
   onnx: {
     opsetVersion: number;
     inputs: readonly PolicyOnnxIoMetadata[];

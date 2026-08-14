@@ -72,7 +72,7 @@ from .sample import (
 
 MODEL_INPUT_SCHEMA_VERSION = 2
 BIDDING_MODEL_INPUT_SCHEMA_VERSION = 1
-EXCHANGE_MODEL_INPUT_SCHEMA_VERSION = 1
+EXCHANGE_MODEL_INPUT_SCHEMA_VERSION = 2
 ADJUTANT_MODEL_INPUT_SCHEMA_VERSION = 1
 
 if MODEL_INPUT_SCHEMA_VERSION != PLAYING_MODEL_INPUT_SCHEMA_VERSION:
@@ -193,7 +193,10 @@ class ExchangeObservationTensors:
     trump_suit_one_hot: np.ndarray
     called_adjutant_card_mask: np.ndarray
     self_hand_mask: np.ndarray
+    partial_discard_mask: np.ndarray
     legal_discard_card_mask: np.ndarray
+    exchange_step_index: np.int64
+    remaining_discard_count: np.int64
     contract_target_point_cards: np.int64
     hand_count_by_player: np.ndarray
     special_card_indices: np.ndarray
@@ -481,8 +484,11 @@ _BIDDING_MODEL_INPUT_SPEC: tuple[tuple[str, tuple[int, ...]], ...] = (
 _EXCHANGE_MODEL_INPUT_SPEC: tuple[tuple[str, tuple[int, ...]], ...] = (
     ("trumpSuitOneHot", (_TRUMP_SUIT_OPTION_COUNT,)),
     ("selfHandMask", (CARD_COUNT,)),
+    ("partialDiscardMask", (CARD_COUNT,)),
     ("legalDiscardCardMask", (CARD_COUNT,)),
     ("calledAdjutantCardMask", (CARD_COUNT,)),
+    ("exchangeStepIndexOneHot", (3,)),
+    ("remainingDiscardCountOneHot", (4,)),
     ("contractTargetPointCardsOneHot", (_CONTRACT_TARGET_POINT_CARDS_CLASS_COUNT,)),
     ("handCountByPlayer", (PLAYER_COUNT,)),
     ("specialCardIndicesOneHot", (_SPECIAL_CARD_INDEX_COUNT, CARD_COUNT)),
@@ -526,9 +532,9 @@ if BIDDING_MODEL_INPUT_FEATURE_COUNT != 2333:
     raise AssertionError(
         f"BIDDING_MODEL_INPUT_FEATURE_COUNT must be 2333, got {BIDDING_MODEL_INPUT_FEATURE_COUNT}."
     )
-if EXCHANGE_MODEL_INPUT_FEATURE_COUNT != 2611:
+if EXCHANGE_MODEL_INPUT_FEATURE_COUNT != 2671:
     raise AssertionError(
-        "EXCHANGE_MODEL_INPUT_FEATURE_COUNT must be 2611, "
+        "EXCHANGE_MODEL_INPUT_FEATURE_COUNT must be 2671, "
         f"got {EXCHANGE_MODEL_INPUT_FEATURE_COUNT}."
     )
 if ADJUTANT_MODEL_INPUT_FEATURE_COUNT != 2553:
@@ -743,7 +749,10 @@ def tensorize_exchange_observation(
         trump_suit_one_hot=_one_hot_array(observation.trump_suit_one_hot),
         called_adjutant_card_mask=_mask_array(observation.called_adjutant_card_mask),
         self_hand_mask=_mask_array(observation.self_hand_mask),
+        partial_discard_mask=_mask_array(observation.partial_discard_mask),
         legal_discard_card_mask=_mask_array(observation.legal_discard_card_mask),
+        exchange_step_index=np.int64(observation.exchange_step_index),
+        remaining_discard_count=np.int64(observation.remaining_discard_count),
         contract_target_point_cards=np.int64(observation.contract_target_point_cards),
         hand_count_by_player=hand_count_by_player,
         special_card_indices=_special_card_indices_array(observation),
@@ -878,8 +887,11 @@ def _exchange_model_input(tensors: ExchangeObservationTensors) -> np.ndarray:
     parts = (
         tensors.trump_suit_one_hot,
         tensors.self_hand_mask.astype(np.float32),
+        tensors.partial_discard_mask.astype(np.float32),
         tensors.legal_discard_card_mask.astype(np.float32),
         tensors.called_adjutant_card_mask.astype(np.float32),
+        _single_one_hot(int(tensors.exchange_step_index), num_classes=3),
+        _single_one_hot(int(tensors.remaining_discard_count), num_classes=4),
         _single_one_hot(
             int(tensors.contract_target_point_cards),
             num_classes=_CONTRACT_TARGET_POINT_CARDS_CLASS_COUNT,

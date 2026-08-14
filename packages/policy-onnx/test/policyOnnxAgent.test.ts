@@ -146,6 +146,46 @@ describe("PolicyOnnxAgent", () => {
     }
   });
 
+  it("runs sequential-card exchange policy as three ONNX selections before discarding", async () => {
+    const {
+      policy,
+      biddingPolicy,
+      adjutantPolicy
+    } = await createFullPolicyFixture();
+    const exchangePolicy = await createNonPlayingPolicy("exchange", {
+      decisionMode: "sequential-card-v1"
+    });
+    const exchangeCardSpy = vi.spyOn(exchangePolicy, "selectExchangeCard");
+    const exchangeTop3Spy = vi.spyOn(exchangePolicy, "selectExchange");
+
+    try {
+      const record = await runAutomatedGame({
+        seed: 112233,
+        createAgent: ({ rng }) =>
+          new PolicyOnnxAgent({
+            policy,
+            biddingPolicy,
+            adjutantPolicy,
+            exchangePolicy,
+            rng
+          })
+      });
+
+      const exchangeDecisionCount = record.decisions.filter(
+        (decision) => decision.phase === "exchanging"
+      ).length;
+      expect(exchangeDecisionCount).toBeGreaterThan(0);
+      expect(exchangeCardSpy).toHaveBeenCalledTimes(exchangeDecisionCount * 3);
+      expect(exchangeTop3Spy).not.toHaveBeenCalled();
+      expect(countIllegalActions(record.decisions)).toBe(0);
+      expect(exchangeActionsAreLegalThreeCardDiscards(record.decisions)).toBe(true);
+    } finally {
+      exchangeTop3Spy.mockRestore();
+      exchangeCardSpy.mockRestore();
+    }
+  });
+
+
   it("rejects non-playing policy artifact types assigned to the wrong phase slots", async () => {
     const policy = await createIncreasingLogitPolicy();
     const exchangePolicy = await createNonPlayingPolicy("exchange");
@@ -591,7 +631,8 @@ async function createIncreasingLogitPolicy(): Promise<PolicyOnnxModel> {
 }
 
 async function createNonPlayingPolicy(
-  policyType: NonPlayingPolicyType
+  policyType: NonPlayingPolicyType,
+  metadataOverrides: Partial<NonPlayingPolicyOnnxMetadata> = {}
 ): Promise<NonPlayingPolicyOnnxModel> {
   const spec = nonPlayingSpec(policyType);
   const logits = new Float32Array(spec.outputCount);
@@ -609,7 +650,14 @@ async function createNonPlayingPolicy(
       outputCount: spec.outputCount
     })
   );
-  await writeFile(metadataPath, JSON.stringify(createNonPlayingMetadata(policyType)) + "\n", "utf8");
+  await writeFile(
+    metadataPath,
+    JSON.stringify({
+      ...createNonPlayingMetadata(policyType),
+      ...metadataOverrides
+    }) + "\n",
+    "utf8"
+  );
 
   return loadNonPlayingPolicyOnnxModel({ onnxPath, metadataPath });
 }
@@ -723,8 +771,8 @@ function createNonPlayingMetadata(policyType: NonPlayingPolicyType): NonPlayingP
     policyType,
     checkpointSchemaVersion: 1,
     datasetSchemaVersion: MULTIPHASE_DATASET_SCHEMA_VERSION,
-    encoderSchemaVersion: 1,
-    modelInputSchemaVersion: 1,
+    encoderSchemaVersion: spec.encoderSchemaVersion,
+    modelInputSchemaVersion: spec.modelInputSchemaVersion,
     modelInputFeatureCount: spec.inputFeatureCount,
     outputLogitCount: spec.outputCount,
     actionCount: spec.outputCount,
@@ -776,25 +824,33 @@ function nonPlayingSpec(policyType: NonPlayingPolicyType): {
   artifactType: string;
   inputFeatureCount: number;
   outputCount: number;
+  encoderSchemaVersion: number;
+  modelInputSchemaVersion: number;
 } {
   if (policyType === "bidding") {
     return {
       artifactType: "napoleon-bidding-policy-onnx",
       inputFeatureCount: BIDDING_MODEL_INPUT_FEATURE_COUNT,
-      outputCount: BIDDING_ACTION_COUNT
+      outputCount: BIDDING_ACTION_COUNT,
+      encoderSchemaVersion: 1,
+      modelInputSchemaVersion: 1
     };
   }
   if (policyType === "exchange") {
     return {
       artifactType: "napoleon-exchange-policy-onnx",
       inputFeatureCount: EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
-      outputCount: CARD_COUNT
+      outputCount: CARD_COUNT,
+      encoderSchemaVersion: 2,
+      modelInputSchemaVersion: 2
     };
   }
   return {
     artifactType: "napoleon-adjutant-policy-onnx",
     inputFeatureCount: ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
-    outputCount: CARD_COUNT
+    outputCount: CARD_COUNT,
+    encoderSchemaVersion: 1,
+    modelInputSchemaVersion: 1
   };
 }
 

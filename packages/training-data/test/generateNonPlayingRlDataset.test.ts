@@ -8,6 +8,7 @@ import {
   BIDDING_ACTION_COUNT,
   BIDDING_MODEL_INPUT_FEATURE_COUNT,
   CARD_COUNT,
+  EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
   MODEL_INPUT_FEATURE_COUNT
 } from "@napoleon/ai-observation";
 import {
@@ -31,18 +32,23 @@ import {
   NON_PLAYING_RL_SAMPLING_ALGORITHM,
   calculateNonPlayingAdjutantLogProbability,
   calculateNonPlayingBiddingLogProbability,
+  calculateNonPlayingExchangeLogProbability,
   calculateNonPlayingTerminalRoleReward,
   generateNonPlayingAdjutantRlDataset,
   generateNonPlayingBiddingRlDataset,
+  generateNonPlayingExchangeRlDataset,
   validateNonPlayingAdjutantRlDatasetManifest,
   validateNonPlayingAdjutantRlSample,
   validateNonPlayingBiddingRlSample,
+  validateNonPlayingExchangeRlDatasetManifest,
+  validateNonPlayingExchangeRlSample,
   validateNonPlayingRlDatasetManifest
 } from "../src/index.js";
 import type {
   NonPlayingAdjutantRlSample,
   NonPlayingBiddingRlOutcome,
   NonPlayingBiddingRlSample,
+  NonPlayingExchangeRlSample,
   NonPlayingRlDatasetManifest
 } from "../src/index.js";
 
@@ -268,6 +274,79 @@ describe("generateNonPlayingBiddingRlDataset", () => {
     }, -3);
   });
 
+  it("generates deterministic exchange RL samples with 3 sequential legal card steps", async () => {
+    await withTempDir(async (directory) => {
+      const playingArtifact = await createPlayingPolicyFixture(join(directory, "playing"));
+      const exchangeArtifact = await createExchangePolicyFixture(join(directory, "exchange"));
+      const playingPolicy = await loadPolicyOnnxModel(playingArtifact);
+      const exchangePolicy = await loadNonPlayingPolicyOnnxModel(exchangeArtifact);
+      const output = join(directory, "exchange-rl");
+      const result = await generateNonPlayingExchangeRlDataset({
+        outputDirectory: output,
+        exchangePolicy,
+        exchangePolicyArtifact: exchangeArtifact,
+        playingPolicy,
+        playingPolicyArtifact: playingArtifact,
+        startSeed: 31,
+        gameCount: 2,
+        gamesPerShard: 1,
+        temperature: 0.05
+      });
+
+      const manifest = await readManifest(output);
+      const lines = await readAllShardLines(output, manifest);
+      const samples = lines.map((line) => JSON.parse(line) as NonPlayingExchangeRlSample);
+
+      expect(result.manifest).toEqual(manifest);
+      validateNonPlayingExchangeRlDatasetManifest(manifest);
+      expect(manifest.sampleType).toBe("non-playing-exchange-rl-sample");
+      expect(manifest.phaseScope).toBe("exchange-only");
+      expect(manifest.learnedPhases).toEqual(["exchanging"]);
+      expect(manifest.ruleBasedPhases).toEqual(["bidding", "choosing-adjutant"]);
+      expect(manifest.fixedPhases).toEqual(["playing"]);
+      expect(manifest.exchangeModelInputFeatureCount).toBe(EXCHANGE_MODEL_INPUT_FEATURE_COUNT);
+      expect(manifest.decisionMode).toBe("sequential-card-v1");
+      expect(manifest.actionCount).toBe(CARD_COUNT);
+      expect(manifest.behaviorPolicy).toMatchObject({
+        type: "exchange-onnx",
+        artifactId: "test-exchange-policy"
+      });
+      expect(samples.length).toBeGreaterThan(0);
+      expect(samples.length % 3).toBe(0);
+
+      for (let index = 0; index < samples.length; index += 3) {
+        const group = samples.slice(index, index + 3);
+        expect(group.map((sample) => sample.exchangeStepIndex)).toEqual([0, 1, 2]);
+        expect(group.map((sample) => sample.remainingDiscardCount)).toEqual([3, 2, 1]);
+        expect(new Set(group.map((sample) => sample.selectedActionIndex)).size).toBe(3);
+        expect(new Set(group.map((sample) => sample.terminalReward)).size).toBe(1);
+      }
+
+      for (const sample of samples) {
+        validateNonPlayingExchangeRlSample(sample, sample.seed);
+        expect(sample.phase).toBe("exchanging");
+        expect(sample.modelInput).toHaveLength(EXCHANGE_MODEL_INPUT_FEATURE_COUNT);
+        expect(sample.legalDiscardCardMask).toHaveLength(CARD_COUNT);
+        expect(sum(sample.legalDiscardCardMask)).toBe(13 - sample.exchangeStepIndex);
+        expect(sample.legalDiscardCardMask[sample.selectedActionIndex]).toBe(1);
+        expect(sample.terminalReward).toBe(calculateNonPlayingTerminalRoleReward(sample.outcome));
+
+        const logits = await exchangePolicy.predictLogits(sample.modelInput);
+        const recomputedLogProbability = calculateNonPlayingExchangeLogProbability({
+          logits,
+          legalDiscardCardMask: sample.legalDiscardCardMask,
+          selectedActionIndex: sample.selectedActionIndex,
+          temperature: manifest.temperature
+        });
+
+        expect(sample.behaviorLogProbability).toBeCloseTo(recomputedLogProbability, 5);
+        expect(sample.behaviorLogProbability).toBeLessThanOrEqual(0);
+      }
+
+      assertNoCompleteStateFields(lines);
+    });
+  });
+
   it("rejects an existing output directory before writing non-playing RL data", async () => {
     await withTempDir(async (directory) => {
       const playingArtifact = await createPlayingPolicyFixture(join(directory, "playing"));
@@ -386,6 +465,39 @@ async function createAdjutantPolicyFixture(directory: string): Promise<{
   };
 }
 
+async function createExchangePolicyFixture(directory: string): Promise<{
+  onnxPath: string;
+  metadataPath: string;
+  artifactId: string;
+}> {
+  await mkdir(directory, { recursive: true });
+  const onnxPath = join(directory, "exchange-policy.onnx");
+  const metadataPath = join(directory, "exchange-policy.json");
+  const logits = new Float32Array(CARD_COUNT);
+  for (let index = 0; index < logits.length; index += 1) {
+    logits[index] = index / 10;
+  }
+
+  await writeFile(
+    onnxPath,
+    createConstantPolicyOnnx(logits, ONNX_OUTPUT_NAME, {
+      inputFeatureCount: EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
+      outputCount: CARD_COUNT
+    })
+  );
+  await writeFile(
+    metadataPath,
+    JSON.stringify(createNonPlayingMetadata("exchange")) + "\n",
+    "utf8"
+  );
+
+  return {
+    onnxPath,
+    metadataPath,
+    artifactId: "test-exchange-policy"
+  };
+}
+
 function createPlayingMetadata() {
   return {
     metadataSchemaVersion: 1,
@@ -421,28 +533,23 @@ function createPlayingMetadata() {
 }
 
 function createNonPlayingMetadata(policyType: NonPlayingPolicyType): NonPlayingPolicyOnnxMetadata {
-  const inputFeatureCount = policyType === "adjutant"
-    ? ADJUTANT_MODEL_INPUT_FEATURE_COUNT
-    : BIDDING_MODEL_INPUT_FEATURE_COUNT;
-  const outputCount = policyType === "adjutant" ? CARD_COUNT : BIDDING_ACTION_COUNT;
-  return {
+  const spec = nonPlayingSpec(policyType);
+  const metadata: NonPlayingPolicyOnnxMetadata = {
     metadataSchemaVersion: 1,
-    artifactType: policyType === "adjutant"
-      ? "napoleon-adjutant-policy-onnx"
-      : "napoleon-bidding-policy-onnx",
+    artifactType: spec.artifactType,
     policyType,
     checkpointSchemaVersion: 1,
     datasetSchemaVersion: 2,
-    encoderSchemaVersion: 1,
-    modelInputSchemaVersion: 1,
-    modelInputFeatureCount: inputFeatureCount,
-    outputLogitCount: outputCount,
-    actionCount: outputCount,
+    encoderSchemaVersion: spec.encoderSchemaVersion,
+    modelInputSchemaVersion: spec.modelInputSchemaVersion,
+    modelInputFeatureCount: spec.inputFeatureCount,
+    outputLogitCount: spec.outputCount,
+    actionCount: spec.outputCount,
     cardIdsSha256: calculateCardIdsSha256(),
     inputName: ONNX_INPUT_NAME,
     outputName: ONNX_OUTPUT_NAME,
-    inputShape: ["batch", inputFeatureCount],
-    outputShape: ["batch", outputCount],
+    inputShape: ["batch", spec.inputFeatureCount],
+    outputShape: ["batch", spec.outputCount],
     inputDtype: "float32",
     outputDtype: "float32",
     onnx: {
@@ -450,29 +557,68 @@ function createNonPlayingMetadata(policyType: NonPlayingPolicyType): NonPlayingP
       inputs: [
         {
           name: ONNX_INPUT_NAME,
-          shape: ["batch", inputFeatureCount],
+          shape: ["batch", spec.inputFeatureCount],
           dtype: "float32"
         }
       ],
       outputs: [
         {
           name: ONNX_OUTPUT_NAME,
-          shape: ["batch", outputCount],
+          shape: ["batch", spec.outputCount],
           dtype: "float32"
         }
       ]
     },
     modelConfig: {
-      input_dim: inputFeatureCount,
+      input_dim: spec.inputFeatureCount,
       hidden_dim: 8,
       hidden_layers: 1,
       dropout: 0
     },
     checkpointSeed: 123,
     checkpointCompatibilityMetadata: {
-      modelInputFeatureCount: inputFeatureCount,
-      outputCount
+      modelInputFeatureCount: spec.inputFeatureCount,
+      outputCount: spec.outputCount
     }
+  };
+  if (policyType === "exchange") {
+    metadata.discardCount = 3;
+    metadata.decisionMode = "sequential-card-v1";
+  }
+  return metadata;
+}
+
+function nonPlayingSpec(policyType: NonPlayingPolicyType): {
+  artifactType: string;
+  inputFeatureCount: number;
+  outputCount: number;
+  encoderSchemaVersion: number;
+  modelInputSchemaVersion: number;
+} {
+  if (policyType === "bidding") {
+    return {
+      artifactType: "napoleon-bidding-policy-onnx",
+      inputFeatureCount: BIDDING_MODEL_INPUT_FEATURE_COUNT,
+      outputCount: BIDDING_ACTION_COUNT,
+      encoderSchemaVersion: 1,
+      modelInputSchemaVersion: 1
+    };
+  }
+  if (policyType === "exchange") {
+    return {
+      artifactType: "napoleon-exchange-policy-onnx",
+      inputFeatureCount: EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
+      outputCount: CARD_COUNT,
+      encoderSchemaVersion: 2,
+      modelInputSchemaVersion: 2
+    };
+  }
+  return {
+    artifactType: "napoleon-adjutant-policy-onnx",
+    inputFeatureCount: ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
+    outputCount: CARD_COUNT,
+    encoderSchemaVersion: 1,
+    modelInputSchemaVersion: 1
   };
 }
 

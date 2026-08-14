@@ -12,10 +12,12 @@ from typing import Protocol, cast
 from napoleon_ml.adjutant.ppo import NON_PLAYING_RL_SAMPLE_TYPE as ADJUTANT_RL_SAMPLE_TYPE
 from napoleon_ml.bidding.ppo import NON_PLAYING_RL_SAMPLE_TYPE as BIDDING_RL_SAMPLE_TYPE
 from napoleon_ml.dataset.errors import DatasetError
+from napoleon_ml.exchange.ppo import NON_PLAYING_RL_SAMPLE_TYPE as EXCHANGE_RL_SAMPLE_TYPE
 from napoleon_ml.nonplaying_onnx_export import (
     PolicyType,
     export_adjutant_rl_checkpoint_to_onnx,
     export_bidding_rl_checkpoint_to_onnx,
+    export_exchange_rl_checkpoint_to_onnx,
     export_nonplaying_checkpoint_to_onnx,
 )
 from napoleon_ml.policy.onnx_export import (
@@ -102,6 +104,16 @@ def _run(args: argparse.Namespace) -> int:
             metadata_path=metadata_output,
         )
         _print_nonplaying_report(adjutant_rl_report, as_json=args.json)
+        return 0
+
+    if args.policy_type == "exchange" and sample_type == EXCHANGE_RL_SAMPLE_TYPE:
+        exchange_rl_report = export_exchange_rl_checkpoint_to_onnx(
+            dataset_directory=args.dataset_directory,
+            checkpoint_path=args.checkpoint,
+            onnx_path=args.output,
+            metadata_path=metadata_output,
+        )
+        _print_nonplaying_report(exchange_rl_report, as_json=args.json)
         return 0
 
     manifest = load_checked_manifest(args.dataset_directory, command_label="export-policy-onnx")
