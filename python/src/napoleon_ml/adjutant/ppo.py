@@ -107,6 +107,7 @@ class AdjutantPpoTrainSettings:
     value_loss_coefficient: float = DEFAULT_VALUE_LOSS_COEFFICIENT
     optimizer: str = "AdamW"
     parent_actor_checkpoint: str | None = None
+    parent_checkpoint: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -119,6 +120,7 @@ class AdjutantPpoTrainSettings:
             "optimizer": self.optimizer,
             "algorithm": ADJUTANT_PPO_ALGORITHM,
             "parentActorCheckpoint": self.parent_actor_checkpoint,
+            "parentCheckpoint": self.parent_checkpoint,
         }
 
 
@@ -362,7 +364,13 @@ def train_adjutant_ppo(
     torch.manual_seed(settings.seed)
     model = create_seeded_adjutant_actor_critic_model(model_config, seed=settings.seed)
     parent_sha256: str | None = None
-    if settings.parent_actor_checkpoint is not None:
+    parent_checkpoint_sha256: str | None = None
+    if settings.parent_checkpoint is not None:
+        parent_checkpoint_sha256 = initialize_model_from_checkpoint(
+            model,
+            settings.parent_checkpoint,
+        )
+    elif settings.parent_actor_checkpoint is not None:
         parent_sha256 = initialize_actor_from_checkpoint(
             model,
             settings.parent_actor_checkpoint,
@@ -407,8 +415,35 @@ def train_adjutant_ppo(
         settings=settings,
         manifest=manifest,
         parent_actor_checkpoint_sha256=parent_sha256,
+        parent_checkpoint_sha256=parent_checkpoint_sha256,
     )
     return totals.to_report(output)
+
+
+def initialize_model_from_checkpoint(
+    model: AdjutantActorCriticModel,
+    checkpoint_path: Path | str,
+) -> str:
+    checkpoint_file = Path(checkpoint_path)
+    raw = _load_raw_checkpoint(checkpoint_file)
+    model_config_raw = raw.get("model_config")
+    if not isinstance(model_config_raw, dict):
+        raise AdjutantPpoCompatibilityError("parent checkpoint model_config must be a dictionary.")
+    parent_config = AdjutantMlpConfig.from_dict(model_config_raw)
+    if parent_config != model.config:
+        raise AdjutantPpoCompatibilityError(
+            "parent checkpoint model_config must match PPO model_config."
+        )
+    state = raw.get("model_state")
+    if not isinstance(state, dict):
+        raise AdjutantPpoCompatibilityError("parent checkpoint model_state must be a dictionary.")
+    try:
+        model.load_state_dict(state)
+    except RuntimeError as error:
+        raise AdjutantPpoCompatibilityError(
+            f"parent checkpoint model_state is incompatible: {error}"
+        ) from error
+    return _sha256_file(checkpoint_file)
 
 
 def initialize_actor_from_checkpoint(
@@ -447,6 +482,7 @@ def save_adjutant_ppo_checkpoint(
     settings: AdjutantPpoTrainSettings,
     manifest: NonPlayingAdjutantRlManifest,
     parent_actor_checkpoint_sha256: str | None,
+    parent_checkpoint_sha256: str | None = None,
 ) -> None:
     checkpoint = {
         "checkpoint_schema_version": ADJUTANT_PPO_CHECKPOINT_SCHEMA_VERSION,
@@ -470,6 +506,7 @@ def save_adjutant_ppo_checkpoint(
         "behavior_policy": dict(manifest.behavior_policy),
         "fixed_playing_policy": dict(manifest.fixed_playing_policy),
         "parent_actor_checkpoint_sha256": parent_actor_checkpoint_sha256,
+        "parent_checkpoint_sha256": parent_checkpoint_sha256,
     }
     torch.save(checkpoint, Path(path))
 
