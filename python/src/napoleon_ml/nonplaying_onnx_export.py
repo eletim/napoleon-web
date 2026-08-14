@@ -20,6 +20,16 @@ from napoleon_ml.adjutant.checkpoint import (
 )
 from napoleon_ml.adjutant.checkpoint import load_adjutant_checkpoint
 from napoleon_ml.adjutant.metrics import select_adjutant_action
+from napoleon_ml.adjutant.ppo import (
+    ADJUTANT_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+    ADJUTANT_PPO_ALGORITHM,
+    ADJUTANT_PPO_CHECKPOINT_SCHEMA_VERSION,
+    iter_non_playing_adjutant_rl_samples,
+    load_adjutant_logits_checkpoint,
+)
+from napoleon_ml.adjutant.ppo import (
+    NON_PLAYING_RL_SAMPLE_TYPE as ADJUTANT_PPO_SAMPLE_TYPE,
+)
 from napoleon_ml.bidding.checkpoint import (
     CHECKPOINT_SCHEMA_VERSION as BIDDING_CHECKPOINT_SCHEMA_VERSION,
 )
@@ -154,6 +164,11 @@ def _load_exchange(
 def _load_adjutant(
     path: Path | str, manifest: DatasetManifest
 ) -> tuple[nn.Module, dict[str, object]]:
+    checkpoint = torch.load(Path(path), map_location="cpu", weights_only=True)
+    if isinstance(checkpoint, dict) and checkpoint.get("model_architecture") == (
+        ADJUTANT_ACTOR_CRITIC_MODEL_ARCHITECTURE
+    ):
+        return load_adjutant_logits_checkpoint(path)
     return load_adjutant_checkpoint(path, manifest=manifest)
 
 
@@ -369,6 +384,77 @@ def export_bidding_rl_checkpoint_to_onnx(
     )
 
 
+def export_adjutant_rl_checkpoint_to_onnx(
+    *,
+    dataset_directory: Path | str,
+    checkpoint_path: Path | str,
+    onnx_path: Path | str,
+    metadata_path: Path | str,
+) -> NonPlayingOnnxExportReport:
+    """Export an adjutant PPO checkpoint using a non-playing RL dataset sample."""
+
+    spec = _SPECS["adjutant"]
+    checkpoint_file = Path(checkpoint_path)
+    output = Path(onnx_path)
+    metadata_output = Path(metadata_path)
+    _validate_export_paths(
+        checkpoint_path=checkpoint_file,
+        onnx_path=output,
+        metadata_path=metadata_output,
+    )
+    model, checkpoint = load_adjutant_logits_checkpoint(checkpoint_file)
+    _validate_checkpoint_metadata_for_export(spec, checkpoint, model=model)
+    _validate_model_for_export(spec, model)
+
+    sample = next(iter_non_playing_adjutant_rl_samples(dataset_directory), None)
+    if sample is None:
+        raise NonPlayingOnnxExportError("adjutant RL dataset contains no samples.")
+
+    model.eval()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    metadata_output.parent.mkdir(parents=True, exist_ok=True)
+
+    dummy_input = torch.zeros((2, spec.model_input_feature_count), dtype=torch.float32)
+    staged_output = _temporary_sibling(output)
+    staged_metadata = _temporary_sibling(metadata_output)
+    try:
+        with torch.no_grad():
+            _export_onnx(model=model, dummy_input=dummy_input, output=staged_output)
+        metadata = build_nonplaying_onnx_metadata(
+            policy_type="adjutant",
+            model=model,
+            checkpoint=checkpoint,
+        )
+        parity = _check_onnx_runtime_parity(
+            spec=spec,
+            model=model,
+            onnx_path=staged_output,
+            sample=sample,
+            metadata=metadata,
+        )
+        staged_metadata.write_text(
+            json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        staged_output.replace(output)
+        staged_metadata.replace(metadata_output)
+    except Exception:
+        staged_output.unlink(missing_ok=True)
+        staged_metadata.unlink(missing_ok=True)
+        raise
+
+    return NonPlayingOnnxExportReport(
+        policy_type="adjutant",
+        onnx_path=output,
+        metadata_path=metadata_output,
+        sample_seed=sample.seed,
+        sample_step=sample.step,
+        max_abs_logit_diff=parity.max_abs_logit_diff,
+        pytorch_selection=parity.pytorch_selection,
+        onnx_selection=parity.onnx_selection,
+    )
+
+
 def build_nonplaying_onnx_metadata(
     *,
     policy_type: PolicyType,
@@ -567,6 +653,12 @@ def _validate_checkpoint_metadata_for_export(
     ):
         _validate_bidding_ppo_checkpoint_for_export(checkpoint, model_config=model_config)
         return
+    if (
+        spec.policy_type == "adjutant"
+        and checkpoint.get("model_architecture") == ADJUTANT_ACTOR_CRITIC_MODEL_ARCHITECTURE
+    ):
+        _validate_adjutant_ppo_checkpoint_for_export(checkpoint, model_config=model_config)
+        return
     expected_values: dict[str, object] = {
         "checkpoint_schema_version": spec.checkpoint_schema_version,
         "dataset_schema_version": MULTIPHASE_DATASET_SCHEMA_VERSION,
@@ -628,6 +720,35 @@ def _validate_bidding_ppo_checkpoint_for_export(
     seed = checkpoint.get("seed")
     if isinstance(seed, bool) or not isinstance(seed, int):
         raise NonPlayingOnnxExportError("bidding PPO checkpoint seed must be an integer.")
+
+
+def _validate_adjutant_ppo_checkpoint_for_export(
+    checkpoint: dict[str, object],
+    *,
+    model_config: dict[str, object],
+) -> None:
+    expected_values: dict[str, object] = {
+        "checkpoint_schema_version": ADJUTANT_PPO_CHECKPOINT_SCHEMA_VERSION,
+        "model_architecture": ADJUTANT_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+        "algorithm": ADJUTANT_PPO_ALGORITHM,
+        "sample_type": ADJUTANT_PPO_SAMPLE_TYPE,
+        "adjutant_encoder_schema_version": ADJUTANT_ENCODER_SCHEMA_VERSION,
+        "model_input_schema_version": ADJUTANT_MODEL_INPUT_SCHEMA_VERSION,
+        "model_input_feature_count": ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
+        "action_count": CARD_COUNT,
+        "card_ids_sha256": calculate_card_ids_sha256(),
+        "model_config": model_config,
+    }
+    for key, expected in expected_values.items():
+        actual = checkpoint.get(key)
+        if actual != expected:
+            raise NonPlayingOnnxExportError(
+                f"adjutant PPO checkpoint {key} mismatch: "
+                f"expected {expected!r}, got {actual!r}."
+            )
+    seed = checkpoint.get("seed")
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise NonPlayingOnnxExportError("adjutant PPO checkpoint seed must be an integer.")
 
 
 def _checkpoint_compatibility_metadata(

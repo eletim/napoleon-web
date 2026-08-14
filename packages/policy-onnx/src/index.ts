@@ -109,6 +109,7 @@ export type {
   BiddingPolicyBenchmarkCandidateResult,
   BiddingPolicyBenchmarkResult,
   BiddingRoleRewardSummary,
+  AdjutantSelectionDistributionSummary,
   FailedPolicyVsRuleBasedGame,
   FullPolicyVsRuleBasedDiagnostics,
   FullPolicyVsRuleBasedEvaluationConfiguration,

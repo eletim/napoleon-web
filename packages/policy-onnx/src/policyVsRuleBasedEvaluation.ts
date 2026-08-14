@@ -262,6 +262,12 @@ export interface PolicyVsRuleBasedEvaluationResult {
 
 export interface FullPolicyVsRuleBasedDiagnostics {
   policyAgentDecisionCounts: PolicyOnnxAgentDecisionMetrics;
+  adjutantSelection: AdjutantSelectionDistributionSummary;
+}
+
+export interface AdjutantSelectionDistributionSummary {
+  decisionCount: number;
+  cardIds: Readonly<Record<string, number>>;
 }
 
 export interface FullPolicyVsRuleBasedEvaluationResult {
@@ -352,6 +358,11 @@ interface BiddingActionMetrics {
   bidCount: number;
   targetPointCards: Map<number, number>;
   suits: Map<Suit, number>;
+}
+
+interface AdjutantSelectionMetrics {
+  decisionCount: number;
+  cardIds: Map<string, number>;
 }
 
 export async function runPolicyVsRuleBasedEvaluation(
@@ -616,6 +627,7 @@ export async function runFullPolicyVsRuleBasedEvaluation(
   const policyAgentName = options.policyAgentName ?? "FullPolicyOnnxAgent";
   const ruleBasedAgentName = options.ruleBasedAgentName ?? "RuleBasedAgent";
   const decisionMetrics = createPolicyOnnxAgentDecisionMetrics();
+  const adjutantSelectionMetrics = createAdjutantSelectionMetrics();
   const agents = createFullPolicyVsRuleBasedAgents({
     playingPolicy: options.playingPolicy,
     biddingPolicy: options.biddingPolicy,
@@ -624,7 +636,8 @@ export async function runFullPolicyVsRuleBasedEvaluation(
     playerIds,
     policyAgentName,
     ruleBasedAgentName,
-    decisionMetrics
+    decisionMetrics,
+    adjutantSelectionMetrics
   });
   const run = await runEvaluation({
     startSeed: options.startSeed,
@@ -666,7 +679,8 @@ export async function runFullPolicyVsRuleBasedEvaluation(
       ruleBasedAgentName
     }),
     diagnostics: {
-      policyAgentDecisionCounts: copyDecisionMetrics(decisionMetrics)
+      policyAgentDecisionCounts: copyDecisionMetrics(decisionMetrics),
+      adjutantSelection: summarizeAdjutantSelections(adjutantSelectionMetrics)
     }
   };
 }
@@ -917,6 +931,29 @@ function incrementSuitMap(map: Map<Suit, number>, key: Suit): void {
   map.set(key, (map.get(key) ?? 0) + 1);
 }
 
+function createAdjutantSelectionMetrics(): AdjutantSelectionMetrics {
+  return {
+    decisionCount: 0,
+    cardIds: new Map()
+  };
+}
+
+function recordAdjutantSelection(metrics: AdjutantSelectionMetrics, cardId: string): void {
+  metrics.decisionCount += 1;
+  metrics.cardIds.set(cardId, (metrics.cardIds.get(cardId) ?? 0) + 1);
+}
+
+function summarizeAdjutantSelections(
+  metrics: AdjutantSelectionMetrics
+): AdjutantSelectionDistributionSummary {
+  return {
+    decisionCount: metrics.decisionCount,
+    cardIds: Object.fromEntries([...metrics.cardIds.entries()].sort(([left], [right]) =>
+      left.localeCompare(right)
+    ))
+  };
+}
+
 function createPolicyVsRuleBasedAgents(args: {
   policy: PolicyOnnxModel;
   playerIds: readonly PlayerId[];
@@ -1090,18 +1127,22 @@ function createFullPolicyVsRuleBasedAgents(args: {
   policyAgentName: string;
   ruleBasedAgentName: string;
   decisionMetrics: PolicyOnnxAgentDecisionMetrics;
+  adjutantSelectionMetrics: AdjutantSelectionMetrics;
 }): readonly EvaluationAgentDefinition[] {
   return [
     {
       name: args.policyAgentName,
-      createAgent: ({ rng }) => new PolicyOnnxAgent({
-        policy: args.playingPolicy,
-        biddingPolicy: args.biddingPolicy,
-        adjutantPolicy: args.adjutantPolicy,
-        exchangePolicy: args.exchangePolicy,
-        rng,
-        playerIds: args.playerIds,
-        decisionMetrics: args.decisionMetrics
+      createAgent: ({ rng }) => new RecordingFullPolicyOnnxAgent({
+        delegate: new PolicyOnnxAgent({
+          policy: args.playingPolicy,
+          biddingPolicy: args.biddingPolicy,
+          adjutantPolicy: args.adjutantPolicy,
+          exchangePolicy: args.exchangePolicy,
+          rng,
+          playerIds: args.playerIds,
+          decisionMetrics: args.decisionMetrics
+        }),
+        adjutantSelectionMetrics: args.adjutantSelectionMetrics
       })
     },
     ...args.playerIds.slice(1).map((): EvaluationAgentDefinition => ({
@@ -1109,6 +1150,30 @@ function createFullPolicyVsRuleBasedAgents(args: {
       createAgent: ({ rng }) => new RuleBasedAgent(rng)
     }))
   ];
+}
+
+class RecordingFullPolicyOnnxAgent implements Agent {
+  constructor(
+    private readonly options: {
+      delegate: PolicyOnnxAgent;
+      adjutantSelectionMetrics: AdjutantSelectionMetrics;
+    }
+  ) {}
+
+  async selectAction(observation: PlayerObservation): Promise<GameAction> {
+    return this.selectActionWithContext(observation);
+  }
+
+  async selectActionWithContext(
+    observation: PlayerObservation,
+    context?: { actualState: ActualCardState; playerIds: readonly PlayerId[] }
+  ): Promise<GameAction> {
+    const action = await this.options.delegate.selectActionWithContext(observation, context);
+    if (observation.view.phase === "choosing-adjutant" && action.type === "choose-adjutant") {
+      recordAdjutantSelection(this.options.adjutantSelectionMetrics, action.cardId);
+    }
+    return action;
+  }
 }
 
 function createPolicyVsRuleBasedComparison(
