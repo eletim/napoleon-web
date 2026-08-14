@@ -12,6 +12,7 @@ import {
   COMPLETE_INFO_PLAYING_MODEL_INPUT_SCHEMA_VERSION,
   DATASET_SCHEMA_VERSION,
   EXCHANGE_DISCARD_COUNT,
+  EXCHANGE_DECISION_MODE_TOP3_SET,
   EXCHANGE_ENCODER_SCHEMA_VERSION,
   EXCHANGE_MODEL_INPUT_SCHEMA_VERSION,
   EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
@@ -60,6 +61,7 @@ export interface RuntimePolicyOnnxSpec extends RuntimeOnnxIoSpec {
   outputLogitCount: number;
   actionCount: number;
   discardCount?: number;
+  decisionMode?: "top3-set-v1" | "sequential-card-v1";
 }
 
 export interface RuntimeCriticOnnxSpec extends RuntimeOnnxIoSpec {
@@ -161,7 +163,8 @@ export const NONPLAYING_POLICY_ONNX_SPECS = {
     outputShape: [ONNX_BATCH_DIMENSION, CARD_COUNT],
     inputDtype: ONNX_DTYPE,
     outputDtype: ONNX_DTYPE,
-    discardCount: EXCHANGE_DISCARD_COUNT
+    discardCount: EXCHANGE_DISCARD_COUNT,
+    decisionMode: EXCHANGE_DECISION_MODE_TOP3_SET
   },
   adjutant: {
     policyType: "adjutant",

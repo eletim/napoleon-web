@@ -54,6 +54,7 @@ napoleon-train-adjutant-mlp = "napoleon_ml.cli.train_adjutant_mlp:main"
 napoleon-train-adjutant-ppo = "napoleon_ml.cli.train_adjutant_ppo:main"
 napoleon-evaluate-adjutant-mlp = "napoleon_ml.cli.evaluate_adjutant_mlp:main"
 napoleon-train-exchange-mlp = "napoleon_ml.cli.train_exchange_mlp:main"
+napoleon-train-exchange-ppo = "napoleon_ml.cli.train_exchange_ppo:main"
 napoleon-evaluate-exchange-mlp = "napoleon_ml.cli.evaluate_exchange_mlp:main"
 
 [tool.setuptools.packages.find]

@@ -1,4 +1,6 @@
 import {
+  EXCHANGE_DECISION_MODE_TOP3_SET,
+  EXCHANGE_DECISION_MODE_SEQUENTIAL_CARD,
   ONNX_OPSET_VERSION,
   ONNX_DTYPE
 } from "./constants.js";
@@ -116,8 +118,28 @@ export function validateNonPlayingPolicyOnnxMetadata(
   } else {
     expectEqual("discardCount", value.discardCount, spec.discardCount);
   }
+  validateDecisionMode(value, spec);
 
   validateOnnxMetadata(value.onnx, spec);
+}
+
+function validateDecisionMode(value: Record<string, unknown>, spec: RuntimeOnnxIoSpec): void {
+  if (spec.policyType !== "exchange") {
+    if ("decisionMode" in value) {
+      throw new PolicyOnnxCompatibilityError("metadata decisionMode is only valid for exchange policy.");
+    }
+    return;
+  }
+
+  const mode = value.decisionMode ?? EXCHANGE_DECISION_MODE_TOP3_SET;
+  if (
+    mode !== EXCHANGE_DECISION_MODE_TOP3_SET &&
+    mode !== EXCHANGE_DECISION_MODE_SEQUENTIAL_CARD
+  ) {
+    throw new PolicyOnnxCompatibilityError(
+      `metadata decisionMode is unsupported: ${JSON.stringify(mode)}.`
+    );
+  }
 }
 
 export function validatePolicyCriticOnnxMetadata(

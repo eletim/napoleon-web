@@ -160,8 +160,11 @@ const BIDDING_MODEL_INPUT_SPEC: readonly (readonly [string, readonly number[]])[
 const EXCHANGE_MODEL_INPUT_SPEC: readonly (readonly [string, readonly number[]])[] = [
   ["trumpSuitOneHot", [BIDDING_HISTORY_SUIT_ORDER.length]],
   ["selfHandMask", [CARD_COUNT]],
+  ["partialDiscardMask", [CARD_COUNT]],
   ["legalDiscardCardMask", [CARD_COUNT]],
   ["calledAdjutantCardMask", [CARD_COUNT]],
+  ["exchangeStepIndexOneHot", [3]],
+  ["remainingDiscardCountOneHot", [4]],
   ["contractTargetPointCardsOneHot", [CONTRACT_TARGET_POINT_CARDS_CLASS_COUNT]],
   ["handCountByPlayer", [PLAYER_COUNT]],
   ["specialCardIndicesOneHot", [SPECIAL_CARD_INDEX_COUNT, CARD_COUNT]],
@@ -242,10 +245,10 @@ validateLayout(
 if (
   COMPLETE_INFO_PLAYING_MODEL_INPUT_SCHEMA_VERSION !== 1 ||
   BIDDING_MODEL_INPUT_SCHEMA_VERSION !== 1 ||
-  EXCHANGE_MODEL_INPUT_SCHEMA_VERSION !== 1 ||
+  EXCHANGE_MODEL_INPUT_SCHEMA_VERSION !== 2 ||
   ADJUTANT_MODEL_INPUT_SCHEMA_VERSION !== 1
 ) {
-  throw new Error("Complete-info/non-playing model_input schema versions must match schema v1.");
+  throw new Error("Complete-info/non-playing model_input schema versions must match expected schema versions.");
 }
 
 export function createPlayingModelInput(
@@ -421,8 +424,25 @@ export function encodeExchangeModelInput(
 
   append(modelInputParts, observation.trumpSuitOneHot);
   append(modelInputParts, observation.selfHandMask);
+  append(modelInputParts, observation.partialDiscardMask);
   append(modelInputParts, observation.legalDiscardCardMask);
   append(modelInputParts, observation.calledAdjutantCardMask);
+  appendOneHotIndexField(modelInputParts, {
+    name: "exchangeStepIndexOneHot",
+    indices: [observation.exchangeStepIndex],
+    slotCount: 1,
+    classCount: 3,
+    minValue: 0,
+    emptyValues: []
+  });
+  appendOneHotIndexField(modelInputParts, {
+    name: "remainingDiscardCountOneHot",
+    indices: [observation.remainingDiscardCount],
+    slotCount: 1,
+    classCount: 4,
+    minValue: 0,
+    emptyValues: []
+  });
   appendOneHotIndexField(modelInputParts, {
     name: "contractTargetPointCardsOneHot",
     indices: [observation.contractTargetPointCards],

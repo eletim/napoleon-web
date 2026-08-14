@@ -108,7 +108,10 @@ _EXCHANGE_OBSERVATION_KEYS = frozenset(
         "trumpSuitOneHot",
         "calledAdjutantCardMask",
         "selfHandMask",
+        "partialDiscardMask",
         "legalDiscardCardMask",
+        "exchangeStepIndex",
+        "remainingDiscardCount",
         "handCountByPlayer",
         "specialCardIndices",
         "biddingHistory",
@@ -249,7 +252,10 @@ class EncodedExchangeObservation:
     trump_suit_one_hot: tuple[int, ...]
     called_adjutant_card_mask: tuple[int, ...]
     self_hand_mask: tuple[int, ...]
+    partial_discard_mask: tuple[int, ...]
     legal_discard_card_mask: tuple[int, ...]
+    exchange_step_index: int
+    remaining_discard_count: int
     hand_count_by_player: tuple[int, ...]
     special_card_indices: SpecialCardIndices
     bidding_history: EncodedBiddingHistory
@@ -644,11 +650,23 @@ def _parse_exchange_observation(raw: object, *, error: ErrorFactory) -> EncodedE
         self_hand_mask=require_fixed_length_int_tuple(
             obj["selfHandMask"], path=f"{path}.selfHandMask", length=CARD_COUNT, error=error
         ),
+        partial_discard_mask=require_fixed_length_int_tuple(
+            obj["partialDiscardMask"],
+            path=f"{path}.partialDiscardMask",
+            length=CARD_COUNT,
+            error=error,
+        ),
         legal_discard_card_mask=require_fixed_length_int_tuple(
             obj["legalDiscardCardMask"],
             path=f"{path}.legalDiscardCardMask",
             length=CARD_COUNT,
             error=error,
+        ),
+        exchange_step_index=require_int(
+            obj["exchangeStepIndex"], path=f"{path}.exchangeStepIndex", error=error
+        ),
+        remaining_discard_count=require_int(
+            obj["remainingDiscardCount"], path=f"{path}.remainingDiscardCount", error=error
         ),
         hand_count_by_player=require_fixed_length_int_tuple(
             obj["handCountByPlayer"],

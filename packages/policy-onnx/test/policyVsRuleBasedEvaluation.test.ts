@@ -887,8 +887,8 @@ function createNonPlayingMetadata(policyType: NonPlayingPolicyType): NonPlayingP
     policyType,
     checkpointSchemaVersion: 1,
     datasetSchemaVersion: MULTIPHASE_DATASET_SCHEMA_VERSION,
-    encoderSchemaVersion: 1,
-    modelInputSchemaVersion: 1,
+    encoderSchemaVersion: spec.encoderSchemaVersion,
+    modelInputSchemaVersion: spec.modelInputSchemaVersion,
     modelInputFeatureCount: spec.inputFeatureCount,
     outputLogitCount: spec.outputCount,
     actionCount: spec.outputCount,
@@ -940,25 +940,33 @@ function nonPlayingSpec(policyType: NonPlayingPolicyType): {
   artifactType: string;
   inputFeatureCount: number;
   outputCount: number;
+  encoderSchemaVersion: number;
+  modelInputSchemaVersion: number;
 } {
   if (policyType === "bidding") {
     return {
       artifactType: "napoleon-bidding-policy-onnx",
       inputFeatureCount: BIDDING_MODEL_INPUT_FEATURE_COUNT,
-      outputCount: BIDDING_ACTION_COUNT
+      outputCount: BIDDING_ACTION_COUNT,
+      encoderSchemaVersion: 1,
+      modelInputSchemaVersion: 1
     };
   }
   if (policyType === "exchange") {
     return {
       artifactType: "napoleon-exchange-policy-onnx",
       inputFeatureCount: EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
-      outputCount: CARD_COUNT
+      outputCount: CARD_COUNT,
+      encoderSchemaVersion: 2,
+      modelInputSchemaVersion: 2
     };
   }
   return {
     artifactType: "napoleon-adjutant-policy-onnx",
     inputFeatureCount: ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
-    outputCount: CARD_COUNT
+    outputCount: CARD_COUNT,
+    encoderSchemaVersion: 1,
+    modelInputSchemaVersion: 1
   };
 }
 
