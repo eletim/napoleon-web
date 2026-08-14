@@ -21,13 +21,12 @@ from napoleon_ml.dataset.constants import (
     SELF_ROLE_ORDER,
 )
 from napoleon_ml.dataset.manifest import DatasetManifest
-from napoleon_ml.dataset.pytorch import PlayingSelfPlayTorchSample
-from napoleon_ml.dataset.tensors import MODEL_INPUT_FEATURE_COUNT, MODEL_INPUT_SCHEMA_VERSION
 from napoleon_ml.dataset.playing_variants import (
     model_input_feature_count_for_variant,
     normalize_playing_observation_variant,
     playing_model_input_schema_version_for_variant,
 )
+from napoleon_ml.dataset.pytorch import PlayingSelfPlayTorchSample
 from napoleon_ml.policy.behavior_parity import (
     BehaviorParityDiagnostics,
     BehaviorPolicyProvenanceDiagnostic,
