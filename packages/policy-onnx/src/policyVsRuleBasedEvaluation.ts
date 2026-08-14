@@ -25,6 +25,7 @@ import type {
 import type { GameAction, GameResult, PlayerId, Suit } from "@napoleon/game-core";
 import { CriticEvBiddingAgent } from "./criticEvBiddingAgent.js";
 import type { PolicyCriticValueModel } from "./criticEvBiddingAgent.js";
+import { EXCHANGE_DECISION_MODE_SEQUENTIAL_CARD } from "./constants.js";
 import { getNonPlayingPolicyOnnxSpec } from "./policySpecs.js";
 import {
   PolicyOnnxAgent,
@@ -1617,6 +1618,16 @@ function assertNonPlayingPolicyModelType(
   if (metadata.artifactType !== expectedArtifactType) {
     throw new Error(
       `${optionName} artifact type mismatch: expected ${expectedArtifactType}, got ${metadata.artifactType}.`
+    );
+  }
+
+  if (
+    expectedPolicyType === "exchange" &&
+    metadata.decisionMode !== EXCHANGE_DECISION_MODE_SEQUENTIAL_CARD
+  ) {
+    throw new Error(
+      `${optionName} decision mode mismatch: expected ${EXCHANGE_DECISION_MODE_SEQUENTIAL_CARD}, ` +
+        `got ${metadata.decisionMode ?? "top3-set-v1"}.`
     );
   }
 }
