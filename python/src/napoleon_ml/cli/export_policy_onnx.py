@@ -7,11 +7,13 @@ import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
-from typing import cast
+from typing import Protocol, cast
 
+from napoleon_ml.bidding.ppo import NON_PLAYING_RL_SAMPLE_TYPE
 from napoleon_ml.dataset.errors import DatasetError
 from napoleon_ml.nonplaying_onnx_export import (
     PolicyType,
+    export_bidding_rl_checkpoint_to_onnx,
     export_nonplaying_checkpoint_to_onnx,
 )
 from napoleon_ml.policy.onnx_export import (
@@ -20,6 +22,11 @@ from napoleon_ml.policy.onnx_export import (
 )
 
 from ._policy_common import load_checked_manifest
+
+
+class _NonPlayingExportReport(Protocol):
+    def to_dict(self) -> dict[str, object]:
+        ...
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -74,6 +81,18 @@ def _run(args: argparse.Namespace) -> int:
 
         return 0
 
+    if args.policy_type == "bidding" and _dataset_sample_type(args.dataset_directory) == (
+        NON_PLAYING_RL_SAMPLE_TYPE
+    ):
+        bidding_rl_report = export_bidding_rl_checkpoint_to_onnx(
+            dataset_directory=args.dataset_directory,
+            checkpoint_path=args.checkpoint,
+            onnx_path=args.output,
+            metadata_path=metadata_output,
+        )
+        _print_nonplaying_report(bidding_rl_report, as_json=args.json)
+        return 0
+
     manifest = load_checked_manifest(args.dataset_directory, command_label="export-policy-onnx")
     if args.policy_type == "playing":
         report = export_policy_checkpoint_to_onnx(
@@ -109,19 +128,39 @@ def _run(args: argparse.Namespace) -> int:
         verify_integrity=not args.no_integrity_check,
     )
 
-    if args.json:
-        print(json.dumps(nonplaying_report.to_dict(), indent=2, sort_keys=True))
-    else:
-        print(f"onnx: {nonplaying_report.onnx_path}")
-        print(f"metadata: {nonplaying_report.metadata_path}")
-        print("parity_sample:")
-        print(f"  seed: {nonplaying_report.sample_seed}")
-        print(f"  step: {nonplaying_report.sample_step}")
-        print(f"  max_abs_logit_diff: {nonplaying_report.max_abs_logit_diff:.8f}")
-        print(f"  pytorch_selection: {nonplaying_report.pytorch_selection}")
-        print(f"  onnx_selection: {nonplaying_report.onnx_selection}")
+    _print_nonplaying_report(nonplaying_report, as_json=args.json)
 
     return 0
+
+
+def _dataset_sample_type(dataset_directory: Path) -> object:
+    manifest_path = dataset_directory / "manifest.json"
+    try:
+        raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+    return raw.get("sampleType")
+
+
+def _print_nonplaying_report(report: _NonPlayingExportReport, *, as_json: bool) -> None:
+    report_dict = report.to_dict()
+    if as_json:
+        print(json.dumps(report_dict, indent=2, sort_keys=True))
+        return
+    print(f"onnx: {report_dict['onnxPath']}")
+    print(f"metadata: {report_dict['metadataPath']}")
+    parity_raw = report_dict["paritySample"]
+    if not isinstance(parity_raw, dict):
+        raise ValueError("non-playing export report paritySample must be a dictionary.")
+    parity = parity_raw
+    print("parity_sample:")
+    print(f"  seed: {parity['seed']}")
+    print(f"  step: {parity['step']}")
+    print(f"  max_abs_logit_diff: {parity['maxAbsLogitDiff']:.8f}")
+    print(f"  pytorch_selection: {parity['pytorchSelection']}")
+    print(f"  onnx_selection: {parity['onnxSelection']}")
 
 
 def _handle_export_cli_error(error: Exception) -> int:
