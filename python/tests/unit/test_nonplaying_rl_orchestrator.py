@@ -5,7 +5,14 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
+from napoleon_ml.cli.run_nonplaying_rl import (
+    _iterative_config_from_args,
+    _provided_iterative_config_keys,
+    build_parser,
+)
 from napoleon_ml.nonplaying_rl_orchestrator import (
+    DEFAULT_ITERATIVE_BATCH_SIZE,
+    DEFAULT_ITERATIVE_EVALUATION_GAMES,
     NonPlayingIterativeRlRunConfig,
     NonPlayingRlRunConfig,
     run_iterative_nonplaying_rl_pipeline,
@@ -345,3 +352,47 @@ def test_iterative_nonplaying_rl_resumes_and_chains_checkpoints(
         ("exchange", None),
     ]
     assert all(parent is not None for _phase, parent in parent_checkpoints[3:])
+
+
+def test_iterative_cli_honors_explicit_one_shot_default_values() -> None:
+    argv = [
+        "--output-dir",
+        "/tmp/non-playing",
+        "--iterations",
+        "10",
+        "--evaluation-games",
+        "5",
+        "--epochs",
+        "1",
+        "--batch-size",
+        "32",
+        "--learning-rate",
+        "1e-3",
+    ]
+    args = build_parser().parse_args(argv)
+    config = _iterative_config_from_args(
+        args,
+        provided_config_keys=_provided_iterative_config_keys(argv),
+    )
+
+    assert config.evaluation_games == 5
+    assert config.epochs == 1
+    assert config.batch_size == 32
+    assert config.learning_rate == 1e-3
+
+
+def test_iterative_cli_uses_iterative_defaults_when_values_are_omitted() -> None:
+    argv = [
+        "--output-dir",
+        "/tmp/non-playing",
+        "--iterations",
+        "10",
+    ]
+    args = build_parser().parse_args(argv)
+    config = _iterative_config_from_args(
+        args,
+        provided_config_keys=_provided_iterative_config_keys(argv),
+    )
+
+    assert config.evaluation_games == DEFAULT_ITERATIVE_EVALUATION_GAMES
+    assert config.batch_size == DEFAULT_ITERATIVE_BATCH_SIZE

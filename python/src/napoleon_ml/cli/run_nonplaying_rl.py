@@ -119,11 +119,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         if args.resume or args.iterations is not None:
+            provided_config_keys = _provided_iterative_config_keys(argv)
             summary = run_iterative_nonplaying_rl_pipeline(
-                _iterative_config_from_args(args),
+                _iterative_config_from_args(
+                    args,
+                    provided_config_keys=provided_config_keys,
+                ),
                 resume=args.resume,
                 stop_after_iterations=args.stop_after_iterations,
-                provided_config_keys=_provided_iterative_config_keys(argv),
+                provided_config_keys=provided_config_keys,
             )
         else:
             summary = run_nonplaying_rl_pipeline(_config_from_args(args))
@@ -164,22 +168,27 @@ def _config_from_args(args: argparse.Namespace) -> NonPlayingRlRunConfig:
     )
 
 
-def _iterative_config_from_args(args: argparse.Namespace) -> NonPlayingIterativeRlRunConfig:
+def _iterative_config_from_args(
+    args: argparse.Namespace,
+    *,
+    provided_config_keys: Sequence[str],
+) -> NonPlayingIterativeRlRunConfig:
+    provided = set(provided_config_keys)
     iterations = args.iterations if args.iterations is not None else DEFAULT_ITERATIONS
     evaluation_games = (
         args.evaluation_games
-        if args.evaluation_games != DEFAULT_EVALUATION_GAMES
+        if "evaluationGames" in provided
         else DEFAULT_ITERATIVE_EVALUATION_GAMES
     )
-    epochs = args.epochs if args.epochs != DEFAULT_EPOCHS else DEFAULT_ITERATIVE_EPOCHS
+    epochs = args.epochs if "epochs" in provided else DEFAULT_ITERATIVE_EPOCHS
     batch_size = (
         args.batch_size
-        if args.batch_size != DEFAULT_BATCH_SIZE
+        if "batchSize" in provided
         else DEFAULT_ITERATIVE_BATCH_SIZE
     )
     learning_rate = (
         args.learning_rate
-        if args.learning_rate != DEFAULT_LEARNING_RATE
+        if "learningRate" in provided
         else DEFAULT_ITERATIVE_LEARNING_RATE
     )
     return NonPlayingIterativeRlRunConfig(
