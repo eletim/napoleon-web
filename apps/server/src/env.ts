@@ -1,12 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { learnedPolicyEnvKeys } from "./agentEnv.js";
+import { fullPolicyEnvKeys, learnedPolicyEnvKeys } from "./agentEnv.js";
 
 // start-dev.sh mirrors this allowlist for dry-run diagnostics and environment export.
 const supportedLocalEnvKeys = new Set([
   "PORT",
   "HOST",
-  ...learnedPolicyEnvKeys
+  ...learnedPolicyEnvKeys,
+  ...fullPolicyEnvKeys
 ]);
 
 export function loadLocalEnvFile(

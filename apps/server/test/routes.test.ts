@@ -33,6 +33,7 @@ import type {
   SendActionResponse
 } from "@napoleon/protocol";
 import {
+  FULL_POLICY_ONNX_AGENT_ID,
   PLAYING_POLICY_ONNX_AGENT_IDS,
   PLAYING_POLICY_ONNX_AGENT_ID,
   RULE_BASED_AGENT_ID,
@@ -309,6 +310,44 @@ describe("server API", () => {
       {
         id: PLAYING_POLICY_ONNX_AGENT_IDS[1],
         displayName: "RL v901",
+        isAvailable: true
+      }
+    ]);
+  });
+
+  it("lists configured full-policy AI agents with their display names", async () => {
+    await app.close();
+    app = await buildApp({
+      agentRegistry: createAgentRegistry({
+        fullPolicyOnnxAgents: [
+          {
+            id: FULL_POLICY_ONNX_AGENT_ID,
+            displayName: "Full policy v1",
+            playing: { onnxPath: "/tmp/playing.onnx", metadataPath: "/tmp/playing.json" },
+            bidding: { onnxPath: "/tmp/bidding.onnx", metadataPath: "/tmp/bidding.json" },
+            adjutant: { onnxPath: "/tmp/adjutant.onnx", metadataPath: "/tmp/adjutant.json" },
+            exchange: { onnxPath: "/tmp/exchange.onnx", metadataPath: "/tmp/exchange.json" }
+          }
+        ]
+      })
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/agents"
+    });
+    const body = response.json<GetAgentsResponse>();
+
+    expect(response.statusCode).toBe(200);
+    expect(body.agents).toEqual([
+      {
+        id: RULE_BASED_AGENT_ID,
+        displayName: "Rule-based AI",
+        isAvailable: true
+      },
+      {
+        id: FULL_POLICY_ONNX_AGENT_ID,
+        displayName: "Full policy v1",
         isAvailable: true
       }
     ]);

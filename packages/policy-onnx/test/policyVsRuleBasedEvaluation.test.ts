@@ -458,7 +458,7 @@ describe("runFullPolicyVsRuleBasedEvaluation", () => {
     } = await createFullPolicyFixture();
     const biddingSpy = vi.spyOn(biddingPolicy, "selectBidding");
     const adjutantSpy = vi.spyOn(adjutantPolicy, "selectAdjutant");
-    const exchangeSpy = vi.spyOn(exchangePolicy, "selectExchange");
+    const exchangeSpy = vi.spyOn(exchangePolicy, "selectExchangeCard");
     const playingSpy = vi.spyOn(playingPolicy, "selectLegalPlay");
     const options = {
       playingPolicy,
@@ -601,6 +601,25 @@ describe("runFullPolicyVsRuleBasedEvaluation", () => {
       gameCount: 1,
       playerIds
     })).rejects.toThrow(/biddingPolicy policy type mismatch/);
+  });
+
+  it("rejects non-sequential exchange artifacts before running full-policy games", async () => {
+    const playingPolicy = await createIncreasingLogitPolicy();
+    const biddingPolicy = await createNonPlayingPolicy("bidding");
+    const adjutantPolicy = await createNonPlayingPolicy("adjutant");
+    const exchangePolicy = await createNonPlayingPolicy("exchange", {
+      decisionMode: "top3-set-v1"
+    });
+
+    await expect(runFullPolicyVsRuleBasedEvaluation({
+      playingPolicy,
+      biddingPolicy,
+      adjutantPolicy,
+      exchangePolicy,
+      startSeed: 1100,
+      gameCount: 1,
+      playerIds
+    })).rejects.toThrow(/exchangePolicy decision mode mismatch/);
   });
 });
 
@@ -812,7 +831,8 @@ async function createFullPolicyFixture(): Promise<{
 }
 
 async function createNonPlayingPolicy(
-  policyType: NonPlayingPolicyType
+  policyType: NonPlayingPolicyType,
+  metadataOverrides: Partial<NonPlayingPolicyOnnxMetadata> = {}
 ): Promise<NonPlayingPolicyOnnxModel> {
   const spec = nonPlayingSpec(policyType);
   const logits = new Float32Array(spec.outputCount);
@@ -830,7 +850,14 @@ async function createNonPlayingPolicy(
       outputCount: spec.outputCount
     })
   );
-  await writeFile(metadataPath, JSON.stringify(createNonPlayingMetadata(policyType)) + "\n", "utf8");
+  await writeFile(
+    metadataPath,
+    JSON.stringify({
+      ...createNonPlayingMetadata(policyType),
+      ...metadataOverrides
+    }) + "\n",
+    "utf8"
+  );
 
   return loadNonPlayingPolicyOnnxModel({ onnxPath, metadataPath });
 }
@@ -931,6 +958,7 @@ function createNonPlayingMetadata(policyType: NonPlayingPolicyType): NonPlayingP
 
   if (policyType === "exchange") {
     metadata.discardCount = 3;
+    metadata.decisionMode = "sequential-card-v1";
   }
 
   return metadata;
