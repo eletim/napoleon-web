@@ -4,6 +4,8 @@ import {
   runEvaluation
 } from "@napoleon/ai";
 import type {
+  ActualCardState,
+  Agent,
   EvaluationAgentDefinition,
   EvaluationComparisonSummary,
   EvaluationConfidenceInterval,
@@ -17,9 +19,12 @@ import type {
   EvaluationRunRecord,
   EvaluationSeatAssignment,
   EvaluationSeatPerformanceSummary,
-  EvaluationSeatRole
+  EvaluationSeatRole,
+  PlayerObservation
 } from "@napoleon/ai";
-import type { PlayerId } from "@napoleon/game-core";
+import type { GameAction, GameResult, PlayerId, Suit } from "@napoleon/game-core";
+import { CriticEvBiddingAgent } from "./criticEvBiddingAgent.js";
+import type { PolicyCriticValueModel } from "./criticEvBiddingAgent.js";
 import { getNonPlayingPolicyOnnxSpec } from "./policySpecs.js";
 import {
   PolicyOnnxAgent,
@@ -47,6 +52,8 @@ import type {
 
 type CompletedRole = Exclude<EvaluationSeatRole, "unknown">;
 type AgentGroup = "policy" | "rule-based";
+type BiddingBenchmarkCandidateKind = "rule-based" | "critic-ev" | "ppo";
+type BiddingRole = "napoleon" | "adjutant" | "citizen" | "napoleon-adjutant";
 
 const defaultPlayerIds: readonly PlayerId[] = [
   "player-0",
@@ -57,6 +64,12 @@ const defaultPlayerIds: readonly PlayerId[] = [
 ];
 const defaultRotationOffsets = [0, 1, 2, 3, 4] as const;
 const completedRoles: readonly CompletedRole[] = ["napoleon", "adjutant", "alliance"];
+const biddingRoles: readonly BiddingRole[] = [
+  "napoleon",
+  "adjutant",
+  "citizen",
+  "napoleon-adjutant"
+];
 const confidenceLevel = 0.95;
 const z95 = 1.959963984540054;
 
@@ -128,6 +141,17 @@ export interface RunFullPolicyVsRuleBasedEvaluationOptions {
   maxDecisionSteps?: number;
   policyAgentName?: string;
   ruleBasedAgentName?: string;
+}
+
+export interface RunBiddingPolicyBenchmarkOptions {
+  playingPolicy: PolicyOnnxModel;
+  ppoBiddingPolicy: NonPlayingPolicyOnnxModel;
+  criticEvBiddingCritic: PolicyCriticValueModel;
+  startSeed: number;
+  gameCount: number;
+  playerIds?: readonly PlayerId[];
+  rotationOffsets?: readonly number[];
+  maxDecisionSteps?: number;
 }
 
 export interface PolicyVsRuleBasedEvaluationConfiguration {
@@ -249,6 +273,58 @@ export interface FullPolicyVsRuleBasedEvaluationResult {
   diagnostics: FullPolicyVsRuleBasedDiagnostics;
 }
 
+export interface BiddingActionDistributionSummary {
+  decisionCount: number;
+  passCount: number;
+  passRate: number | null;
+  bidCount: number;
+  targetPointCards: Readonly<Record<string, number>>;
+  suits: Readonly<Record<Suit, number>>;
+}
+
+export interface BiddingContractSummary {
+  completedGameCount: number;
+  napoleonFormationCount: number;
+  napoleonFormationRate: number | null;
+  declarationSuccessCount: number;
+  declarationSuccessRate: number | null;
+  averageTargetPointCards: number | null;
+  targetPointCards: Readonly<Record<string, number>>;
+}
+
+export interface BiddingRoleRewardSummary {
+  role: BiddingRole;
+  sampleCount: number;
+  averageReward: number | null;
+}
+
+export interface BiddingPolicyBenchmarkCandidateResult {
+  kind: BiddingBenchmarkCandidateKind;
+  agentName: string;
+  run: EvaluationRunRecord;
+  report: EvaluationReport;
+  comparison: PolicyVsRuleBasedComparisonReport;
+  bidding: BiddingActionDistributionSummary;
+  contracts: BiddingContractSummary;
+  roleRewards: readonly BiddingRoleRewardSummary[];
+  illegalActionCount: number;
+  biddingOnnxDecisionCount: number;
+}
+
+export interface BiddingPolicyBenchmarkResult {
+  schemaVersion: 1;
+  configuration: {
+    startSeed: number;
+    endSeed: number;
+    gameCount: number;
+    rotationOffsets: readonly number[];
+    playerIds: readonly PlayerId[];
+    playingPolicyMetadata: PolicyOnnxMetadata;
+    ppoBiddingPolicyMetadata: NonPlayingPolicyOnnxMetadata;
+  };
+  candidates: readonly BiddingPolicyBenchmarkCandidateResult[];
+}
+
 interface MutableStats {
   games: {
     total: number;
@@ -268,6 +344,14 @@ interface AgentGroupStats {
   sourceAgentIndices: Set<number>;
   roleStats: Map<CompletedRole, MutableStats>;
   seatStats: Map<number, MutableStats>;
+}
+
+interface BiddingActionMetrics {
+  decisionCount: number;
+  passCount: number;
+  bidCount: number;
+  targetPointCards: Map<number, number>;
+  suits: Map<Suit, number>;
 }
 
 export async function runPolicyVsRuleBasedEvaluation(
@@ -429,6 +513,99 @@ export async function runStandardPlayingPolicyBenchmarks(
   };
 }
 
+export async function runBiddingPolicyBenchmark(
+  options: RunBiddingPolicyBenchmarkOptions
+): Promise<BiddingPolicyBenchmarkResult> {
+  assertPlayingPolicyType("playingPolicy", options.playingPolicy);
+  assertNonPlayingPolicyModelType("ppoBiddingPolicy", options.ppoBiddingPolicy, "bidding");
+
+  const playerIds = options.playerIds ?? defaultPlayerIds;
+  const rotationOffsets = options.rotationOffsets ?? defaultRotationOffsets;
+  const candidates = [
+    {
+      kind: "rule-based" as const,
+      agentName: "RuleBasedBidding",
+      createBiddingAgent: (rng: () => number) => new RuleBasedAgent(rng)
+    },
+    {
+      kind: "critic-ev" as const,
+      agentName: "CriticEvBidding",
+      createBiddingAgent: (rng: () => number) => new CriticEvBiddingAgent({
+        critic: options.criticEvBiddingCritic,
+        delegateAgent: new RuleBasedAgent(rng),
+        playerIds
+      })
+    },
+    {
+      kind: "ppo" as const,
+      agentName: "PpoBidding",
+      createBiddingAgent: (
+        rng: () => number,
+        decisionMetrics: PolicyOnnxAgentDecisionMetrics
+      ) => new PolicyOnnxAgent({
+        policy: options.playingPolicy,
+        biddingPolicy: options.ppoBiddingPolicy,
+        rng,
+        playerIds,
+        decisionMetrics
+      })
+    }
+  ];
+  const results: BiddingPolicyBenchmarkCandidateResult[] = [];
+
+  for (const candidate of candidates) {
+    const biddingMetrics = createBiddingActionMetrics();
+    const decisionMetrics = createPolicyOnnxAgentDecisionMetrics();
+    const run = await runEvaluation({
+      startSeed: options.startSeed,
+      gameCount: options.gameCount,
+      playerIds,
+      rotationOffsets,
+      maxDecisionSteps: options.maxDecisionSteps,
+      agents: createBiddingBenchmarkAgents({
+        playingPolicy: options.playingPolicy,
+        playerIds,
+        candidateAgentName: candidate.agentName,
+        biddingMetrics,
+        decisionMetrics,
+        createBiddingAgent: candidate.createBiddingAgent
+      })
+    });
+    const report = createEvaluationReport(run);
+    const comparison = createPolicyVsRuleBasedComparison(run, {
+      policyAgentName: candidate.agentName,
+      ruleBasedAgentName: "RuleBasedAgent"
+    });
+
+    results.push({
+      kind: candidate.kind,
+      agentName: candidate.agentName,
+      run,
+      report,
+      comparison,
+      bidding: summarizeBiddingActions(biddingMetrics),
+      contracts: summarizeBiddingContracts(run),
+      roleRewards: summarizeBiddingRoleRewards(run),
+      illegalActionCount: comparison.illegalActionCount,
+      biddingOnnxDecisionCount: decisionMetrics.biddingOnnxCallCount
+    });
+  }
+
+  return {
+    schemaVersion: 1,
+    configuration: {
+      startSeed: options.startSeed,
+      endSeed: options.startSeed + options.gameCount - 1,
+      gameCount: options.gameCount,
+      rotationOffsets,
+      playerIds,
+      playingPolicyMetadata: options.playingPolicy.metadata,
+      ppoBiddingPolicyMetadata: options.ppoBiddingPolicy.metadata
+    },
+    candidates: results
+  };
+}
+
 export async function runFullPolicyVsRuleBasedEvaluation(
   options: RunFullPolicyVsRuleBasedEvaluationOptions
 ): Promise<FullPolicyVsRuleBasedEvaluationResult> {
@@ -492,6 +669,252 @@ export async function runFullPolicyVsRuleBasedEvaluation(
       policyAgentDecisionCounts: copyDecisionMetrics(decisionMetrics)
     }
   };
+}
+
+function createBiddingBenchmarkAgents(args: {
+  playingPolicy: PolicyOnnxModel;
+  playerIds: readonly PlayerId[];
+  candidateAgentName: string;
+  biddingMetrics: BiddingActionMetrics;
+  decisionMetrics: PolicyOnnxAgentDecisionMetrics;
+  createBiddingAgent: (
+    rng: () => number,
+    decisionMetrics: PolicyOnnxAgentDecisionMetrics
+  ) => Agent;
+}): readonly EvaluationAgentDefinition[] {
+  return [
+    {
+      name: args.candidateAgentName,
+      createAgent: ({ rng }) => new BiddingBenchmarkAgent({
+        playingPolicy: args.playingPolicy,
+        biddingAgent: args.createBiddingAgent(rng, args.decisionMetrics),
+        rng,
+        playerIds: args.playerIds,
+        biddingMetrics: args.biddingMetrics,
+        decisionMetrics: args.decisionMetrics
+      })
+    },
+    ...args.playerIds.slice(1).map((): EvaluationAgentDefinition => ({
+      name: "RuleBasedAgent",
+      createAgent: ({ rng }) => new RuleBasedAgent(rng)
+    }))
+  ];
+}
+
+class BiddingBenchmarkAgent implements Agent {
+  private readonly playingAgent: PolicyOnnxAgent;
+  private readonly fallbackAgent: RuleBasedAgent;
+  private readonly biddingAgent: Agent;
+  private readonly biddingMetrics: BiddingActionMetrics;
+
+  constructor(options: {
+    playingPolicy: PolicyOnnxModel;
+    biddingAgent: Agent;
+    rng: () => number;
+    playerIds: readonly PlayerId[];
+    biddingMetrics: BiddingActionMetrics;
+    decisionMetrics: PolicyOnnxAgentDecisionMetrics;
+  }) {
+    this.playingAgent = new PolicyOnnxAgent({
+      policy: options.playingPolicy,
+      rng: options.rng,
+      playerIds: options.playerIds,
+      decisionMetrics: options.decisionMetrics
+    });
+    this.fallbackAgent = new RuleBasedAgent(options.rng);
+    this.biddingAgent = options.biddingAgent;
+    this.biddingMetrics = options.biddingMetrics;
+  }
+
+  async selectAction(observation: PlayerObservation): Promise<GameAction> {
+    return this.selectActionWithContext(observation);
+  }
+
+  async selectActionWithContext(
+    observation: PlayerObservation,
+    context?: { actualState: ActualCardState; playerIds: readonly PlayerId[] }
+  ): Promise<GameAction> {
+    switch (observation.view.phase) {
+      case "bidding": {
+        const action = await this.biddingAgent.selectAction(observation);
+        recordBiddingAction(this.biddingMetrics, action);
+        return action;
+      }
+      case "playing":
+        return this.playingAgent.selectActionWithContext(observation, context);
+      case "choosing-adjutant":
+      case "exchanging":
+      case "finished":
+        return this.fallbackAgent.selectAction(observation);
+    }
+  }
+}
+
+function createBiddingActionMetrics(): BiddingActionMetrics {
+  return {
+    decisionCount: 0,
+    passCount: 0,
+    bidCount: 0,
+    targetPointCards: new Map(),
+    suits: new Map()
+  };
+}
+
+function recordBiddingAction(metrics: BiddingActionMetrics, action: GameAction): void {
+  if (action.type !== "bid" && action.type !== "pass") {
+    throw new Error(`Bidding benchmark expected bid/pass action, got ${action.type}.`);
+  }
+
+  metrics.decisionCount += 1;
+  if (action.type === "pass") {
+    metrics.passCount += 1;
+    return;
+  }
+
+  metrics.bidCount += 1;
+  incrementNumberMap(metrics.targetPointCards, action.targetPointCards);
+  incrementSuitMap(metrics.suits, action.suit);
+}
+
+function summarizeBiddingActions(
+  metrics: BiddingActionMetrics
+): BiddingActionDistributionSummary {
+  return {
+    decisionCount: metrics.decisionCount,
+    passCount: metrics.passCount,
+    passRate: metrics.decisionCount === 0 ? null : metrics.passCount / metrics.decisionCount,
+    bidCount: metrics.bidCount,
+    targetPointCards: targetDistributionRecord(metrics.targetPointCards),
+    suits: suitDistributionRecord(metrics.suits)
+  };
+}
+
+function summarizeBiddingContracts(run: EvaluationRunRecord): BiddingContractSummary {
+  let completedGameCount = 0;
+  let napoleonFormationCount = 0;
+  let declarationSuccessCount = 0;
+  let targetTotal = 0;
+  const targetPointCards = new Map<number, number>();
+
+  for (const game of run.games) {
+    if (game.status !== "completed") {
+      continue;
+    }
+    completedGameCount += 1;
+    targetTotal += game.contract.targetPointCards;
+    incrementNumberMap(targetPointCards, game.contract.targetPointCards);
+    if (game.result.targetPointCards >= 13) {
+      napoleonFormationCount += 1;
+    }
+    if (game.contractSucceeded) {
+      declarationSuccessCount += 1;
+    }
+  }
+
+  return {
+    completedGameCount,
+    napoleonFormationCount,
+    napoleonFormationRate: completedGameCount === 0
+      ? null
+      : napoleonFormationCount / completedGameCount,
+    declarationSuccessCount,
+    declarationSuccessRate: completedGameCount === 0
+      ? null
+      : declarationSuccessCount / completedGameCount,
+    averageTargetPointCards: completedGameCount === 0 ? null : targetTotal / completedGameCount,
+    targetPointCards: targetDistributionRecord(targetPointCards)
+  };
+}
+
+function summarizeBiddingRoleRewards(
+  run: EvaluationRunRecord
+): readonly BiddingRoleRewardSummary[] {
+  const accumulators = new Map<BiddingRole, { sampleCount: number; rewardTotal: number }>();
+  for (const role of biddingRoles) {
+    accumulators.set(role, { sampleCount: 0, rewardTotal: 0 });
+  }
+
+  for (const game of run.games) {
+    if (game.status !== "completed") {
+      continue;
+    }
+    const candidateSeat = game.seats.find((seat) => seat.sourceAgentIndex === 0);
+    if (candidateSeat === undefined) {
+      continue;
+    }
+    const role = biddingRoleForSeat(game.result, candidateSeat.playerId);
+    const accumulator = accumulators.get(role);
+    if (accumulator === undefined) {
+      continue;
+    }
+    accumulator.sampleCount += 1;
+    accumulator.rewardTotal += calculateBiddingRoleReward(game.result, role);
+  }
+
+  return biddingRoles.map((role) => {
+    const accumulator = accumulators.get(role)!;
+    return {
+      role,
+      sampleCount: accumulator.sampleCount,
+      averageReward: accumulator.sampleCount === 0
+        ? null
+        : accumulator.rewardTotal / accumulator.sampleCount
+    };
+  });
+}
+
+function biddingRoleForSeat(result: GameResult, playerId: PlayerId): BiddingRole {
+  if (playerId === result.napoleonPlayerId) {
+    return result.adjutantPlayerId === null || result.adjutantPlayerId === playerId
+      ? "napoleon-adjutant"
+      : "napoleon";
+  }
+  if (playerId === result.adjutantPlayerId) {
+    return "adjutant";
+  }
+  return "citizen";
+}
+
+function calculateBiddingRoleReward(result: GameResult, role: BiddingRole): number {
+  const d = result.targetPointCards;
+  const napoleonWon = result.winner === "napoleon-team";
+
+  switch (role) {
+    case "napoleon":
+      return napoleonWon ? d : -3;
+    case "adjutant":
+      return napoleonWon ? d - 7 : 0;
+    case "citizen":
+      return napoleonWon ? 7 : 0;
+    case "napoleon-adjutant":
+      return napoleonWon ? 2 * d - 7 : -3;
+  }
+}
+
+function targetDistributionRecord(values: ReadonlyMap<number, number>): Readonly<Record<string, number>> {
+  return Object.fromEntries(
+    [12, 13, 14, 15, 16, 17, 18, 19].map((target) => [
+      String(target),
+      values.get(target) ?? 0
+    ])
+  );
+}
+
+function suitDistributionRecord(values: ReadonlyMap<Suit, number>): Readonly<Record<Suit, number>> {
+  return {
+    spades: values.get("spades") ?? 0,
+    hearts: values.get("hearts") ?? 0,
+    diamonds: values.get("diamonds") ?? 0,
+    clubs: values.get("clubs") ?? 0
+  };
+}
+
+function incrementNumberMap(map: Map<number, number>, key: number): void {
+  map.set(key, (map.get(key) ?? 0) + 1);
+}
+
+function incrementSuitMap(map: Map<Suit, number>, key: Suit): void {
+  map.set(key, (map.get(key) ?? 0) + 1);
 }
 
 function createPolicyVsRuleBasedAgents(args: {
