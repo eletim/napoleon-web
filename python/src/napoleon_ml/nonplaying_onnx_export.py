@@ -25,6 +25,15 @@ from napoleon_ml.bidding.checkpoint import (
 )
 from napoleon_ml.bidding.checkpoint import load_bidding_checkpoint
 from napoleon_ml.bidding.metrics import select_bidding_action
+from napoleon_ml.bidding.ppo import (
+    BIDDING_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+    BIDDING_PPO_ALGORITHM,
+    BIDDING_PPO_CHECKPOINT_SCHEMA_VERSION,
+    NON_PLAYING_RL_SAMPLE_TYPE,
+    iter_non_playing_bidding_rl_samples,
+    load_bidding_logits_checkpoint,
+    load_bidding_ppo_checkpoint,
+)
 from napoleon_ml.dataset.constants import (
     ADJUTANT_DATASET_SAMPLE_TYPE,
     ADJUTANT_ENCODER_SCHEMA_VERSION,
@@ -48,7 +57,6 @@ from napoleon_ml.dataset.tensors import (
     TensorizedAdjutantSample,
     TensorizedBiddingSample,
     TensorizedExchangeSample,
-    TensorizedTrainingSample,
 )
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 from napoleon_ml.exchange.checkpoint import (
@@ -129,6 +137,11 @@ class _NonPlayingPolicySpec:
 def _load_bidding(
     path: Path | str, manifest: DatasetManifest
 ) -> tuple[nn.Module, dict[str, object]]:
+    checkpoint = torch.load(Path(path), map_location="cpu", weights_only=True)
+    if isinstance(checkpoint, dict) and checkpoint.get("model_architecture") == (
+        BIDDING_ACTOR_CRITIC_MODEL_ARCHITECTURE
+    ):
+        return load_bidding_ppo_checkpoint(path)
     return load_bidding_checkpoint(path, manifest=manifest)
 
 
@@ -275,6 +288,77 @@ def export_nonplaying_checkpoint_to_onnx(
 
     return NonPlayingOnnxExportReport(
         policy_type=policy_type,
+        onnx_path=output,
+        metadata_path=metadata_output,
+        sample_seed=sample.seed,
+        sample_step=sample.step,
+        max_abs_logit_diff=parity.max_abs_logit_diff,
+        pytorch_selection=parity.pytorch_selection,
+        onnx_selection=parity.onnx_selection,
+    )
+
+
+def export_bidding_rl_checkpoint_to_onnx(
+    *,
+    dataset_directory: Path | str,
+    checkpoint_path: Path | str,
+    onnx_path: Path | str,
+    metadata_path: Path | str,
+) -> NonPlayingOnnxExportReport:
+    """Export a bidding PPO checkpoint using a #206 non-playing RL dataset sample."""
+
+    spec = _SPECS["bidding"]
+    checkpoint_file = Path(checkpoint_path)
+    output = Path(onnx_path)
+    metadata_output = Path(metadata_path)
+    _validate_export_paths(
+        checkpoint_path=checkpoint_file,
+        onnx_path=output,
+        metadata_path=metadata_output,
+    )
+    model, checkpoint = load_bidding_logits_checkpoint(checkpoint_file)
+    _validate_checkpoint_metadata_for_export(spec, checkpoint, model=model)
+    _validate_model_for_export(spec, model)
+
+    sample = next(iter_non_playing_bidding_rl_samples(dataset_directory), None)
+    if sample is None:
+        raise NonPlayingOnnxExportError("bidding RL dataset contains no samples.")
+
+    model.eval()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    metadata_output.parent.mkdir(parents=True, exist_ok=True)
+
+    dummy_input = torch.zeros((2, spec.model_input_feature_count), dtype=torch.float32)
+    staged_output = _temporary_sibling(output)
+    staged_metadata = _temporary_sibling(metadata_output)
+    try:
+        with torch.no_grad():
+            _export_onnx(model=model, dummy_input=dummy_input, output=staged_output)
+        metadata = build_nonplaying_onnx_metadata(
+            policy_type="bidding",
+            model=model,
+            checkpoint=checkpoint,
+        )
+        parity = _check_onnx_runtime_parity(
+            spec=spec,
+            model=model,
+            onnx_path=staged_output,
+            sample=sample,
+            metadata=metadata,
+        )
+        staged_metadata.write_text(
+            json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        staged_output.replace(output)
+        staged_metadata.replace(metadata_output)
+    except Exception:
+        staged_output.unlink(missing_ok=True)
+        staged_metadata.unlink(missing_ok=True)
+        raise
+
+    return NonPlayingOnnxExportReport(
+        policy_type="bidding",
         onnx_path=output,
         metadata_path=metadata_output,
         sample_seed=sample.seed,
@@ -477,6 +561,12 @@ def _validate_checkpoint_metadata_for_export(
     model: nn.Module,
 ) -> None:
     model_config = _model_config_dict(model)
+    if (
+        spec.policy_type == "bidding"
+        and checkpoint.get("model_architecture") == BIDDING_ACTOR_CRITIC_MODEL_ARCHITECTURE
+    ):
+        _validate_bidding_ppo_checkpoint_for_export(checkpoint, model_config=model_config)
+        return
     expected_values: dict[str, object] = {
         "checkpoint_schema_version": spec.checkpoint_schema_version,
         "dataset_schema_version": MULTIPHASE_DATASET_SCHEMA_VERSION,
@@ -509,6 +599,35 @@ def _validate_checkpoint_metadata_for_export(
             f"{spec.policy_type} checkpoint model_config.input_dim mismatch: "
             f"expected {spec.model_input_feature_count}, got {input_dim!r}."
         )
+
+
+def _validate_bidding_ppo_checkpoint_for_export(
+    checkpoint: dict[str, object],
+    *,
+    model_config: dict[str, object],
+) -> None:
+    expected_values: dict[str, object] = {
+        "checkpoint_schema_version": BIDDING_PPO_CHECKPOINT_SCHEMA_VERSION,
+        "model_architecture": BIDDING_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+        "algorithm": BIDDING_PPO_ALGORITHM,
+        "sample_type": NON_PLAYING_RL_SAMPLE_TYPE,
+        "bidding_encoder_schema_version": BIDDING_ENCODER_SCHEMA_VERSION,
+        "model_input_schema_version": BIDDING_MODEL_INPUT_SCHEMA_VERSION,
+        "model_input_feature_count": BIDDING_MODEL_INPUT_FEATURE_COUNT,
+        "action_count": BIDDING_ACTION_COUNT,
+        "card_ids_sha256": calculate_card_ids_sha256(),
+        "model_config": model_config,
+    }
+    for key, expected in expected_values.items():
+        actual = checkpoint.get(key)
+        if actual != expected:
+            raise NonPlayingOnnxExportError(
+                f"bidding PPO checkpoint {key} mismatch: "
+                f"expected {expected!r}, got {actual!r}."
+            )
+    seed = checkpoint.get("seed")
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise NonPlayingOnnxExportError("bidding PPO checkpoint seed must be an integer.")
 
 
 def _checkpoint_compatibility_metadata(
@@ -580,7 +699,7 @@ def _check_onnx_runtime_parity(
     spec: _NonPlayingPolicySpec,
     model: nn.Module,
     onnx_path: Path,
-    sample: TensorizedTrainingSample,
+    sample: Any,
     metadata: dict[str, object],
 ) -> _OnnxParityResult:
     try:
