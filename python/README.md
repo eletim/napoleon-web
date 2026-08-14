@@ -90,6 +90,42 @@ The command writes phase artifacts under `bidding/`, `adjutant/`, and
 `exchange/`, plus `evaluation.json` and `run-summary.json`. It refuses to use
 a non-empty output directory unless `--overwrite` is provided.
 
+## Iterative non-playing PPO
+
+Pass `--iterations` to run the long-form non-playing PPO loop. Each iteration
+rolls out with the current bidding, adjutant, and exchange policies, trains the
+existing phase PPO trainers, exports ONNX artifacts, and periodically runs a
+full-policy evaluation against the frozen `ppo-separated-v1000` playing policy.
+
+```bash
+uv run --project python --extra dev napoleon-run-non-playing-rl \
+  --output-dir ~/napoleon_runs/non-playing-ppo-v1 \
+  --iterations 100 \
+  --games-per-iteration 200 \
+  --epochs 4 \
+  --batch-size 128 \
+  --learning-rate 1e-4 \
+  --evaluation-interval 10 \
+  --evaluation-games 100 \
+  --seed 202
+```
+
+Resume uses the stored `config.json`; the command fails closed if explicitly
+provided resume settings or policy artifact hashes do not match the original
+run:
+
+```bash
+uv run --project python --extra dev napoleon-run-non-playing-rl \
+  --output-dir ~/napoleon_runs/non-playing-ppo-v1 \
+  --resume
+```
+
+Outputs are written under `iterations/iter-000000/`, `iter-000001/`, and so on,
+with phase `dataset/`, `output-checkpoint.pt`, `policy.onnx`, `policy.json`, and
+`iteration.json` files. `latest/` points at the latest completed phase
+artifacts, while `run-summary.json` and `run-summary.jsonl` summarize progress,
+evaluation fallback counts, and illegal action counts.
+
 ## Generating a dataset
 
 Datasets are produced by the TypeScript CLI, from the repository root:
