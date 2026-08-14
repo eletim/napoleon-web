@@ -47,6 +47,27 @@ export {
   validatePlayingSelfPlaySample
 } from "./generatePlayingSelfPlayDataset.js";
 export {
+  DEFAULT_NON_PLAYING_RL_TEMPERATURE,
+  NON_PLAYING_RL_DATASET_GENERATOR_VERSION,
+  NON_PLAYING_RL_DATASET_SAMPLE_TYPE,
+  NON_PLAYING_RL_DATASET_SCHEMA_VERSION,
+  NON_PLAYING_RL_PHASE_SCOPE,
+  NON_PLAYING_RL_REWARD_ID,
+  NON_PLAYING_RL_REWARD_TYPE,
+  NON_PLAYING_RL_REWARD_VERSION,
+  NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION,
+  NON_PLAYING_RL_SAMPLING_ALGORITHM,
+  calculateNonPlayingBiddingLogProbability,
+  calculateNonPlayingTerminalRoleReward,
+  completeNonPlayingBiddingRlSamples,
+  generateNonPlayingBiddingRlDataset,
+  runNonPlayingBiddingRlGame,
+  serializeNonPlayingBiddingRlSample,
+  validateNonPlayingBiddingRlGenerationOptions,
+  validateNonPlayingBiddingRlSample,
+  validateNonPlayingRlDatasetManifest
+} from "./generateNonPlayingRlDataset.js";
+export {
   calculateCardIdsSha256,
   serializeManifest,
   serializePlayingTrainingSample,
@@ -105,3 +126,18 @@ export type {
   RolloutRosterSeatOptions,
   RuleBasedRolloutRosterSeat
 } from "./generatePlayingSelfPlayDataset.js";
+export type {
+  BiddingRlGameRunResult,
+  BiddingRlSampleDraft,
+  FixedPlayingPolicy,
+  GenerateNonPlayingBiddingRlDatasetOptions,
+  GenerateNonPlayingBiddingRlDatasetResult,
+  NonPlayingBiddingRlOutcome,
+  NonPlayingBiddingRlPolicy,
+  NonPlayingBiddingRlRole,
+  NonPlayingBiddingRlSample,
+  NonPlayingRlDatasetManifest,
+  NonPlayingRlPolicyArtifactManifest,
+  NonPlayingRlPolicyArtifactOptions,
+  PolicyRuntimeInfo
+} from "./generateNonPlayingRlDataset.js";
