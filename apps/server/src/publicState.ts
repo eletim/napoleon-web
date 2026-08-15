@@ -143,7 +143,19 @@ function toPublicStandardCard(card: StandardCard): Extract<PublicCard, { type: "
 }
 
 export function toPublicGameResult(result: GameResult): PublicGameResult {
+  if (result.resultType === "all-pass") {
+    return {
+      resultType: "all-pass",
+      starterPlayerId: result.starterPlayerId,
+      payoffs: result.payoffs.map((payoff) => ({
+        playerId: payoff.playerId,
+        payoff: payoff.payoff
+      }))
+    };
+  }
+
   return {
+    resultType: "standard",
     winner: result.winner,
     napoleonTeamPointCards: result.napoleonTeamPointCards,
     alliancePointCards: result.alliancePointCards,

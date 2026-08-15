@@ -358,7 +358,13 @@ function writeRuleBasedOracle(
 }
 
 function allPassBiddingScript(): string[] {
-  return ["pass player-0", "pass player-1", "pass player-2", "pass player-3", "pass player-4"];
+  return [
+    "bid player-0 spades 13",
+    "pass player-1",
+    "pass player-2",
+    "pass player-3",
+    "pass player-4"
+  ];
 }
 
 function makeReadyToPlayScript(seed: number): string[] {

@@ -361,6 +361,32 @@ void complete_bidding(GameState& state, const Contract& contract) {
   state.result = std::nullopt;
 }
 
+void complete_all_pass_bidding(GameState& state, int starter_player_index) {
+  state.phase = Phase::Finished;
+  state.current_player_index = starter_player_index;
+  state.current_trick.clear();
+  state.completed_tricks.clear();
+  state.trump_suit = std::nullopt;
+  state.contract = std::nullopt;
+  state.bidding = std::nullopt;
+  state.awarded_point_cards.clear();
+  state.excluded_cards.clear();
+  state.latest_event = std::nullopt;
+  state.adjutant = std::nullopt;
+  state.trick_number = 1;
+  state.is_trick_complete = false;
+  state.is_game_over = true;
+
+  GameResult result;
+  result.result_type = "all-pass";
+  result.starter_player_index = starter_player_index;
+  for (int player_index = 0; player_index < kPlayerCount; ++player_index) {
+    result.payoffs[static_cast<std::size_t>(player_index)] =
+        player_index == starter_player_index ? 1 : -1;
+  }
+  state.result = result;
+}
+
 void append_awarded_point_cards(GameState& state, int player_index, const std::vector<Card>& cards) {
   if (cards.empty()) {
     return;
@@ -470,12 +496,15 @@ GameResult calculate_result(const GameState& state) {
   }
 
   return GameResult{
+      "standard",
       napoleon_points >= state.contract->target_point_cards ? "napoleon-team" : "alliance",
       napoleon_points,
       alliance_points,
       state.contract->target_point_cards,
       state.contract->napoleon_player_index,
-      state.adjutant->player_index};
+      state.adjutant->player_index,
+      0,
+      {0, 0, 0, 0, 0}};
 }
 
 void erase_card(std::vector<Card>& hand, Card card) {
@@ -666,7 +695,23 @@ void write_result(std::ostream& out, const std::optional<GameResult>& result) {
     return;
   }
 
-  out << "{\"winner\":";
+  if (result->result_type == "all-pass") {
+    out << "{\"resultType\":\"all-pass\",\"starterPlayerId\":";
+    json_escape(out, player_id(result->starter_player_index));
+    out << ",\"payoffs\":[";
+    for (int player_index = 0; player_index < kPlayerCount; ++player_index) {
+      if (player_index != 0) {
+        out << ',';
+      }
+      out << "{\"playerId\":";
+      json_escape(out, player_id(player_index));
+      out << ",\"payoff\":" << result->payoffs[static_cast<std::size_t>(player_index)] << '}';
+    }
+    out << "]}";
+    return;
+  }
+
+  out << "{\"resultType\":\"standard\",\"winner\":";
   json_escape(out, result->winner);
   out << ",\"napoleonTeamPointCards\":" << result->napoleon_team_point_cards;
   out << ",\"alliancePointCards\":" << result->alliance_point_cards;
@@ -836,7 +881,7 @@ void apply_action(GameState& state, const Action& action) {
 
       if (!state.bidding->highest_bid.has_value() &&
           state.bidding->consecutive_pass_count == kPlayerCount) {
-        complete_bidding(state, Contract{state.bidding->starter_player_index, Suit::Spades, 12});
+        complete_all_pass_bidding(state, state.bidding->starter_player_index);
         return;
       }
 

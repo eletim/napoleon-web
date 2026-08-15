@@ -50,13 +50,14 @@ DEFAULT_TEMPERATURE = 1.0
 DEFAULT_INFERENCE_DEVICE: Literal["cpu", "auto", "cuda"] = "cpu"
 DEFAULT_INFERENCE_MAX_BATCH_SIZE = 256
 DEFAULT_SEED = 202
-ITERATIVE_RUN_CONFIG_SCHEMA_VERSION = 4
+ITERATIVE_RUN_CONFIG_SCHEMA_VERSION = 5
 NONPLAYING_ROLLOUT_POLICY_TOPOLOGY = "candidate-x1-frozen-x4-v1"
 NONPLAYING_GAME_COUNT_UNIT = "logical-seeds"
 NONPLAYING_ROTATION_OFFSETS = [0, 1, 2, 3, 4]
 NONPLAYING_REWARD_TYPE = "non-playing-terminal-role-reward"
 NONPLAYING_REWARD_VERSION = 3
 NONPLAYING_REWARD_ID = "non-playing-terminal-role-reward-v3"
+NONPLAYING_ALL_PASS_RULE_ID = "all-pass-immediate-starter-plus1-others-minus1-v1"
 FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION = (
     "per-seat-seeded-conservative-passive-50-50-v1"
 )
@@ -153,6 +154,11 @@ class NonPlayingRlRunConfig:
                 "type": NONPLAYING_REWARD_TYPE,
                 "version": NONPLAYING_REWARD_VERSION,
                 "id": NONPLAYING_REWARD_ID,
+            },
+            "allPassRule": {
+                "id": NONPLAYING_ALL_PASS_RULE_ID,
+                "starterPayoff": 1,
+                "otherPayoff": -1,
             },
             "inferenceDevice": self.inference_device,
             "inferenceMaxBatchSize": self.inference_max_batch_size,
@@ -263,6 +269,11 @@ class NonPlayingIterativeRlRunConfig:
                 "type": NONPLAYING_REWARD_TYPE,
                 "version": NONPLAYING_REWARD_VERSION,
                 "id": NONPLAYING_REWARD_ID,
+            },
+            "allPassRule": {
+                "id": NONPLAYING_ALL_PASS_RULE_ID,
+                "starterPayoff": 1,
+                "otherPayoff": -1,
             },
             "biddingFrozenOpponentMixRuleVersion": FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION,
             "biddingFrozenOpponentPolicyIds": {
@@ -598,6 +609,11 @@ def _run_iterative_iteration(
             "type": NONPLAYING_REWARD_TYPE,
             "version": NONPLAYING_REWARD_VERSION,
             "id": NONPLAYING_REWARD_ID,
+        },
+        "allPassRule": {
+            "id": NONPLAYING_ALL_PASS_RULE_ID,
+            "starterPayoff": 1,
+            "otherPayoff": -1,
         },
         "evaluationDue": evaluation_summary is not None,
         "evaluation": evaluation_summary,
@@ -1160,6 +1176,13 @@ def _validate_nonplaying_rollout_manifest(
         or reward.get("id") != NONPLAYING_REWARD_ID
     ):
         raise NonPlayingRlOrchestratorError("rollout manifest reward metadata mismatch.")
+    all_pass_rule = _require_dict(manifest.get("allPassRule"), "manifest.allPassRule")
+    if (
+        all_pass_rule.get("id") != NONPLAYING_ALL_PASS_RULE_ID
+        or all_pass_rule.get("starterPayoff") != 1
+        or all_pass_rule.get("otherPayoff") != -1
+    ):
+        raise NonPlayingRlOrchestratorError("rollout manifest all-pass rule metadata mismatch.")
     behavior = _require_dict(manifest.get("behaviorPolicy"), "manifest.behaviorPolicy")
     if behavior.get("onnxSha256") != expected_behavior_onnx_sha256:
         raise NonPlayingRlOrchestratorError("rollout behavior ONNX SHA mismatch.")
@@ -1350,6 +1373,7 @@ def _validate_iterative_resume_config(
         "rolloutPolicyTopology",
         "rotationOffsets",
         "reward",
+        "allPassRule",
         "biddingFrozenOpponentMixRuleVersion",
         "biddingFrozenOpponentPolicyIds",
         "playingPolicyOnnxSha256",

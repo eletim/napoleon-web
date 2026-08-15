@@ -45,9 +45,9 @@ export interface CriticEvBiddingEvaluation {
   baseWinRateEquivalent: number;
   effectiveNapoleonWinRate: number;
   expectedValue: number;
-  role: PlayingSelfRole;
-  contract: Bid;
-  calledAdjutantCardId: string;
+  role: PlayingSelfRole | "all-pass-starter" | "all-pass-other" | "deferred-pass";
+  contract: Bid | null;
+  calledAdjutantCardId: string | null;
 }
 
 const trumpRankPriority: readonly Rank[] = ["A", "K", "Q", "J", "10", "9", "8", "7", "6", "5", "4", "3", "2"];
@@ -100,11 +100,18 @@ export class CriticEvBiddingAgent implements Agent {
     const modelInputs = candidates.map((action) =>
       createCriticPlayingInputForBiddingAction(observation, action, this.resolvePlayerIds(observation))
     );
-    const criticValues = await this.critic.predictValuesBatch(modelInputs.map((input) => input.modelInput));
+    const criticInputs = modelInputs.filter((input): input is CriticPlayingBiddingInput => input.inputType === "playing");
+    const criticValues = await this.critic.predictValuesBatch(criticInputs.map((input) => input.modelInput));
+    let criticValueIndex = 0;
 
-    return modelInputs.map((input, index) =>
-      evaluateBiddingActionFromCriticValue(input, candidates[index], criticValues[index])
-    );
+    return modelInputs.map((input, index) => {
+      if (input.inputType === "all-pass" || input.inputType === "deferred-pass") {
+        return evaluateNonPlayingBiddingAction(input, candidates[index]);
+      }
+      const criticValue = criticValues[criticValueIndex];
+      criticValueIndex += 1;
+      return evaluateBiddingActionFromCriticValue(input, candidates[index], criticValue);
+    });
   }
 
   private resolvePlayerIds(observation: PlayerObservation): readonly PlayerId[] {
@@ -112,11 +119,29 @@ export class CriticEvBiddingAgent implements Agent {
   }
 }
 
-interface CriticBiddingInput {
+type CriticBiddingInput =
+  | CriticPlayingBiddingInput
+  | CriticAllPassBiddingInput
+  | CriticDeferredPassBiddingInput;
+
+interface CriticPlayingBiddingInput {
+  inputType: "playing";
   modelInput: Float32Array;
   role: PlayingSelfRole;
   contract: Bid;
   calledAdjutantCardId: string;
+}
+
+interface CriticAllPassBiddingInput {
+  inputType: "all-pass";
+  role: "all-pass-starter" | "all-pass-other";
+  payoff: 1 | -1;
+}
+
+interface CriticDeferredPassBiddingInput {
+  inputType: "deferred-pass";
+  role: "deferred-pass";
+  payoff: 0;
 }
 
 function createCriticPlayingInputForBiddingAction(
@@ -124,6 +149,10 @@ function createCriticPlayingInputForBiddingAction(
   action: Extract<GameAction, { type: "bid" | "pass" }>,
   playerIds: readonly PlayerId[]
 ): CriticBiddingInput {
+  const passOutcome = noBidPassOutcomeForBiddingAction(observation, action);
+  if (passOutcome !== null) {
+    return passOutcome;
+  }
   const contract = contractForBiddingAction(observation, action);
   const selfHand = getSelfHand(observation);
   const calledAdjutantCardId =
@@ -155,6 +184,7 @@ function createCriticPlayingInputForBiddingAction(
   );
 
   return {
+    inputType: "playing",
     modelInput: createPlayingModelInput(encoded).modelInput,
     role,
     contract,
@@ -162,8 +192,24 @@ function createCriticPlayingInputForBiddingAction(
   };
 }
 
+function evaluateNonPlayingBiddingAction(
+  input: CriticAllPassBiddingInput | CriticDeferredPassBiddingInput,
+  action: Extract<GameAction, { type: "bid" | "pass" }>
+): CriticEvBiddingEvaluation {
+  return {
+    action,
+    criticValue: 0,
+    baseWinRateEquivalent: 0,
+    effectiveNapoleonWinRate: 0,
+    expectedValue: input.payoff,
+    role: input.role,
+    contract: null,
+    calledAdjutantCardId: null
+  };
+}
+
 function evaluateBiddingActionFromCriticValue(
-  input: CriticBiddingInput,
+  input: CriticPlayingBiddingInput,
   action: Extract<GameAction, { type: "bid" | "pass" }>,
   criticValue: number
 ): CriticEvBiddingEvaluation {
@@ -214,10 +260,33 @@ function contractForBiddingAction(
     return bidding.highestBid;
   }
 
+  throw new Error("Cannot create a playing contract for an all-pass bidding action.");
+}
+
+function noBidPassOutcomeForBiddingAction(
+  observation: PlayerObservation,
+  action: Extract<GameAction, { type: "bid" | "pass" }>
+): CriticAllPassBiddingInput | CriticDeferredPassBiddingInput | null {
+  if (action.type !== "pass") {
+    return null;
+  }
+  const bidding = observation.view.bidding;
+  if (bidding?.highestBid !== null && bidding?.highestBid !== undefined) {
+    return null;
+  }
+  const starterPlayerId = bidding?.starterPlayerId ?? observation.view.players[0].id;
+  if (bidding?.consecutivePassCount === observation.view.players.length - 1) {
+    const payoff = observation.playerId === starterPlayerId ? 1 : -1;
+    return {
+      inputType: "all-pass",
+      role: payoff === 1 ? "all-pass-starter" : "all-pass-other",
+      payoff
+    };
+  }
   return {
-    playerId: bidding?.starterPlayerId ?? observation.view.players[0].id,
-    suit: "spades",
-    targetPointCards: 12
+    inputType: "deferred-pass",
+    role: "deferred-pass",
+    payoff: 0
   };
 }
 

@@ -398,7 +398,6 @@ describe("runBiddingPolicyBenchmark", () => {
         .toBe(candidate.bidding.decisionCount);
       expect(candidate.bidding.passRate).not.toBeNull();
       expect(Object.keys(candidate.bidding.targetPointCards)).toEqual([
-        "12",
         "13",
         "14",
         "15",

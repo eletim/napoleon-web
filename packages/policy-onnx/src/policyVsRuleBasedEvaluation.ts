@@ -51,10 +51,16 @@ import type {
   PlayingPolicyArtifactReference
 } from "./benchmarkArtifacts.js";
 
-type CompletedRole = Exclude<EvaluationSeatRole, "unknown">;
+type CompletedRole = Extract<EvaluationSeatRole, "napoleon" | "adjutant" | "alliance">;
 type AgentGroup = "policy" | "rule-based";
 type BiddingBenchmarkCandidateKind = "rule-based" | "critic-ev" | "ppo";
-type BiddingRole = "napoleon" | "adjutant" | "citizen" | "napoleon-adjutant";
+type BiddingRole =
+  | "napoleon"
+  | "adjutant"
+  | "citizen"
+  | "napoleon-adjutant"
+  | "all-pass-starter"
+  | "all-pass-other";
 
 const defaultPlayerIds: readonly PlayerId[] = [
   "player-0",
@@ -69,7 +75,9 @@ const biddingRoles: readonly BiddingRole[] = [
   "napoleon",
   "adjutant",
   "citizen",
-  "napoleon-adjutant"
+  "napoleon-adjutant",
+  "all-pass-starter",
+  "all-pass-other"
 ];
 const confidenceLevel = 0.95;
 const z95 = 1.959963984540054;
@@ -336,6 +344,7 @@ interface MutableStats {
   games: {
     total: number;
     completed: number;
+    standardCompleted: number;
     failed: number;
   };
   wins: number;
@@ -805,7 +814,7 @@ function summarizeBiddingActions(
 }
 
 function summarizeBiddingContracts(run: EvaluationRunRecord): BiddingContractSummary {
-  let completedGameCount = 0;
+  let standardCompletedGameCount = 0;
   let napoleonFormationCount = 0;
   let declarationSuccessCount = 0;
   let targetTotal = 0;
@@ -815,28 +824,31 @@ function summarizeBiddingContracts(run: EvaluationRunRecord): BiddingContractSum
     if (game.status !== "completed") {
       continue;
     }
-    completedGameCount += 1;
+    if (game.contract === null || game.result.resultType !== "standard") {
+      continue;
+    }
+    standardCompletedGameCount += 1;
     targetTotal += game.contract.targetPointCards;
     incrementNumberMap(targetPointCards, game.contract.targetPointCards);
     if (game.result.targetPointCards >= 13) {
       napoleonFormationCount += 1;
     }
-    if (game.contractSucceeded) {
+    if (game.contractSucceeded === true) {
       declarationSuccessCount += 1;
     }
   }
 
   return {
-    completedGameCount,
+    completedGameCount: standardCompletedGameCount,
     napoleonFormationCount,
-    napoleonFormationRate: completedGameCount === 0
+    napoleonFormationRate: standardCompletedGameCount === 0
       ? null
-      : napoleonFormationCount / completedGameCount,
+      : napoleonFormationCount / standardCompletedGameCount,
     declarationSuccessCount,
-    declarationSuccessRate: completedGameCount === 0
+    declarationSuccessRate: standardCompletedGameCount === 0
       ? null
-      : declarationSuccessCount / completedGameCount,
-    averageTargetPointCards: completedGameCount === 0 ? null : targetTotal / completedGameCount,
+      : declarationSuccessCount / standardCompletedGameCount,
+    averageTargetPointCards: standardCompletedGameCount === 0 ? null : targetTotal / standardCompletedGameCount,
     targetPointCards: targetDistributionRecord(targetPointCards)
   };
 }
@@ -879,6 +891,10 @@ function summarizeBiddingRoleRewards(
 }
 
 function biddingRoleForSeat(result: GameResult, playerId: PlayerId): BiddingRole {
+  if (result.resultType === "all-pass") {
+    return playerId === result.starterPlayerId ? "all-pass-starter" : "all-pass-other";
+  }
+
   if (playerId === result.napoleonPlayerId) {
     return result.adjutantPlayerId === null || result.adjutantPlayerId === playerId
       ? "napoleon-adjutant"
@@ -891,6 +907,10 @@ function biddingRoleForSeat(result: GameResult, playerId: PlayerId): BiddingRole
 }
 
 function calculateBiddingRoleReward(result: GameResult, role: BiddingRole): number {
+  if (result.resultType === "all-pass") {
+    return role === "all-pass-starter" ? 1 : -1;
+  }
+
   const d = result.targetPointCards;
   const napoleonWon = result.winner === "napoleon-team";
 
@@ -903,12 +923,15 @@ function calculateBiddingRoleReward(result: GameResult, role: BiddingRole): numb
       return napoleonWon ? 7 : 0;
     case "napoleon-adjutant":
       return napoleonWon ? 2 * d - 7 : -3;
+    case "all-pass-starter":
+    case "all-pass-other":
+      throw new Error("All-pass bidding roles require an all-pass result.");
   }
 }
 
 function targetDistributionRecord(values: ReadonlyMap<number, number>): Readonly<Record<string, number>> {
   return Object.fromEntries(
-    [12, 13, 14, 15, 16, 17, 18, 19].map((target) => [
+    [13, 14, 15, 16, 17, 18, 19].map((target) => [
       String(target),
       values.get(target) ?? 0
     ])
@@ -1287,6 +1310,11 @@ function countGame(
   }
 
   stats.games.completed += 1;
+  if (game.resultType === "all-pass" || game.pointCards === null) {
+    return;
+  }
+
+  stats.games.standardCompleted += 1;
   stats.contractSuccesses += game.contractSucceeded ? 1 : 0;
 
   if (!isCompletedRole(seat.role)) {
@@ -1313,17 +1341,18 @@ function didSeatWin(
 }
 
 function toPerformanceSummary(stats: MutableStats): EvaluationPerformanceSummary {
+  const standardCompleted = stats.games.standardCompleted;
   return {
     games: toGameCountSummary(stats.games),
-    sampleCount: stats.games.completed,
+    sampleCount: standardCompleted,
     wins: stats.wins,
     losses: stats.losses,
-    winRate: toRate(stats.wins, stats.games.completed),
+    winRate: toRate(stats.wins, standardCompleted),
     contractSuccesses: stats.contractSuccesses,
-    contractSuccessRate: toRate(stats.contractSuccesses, stats.games.completed),
-    averagePointCards: stats.games.completed === 0
+    contractSuccessRate: toRate(stats.contractSuccesses, standardCompleted),
+    averagePointCards: standardCompleted === 0
       ? null
-      : stats.pointCardTotal / stats.games.completed,
+      : stats.pointCardTotal / standardCompleted,
     failures: toFailureSummary(stats.failuresByReason)
   };
 }
@@ -1386,6 +1415,7 @@ function createStats(): MutableStats {
     games: {
       total: 0,
       completed: 0,
+      standardCompleted: 0,
       failed: 0
     },
     wins: 0,
@@ -1507,14 +1537,15 @@ function toMeanDeltaConfidenceInterval(
 }
 
 function pointCardMeanVariance(stats: MutableStats): number | null {
-  if (stats.games.completed < 2) {
+  const standardCompleted = stats.games.standardCompleted;
+  if (standardCompleted < 2) {
     return null;
   }
 
-  const mean = stats.pointCardTotal / stats.games.completed;
-  const numerator = stats.pointCardSquareTotal - stats.games.completed * mean ** 2;
+  const mean = stats.pointCardTotal / standardCompleted;
+  const numerator = stats.pointCardSquareTotal - standardCompleted * mean ** 2;
 
-  return Math.max(0, numerator / (stats.games.completed - 1));
+  return Math.max(0, numerator / (standardCompleted - 1));
 }
 
 function emptyConfidenceInterval(
@@ -1566,7 +1597,7 @@ function subtractNullable(left: number | null, right: number | null): number | n
 }
 
 function isCompletedRole(role: EvaluationSeatRole): role is CompletedRole {
-  return role !== "unknown";
+  return role === "napoleon" || role === "adjutant" || role === "alliance";
 }
 
 function isIllegalActionFailureReason(reason: string): boolean {

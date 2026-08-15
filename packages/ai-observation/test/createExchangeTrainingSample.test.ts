@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { RuleBasedAgent, runAutomatedGame } from "@napoleon/ai";
 import type { Agent, AutomatedGameRecord, DecisionRecord, PlayerObservation } from "@napoleon/ai";
 import {
-  BIDDING_ACTION_TYPE_PASS,
   CARD_COUNT,
   CARD_IDS,
   EXCHANGE_ENCODER_SCHEMA_VERSION,
@@ -150,23 +149,14 @@ describe("createExchangeTrainingSample", () => {
     }
   });
 
-  it("encodes the automatic all-pass contract target 12 with public pass history", async () => {
+  it("does not create exchange samples for all-pass games", async () => {
     const record = await runAutomatedGame({
       seed: smokeSeed,
       createAgent: ({ rng }) => new PassThenRuleBasedAgent(rng)
     });
-    const sample = createExchangeTrainingSamples(record)[0];
 
-    expect(sample).toBeDefined();
-    expect(sample.observation.contractTargetPointCards).toBe(12);
-    expect(sum(sample.observation.biddingHistory.actionMask)).toBe(5);
-    expect(sample.observation.biddingHistory.actionTypeIndices.slice(0, 5)).toEqual(
-      Array(5).fill(BIDDING_ACTION_TYPE_PASS)
-    );
-    expect(sample.observation.biddingHistory.targetPointCards.slice(0, 5)).toEqual(
-      Array(5).fill(0)
-    );
-    validateExchangeTrainingSample(sample);
+    expect(record.result.resultType).toBe("all-pass");
+    expect(createExchangeTrainingSamples(record)).toEqual([]);
   });
 
   it("rejects exchange decisions without a post-adjutant 13-card Napoleon hand or discardCount 3", async () => {

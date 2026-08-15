@@ -152,7 +152,7 @@ describe("createBiddingTrainingSample", () => {
     );
   });
 
-  it("keeps the fifth all-pass teacher as pass index 0 and adds no spades-12 action", async () => {
+  it("keeps the fifth all-pass teacher as pass index 0 and adds no synthetic bid action", async () => {
     const record = await createSyntheticAllPassRecord(smokeSeed);
     const decision = record.decisions[4];
     const sample = createBiddingTrainingSample(record, decision);

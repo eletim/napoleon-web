@@ -72,6 +72,7 @@ export const FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION =
 export const NON_PLAYING_RL_REWARD_TYPE = "non-playing-terminal-role-reward" as const;
 export const NON_PLAYING_RL_REWARD_VERSION = 3 as const;
 export const NON_PLAYING_RL_REWARD_ID = "non-playing-terminal-role-reward-v3" as const;
+export const NON_PLAYING_RL_ALL_PASS_RULE_ID = "all-pass-immediate-starter-plus1-others-minus1-v1" as const;
 export const NON_PLAYING_RL_SAMPLING_ALGORITHM = "masked-categorical" as const;
 export const DEFAULT_NON_PLAYING_RL_TEMPERATURE = 1.0 as const;
 export const NON_PLAYING_BIDDING_RL_PHASE_SCOPE = "bidding-only" as const;
@@ -84,7 +85,9 @@ export type NonPlayingBiddingRlRole =
   | "napoleon"
   | "adjutant"
   | "citizen"
-  | "napoleon-adjutant";
+  | "napoleon-adjutant"
+  | "all-pass-starter"
+  | "all-pass-other";
 
 export type FrozenBiddingOpponentPolicyType = "conservative-bidding" | "passive-bidding";
 
@@ -156,12 +159,24 @@ export interface NonPlayingRlPolicyArtifactOptions {
   artifactId?: string;
 }
 
-export interface NonPlayingBiddingRlOutcome {
+export interface NonPlayingStandardBiddingRlOutcome {
+  outcomeType: "standard";
   winner: WinningTeam;
   targetPointCards: number;
   napoleonPlayerId: PlayerId;
-  actingPlayerRole: NonPlayingBiddingRlRole;
+  actingPlayerRole: Exclude<NonPlayingBiddingRlRole, "all-pass-starter" | "all-pass-other">;
 }
+
+export interface NonPlayingAllPassBiddingRlOutcome {
+  outcomeType: "all-pass";
+  starterPlayerId: PlayerId;
+  actingPlayerRole: Extract<NonPlayingBiddingRlRole, "all-pass-starter" | "all-pass-other">;
+  actingPlayerPayoff: 1 | -1;
+}
+
+export type NonPlayingBiddingRlOutcome =
+  | NonPlayingStandardBiddingRlOutcome
+  | NonPlayingAllPassBiddingRlOutcome;
 
 export interface NonPlayingBiddingRlSample {
   sampleType: typeof NON_PLAYING_BIDDING_RL_DATASET_SAMPLE_TYPE;
@@ -278,6 +293,11 @@ export interface NonPlayingRlDatasetManifest {
     version: typeof NON_PLAYING_RL_REWARD_VERSION;
     id: typeof NON_PLAYING_RL_REWARD_ID;
   };
+  allPassRule: {
+    id: typeof NON_PLAYING_RL_ALL_PASS_RULE_ID;
+    starterPayoff: 1;
+    otherPayoff: -1;
+  };
   nonLearningAgents: {
     bidding?: {
       type: "rule-based";
@@ -327,7 +347,7 @@ export interface NonPlayingBiddingDiagnostics {
   candidateNapoleonFormationRate: number | null;
   declarationSuccessCount: number;
   declarationSuccessRate: number | null;
-  allPassForcedD12Count: number;
+  allPassImmediateEndCount: number;
   candidateRoleDistribution: Record<NonPlayingBiddingRlRole, number>;
   meanReward: number | null;
 }
@@ -468,7 +488,7 @@ interface NonPlayingRlDiagnosticsAccumulator {
     suitDistribution: Record<string, number>;
     candidateNapoleonFormationCount: number;
     declarationSuccessCount: number;
-    allPassForcedD12Count: number;
+    allPassImmediateEndCount: number;
     candidateRoleDistribution: Record<NonPlayingBiddingRlRole, number>;
     rewardSum: number;
     rewardCount: number;
@@ -504,7 +524,7 @@ function createDiagnosticsAccumulator(
       },
       candidateNapoleonFormationCount: 0,
       declarationSuccessCount: 0,
-      allPassForcedD12Count: 0,
+      allPassImmediateEndCount: 0,
       candidateRoleDistribution: emptyRoleDistribution(),
       rewardSum: 0,
       rewardCount: 0
@@ -547,15 +567,18 @@ function recordCandidateGame(
   const role = getNonPlayingRole(result.record.result, candidatePlayerId);
   accumulator.bidding.candidateRoleDistribution[role] += 1;
 
-  if (role === "napoleon" || role === "napoleon-adjutant") {
+  if (
+    result.record.result.resultType === "standard" &&
+    (role === "napoleon" || role === "napoleon-adjutant")
+  ) {
     accumulator.bidding.candidateNapoleonFormationCount += 1;
     if (result.record.result.winner === "napoleon-team") {
       accumulator.bidding.declarationSuccessCount += 1;
     }
   }
 
-  if (isAllPassForcedD12Game(result.record)) {
-    accumulator.bidding.allPassForcedD12Count += 1;
+  if (isAllPassImmediateEndGame(result.record)) {
+    accumulator.bidding.allPassImmediateEndCount += 1;
   }
 }
 
@@ -624,7 +647,7 @@ function finalizeDiagnostics(
               bidding.declarationSuccessCount,
               bidding.candidateNapoleonFormationCount
             ),
-            allPassForcedD12Count: bidding.allPassForcedD12Count,
+            allPassImmediateEndCount: bidding.allPassImmediateEndCount,
             candidateRoleDistribution: bidding.candidateRoleDistribution,
             meanReward: safeMean(bidding.rewardSum, bidding.rewardCount)
           }
@@ -672,7 +695,9 @@ function emptyRoleDistribution(): Record<NonPlayingBiddingRlRole, number> {
     napoleon: 0,
     adjutant: 0,
     citizen: 0,
-    "napoleon-adjutant": 0
+    "napoleon-adjutant": 0,
+    "all-pass-starter": 0,
+    "all-pass-other": 0
   };
 }
 
@@ -684,11 +709,10 @@ function safeMean(sumValue: number, count: number): number | null {
   return count === 0 ? null : sumValue / count;
 }
 
-function isAllPassForcedD12Game(record: AutomatedGameRecord): boolean {
-  if (record.result.targetPointCards !== 12) {
+function isAllPassImmediateEndGame(record: AutomatedGameRecord): boolean {
+  if (record.result.resultType !== "all-pass") {
     return false;
   }
-
   const biddingDecisions = record.decisions.filter((decision) => decision.phase === "bidding");
   return biddingDecisions.length === PLAYER_COUNT &&
     biddingDecisions.every((decision) => decision.action.type === "pass");
@@ -711,6 +735,14 @@ export function createFrozenBiddingOpponentMixMetadata(): FrozenBiddingOpponentM
         id: PASSIVE_BIDDING_BASELINE_ID
       }
     }
+  };
+}
+
+function createAllPassRuleMetadata(): NonPlayingRlDatasetManifest["allPassRule"] {
+  return {
+    id: NON_PLAYING_RL_ALL_PASS_RULE_ID,
+    starterPayoff: 1,
+    otherPayoff: -1
   };
 }
 
@@ -1487,8 +1519,14 @@ export function completeNonPlayingExchangeRlSamples(
 }
 
 export function calculateNonPlayingTerminalRoleReward(
-  outcome: Pick<NonPlayingBiddingRlOutcome, "winner" | "targetPointCards" | "actingPlayerRole">
+  outcome:
+    | NonPlayingBiddingRlOutcome
+    | Pick<NonPlayingStandardBiddingRlOutcome, "winner" | "targetPointCards" | "actingPlayerRole">
 ): number {
+  if ("outcomeType" in outcome && outcome.outcomeType === "all-pass") {
+    return outcome.actingPlayerPayoff;
+  }
+
   const d = outcome.targetPointCards;
   const napoleonWon = outcome.winner === "napoleon-team";
 
@@ -1886,7 +1924,7 @@ export function validateNonPlayingRlDatasetManifest(
   }
   validatePositiveInteger("Manifest gameCount", manifest.gameCount);
   validateNonPlayingRolloutTopologyMetadata(manifest);
-  validatePositiveInteger("Manifest sampleCount", manifest.sampleCount);
+  validateNonNegativeInteger("Manifest sampleCount", manifest.sampleCount);
   validatePositiveInteger("Manifest gamesPerShard", manifest.gamesPerShard);
   validatePositiveInteger("Manifest shardCount", manifest.shardCount);
   if (manifest.shardCount !== calculateExpectedShardCount(manifest.gameCount, manifest.gamesPerShard)) {
@@ -1930,6 +1968,7 @@ export function validateNonPlayingRlDatasetManifest(
   ) {
     throw new Error("Non-playing RL manifest reward metadata mismatch.");
   }
+  validateAllPassRuleMetadata(manifest);
   if (
     manifest.nonLearningAgents.choosingAdjutant?.type !== "rule-based" ||
     manifest.nonLearningAgents.choosingAdjutant?.version !== RULE_BASED_AGENT_VERSION ||
@@ -2045,7 +2084,7 @@ function validateCommonNonPlayingRlDatasetManifest(manifest: NonPlayingRlDataset
   }
   validatePositiveInteger("Manifest gameCount", manifest.gameCount);
   validateNonPlayingRolloutTopologyMetadata(manifest);
-  validatePositiveInteger("Manifest sampleCount", manifest.sampleCount);
+  validateNonNegativeInteger("Manifest sampleCount", manifest.sampleCount);
   validatePositiveInteger("Manifest gamesPerShard", manifest.gamesPerShard);
   validatePositiveInteger("Manifest shardCount", manifest.shardCount);
   if (manifest.shardCount !== calculateExpectedShardCount(manifest.gameCount, manifest.gamesPerShard)) {
@@ -2097,6 +2136,17 @@ function validateCommonNonPlayingRlPolicyMetadata(manifest: NonPlayingRlDatasetM
     manifest.reward.id !== NON_PLAYING_RL_REWARD_ID
   ) {
     throw new Error("Non-playing RL manifest reward metadata mismatch.");
+  }
+  validateAllPassRuleMetadata(manifest);
+}
+
+function validateAllPassRuleMetadata(manifest: NonPlayingRlDatasetManifest): void {
+  if (
+    manifest.allPassRule.id !== NON_PLAYING_RL_ALL_PASS_RULE_ID ||
+    manifest.allPassRule.starterPayoff !== 1 ||
+    manifest.allPassRule.otherPayoff !== -1
+  ) {
+    throw new Error("Non-playing RL manifest all-pass rule metadata mismatch.");
   }
 }
 
@@ -2574,15 +2624,35 @@ function createBiddingRlOutcome(
   result: GameResult,
   actingPlayerId: PlayerId
 ): NonPlayingBiddingRlOutcome {
+  if (result.resultType === "all-pass") {
+    const isStarter = actingPlayerId === result.starterPlayerId;
+    return {
+      outcomeType: "all-pass",
+      starterPlayerId: result.starterPlayerId,
+      actingPlayerRole: isStarter ? "all-pass-starter" : "all-pass-other",
+      actingPlayerPayoff: isStarter ? 1 : -1
+    };
+  }
+
+  const actingPlayerRole = getNonPlayingRole(result, actingPlayerId);
+  if (actingPlayerRole === "all-pass-starter" || actingPlayerRole === "all-pass-other") {
+    throw new Error("Standard bidding outcome cannot use an all-pass role.");
+  }
+
   return {
+    outcomeType: "standard",
     winner: result.winner,
     targetPointCards: result.targetPointCards,
     napoleonPlayerId: result.napoleonPlayerId,
-    actingPlayerRole: getNonPlayingRole(result, actingPlayerId)
+    actingPlayerRole
   };
 }
 
 function getNonPlayingRole(result: GameResult, playerId: PlayerId): NonPlayingBiddingRlRole {
+  if (result.resultType === "all-pass") {
+    return playerId === result.starterPlayerId ? "all-pass-starter" : "all-pass-other";
+  }
+
   if (playerId === result.napoleonPlayerId) {
     return result.adjutantPlayerId === null || result.adjutantPlayerId === playerId
       ? "napoleon-adjutant"
@@ -2786,6 +2856,7 @@ function createNonPlayingRlDatasetManifest(input: {
       version: NON_PLAYING_RL_REWARD_VERSION,
       id: NON_PLAYING_RL_REWARD_ID
     },
+    allPassRule: createAllPassRuleMetadata(),
     nonLearningAgents: {
       bidding: createFrozenBiddingOpponentMixMetadata(),
       choosingAdjutant: {
@@ -2854,6 +2925,7 @@ function createNonPlayingAdjutantRlDatasetManifest(input: {
       version: NON_PLAYING_RL_REWARD_VERSION,
       id: NON_PLAYING_RL_REWARD_ID
     },
+    allPassRule: createAllPassRuleMetadata(),
     nonLearningAgents: {
       bidding: {
         type: "conservative-bidding",
@@ -2926,6 +2998,7 @@ function createNonPlayingExchangeRlDatasetManifest(input: {
       version: NON_PLAYING_RL_REWARD_VERSION,
       id: NON_PLAYING_RL_REWARD_ID
     },
+    allPassRule: createAllPassRuleMetadata(),
     nonLearningAgents: {
       bidding: {
         type: "conservative-bidding",
@@ -3030,14 +3103,36 @@ function validateShard(shard: DatasetShardManifest): void {
   validateUint32(`Shard ${shard.file} startSeed`, shard.startSeed);
   validateUint32(`Shard ${shard.file} endSeed`, shard.endSeed);
   validatePositiveInteger(`Shard ${shard.file} gameCount`, shard.gameCount);
-  validatePositiveInteger(`Shard ${shard.file} sampleCount`, shard.sampleCount);
-  validatePositiveInteger(`Shard ${shard.file} byteLength`, shard.byteLength);
+  validateNonNegativeInteger(`Shard ${shard.file} sampleCount`, shard.sampleCount);
+  validateNonNegativeInteger(`Shard ${shard.file} byteLength`, shard.byteLength);
   if (!sha256Pattern.test(shard.sha256)) {
     throw new Error(`Shard ${shard.file} sha256 must be lowercase hex.`);
   }
 }
 
 function validateOutcome(outcome: NonPlayingBiddingRlOutcome): void {
+  if (outcome.outcomeType === "all-pass") {
+    if (outcome.starterPlayerId.length === 0) {
+      throw new Error("outcome.starterPlayerId must be non-empty.");
+    }
+    if (
+      outcome.actingPlayerRole !== "all-pass-starter" &&
+      outcome.actingPlayerRole !== "all-pass-other"
+    ) {
+      throw new Error("outcome.actingPlayerRole is invalid.");
+    }
+    if (outcome.actingPlayerPayoff !== 1 && outcome.actingPlayerPayoff !== -1) {
+      throw new Error("outcome.actingPlayerPayoff must be 1 or -1.");
+    }
+    if (
+      (outcome.actingPlayerRole === "all-pass-starter" && outcome.actingPlayerPayoff !== 1) ||
+      (outcome.actingPlayerRole === "all-pass-other" && outcome.actingPlayerPayoff !== -1)
+    ) {
+      throw new Error("outcome all-pass role/payoff mismatch.");
+    }
+    return;
+  }
+
   if (outcome.winner !== "napoleon-team" && outcome.winner !== "alliance") {
     throw new Error("outcome.winner is invalid.");
   }
@@ -3128,6 +3223,12 @@ function validatePositiveInteger(name: string, value: number): void {
   }
 }
 
+function validateNonNegativeInteger(name: string, value: number): void {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative integer.`);
+  }
+}
+
 function validateTemperature(value: number): void {
   if (!Number.isFinite(value) || value <= 0) {
     throw new Error(`temperature must be finite and positive, got ${value}.`);
@@ -3149,7 +3250,9 @@ function isNonPlayingBiddingRlRole(value: string): value is NonPlayingBiddingRlR
     value === "napoleon" ||
     value === "adjutant" ||
     value === "citizen" ||
-    value === "napoleon-adjutant"
+    value === "napoleon-adjutant" ||
+    value === "all-pass-starter" ||
+    value === "all-pass-other"
   );
 }
 

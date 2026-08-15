@@ -8,11 +8,14 @@ import {
 } from "../src/index.js";
 
 class ConstantCritic implements PolicyCriticValueModel {
+  public lastBatchSize = 0;
+
   constructor(private readonly value: number) {}
 
   async predictValuesBatch(
     modelInputs: readonly (Float32Array | readonly number[])[]
   ): Promise<readonly number[]> {
+    this.lastBatchSize = modelInputs.length;
     return modelInputs.map(() => this.value);
   }
 }
@@ -47,6 +50,50 @@ describe("CriticEvBiddingAgent", () => {
     });
     expect(clubs13Evaluation?.expectedValue).toBeCloseTo(6.6, 6);
     expect(await agent.selectAction(observation)).toEqual(action);
+  });
+
+  it("evaluates non-terminal pass with no highest bid as a deferred pass without critic input", async () => {
+    const state = createInitialGame({ rng: () => 0 });
+    const observation = createObservation(state);
+    const critic = new ConstantCritic(0);
+    const agent = new CriticEvBiddingAgent({
+      critic,
+      delegateAgent: new RuleBasedAgent(() => 0)
+    });
+
+    const evaluations = await agent.evaluateLegalBiddingActions(observation);
+    const passEvaluation = evaluations.find((evaluation) => evaluation.action.type === "pass");
+
+    expect(critic.lastBatchSize).toBe(observation.legalActions.length - 1);
+    expect(passEvaluation).toMatchObject({
+      role: "deferred-pass",
+      criticValue: 0,
+      expectedValue: 0,
+      contract: null,
+      calledAdjutantCardId: null
+    });
+  });
+
+  it("evaluates the terminal fifth pass with no highest bid as the all-pass payoff", async () => {
+    const state = createStateBeforeTerminalAllPass();
+    const observation = createObservation(state);
+    const critic = new ConstantCritic(0);
+    const agent = new CriticEvBiddingAgent({
+      critic,
+      delegateAgent: new RuleBasedAgent(() => 0)
+    });
+
+    const evaluations = await agent.evaluateLegalBiddingActions(observation);
+    const passEvaluation = evaluations.find((evaluation) => evaluation.action.type === "pass");
+
+    expect(critic.lastBatchSize).toBe(observation.legalActions.length - 1);
+    expect(passEvaluation).toMatchObject({
+      role: "all-pass-other",
+      criticValue: 0,
+      expectedValue: -1,
+      contract: null,
+      calledAdjutantCardId: null
+    });
   });
 
   it("keeps pass legal after a maximum opposing bid and evaluates it as a citizen EV", async () => {
@@ -126,6 +173,15 @@ function createStateWithOpponentMaxBid(): GameState {
   state = applyAction(state, { type: "pass", playerId: "player-2" });
   state = applyAction(state, { type: "pass", playerId: "player-3" });
   state = applyAction(state, { type: "pass", playerId: "player-4" });
+  return state;
+}
+
+function createStateBeforeTerminalAllPass(): GameState {
+  let state = createInitialGame({ rng: () => 0 });
+  state = applyAction(state, { type: "pass", playerId: "player-0" });
+  state = applyAction(state, { type: "pass", playerId: "player-1" });
+  state = applyAction(state, { type: "pass", playerId: "player-2" });
+  state = applyAction(state, { type: "pass", playerId: "player-3" });
   return state;
 }
 

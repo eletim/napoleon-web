@@ -81,7 +81,13 @@ export type PlayingSelfRole = "napoleon" | "adjutant" | "alliance" | "napoleon-s
 
 export type WinningTeam = "napoleon-team" | "alliance";
 
-export interface GameResult {
+export interface PlayerPayoff {
+  playerId: PlayerId;
+  payoff: number;
+}
+
+export interface StandardGameResult {
+  resultType: "standard";
   winner: WinningTeam;
   napoleonTeamPointCards: number;
   alliancePointCards: number;
@@ -89,6 +95,14 @@ export interface GameResult {
   napoleonPlayerId: PlayerId;
   adjutantPlayerId: PlayerId | null;
 }
+
+export interface AllPassGameResult {
+  resultType: "all-pass";
+  starterPlayerId: PlayerId;
+  payoffs: readonly PlayerPayoff[];
+}
+
+export type GameResult = StandardGameResult | AllPassGameResult;
 
 export interface AwardedPointCards {
   playerId: PlayerId;

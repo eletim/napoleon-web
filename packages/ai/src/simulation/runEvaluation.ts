@@ -189,22 +189,30 @@ function createCompletedGameRecord(args: {
   return {
     schemaVersion: 1,
     status: "completed",
+    resultType: args.result.resultType,
     gameIndex: args.gameIndex,
     seed: args.seed,
     rotationOffset: args.rotationOffset,
     playerIds: [...args.playerIds],
     seats,
-    contract: {
-      napoleonPlayerId: args.result.napoleonPlayerId,
-      targetPointCards: args.result.targetPointCards,
-      adjutantPlayerId: args.result.adjutantPlayerId
-    },
-    pointCards: {
-      napoleonTeam: args.result.napoleonTeamPointCards,
-      alliance: args.result.alliancePointCards
-    },
-    winner: args.result.winner,
-    contractSucceeded: args.result.winner === "napoleon-team",
+    contract:
+      args.result.resultType === "standard"
+        ? {
+            napoleonPlayerId: args.result.napoleonPlayerId,
+            targetPointCards: args.result.targetPointCards,
+            adjutantPlayerId: args.result.adjutantPlayerId
+          }
+        : null,
+    pointCards:
+      args.result.resultType === "standard"
+        ? {
+            napoleonTeam: args.result.napoleonTeamPointCards,
+            alliance: args.result.alliancePointCards
+          }
+        : null,
+    winner: args.result.resultType === "standard" ? args.result.winner : null,
+    contractSucceeded:
+      args.result.resultType === "standard" ? args.result.winner === "napoleon-team" : null,
     result: args.result
   };
 }
@@ -251,6 +259,10 @@ function createSeatAssignments(
 }
 
 function getSeatRole(playerId: PlayerId, result: GameResult): EvaluationSeatRole {
+  if (result.resultType === "all-pass") {
+    return playerId === result.starterPlayerId ? "starter" : "all-pass-other";
+  }
+
   if (playerId === result.napoleonPlayerId) {
     return "napoleon";
   }

@@ -196,10 +196,20 @@ function SimulationOverview({ simulation }: { simulation: RunAutomatedSimulation
         <Metric label="勝利陣営" value={formatSimulationWinner(result)} />
         <Metric label="契約枚数" value={formatSimulationContractTarget(result)} />
         <Metric label="切り札" value={formatSimulationTrump(simulation)} />
-        <Metric label="ナポレオン" value={formatPlayerLabel(result.napoleonPlayerId, simulationPlayers)} />
-        <Metric label="副官" value={formatPlayerLabel(result.adjutantPlayerId, simulationPlayers)} />
-        <Metric label="ナポレオン陣営" value={`${result.napoleonTeamPointCards}枚`} />
-        <Metric label="連合軍" value={`${result.alliancePointCards}枚`} />
+        {result.resultType === "all-pass" ? (
+          <>
+            <Metric label="親" value={formatPlayerLabel(result.starterPlayerId, simulationPlayers)} />
+            <Metric label="親の報酬" value="+1" />
+            <Metric label="他プレイヤー" value="-1" />
+          </>
+        ) : (
+          <>
+            <Metric label="ナポレオン" value={formatPlayerLabel(result.napoleonPlayerId, simulationPlayers)} />
+            <Metric label="副官" value={formatPlayerLabel(result.adjutantPlayerId, simulationPlayers)} />
+            <Metric label="ナポレオン陣営" value={`${result.napoleonTeamPointCards}枚`} />
+            <Metric label="連合軍" value={`${result.alliancePointCards}枚`} />
+          </>
+        )}
         <Metric label="総判断回数" value={String(simulation.summary.totalDecisionCount)} />
       </div>
     </section>

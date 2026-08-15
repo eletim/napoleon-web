@@ -1081,6 +1081,8 @@ def _policy_win_by_seed_rotation(result: dict[str, object]) -> dict[tuple[int, i
         game = _object(item)
         if game["status"] != "completed":
             continue
+        if game.get("resultType") == "all-pass":
+            continue
         seats = cast(list[object], game["seats"])
         policy_seat: dict[str, object] | None = None
         for seat in seats:
@@ -1106,6 +1108,8 @@ def _cpp_policy_win_by_seed_rotation(result: dict[str, object]) -> dict[tuple[in
     for item in games:
         game = _object(item)
         if game["status"] != "completed":
+            continue
+        if game.get("resultType") == "all-pass":
             continue
         roster = _object(game["roster"])
         seats = cast(list[object], roster["seats"])

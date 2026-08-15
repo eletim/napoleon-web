@@ -15,6 +15,7 @@ from napoleon_ml.cli.run_nonplaying_rl import (
 from napoleon_ml.nonplaying_rl_orchestrator import (
     DEFAULT_ITERATIVE_BATCH_SIZE,
     DEFAULT_ITERATIVE_EVALUATION_GAMES,
+    NONPLAYING_ALL_PASS_RULE_ID,
     NONPLAYING_REWARD_ID,
     NONPLAYING_REWARD_TYPE,
     NONPLAYING_REWARD_VERSION,
@@ -198,6 +199,11 @@ def test_iterative_nonplaying_rl_resumes_and_chains_checkpoints(
                 "type": NONPLAYING_REWARD_TYPE,
                 "version": NONPLAYING_REWARD_VERSION,
                 "id": NONPLAYING_REWARD_ID,
+            },
+            "allPassRule": {
+                "id": NONPLAYING_ALL_PASS_RULE_ID,
+                "starterPayoff": 1,
+                "otherPayoff": -1,
             },
             "sampleCount": 1,
             "behaviorPolicy": {

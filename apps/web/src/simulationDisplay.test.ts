@@ -7,7 +7,9 @@ import {
   formatHandCounts,
   formatSimulationBiddingStatus,
   formatSimulationAction,
+  formatSimulationContractTarget,
   formatSimulationLegalAction,
+  formatSimulationWinner,
   getSimulationPlayerRole,
   validateSimulationSeedInput
 } from "./simulationDisplay";
@@ -66,6 +68,7 @@ describe("simulation display helpers", () => {
 
   it("formats player roles from the final result", () => {
     const result = {
+      resultType: "standard",
       winner: "napoleon-team",
       napoleonTeamPointCards: 13,
       alliancePointCards: 7,
@@ -77,6 +80,25 @@ describe("simulation display helpers", () => {
     expect(getSimulationPlayerRole("player-2", result)).toBe("ナポレオン");
     expect(getSimulationPlayerRole("player-4", result)).toBe("副官");
     expect(getSimulationPlayerRole("player-1", result)).toBe("連合軍");
+  });
+
+  it("formats all-pass simulation roles", () => {
+    const result = {
+      resultType: "all-pass",
+      starterPlayerId: "player-2",
+      payoffs: [
+        { playerId: "player-0", payoff: -1 },
+        { playerId: "player-1", payoff: -1 },
+        { playerId: "player-2", payoff: 1 },
+        { playerId: "player-3", payoff: -1 },
+        { playerId: "player-4", payoff: -1 }
+      ]
+    } as const;
+
+    expect(getSimulationPlayerRole("player-2", result)).toBe("親");
+    expect(getSimulationPlayerRole("player-0", result)).toBe("全員パス");
+    expect(formatSimulationWinner(result)).toBe("全員パス");
+    expect(formatSimulationContractTarget(result)).toBe("全員パス");
   });
 
   it("formats timeline hand counts and download filenames", () => {

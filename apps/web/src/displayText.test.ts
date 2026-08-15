@@ -215,6 +215,7 @@ describe("display text", () => {
       phase: "finished",
       isGameOver: true,
       result: {
+        resultType: "standard",
         winner: "napoleon-team",
         napoleonTeamPointCards: 15,
         alliancePointCards: 5,
@@ -244,6 +245,33 @@ describe("display text", () => {
     ]);
     expect(display.primary.some((chip) => chip.label === "ナポレオン陣営")).toBe(false);
     expect(display.primary.some((chip) => chip.label === "連合軍")).toBe(false);
+  });
+
+  it("shows all-pass finished status without contract details", () => {
+    const state = createPublicState({
+      phase: "finished",
+      isGameOver: true,
+      result: {
+        resultType: "all-pass",
+        starterPlayerId: "player-0",
+        payoffs: [
+          { playerId: "player-0", payoff: 1 },
+          { playerId: "player-1", payoff: -1 },
+          { playerId: "player-2", payoff: -1 },
+          { playerId: "player-3", payoff: -1 },
+          { playerId: "player-4", payoff: -1 }
+        ]
+      },
+      contract: null,
+      trumpSuit: null
+    });
+    const display = createGameStatusDisplay(state, createTablePlayers(state));
+
+    expect(display.primary).toEqual([
+      { label: "終了", ariaLabel: "ゲーム終了", tone: "phase" },
+      { label: "流局", ariaLabel: "全員パス。親: 自分", tone: "result" }
+    ]);
+    expect(createMessage(state, "player-0", createTablePlayers(state))).toContain("親の自分が+1");
   });
 
   it("formats contract and revealed adjutant owner with seat labels", () => {

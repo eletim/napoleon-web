@@ -10,7 +10,7 @@ import {
   orumaCardId,
   yoromekiCardId
 } from "./cards.js";
-import { calculateGameResult } from "./scoring.js";
+import { calculateGameResult, createAllPassGameResult } from "./scoring.js";
 import type {
   AdjutantState,
   AwardedPointCards,
@@ -396,11 +396,7 @@ function pass(state: GameState, playerId: PlayerId): GameState {
     nextBidding.highestBid === null &&
     nextBidding.consecutivePassCount === state.players.length
   ) {
-    return completeBidding(state, {
-      napoleonPlayerId: nextBidding.starterPlayerId,
-      trumpSuit: "spades",
-      targetPointCards: 12
-    });
+    return completeAllPassBidding(state, nextBidding.starterPlayerId);
   }
 
   return {
@@ -440,6 +436,30 @@ function completeBidding(state: GameState, contract: Contract): GameState {
     latestEvent: null,
     adjutant: null,
     result: null
+  };
+}
+
+function completeAllPassBidding(state: GameState, starterPlayerId: PlayerId): GameState {
+  return {
+    ...state,
+    phase: "finished",
+    currentPlayerId: starterPlayerId,
+    currentTrick: [],
+    completedTricks: [],
+    trumpSuit: null,
+    contract: null,
+    bidding: null,
+    awardedPointCards: [],
+    excludedCards: [],
+    latestEvent: null,
+    adjutant: null,
+    result: createAllPassGameResult(
+      state.players.map((player) => player.id),
+      starterPlayerId
+    ),
+    trickNumber: 1,
+    isTrickComplete: false,
+    isGameOver: true
   };
 }
 

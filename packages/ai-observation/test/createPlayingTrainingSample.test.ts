@@ -130,16 +130,18 @@ describe("createPlayingTrainingSample", () => {
     expect(history.targetPointCards[biddingDecisions.length]).toBe(0);
   });
 
-  it("represents all-pass contracts as real passes without a synthetic bid", async () => {
+  it("represents bidding history with real actions and no synthetic bid", async () => {
     const sourceRecord = await createRecord(12345);
     const sourceDecision = getPlayingDecisions(sourceRecord)[0];
-    const passPlayerIds = sourceRecord.playerIds;
-    const allPassDecisions = passPlayerIds.map((playerId, index): DecisionRecord => ({
+    const playerIds = sourceRecord.playerIds;
+    const biddingDecisions = playerIds.map((playerId, index): DecisionRecord => ({
       ...sourceRecord.decisions[index],
       step: index + 1,
       playerId,
       phase: "bidding",
-      action: { type: "pass", playerId },
+      action: index === 0
+        ? { type: "bid", playerId, suit: "spades", targetPointCards: 13 }
+        : { type: "pass", playerId },
       observation: {
         ...sourceRecord.decisions[index].observation,
         playerId
@@ -147,23 +149,23 @@ describe("createPlayingTrainingSample", () => {
     }));
     const decision: DecisionRecord = {
       ...sourceDecision,
-      step: allPassDecisions.length + 1,
+      step: biddingDecisions.length + 1,
       observation: {
         ...sourceDecision.observation,
         view: {
           ...sourceDecision.observation.view,
           trumpSuit: "spades",
           contract: {
-            napoleonPlayerId: passPlayerIds[0],
+            napoleonPlayerId: playerIds[0],
             trumpSuit: "spades",
-            targetPointCards: 12
+            targetPointCards: 13
           }
         }
       }
     };
     const record: AutomatedGameRecord = {
       ...sourceRecord,
-      decisions: [...allPassDecisions, decision]
+      decisions: [...biddingDecisions, decision]
     };
     const sample = createPlayingTrainingSample(record, decision);
 
@@ -171,18 +173,23 @@ describe("createPlayingTrainingSample", () => {
       throw new Error("Expected a playing sample.");
     }
 
-    expect(sample.observation.contractTargetPointCards).toBe(12);
+    expect(sample.observation.contractTargetPointCards).toBe(13);
     expect(sample.observation.trumpSuitOneHot).toEqual([1, 0, 0, 0]);
     expect(sum(sample.observation.biddingHistory.actionMask)).toBe(5);
-    expect(sample.observation.biddingHistory.actionTypeIndices.slice(0, 5)).toEqual(
-      Array(5).fill(BIDDING_ACTION_TYPE_PASS)
-    );
-    expect(sample.observation.biddingHistory.targetPointCards.slice(0, 5)).toEqual(
-      Array(5).fill(0)
-    );
-    expect(sample.observation.biddingHistory.actionTypeIndices).not.toContain(
-      BIDDING_ACTION_TYPE_BID
-    );
+    expect(sample.observation.biddingHistory.actionTypeIndices.slice(0, 5)).toEqual([
+      BIDDING_ACTION_TYPE_BID,
+      BIDDING_ACTION_TYPE_PASS,
+      BIDDING_ACTION_TYPE_PASS,
+      BIDDING_ACTION_TYPE_PASS,
+      BIDDING_ACTION_TYPE_PASS
+    ]);
+    expect(sample.observation.biddingHistory.targetPointCards.slice(0, 5)).toEqual([
+      13,
+      0,
+      0,
+      0,
+      0
+    ]);
   });
 
   it("rejects bidding histories longer than the fixed maximum", async () => {
