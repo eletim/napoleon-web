@@ -43,8 +43,8 @@ models expose `policy.runtime.requestedInferenceDevice`,
 `policy.runtime.resolvedInferenceDevice`, and `policy.runtime.executionProvider`
 so callers can verify that an explicit CUDA request did not silently run on CPU.
 
-For public-input playing artifacts, `modelInput` must be a 7653-element
-`float32` feature vector using model input schema version 3. For
+For public-input playing artifacts, `modelInput` must be a 6246-element
+`float32` feature vector using model input schema version 2. For
 complete-information compact playing artifacts, the metadata must set
 `playingObservationVariant: "complete-info-compact"` and
 `modelInputFeatureCount` to the compact feature count expected by the ONNX

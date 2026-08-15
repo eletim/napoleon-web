@@ -33,13 +33,7 @@ from napoleon_ml.adjutant.model import (
 from napoleon_ml.cli.evaluate_adjutant_mlp import main as evaluate_main
 from napoleon_ml.cli.export_policy_onnx import main as export_main
 from napoleon_ml.cli.train_adjutant_mlp import main as train_main
-from napoleon_ml.dataset.constants import (
-    ADJUTANT_ENCODER_SCHEMA_VERSION,
-    CARD_COUNT,
-    EXPECTED_CARD_IDS,
-    MAX_BIDDING_ACTION_COUNT,
-    MIN_CONTRACT_TARGET_POINT_CARDS,
-)
+from napoleon_ml.dataset.constants import CARD_COUNT, EXPECTED_CARD_IDS
 from napoleon_ml.dataset.pytorch import AdjutantTorchSample, create_adjutant_dataloader
 from napoleon_ml.dataset.reader import iter_tensorized_samples, load_manifest
 from napoleon_ml.dataset.split import DatasetSplit, SplitConfig, split_for_seed
@@ -58,11 +52,11 @@ from napoleon_ml.nonplaying_onnx_export import (
 
 def _empty_bidding_history() -> dict[str, list[int]]:
     return {
-        "actionTypeIndices": [-1] * MAX_BIDDING_ACTION_COUNT,
-        "playerIndices": [-1] * MAX_BIDDING_ACTION_COUNT,
-        "suitIndices": [-1] * MAX_BIDDING_ACTION_COUNT,
-        "targetPointCards": [0] * MAX_BIDDING_ACTION_COUNT,
-        "actionMask": [0] * MAX_BIDDING_ACTION_COUNT,
+        "actionTypeIndices": [-1] * 117,
+        "playerIndices": [-1] * 117,
+        "suitIndices": [-1] * 117,
+        "targetPointCards": [0] * 117,
+        "actionMask": [0] * 117,
     }
 
 
@@ -78,16 +72,16 @@ def _mask(indices: list[int], *, length: int = CARD_COUNT) -> list[int]:
 def _adjutant_sample(*, seed: int, actor_target: int = 20) -> dict[str, Any]:
     return {
         "sampleType": "adjutant-training-sample",
-        "schemaVersion": ADJUTANT_ENCODER_SCHEMA_VERSION,
+        "schemaVersion": 1,
         "seed": seed,
         "step": 1,
         "actingPlayerId": "player-0",
         "relativePlayerIds": ["player-0", "player-1", "player-2", "player-3", "player-4"],
         "observation": {
-            "schemaVersion": ADJUTANT_ENCODER_SCHEMA_VERSION,
+            "schemaVersion": 1,
             "relativePlayerIds": ["player-0", "player-1", "player-2", "player-3", "player-4"],
             "trumpSuitOneHot": [1, 0, 0, 0],
-            "contractTargetPointCards": MIN_CONTRACT_TARGET_POINT_CARDS,
+            "contractTargetPointCards": 12,
             "selfHandMask": _mask(list(range(10))),
             "legalAdjutantMask": _mask(list(range(CARD_COUNT))),
             "specialCardIndices": {"oruma": 0, "yoromeki": 15, "seiJack": 3, "uraJack": 42},
@@ -108,7 +102,7 @@ def _write_dataset(directory: Path, *, seeds: tuple[int, ...]) -> None:
     manifest = {
         "datasetSchemaVersion": 2,
         "generatorVersion": 2,
-        "encoderSchemaVersion": ADJUTANT_ENCODER_SCHEMA_VERSION,
+        "encoderSchemaVersion": 1,
         "format": "jsonl",
         "sampleType": "adjutant-training-sample",
         "agent": {"type": "rule-based", "version": 1},

@@ -49,13 +49,13 @@ const pythonNonplayingModelInputSamplesUrl = new URL(
   import.meta.url
 );
 const pythonValidSampleModelInputSha256 =
-  "02507e208dcfbb1083f319bb693fac4b618d746fea22d9093433516fa11e9a56";
+  "b00d0806e8bafe90d7d942a55282928804b6f0856c3fb04d6f7b0a92210dc320";
 const pythonBiddingSampleModelInputSha256 =
-  "8e3ddf90e5130c51cc5d81436f471ff82aaf87dd18baa43fb0417f24dd4689b9";
+  "e4f86e8b9dd5661301e701c71ad6fc167123acedb8e118192e8ccfe6bc6df877";
 const pythonExchangeSampleModelInputSha256 =
-  "46170cd80c99d66d174e11143821fb3ac07d1381dd8e24d4aab4295f9c673020";
+  "ac24fe512fe3d620f39b97dc8cb648f844930c2e79d296c556d2224da4dd7a2a";
 const pythonAdjutantSampleModelInputSha256 =
-  "94f30068c0f9bb274ba5b1d1869fee69fef3ccb116121fa51e7bb01787b5174b";
+  "2f0c47b5a113059ed7d06a9966db1ee553163104215981928d6111917d603d52";
 const pythonNonplayingModelInputSamples = JSON.parse(
   readFileSync(pythonNonplayingModelInputSamplesUrl, "utf8")
 ) as {
@@ -78,26 +78,26 @@ describe("encodePlayingModelInput", () => {
       { name: "currentTrickSlotMask", start: 444, stop: 449, shape: [5], dtype: "float32" },
       { name: "completedTrickSlotMask", start: 449, stop: 499, shape: [50], dtype: "float32" },
       { name: "completedTrickMask", start: 499, stop: 509, shape: [10], dtype: "float32" },
-      { name: "biddingHistoryActionMask", start: 509, stop: 674, shape: [165], dtype: "float32" },
-      { name: "latestBuriedEventPointCardMask", start: 674, stop: 727, shape: [53], dtype: "float32" },
-      { name: "trickNumber", start: 727, stop: 728, shape: [1], dtype: "float32" },
-      { name: "completedTrickCount", start: 728, stop: 729, shape: [1], dtype: "float32" },
-      { name: "contractTargetPointCards", start: 729, stop: 730, shape: [1], dtype: "float32" },
-      { name: "latestBuriedEventHiddenNonPointCount", start: 730, stop: 731, shape: [1], dtype: "float32" },
-      { name: "latestBuriedEventPresent", start: 731, stop: 732, shape: [1], dtype: "float32" }
+      { name: "biddingHistoryActionMask", start: 509, stop: 626, shape: [117], dtype: "float32" },
+      { name: "latestBuriedEventPointCardMask", start: 626, stop: 679, shape: [53], dtype: "float32" },
+      { name: "trickNumber", start: 679, stop: 680, shape: [1], dtype: "float32" },
+      { name: "completedTrickCount", start: 680, stop: 681, shape: [1], dtype: "float32" },
+      { name: "contractTargetPointCards", start: 681, stop: 682, shape: [1], dtype: "float32" },
+      { name: "latestBuriedEventHiddenNonPointCount", start: 682, stop: 683, shape: [1], dtype: "float32" },
+      { name: "latestBuriedEventPresent", start: 683, stop: 684, shape: [1], dtype: "float32" }
     ]);
     expect(MODEL_INPUT_ONEHOT_LAYOUT).toEqual([
-      { name: "specialCardIndicesOneHot", start: 732, stop: 944, shape: [4, 53], dtype: "float32" },
-      { name: "currentTrickCardIndicesOneHot", start: 944, stop: 1209, shape: [5, 53], dtype: "float32" },
-      { name: "completedTrickCardIndicesOneHot", start: 1209, stop: 3859, shape: [50, 53], dtype: "float32" },
-      { name: "currentTrickPlayerIndicesOneHot", start: 3859, stop: 3884, shape: [5, 5], dtype: "float32" },
-      { name: "completedTrickPlayerIndicesOneHot", start: 3884, stop: 4134, shape: [50, 5], dtype: "float32" },
-      { name: "completedTrickWinnerIndicesOneHot", start: 4134, stop: 4184, shape: [10, 5], dtype: "float32" },
-      { name: "biddingHistoryActionTypeIndicesOneHot", start: 4184, stop: 4514, shape: [165, 2], dtype: "float32" },
-      { name: "biddingHistoryPlayerIndicesOneHot", start: 4514, stop: 5339, shape: [165, 5], dtype: "float32" },
-      { name: "biddingHistorySuitIndicesOneHot", start: 5339, stop: 5999, shape: [165, 4], dtype: "float32" },
-      { name: "biddingHistoryTargetPointCardsOneHot", start: 5999, stop: 7649, shape: [165, 10], dtype: "float32" },
-      { name: "selfRoleOneHot", start: 7649, stop: 7653, shape: [4], dtype: "float32" }
+      { name: "specialCardIndicesOneHot", start: 684, stop: 896, shape: [4, 53], dtype: "float32" },
+      { name: "currentTrickCardIndicesOneHot", start: 896, stop: 1161, shape: [5, 53], dtype: "float32" },
+      { name: "completedTrickCardIndicesOneHot", start: 1161, stop: 3811, shape: [50, 53], dtype: "float32" },
+      { name: "currentTrickPlayerIndicesOneHot", start: 3811, stop: 3836, shape: [5, 5], dtype: "float32" },
+      { name: "completedTrickPlayerIndicesOneHot", start: 3836, stop: 4086, shape: [50, 5], dtype: "float32" },
+      { name: "completedTrickWinnerIndicesOneHot", start: 4086, stop: 4136, shape: [10, 5], dtype: "float32" },
+      { name: "biddingHistoryActionTypeIndicesOneHot", start: 4136, stop: 4370, shape: [117, 2], dtype: "float32" },
+      { name: "biddingHistoryPlayerIndicesOneHot", start: 4370, stop: 4955, shape: [117, 5], dtype: "float32" },
+      { name: "biddingHistorySuitIndicesOneHot", start: 4955, stop: 5423, shape: [117, 4], dtype: "float32" },
+      { name: "biddingHistoryTargetPointCardsOneHot", start: 5423, stop: 6242, shape: [117, 7], dtype: "float32" },
+      { name: "selfRoleOneHot", start: 6242, stop: 6246, shape: [4], dtype: "float32" }
     ]);
     expect(MODEL_INPUT_LAYOUT).toEqual([
       ...FLAT_OBSERVATION_LAYOUT,
@@ -105,7 +105,7 @@ describe("encodePlayingModelInput", () => {
     ]);
   });
 
-  it("builds the fixed 7653-feature model_input from an encoded playing observation", async () => {
+  it("builds the fixed 6246-feature model_input from an encoded playing observation", async () => {
     const record = await runAutomatedGame({
       seed: 12345,
       createAgent: ({ rng }) => new RuleBasedAgent(rng)
@@ -326,8 +326,8 @@ describe("encodeCompleteInfoPlayingModelInput", () => {
     });
   });
 
-  it("tracks the public playing model input count", () => {
-    expect(MODEL_INPUT_FEATURE_COUNT).toBe(7653);
+  it("leaves the existing public playing model input count unchanged", () => {
+    expect(MODEL_INPUT_FEATURE_COUNT).toBe(6246);
   });
 });
 
@@ -335,18 +335,18 @@ describe("encodeBiddingModelInput", () => {
   it("matches the Python BIDDING_MODEL_INPUT_LAYOUT slice contract", () => {
     expect(BIDDING_MODEL_INPUT_LAYOUT).toEqual([
       { name: "selfHandMask", start: 0, stop: 53, shape: [53], dtype: "float32" },
-      { name: "legalBidMask", start: 53, stop: 94, shape: [41], dtype: "float32" },
-      { name: "starterPlayerOneHot", start: 94, stop: 99, shape: [5], dtype: "float32" },
-      { name: "highestBidPresent", start: 99, stop: 100, shape: [1], dtype: "float32" },
-      { name: "highestBidPlayerOneHot", start: 100, stop: 105, shape: [5], dtype: "float32" },
-      { name: "highestBidSuitOneHot", start: 105, stop: 109, shape: [4], dtype: "float32" },
-      { name: "highestBidTargetPointCardsOneHot", start: 109, stop: 119, shape: [10], dtype: "float32" },
-      { name: "consecutivePassCountOneHot", start: 119, stop: 125, shape: [6], dtype: "float32" },
-      { name: "biddingHistoryActionMask", start: 125, stop: 290, shape: [165], dtype: "float32" },
-      { name: "biddingHistoryActionTypeIndicesOneHot", start: 290, stop: 620, shape: [165, 2], dtype: "float32" },
-      { name: "biddingHistoryPlayerIndicesOneHot", start: 620, stop: 1445, shape: [165, 5], dtype: "float32" },
-      { name: "biddingHistorySuitIndicesOneHot", start: 1445, stop: 2105, shape: [165, 4], dtype: "float32" },
-      { name: "biddingHistoryTargetPointCardsOneHot", start: 2105, stop: 3755, shape: [165, 10], dtype: "float32" }
+      { name: "legalBidMask", start: 53, stop: 82, shape: [29], dtype: "float32" },
+      { name: "starterPlayerOneHot", start: 82, stop: 87, shape: [5], dtype: "float32" },
+      { name: "highestBidPresent", start: 87, stop: 88, shape: [1], dtype: "float32" },
+      { name: "highestBidPlayerOneHot", start: 88, stop: 93, shape: [5], dtype: "float32" },
+      { name: "highestBidSuitOneHot", start: 93, stop: 97, shape: [4], dtype: "float32" },
+      { name: "highestBidTargetPointCardsOneHot", start: 97, stop: 104, shape: [7], dtype: "float32" },
+      { name: "consecutivePassCountOneHot", start: 104, stop: 110, shape: [6], dtype: "float32" },
+      { name: "biddingHistoryActionMask", start: 110, stop: 227, shape: [117], dtype: "float32" },
+      { name: "biddingHistoryActionTypeIndicesOneHot", start: 227, stop: 461, shape: [117, 2], dtype: "float32" },
+      { name: "biddingHistoryPlayerIndicesOneHot", start: 461, stop: 1046, shape: [117, 5], dtype: "float32" },
+      { name: "biddingHistorySuitIndicesOneHot", start: 1046, stop: 1514, shape: [117, 4], dtype: "float32" },
+      { name: "biddingHistoryTargetPointCardsOneHot", start: 1514, stop: 2333, shape: [117, 7], dtype: "float32" }
     ]);
   });
 
@@ -381,14 +381,14 @@ describe("encodeExchangeModelInput", () => {
       { name: "calledAdjutantCardMask", start: 163, stop: 216, shape: [53], dtype: "float32" },
       { name: "exchangeStepIndexOneHot", start: 216, stop: 219, shape: [3], dtype: "float32" },
       { name: "remainingDiscardCountOneHot", start: 219, stop: 223, shape: [4], dtype: "float32" },
-      { name: "contractTargetPointCardsOneHot", start: 223, stop: 234, shape: [11], dtype: "float32" },
-      { name: "handCountByPlayer", start: 234, stop: 239, shape: [5], dtype: "float32" },
-      { name: "specialCardIndicesOneHot", start: 239, stop: 451, shape: [4, 53], dtype: "float32" },
-      { name: "biddingHistoryActionMask", start: 451, stop: 616, shape: [165], dtype: "float32" },
-      { name: "biddingHistoryActionTypeIndicesOneHot", start: 616, stop: 946, shape: [165, 2], dtype: "float32" },
-      { name: "biddingHistoryPlayerIndicesOneHot", start: 946, stop: 1771, shape: [165, 5], dtype: "float32" },
-      { name: "biddingHistorySuitIndicesOneHot", start: 1771, stop: 2431, shape: [165, 4], dtype: "float32" },
-      { name: "biddingHistoryTargetPointCardsOneHot", start: 2431, stop: 4081, shape: [165, 10], dtype: "float32" }
+      { name: "contractTargetPointCardsOneHot", start: 223, stop: 231, shape: [8], dtype: "float32" },
+      { name: "handCountByPlayer", start: 231, stop: 236, shape: [5], dtype: "float32" },
+      { name: "specialCardIndicesOneHot", start: 236, stop: 448, shape: [4, 53], dtype: "float32" },
+      { name: "biddingHistoryActionMask", start: 448, stop: 565, shape: [117], dtype: "float32" },
+      { name: "biddingHistoryActionTypeIndicesOneHot", start: 565, stop: 799, shape: [117, 2], dtype: "float32" },
+      { name: "biddingHistoryPlayerIndicesOneHot", start: 799, stop: 1384, shape: [117, 5], dtype: "float32" },
+      { name: "biddingHistorySuitIndicesOneHot", start: 1384, stop: 1852, shape: [117, 4], dtype: "float32" },
+      { name: "biddingHistoryTargetPointCardsOneHot", start: 1852, stop: 2671, shape: [117, 7], dtype: "float32" }
     ]);
   });
 
@@ -399,7 +399,7 @@ describe("encodeExchangeModelInput", () => {
     expect(sha256Float32(modelInput)).toBe(pythonExchangeSampleModelInputSha256);
   });
 
-  it("encodes exchange contract target min/max edges as 9..19 one-hot", () => {
+  it("encodes exchange contract target min/max edges as 12..19 one-hot", () => {
     const minSample = createExchangeFixture();
     const minInput = encodeExchangeModelInput(minSample.observation);
     const maxSample = createExchangeFixture();
@@ -409,10 +409,10 @@ describe("encodeExchangeModelInput", () => {
     });
 
     expect(Array.from(modelInputSlice(minInput, "contractTargetPointCardsOneHot", EXCHANGE_MODEL_INPUT_LAYOUT))).toEqual(
-      [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      [1, 0, 0, 0, 0, 0, 0, 0]
     );
     expect(Array.from(modelInputSlice(maxInput, "contractTargetPointCardsOneHot", EXCHANGE_MODEL_INPUT_LAYOUT))).toEqual(
-      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+      [0, 0, 0, 0, 0, 0, 0, 1]
     );
     expect(() => encodeExchangeModelInput({
       ...minSample.observation,
@@ -439,13 +439,13 @@ describe("encodeAdjutantModelInput", () => {
       { name: "trumpSuitOneHot", start: 0, stop: 4, shape: [4], dtype: "float32" },
       { name: "selfHandMask", start: 4, stop: 57, shape: [53], dtype: "float32" },
       { name: "legalAdjutantMask", start: 57, stop: 110, shape: [53], dtype: "float32" },
-      { name: "contractTargetPointCardsOneHot", start: 110, stop: 121, shape: [11], dtype: "float32" },
-      { name: "specialCardIndicesOneHot", start: 121, stop: 333, shape: [4, 53], dtype: "float32" },
-      { name: "biddingHistoryActionMask", start: 333, stop: 498, shape: [165], dtype: "float32" },
-      { name: "biddingHistoryActionTypeIndicesOneHot", start: 498, stop: 828, shape: [165, 2], dtype: "float32" },
-      { name: "biddingHistoryPlayerIndicesOneHot", start: 828, stop: 1653, shape: [165, 5], dtype: "float32" },
-      { name: "biddingHistorySuitIndicesOneHot", start: 1653, stop: 2313, shape: [165, 4], dtype: "float32" },
-      { name: "biddingHistoryTargetPointCardsOneHot", start: 2313, stop: 3963, shape: [165, 10], dtype: "float32" }
+      { name: "contractTargetPointCardsOneHot", start: 110, stop: 118, shape: [8], dtype: "float32" },
+      { name: "specialCardIndicesOneHot", start: 118, stop: 330, shape: [4, 53], dtype: "float32" },
+      { name: "biddingHistoryActionMask", start: 330, stop: 447, shape: [117], dtype: "float32" },
+      { name: "biddingHistoryActionTypeIndicesOneHot", start: 447, stop: 681, shape: [117, 2], dtype: "float32" },
+      { name: "biddingHistoryPlayerIndicesOneHot", start: 681, stop: 1266, shape: [117, 5], dtype: "float32" },
+      { name: "biddingHistorySuitIndicesOneHot", start: 1266, stop: 1734, shape: [117, 4], dtype: "float32" },
+      { name: "biddingHistoryTargetPointCardsOneHot", start: 1734, stop: 2553, shape: [117, 7], dtype: "float32" }
     ]);
   });
 
@@ -456,7 +456,7 @@ describe("encodeAdjutantModelInput", () => {
     expect(sha256Float32(modelInput)).toBe(pythonAdjutantSampleModelInputSha256);
   });
 
-  it("encodes adjutant contract target min/max edges as 9..19 one-hot", () => {
+  it("encodes adjutant contract target min/max edges as 12..19 one-hot", () => {
     const minSample = createAdjutantFixture();
     const minInput = encodeAdjutantModelInput(minSample.observation);
     const maxSample = createAdjutantFixture();
@@ -466,10 +466,10 @@ describe("encodeAdjutantModelInput", () => {
     });
 
     expect(Array.from(modelInputSlice(minInput, "contractTargetPointCardsOneHot", ADJUTANT_MODEL_INPUT_LAYOUT))).toEqual(
-      [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      [1, 0, 0, 0, 0, 0, 0, 0]
     );
     expect(Array.from(modelInputSlice(maxInput, "contractTargetPointCardsOneHot", ADJUTANT_MODEL_INPUT_LAYOUT))).toEqual(
-      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+      [0, 0, 0, 0, 0, 0, 0, 1]
     );
     expect(() => encodeAdjutantModelInput({
       ...minSample.observation,

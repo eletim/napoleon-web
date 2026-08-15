@@ -22,11 +22,6 @@ import type {
   EvaluationSeatRole,
   PlayerObservation
 } from "@napoleon/ai";
-import {
-  forcedAllPassTargetPointCards,
-  maxBidTargetPointCards,
-  minBidTargetPointCards
-} from "@napoleon/game-core";
 import type { GameAction, GameResult, PlayerId, Suit } from "@napoleon/game-core";
 import { CriticEvBiddingAgent } from "./criticEvBiddingAgent.js";
 import type { PolicyCriticValueModel } from "./criticEvBiddingAgent.js";
@@ -823,7 +818,7 @@ function summarizeBiddingContracts(run: EvaluationRunRecord): BiddingContractSum
     completedGameCount += 1;
     targetTotal += game.contract.targetPointCards;
     incrementNumberMap(targetPointCards, game.contract.targetPointCards);
-    if (game.result.targetPointCards >= minBidTargetPointCards) {
+    if (game.result.targetPointCards >= 13) {
       napoleonFormationCount += 1;
     }
     if (game.contractSucceeded) {
@@ -842,7 +837,7 @@ function summarizeBiddingContracts(run: EvaluationRunRecord): BiddingContractSum
       ? null
       : declarationSuccessCount / completedGameCount,
     averageTargetPointCards: completedGameCount === 0 ? null : targetTotal / completedGameCount,
-    targetPointCards: contractTargetDistributionRecord(targetPointCards)
+    targetPointCards: targetDistributionRecord(targetPointCards)
   };
 }
 
@@ -913,28 +908,10 @@ function calculateBiddingRoleReward(result: GameResult, role: BiddingRole): numb
 
 function targetDistributionRecord(values: ReadonlyMap<number, number>): Readonly<Record<string, number>> {
   return Object.fromEntries(
-    bidTargetPointCards().map((target) => [
+    [12, 13, 14, 15, 16, 17, 18, 19].map((target) => [
       String(target),
       values.get(target) ?? 0
     ])
-  );
-}
-
-function contractTargetDistributionRecord(
-  values: ReadonlyMap<number, number>
-): Readonly<Record<string, number>> {
-  return Object.fromEntries(
-    [forcedAllPassTargetPointCards, ...bidTargetPointCards()].map((target) => [
-      String(target),
-      values.get(target) ?? 0
-    ])
-  );
-}
-
-function bidTargetPointCards(): readonly number[] {
-  return Array.from(
-    { length: maxBidTargetPointCards - minBidTargetPointCards + 1 },
-    (_, index) => minBidTargetPointCards + index
   );
 }
 

@@ -58,8 +58,8 @@ describe("createBiddingTrainingSample", () => {
     const decision = getBiddingDecisions(record)[0];
     const legalActions = [
       { type: "pass" as const, playerId: decision.playerId },
-      { type: "bid" as const, playerId: decision.playerId, suit: "spades" as const, targetPointCards: 10 },
-      { type: "bid" as const, playerId: decision.playerId, suit: "hearts" as const, targetPointCards: 10 }
+      { type: "bid" as const, playerId: decision.playerId, suit: "spades" as const, targetPointCards: 13 },
+      { type: "bid" as const, playerId: decision.playerId, suit: "hearts" as const, targetPointCards: 13 }
     ];
     const encoded = encodeBiddingObservation({
       ...decision.observation,
@@ -152,7 +152,7 @@ describe("createBiddingTrainingSample", () => {
     );
   });
 
-  it("keeps the fifth all-pass teacher as pass index 0 and adds no spades-9 action", async () => {
+  it("keeps the fifth all-pass teacher as pass index 0 and adds no spades-12 action", async () => {
     const record = await createSyntheticAllPassRecord(smokeSeed);
     const decision = record.decisions[4];
     const sample = createBiddingTrainingSample(record, decision);
@@ -164,13 +164,13 @@ describe("createBiddingTrainingSample", () => {
     expect(decision.action).toEqual({ type: "pass", playerId: decision.playerId });
     expect(sample.actorTarget).toBe(0);
     expect(sample.observation.legalBidMask[0]).toBe(1);
-    expect(sample.observation.legalBidMask).toHaveLength(41);
+    expect(sample.observation.legalBidMask).toHaveLength(29);
     expect(() => encodeBiddingAction({
       type: "bid",
       playerId: decision.playerId,
       suit: "spades",
-      targetPointCards: 9
-    })).toThrow("between 10 and 19");
+      targetPointCards: 12
+    })).toThrow("between 13 and 19");
   });
 
   it("converts all bidding decisions from fixed-seed runAutomatedGame and keeps teachers legal", async () => {

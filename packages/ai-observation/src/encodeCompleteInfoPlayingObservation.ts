@@ -10,7 +10,6 @@ import {
   EMPTY_CARD_INDEX,
   EMPTY_PLAYER_INDEX,
   MAX_BIDDING_TARGET_POINT_CARDS,
-  MIN_CONTRACT_TARGET_POINT_CARDS,
   NOT_IN_HAND_CLASS_INDEX,
   PLAYER_COUNT,
   PLAYING_ENCODER_SCHEMA_VERSION,
@@ -172,7 +171,7 @@ export function validateEncodedCompleteInfoPlayingObservation(
   expectIntegerInRange(
     "contractTargetPointCards",
     observation.contractTargetPointCards,
-    MIN_CONTRACT_TARGET_POINT_CARDS,
+    12,
     MAX_BIDDING_TARGET_POINT_CARDS
   );
   validateOwnerClasses(observation.cardOwnerClassByCard);

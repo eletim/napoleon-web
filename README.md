@@ -35,12 +35,12 @@ React画面から通信Actionを送信し、Fastifyサーバーが内部Action�
 - サーバー側での状態更新
 - ルールベースAI 4人の自動競り・副官指定・埋札交換・自動プレイ
 - ゲーム開始時の競りフェーズ
-- 通常入札10〜19
+- 通常入札13〜19
 - 競りスート順位: クラブ < ダイヤ < ハート < スペード
 - 同じ宣言枚数なら、より強いスートで最高入札を上書き可能
 - パス後も、最高入札が更新されれば再び入札可能
 - 最新入札者以外の4人連続パスによる契約確定
-- 全員パス時の競り開始プレイヤーによるスペード9契約
+- 全員パス時の競り開始プレイヤーによるスペード12契約
 - 競り結果からナポレオン、切り札、宣言枚数を設定
 - 競り終了後の副官指定フェーズ
 - 副官札は埋札を見る前に指定
@@ -269,7 +269,7 @@ pnpm build
 - `GET /api/games/:gameId`
 - `POST /api/games/:gameId/actions`
   - リクエスト例: `{ "action": { "type": "play-card", "cardId": "spades-A" } }`
-  - 競りリクエスト例: `{ "action": { "type": "bid", "suit": "hearts", "targetPointCards": 10 } }`
+  - 競りリクエスト例: `{ "action": { "type": "bid", "suit": "hearts", "targetPointCards": 13 } }`
   - パスリクエスト例: `{ "action": { "type": "pass" } }`
   - 埋札交換リクエスト例: `{ "action": { "type": "discard-cards", "cardIds": ["spades-A", "hearts-2", "joker"] } }`
   - 副官指定リクエスト例: `{ "action": { "type": "choose-adjutant", "cardId": "spades-A" } }`

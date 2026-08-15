@@ -66,7 +66,7 @@ export type LegacyPlayingDatasetManifest = DatasetManifest;
 export interface MultiphaseDatasetManifest extends DatasetManifestBase {
   datasetSchemaVersion: typeof MULTIPHASE_DATASET_SCHEMA_VERSION;
   generatorVersion: typeof MULTIPHASE_DATASET_GENERATOR_VERSION;
-  encoderSchemaVersion: number;
+  encoderSchemaVersion: 1;
   sampleType: NonPlayingDatasetSampleType;
 }
 

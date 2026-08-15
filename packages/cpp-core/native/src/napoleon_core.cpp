@@ -10,9 +10,6 @@
 namespace napoleon {
 namespace {
 
-constexpr int kMinBidTargetPointCards = 10;
-constexpr int kMaxBidTargetPointCards = 19;
-constexpr int kForcedAllPassTargetPointCards = 9;
 constexpr std::array<const char*, 4> kSuitIds = {"spades", "hearts", "diamonds", "clubs"};
 constexpr std::array<const char*, 13> kRankIds = {
     "A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"};
@@ -749,7 +746,7 @@ std::vector<Action> get_legal_actions(const GameState& state, int player_index) 
     pass_action.type = Action::Type::Pass;
     pass_action.player_index = player_index;
     actions.push_back(pass_action);
-    for (int target = kMinBidTargetPointCards; target <= kMaxBidTargetPointCards; ++target) {
+    for (int target = 13; target <= 19; ++target) {
       for (Suit suit : {Suit::Clubs, Suit::Diamonds, Suit::Hearts, Suit::Spades}) {
         Bid candidate{player_index, suit, target};
         if (!state.bidding->highest_bid.has_value() ||
@@ -800,9 +797,7 @@ void apply_action(GameState& state, const Action& action) {
       if (!action.suit.has_value()) {
         throw std::runtime_error("bid requires suit");
       }
-      if (
-          action.target_point_cards < kMinBidTargetPointCards ||
-          action.target_point_cards > kMaxBidTargetPointCards) {
+      if (action.target_point_cards < 13 || action.target_point_cards > 19) {
         throw std::runtime_error("bid target out of range");
       }
 
@@ -841,12 +836,7 @@ void apply_action(GameState& state, const Action& action) {
 
       if (!state.bidding->highest_bid.has_value() &&
           state.bidding->consecutive_pass_count == kPlayerCount) {
-        complete_bidding(
-            state,
-            Contract{
-                state.bidding->starter_player_index,
-                Suit::Spades,
-                kForcedAllPassTargetPointCards});
+        complete_bidding(state, Contract{state.bidding->starter_player_index, Suit::Spades, 12});
         return;
       }
 

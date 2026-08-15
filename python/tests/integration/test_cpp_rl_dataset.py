@@ -17,8 +17,6 @@ from napoleon_ml.dataset.constants import (
     COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT,
     EXPECTED_CARD_IDS,
     MODEL_INPUT_FEATURE_COUNT,
-    PLAYING_ENCODER_SCHEMA_VERSION,
-    PLAYING_MODEL_INPUT_SCHEMA_VERSION,
 )
 from napoleon_ml.dataset.pytorch import create_playing_self_play_dataloader
 from napoleon_ml.dataset.split import DatasetSplit, SplitConfig
@@ -32,7 +30,6 @@ def test_cpp_generated_rl_binary_dataset_loads_current_python_trainer_batch() ->
     with tempfile.TemporaryDirectory(prefix="napoleon-cpp-rl-dataset-") as tmp_dir_name:
         tmp_root = Path(tmp_dir_name)
         output_directory = tmp_root / "dataset"
-        policy_onnx, policy_metadata = _write_public_policy_artifact(tmp_root, "public-policy")
 
         _build_cpp_core()
         result = subprocess.run(
@@ -47,15 +44,15 @@ def test_cpp_generated_rl_binary_dataset_loads_current_python_trainer_batch() ->
                 "--games-per-shard",
                 "2",
                 "--policy-onnx",
-                str(policy_onnx),
+                str(_REPO_ROOT / "benchmarks/playing-policies/rl-v740/policy.onnx"),
                 "--policy-metadata",
-                str(policy_metadata),
+                str(_REPO_ROOT / "benchmarks/playing-policies/rl-v740/policy.json"),
                 "--policy-artifact-id",
                 "cpp-integration-policy",
                 "--frozen-onnx",
-                str(policy_onnx),
+                str(_REPO_ROOT / "benchmarks/playing-policies/rl-v740/policy.onnx"),
                 "--frozen-metadata",
-                str(policy_metadata),
+                str(_REPO_ROOT / "benchmarks/playing-policies/rl-v740/policy.json"),
                 "--frozen-artifact-id",
                 "rl-v740",
                 "--roster-seed",
@@ -97,8 +94,8 @@ def test_cpp_generated_rl_binary_dataset_loads_current_python_trainer_batch() ->
             "actingPlayerIndex",
             "selfRoleIndex",
         ]
-        assert manifest.playing_encoder_schema_version == 3
-        assert manifest.playing_model_input_schema_version == 3
+        assert manifest.playing_encoder_schema_version == 2
+        assert manifest.playing_model_input_schema_version == 2
         assert manifest.card_ids == EXPECTED_CARD_IDS
         assert manifest.card_ids_sha256 == calculate_card_ids_sha256()
         assert manifest.sample_count == cli_summary["sampleCount"]
@@ -199,10 +196,6 @@ def test_cpp_generated_complete_info_rl_binary_dataset_uses_public_frozen_pool()
         output_directory = tmp_root / "dataset"
         compact_onnx = tmp_root / "compact-current.onnx"
         compact_metadata = tmp_root / "compact-current.json"
-        public_frozen_onnx, public_frozen_metadata = _write_public_policy_artifact(
-            tmp_root,
-            "public-frozen",
-        )
         compact_onnx.write_bytes(b"deterministic compact current placeholder")
         compact_metadata.write_text(
             json.dumps(
@@ -244,9 +237,9 @@ def test_cpp_generated_complete_info_rl_binary_dataset_uses_public_frozen_pool()
                 "--policy-artifact-id",
                 "compact-current",
                 "--frozen-onnx",
-                str(public_frozen_onnx),
+                str(_REPO_ROOT / "benchmarks/playing-policies/rl-v740/policy.onnx"),
                 "--frozen-metadata",
-                str(public_frozen_metadata),
+                str(_REPO_ROOT / "benchmarks/playing-policies/rl-v740/policy.json"),
                 "--frozen-artifact-id",
                 "rl-v740",
                 "--roster-seed",
@@ -387,32 +380,6 @@ def _build_cpp_core() -> None:
         f"pnpm cpp-core build failed (exit {result.returncode}):\n"
         f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
-
-
-def _write_public_policy_artifact(root: Path, stem: str) -> tuple[Path, Path]:
-    onnx_path = root / f"{stem}.onnx"
-    metadata_path = root / f"{stem}.json"
-    onnx_path.write_bytes(f"deterministic {stem} placeholder".encode("utf-8"))
-    metadata_path.write_text(
-        json.dumps(
-            {
-                "metadataSchemaVersion": 1,
-                "checkpointSchemaVersion": 1,
-                "datasetSchemaVersion": 1,
-                "playingEncoderSchemaVersion": PLAYING_ENCODER_SCHEMA_VERSION,
-                "modelInputSchemaVersion": PLAYING_MODEL_INPUT_SCHEMA_VERSION,
-                "modelInputFeatureCount": MODEL_INPUT_FEATURE_COUNT,
-                "cardIdsSha256": calculate_card_ids_sha256(),
-                "policyModel": {
-                    "input_dim": MODEL_INPUT_FEATURE_COUNT,
-                    "hidden_dim": 16,
-                    "hidden_layers": 1,
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-    return onnx_path, metadata_path
 
 
 def _assert_cpp_rl_batch_contract(batch: dict[str, Any]) -> None:

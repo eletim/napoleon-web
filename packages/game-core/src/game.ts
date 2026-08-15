@@ -1,13 +1,7 @@
 import { createDeck, shuffleDeck } from "./deck.js";
 import { GameRuleError } from "./errors.js";
 import { determineTrickWinner, getPlayableCards } from "./trick.js";
-import {
-  forcedAllPassTargetPointCards,
-  getLegalBidActions,
-  isBidHigher,
-  isSuit,
-  validateBidRange
-} from "./bidding.js";
+import { getLegalBidActions, isBidHigher, isSuit, validateBidRange } from "./bidding.js";
 import {
   getSeiJackCardId,
   getUraJackCardId,
@@ -405,7 +399,7 @@ function pass(state: GameState, playerId: PlayerId): GameState {
     return completeBidding(state, {
       napoleonPlayerId: nextBidding.starterPlayerId,
       trumpSuit: "spades",
-      targetPointCards: forcedAllPassTargetPointCards
+      targetPointCards: 12
     });
   }
 

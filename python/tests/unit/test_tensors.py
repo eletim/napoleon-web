@@ -268,7 +268,7 @@ def test_model_input_feature_count_matches_layout_and_expected_total() -> None:
     onehot_length = sum(feature.stop - feature.start for feature in MODEL_INPUT_ONEHOT_LAYOUT)
 
     assert FLAT_OBSERVATION_FEATURE_COUNT + onehot_length == MODEL_INPUT_FEATURE_COUNT
-    assert MODEL_INPUT_FEATURE_COUNT == 7653
+    assert MODEL_INPUT_FEATURE_COUNT == 6246
 
 
 def test_model_input_is_c_contiguous_and_finite() -> None:
@@ -341,11 +341,11 @@ def test_model_input_bidding_history_one_hot_for_bid_pass_and_empty_slots() -> N
     suit = _region(tensorized.model_input, "biddingHistorySuitIndicesOneHot")
     target = _region(tensorized.model_input, "biddingHistoryTargetPointCardsOneHot")
 
-    # Slot 0: bid (class 1), player 1, suit 1 (hearts), target 13 -> class 3.
+    # Slot 0: bid (class 1), player 1, suit 1 (hearts), target 13 -> class 0.
     assert action_type[0, 1] == 1.0
     assert player[0, 1] == 1.0
     assert suit[0, 1] == 1.0
-    assert target[0, 3] == 1.0
+    assert target[0, 0] == 1.0
 
     # Slot 1: pass (class 0), player 2; suit/target have no meaning for a pass.
     assert action_type[1, 0] == 1.0
@@ -353,11 +353,11 @@ def test_model_input_bidding_history_one_hot_for_bid_pass_and_empty_slots() -> N
     assert suit[1].sum() == 0.0
     assert target[1].sum() == 0.0
 
-    # Slot 4: bid (class 1), player 0, suit 2 (diamonds), target 15 -> class 5.
+    # Slot 4: bid (class 1), player 0, suit 2 (diamonds), target 15 -> class 2.
     assert action_type[4, 1] == 1.0
     assert player[4, 0] == 1.0
     assert suit[4, 2] == 1.0
-    assert target[4, 5] == 1.0
+    assert target[4, 2] == 1.0
 
     # Slot 9: unused slot (actionMask 0) -- every field is the empty sentinel.
     assert action_type[9].sum() == 0.0

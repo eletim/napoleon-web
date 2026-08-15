@@ -5,16 +5,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
-  ADJUTANT_MODEL_INPUT_SCHEMA_VERSION,
-  ADJUTANT_ENCODER_SCHEMA_VERSION,
   BIDDING_ACTION_COUNT,
-  BIDDING_ENCODER_SCHEMA_VERSION,
   BIDDING_MODEL_INPUT_FEATURE_COUNT,
-  BIDDING_MODEL_INPUT_SCHEMA_VERSION,
   CARD_COUNT,
-  EXCHANGE_ENCODER_SCHEMA_VERSION,
   EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
-  EXCHANGE_MODEL_INPUT_SCHEMA_VERSION,
   MODEL_INPUT_FEATURE_COUNT
 } from "@napoleon/ai-observation";
 import {
@@ -154,12 +148,6 @@ describe("generateNonPlayingBiddingRlDataset", () => {
       expect(manifest.behaviorPolicy.onnxSha256).toBe(await sha256File(biddingArtifact.onnxPath));
       expect(manifest.fixedPlayingPolicy.onnxSha256).toBe(await sha256File(playingArtifact.onnxPath));
       expect(manifest.cardIdsSha256).toBe(calculateCardIdsSha256());
-      expect(manifest.gameRule).toEqual({
-        id: "bidding-10-19-all-pass-9-v1",
-        biddingMinTargetPointCards: 10,
-        biddingMaxTargetPointCards: 19,
-        allPassForcedTargetPointCards: 9
-      });
       expect(manifest.biddingModelInputFeatureCount).toBe(BIDDING_MODEL_INPUT_FEATURE_COUNT);
       expect(manifest.playingModelInputFeatureCount).toBe(MODEL_INPUT_FEATURE_COUNT);
       expect(manifest.actionCount).toBe(BIDDING_ACTION_COUNT);
@@ -197,18 +185,6 @@ describe("generateNonPlayingBiddingRlDataset", () => {
         rotationOffsets: [0, 1, 2, 3, 4]
       });
       expect(manifest.diagnostics?.bidding?.candidateBiddingDecisionCount).toBe(samples.length);
-      expect(Object.keys(manifest.diagnostics?.bidding?.targetPointCardsDistribution ?? {})).toEqual([
-        "10",
-        "11",
-        "12",
-        "13",
-        "14",
-        "15",
-        "16",
-        "17",
-        "18",
-        "19"
-      ]);
       expect(
         (manifest.diagnostics?.bidding?.passCount ?? 0) +
           (manifest.diagnostics?.bidding?.bidCount ?? 0)
@@ -246,7 +222,7 @@ describe("generateNonPlayingBiddingRlDataset", () => {
         expect(sample.legalBidMask).toHaveLength(BIDDING_ACTION_COUNT);
         expect(sample.legalBidMask[sample.selectedActionIndex]).toBe(1);
         expect(sample.terminalReward).toBe(calculateNonPlayingTerminalRoleReward(sample.outcome));
-        expect(sample.outcome.targetPointCards).toBeGreaterThanOrEqual(9);
+        expect(sample.outcome.targetPointCards).toBeGreaterThanOrEqual(12);
         expect(sample.outcome.targetPointCards).toBeLessThanOrEqual(19);
 
         const logits = await biddingPolicy.predictLogits(sample.modelInput);
@@ -332,7 +308,7 @@ describe("generateNonPlayingBiddingRlDataset", () => {
       });
       expect(manifest.nonLearningAgents.bidding).toMatchObject({
         type: "conservative-bidding",
-        id: CONSERVATIVE_BIDDING_BASELINE_ID
+        id: "conservative-bidding-v1"
       });
       expect(manifest.sampleCount).toBe(samples.length);
       expect(samples.length).toBeGreaterThan(0);
@@ -388,8 +364,8 @@ describe("generateNonPlayingBiddingRlDataset", () => {
       targetPointCards: 19,
       actingPlayerRole: "napoleon-adjutant"
     }, 57);
-    expectReward({ winner: "napoleon-team", targetPointCards: 9, actingPlayerRole: "napoleon" }, 18);
-    expectReward({ winner: "alliance", targetPointCards: 9, actingPlayerRole: "napoleon" }, -5);
+    expectReward({ winner: "napoleon-team", targetPointCards: 12, actingPlayerRole: "napoleon" }, 24);
+    expectReward({ winner: "alliance", targetPointCards: 12, actingPlayerRole: "napoleon" }, -5);
   });
 
   it("generates deterministic exchange RL samples with 3 sequential legal card steps", async () => {
@@ -627,8 +603,8 @@ function createPlayingMetadata() {
     metadataSchemaVersion: 1,
     checkpointSchemaVersion: 1,
     datasetSchemaVersion: 1,
-    playingEncoderSchemaVersion: 3,
-    modelInputSchemaVersion: 3,
+    playingEncoderSchemaVersion: 2,
+    modelInputSchemaVersion: 2,
     cardIdsSha256: calculateCardIdsSha256(),
     onnx: {
       opsetVersion: ONNX_OPSET_VERSION,
@@ -724,8 +700,8 @@ function nonPlayingSpec(policyType: NonPlayingPolicyType): {
       artifactType: "napoleon-bidding-policy-onnx",
       inputFeatureCount: BIDDING_MODEL_INPUT_FEATURE_COUNT,
       outputCount: BIDDING_ACTION_COUNT,
-      encoderSchemaVersion: BIDDING_ENCODER_SCHEMA_VERSION,
-      modelInputSchemaVersion: BIDDING_MODEL_INPUT_SCHEMA_VERSION
+      encoderSchemaVersion: 1,
+      modelInputSchemaVersion: 1
     };
   }
   if (policyType === "exchange") {
@@ -733,16 +709,16 @@ function nonPlayingSpec(policyType: NonPlayingPolicyType): {
       artifactType: "napoleon-exchange-policy-onnx",
       inputFeatureCount: EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
       outputCount: CARD_COUNT,
-      encoderSchemaVersion: EXCHANGE_ENCODER_SCHEMA_VERSION,
-      modelInputSchemaVersion: EXCHANGE_MODEL_INPUT_SCHEMA_VERSION
+      encoderSchemaVersion: 2,
+      modelInputSchemaVersion: 2
     };
   }
   return {
     artifactType: "napoleon-adjutant-policy-onnx",
     inputFeatureCount: ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
     outputCount: CARD_COUNT,
-    encoderSchemaVersion: ADJUTANT_ENCODER_SCHEMA_VERSION,
-    modelInputSchemaVersion: ADJUTANT_MODEL_INPUT_SCHEMA_VERSION
+    encoderSchemaVersion: 1,
+    modelInputSchemaVersion: 1
   };
 }
 

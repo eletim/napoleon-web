@@ -10,7 +10,6 @@ import {
   EMPTY_CARD_INDEX,
   EMPTY_PLAYER_INDEX,
   MAX_BIDDING_TARGET_POINT_CARDS,
-  MIN_CONTRACT_TARGET_POINT_CARDS,
   PLAYER_COUNT,
   PLAYING_ENCODER_SCHEMA_VERSION,
   SELF_ROLE_COUNT,
@@ -216,7 +215,7 @@ export function validateEncodedPlayingObservation(
   expectIntegerInRange(
     "contractTargetPointCards",
     observation.contractTargetPointCards,
-    MIN_CONTRACT_TARGET_POINT_CARDS,
+    12,
     MAX_BIDDING_TARGET_POINT_CARDS
   );
   expectIntegerInRange(

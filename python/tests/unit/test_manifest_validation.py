@@ -23,7 +23,7 @@ def _valid_manifest_dict() -> dict[str, Any]:
     return {
         "datasetSchemaVersion": 1,
         "generatorVersion": 1,
-        "playingEncoderSchemaVersion": 3,
+        "playingEncoderSchemaVersion": 2,
         "format": "jsonl",
         "sampleType": "playing-training-sample",
         "agent": {"type": "rule-based", "version": 1},
@@ -69,8 +69,8 @@ def _valid_self_play_manifest_dict() -> dict[str, Any]:
             "generatorVersion": 1,
             "sampleType": "playing-self-play-sample",
             "sampleSchemaVersion": 3,
-            "playingEncoderSchemaVersion": 3,
-            "playingModelInputSchemaVersion": 3,
+            "playingEncoderSchemaVersion": 2,
+            "playingModelInputSchemaVersion": 2,
             "behaviorPolicy": {
                 "type": "playing-onnx",
                 "artifactId": "policy-fixture",
@@ -113,14 +113,14 @@ def test_multiphase_manifest_passes() -> None:
     raw = _valid_manifest_dict()
     raw["datasetSchemaVersion"] = 2
     raw["generatorVersion"] = 2
-    raw["encoderSchemaVersion"] = 2
+    raw["encoderSchemaVersion"] = 1
     raw["sampleType"] = "bidding-training-sample"
     del raw["playingEncoderSchemaVersion"]
 
     manifest = parse_manifest(raw)
     validate_manifest(manifest)
 
-    assert manifest.encoder_schema_version == 2
+    assert manifest.encoder_schema_version == 1
     assert manifest.playing_encoder_schema_version is None
 
 
@@ -131,8 +131,8 @@ def test_self_play_manifest_v3_passes() -> None:
     assert manifest.dataset_schema_version == 3
     assert manifest.sample_type == "playing-self-play-sample"
     assert manifest.sample_schema_version == 3
-    assert manifest.playing_encoder_schema_version == 3
-    assert manifest.playing_model_input_schema_version == 3
+    assert manifest.playing_encoder_schema_version == 2
+    assert manifest.playing_model_input_schema_version == 2
     assert manifest.agent is None
     assert manifest.behavior_policy is not None
     assert manifest.behavior_policy.artifact_id == "policy-fixture"

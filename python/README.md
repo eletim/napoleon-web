@@ -72,10 +72,7 @@ python -m pip install -e "./python[export]"
 
 The non-playing pipeline can generate short rollout datasets, train PPO
 policies, export ONNX artifacts, and run a fixed-seed full-policy evaluation
-with a frozen playing policy. Issue #234 bumped the playing runtime contract to
-bidding 10-19 / all-pass 9 schema v3, so pass a current-rule playing artifact;
-the repository's historical `ppo-separated-v1000` and `rl-v740` artifacts are
-kept as old-schema references and are rejected by compatibility checks.
+with the repository's frozen playing policy:
 
 ```bash
 uv run --project python --extra dev napoleon-run-non-playing-rl \
@@ -86,10 +83,7 @@ uv run --project python --extra dev napoleon-run-non-playing-rl \
   --batch-size 8 \
   --hidden-dim 16 \
   --hidden-layers 1 \
-  --seed 202 \
-  --playing-policy-onnx /path/to/current-rule-playing/policy.onnx \
-  --playing-policy-metadata /path/to/current-rule-playing/policy.json \
-  --playing-policy-artifact-id current-rule-playing
+  --seed 202
 ```
 
 The command writes phase artifacts under `bidding/`, `adjutant/`, and
@@ -258,7 +252,7 @@ literal `NaN`, `Infinity`, or `-Infinity` token (accepted by
 `PlayingTrainingSample` (and its nested `EncodedPlayingObservation`,
 `EncodedBiddingHistory`, `EncodedPlayAction`, `EncodedBeliefTarget`) field
 for field, with the same fixed array lengths (`CARD_COUNT` = 53,
-`PLAYER_COUNT` = 5, `MAX_BIDDING_ACTION_COUNT` = 165, and so on — see
+`PLAYER_COUNT` = 5, `MAX_BIDDING_ACTION_COUNT` = 117, and so on — see
 `napoleon_ml.dataset.constants`). Parsing rejects an unknown JSON key, a
 missing required key, and any value whose JSON type doesn't match the
 schema. `napoleon_ml.dataset.validation.validate_sample()` then checks the
@@ -296,10 +290,10 @@ lengths are:
 
 | Sample type | Tensorized dataclass | `model_input` shape |
 | --- | --- | --- |
-| `playing-training-sample` | `TensorizedPlayingSample` | `(7653,)` |
-| `bidding-training-sample` | `TensorizedBiddingSample` | `(3755,)` |
-| `exchange-training-sample` | `TensorizedExchangeSample` | `(4081,)` |
-| `adjutant-training-sample` | `TensorizedAdjutantSample` | `(3963,)` |
+| `playing-training-sample` | `TensorizedPlayingSample` | `(6246,)` |
+| `bidding-training-sample` | `TensorizedBiddingSample` | `(2333,)` |
+| `exchange-training-sample` | `TensorizedExchangeSample` | `(2611,)` |
+| `adjutant-training-sample` | `TensorizedAdjutantSample` | `(2553,)` |
 
 The PyTorch DataLoader supports all four sample types. The policy ONNX export
 remains playing-only in this version.
@@ -308,8 +302,8 @@ For playing, `tensorize_sample()` returns a `TensorizedPlayingSample`:
 
 | Field | Shape | dtype |
 | --- | --- | --- |
-| `flat_observation` | `(732,)` | `float32` |
-| `model_input` | `(7653,)` | `float32` |
+| `flat_observation` | `(684,)` | `float32` |
+| `model_input` | `(6246,)` | `float32` |
 | `legal_play_mask` | `(53,)` | `uint8` |
 | `actor_target` | scalar | `int64` |
 | `belief_target` | `(53,)` | `int64` |
@@ -338,7 +332,7 @@ own shape/dtype/value invariants.
 `flat_observation`'s field order is fixed and explicit —
 `napoleon_ml.dataset.tensors.FLAT_OBSERVATION_LAYOUT` is a tuple of
 `FeatureSlice(name, start, stop, shape, dtype)` covering every one of its
-732 positions with no gap and no overlap (checked at import time). To
+684 positions with no gap and no overlap (checked at import time). To
 inspect it:
 
 ```python
@@ -348,12 +342,12 @@ for feature in FLAT_OBSERVATION_LAYOUT:
     print(feature.name, feature.start, feature.stop, feature.shape)
 ```
 
-### Model input (`model_input`, schema version `MODEL_INPUT_SCHEMA_VERSION` = 3)
+### Model input (`model_input`, schema version `MODEL_INPUT_SCHEMA_VERSION` = 1)
 
 `flat_observation` deliberately leaves out every category-*index* field, so
 it alone is not a complete model input — a policy that also needs to know
 which cards are in the current trick, say, gets nothing from it. `model_input`
-is: `flat_observation`'s 732 positions, followed by every one of those index
+is: `flat_observation`'s 684 positions, followed by every one of those index
 fields, one-hot encoded, in a second fixed-order block. It is what a
 first-version MLP policy should actually train and infer on; `flat_observation`
 is kept only for existing consumers that already depend on it.
@@ -368,12 +362,12 @@ The appended block, in order, one-hot encodes:
 | `currentTrickPlayerIndicesOneHot` | `(5, 5)` | player, 0–4 |
 | `completedTrickPlayerIndicesOneHot` | `(50, 5)` | player, 0–4 |
 | `completedTrickWinnerIndicesOneHot` | `(10, 5)` | player, 0–4 |
-| `biddingHistoryActionTypeIndicesOneHot` | `(165, 2)` | pass=0 / bid=1 |
-| `biddingHistoryPlayerIndicesOneHot` | `(165, 5)` | player, 0–4 |
-| `biddingHistorySuitIndicesOneHot` | `(165, 4)` | suit, 0–3 |
-| `biddingHistoryTargetPointCardsOneHot` | `(165, 10)` | target point cards, 10–19 |
+| `biddingHistoryActionTypeIndicesOneHot` | `(117, 2)` | pass=0 / bid=1 |
+| `biddingHistoryPlayerIndicesOneHot` | `(117, 5)` | player, 0–4 |
+| `biddingHistorySuitIndicesOneHot` | `(117, 4)` | suit, 0–3 |
+| `biddingHistoryTargetPointCardsOneHot` | `(117, 7)` | target point cards, 13–19 |
 
-732 + (4 + 5 + 50) * 53 + (5 + 50 + 10) * 5 + 165 * (2 + 5 + 4 + 10) + 4 = 7653.
+684 + (4 + 5 + 50) * 53 + (5 + 50 + 10) * 5 + 117 * (2 + 5 + 4 + 7) + 4 = 6246.
 
 An empty slot one-hot-encodes to an all-zero region, never to a one-hot at
 some placeholder class — so "no value" can never be mistaken for a real
@@ -382,13 +376,13 @@ sentinel (card/player index fields — see `EMPTY_CARD_INDEX`/
 `EMPTY_PLAYER_INDEX`/`EMPTY_BIDDING_ACTION_TYPE`/`EMPTY_BIDDING_SUIT_INDEX`
 in `napoleon_ml.dataset.constants`) and, for
 `biddingHistoryTargetPointCardsOneHot` specifically, a `pass` or empty
-slot's `targetPointCards` of `0` (which is outside the valid `10`–`19`
+slot's `targetPointCards` of `0` (which is outside the valid `13`–`19`
 bid-target range and so is never one-hot encoded, whether or not it's `-1`).
 Callers never need to branch on which "empty" applies — one-hot encoding
 already reduces it to "no bit set".
 
 `legalPlayMask` is included in `model_input` (inside `flat_observation`'s
-732 positions, unchanged) and is *also* kept as the independent
+684 positions, unchanged) and is *also* kept as the independent
 `TensorizedPlayingSample.legal_play_mask` array, so inference code can mask
 illegal actions out of a policy's output without re-deriving the mask from
 `model_input`.
@@ -403,7 +397,7 @@ information no player can actually observe).
 `napoleon_ml.dataset.tensors.MODEL_INPUT_LAYOUT` is
 `FLAT_OBSERVATION_LAYOUT` followed by the ten slices above and the
 `selfRoleOneHot` role vector (also available alone as
-`MODEL_INPUT_ONEHOT_LAYOUT`), covering all 7653 positions of
+`MODEL_INPUT_ONEHOT_LAYOUT`), covering all 6246 positions of
 `model_input` with no gap, overlap, or duplicate name (checked at import
 time, same as `FLAT_OBSERVATION_LAYOUT`):
 
@@ -418,9 +412,9 @@ The non-playing phases expose equivalent named layouts:
 
 | Constant | Feature count | Notes |
 | --- | --- | --- |
-| `BIDDING_MODEL_INPUT_LAYOUT` | 3755 | self hand, legal bid mask, bidding state, shared bidding history |
-| `EXCHANGE_MODEL_INPUT_LAYOUT` | 4081 | includes `handCountByPlayer (5,)` and excludes discard target |
-| `ADJUTANT_MODEL_INPUT_LAYOUT` | 3963 | adjutant legal mask plus shared bidding history |
+| `BIDDING_MODEL_INPUT_LAYOUT` | 2333 | self hand, legal bid mask, bidding state, shared bidding history |
+| `EXCHANGE_MODEL_INPUT_LAYOUT` | 2611 | includes `handCountByPlayer (5,)` and excludes discard target |
+| `ADJUTANT_MODEL_INPUT_LAYOUT` | 2553 | adjutant legal mask plus shared bidding history |
 
 All layout slices are explicit `FeatureSlice` entries. The tensorizer does
 not recursively flatten arbitrary JSON. Training labels (`actorTarget` and
@@ -428,8 +422,8 @@ not recursively flatten arbitrary JSON. Training labels (`actorTarget` and
 complete `actualState` information, buried-card provenance, and unrevealed
 adjutant ownership are deliberately excluded from every `model_input`.
 
-For bidding, action index `0` is pass. Indices `1..40` enumerate bid actions
-by target point cards `10..19` and suit order `spades`, `hearts`,
+For bidding, action index `0` is pass. Indices `1..28` enumerate bid actions
+by target point cards `13..19` and suit order `spades`, `hearts`,
 `diamonds`, `clubs`; `legalBidMask` is included in `model_input` and exposed
 again as `TensorizedBiddingSample.legal_bid_mask` for masked loss and
 inference.
@@ -494,7 +488,7 @@ Each batch is a dictionary of PyTorch tensors with fixed shapes and dtypes:
 
 | Field | Batch shape | dtype |
 | --- | --- | --- |
-| `model_input` | `(batch, 7653)` | `torch.float32` |
+| `model_input` | `(batch, 6246)` | `torch.float32` |
 | `actor_target` | `(batch,)` | `torch.int64` |
 | `legal_play_mask` | `(batch, 53)` | `torch.bool` |
 | `belief_target` | `(batch, 53)` | `torch.int64` |
@@ -515,9 +509,9 @@ not match.
 
 | Sample type | Batch fields |
 | --- | --- |
-| `bidding-training-sample` | `model_input (batch, 3755) float32`, `legal_bid_mask (batch, 41) bool`, `actor_target (batch,) int64` |
-| `exchange-training-sample` | `model_input (batch, 4081) float32`, `legal_discard_card_mask (batch, 53) bool`, `discard_target_mask (batch, 53) bool` |
-| `adjutant-training-sample` | `model_input (batch, 3963) float32`, `legal_adjutant_mask (batch, 53) bool`, `actor_target (batch,) int64` |
+| `bidding-training-sample` | `model_input (batch, 2333) float32`, `legal_bid_mask (batch, 29) bool`, `actor_target (batch,) int64` |
+| `exchange-training-sample` | `model_input (batch, 2611) float32`, `legal_discard_card_mask (batch, 53) bool`, `discard_target_mask (batch, 53) bool` |
+| `adjutant-training-sample` | `model_input (batch, 2553) float32`, `legal_adjutant_mask (batch, 53) bool`, `actor_target (batch,) int64` |
 
 `mask_dtype` is only a playing-dataset compatibility option for
 `belief_hidden_ownership_loss_mask`. Non-playing DataLoader masks are always
@@ -621,8 +615,8 @@ napoleon-train-bidding-mlp ./datasets/rule-based-bidding-v1 \
   --seed 0
 ```
 
-The model consumes bidding `model_input` with shape `(batch, 3755)` and emits
-41 logits. Training, evaluation, and `select_bidding_action()` mask
+The model consumes bidding `model_input` with shape `(batch, 2333)` and emits
+29 logits. Training, evaluation, and `select_bidding_action()` mask
 `legal_bid_mask` before cross entropy or argmax, so illegal actions are never
 selected or trained as targets. Evaluation reports top-1 accuracy, pass/bid
 accuracy, target-point-card and suit breakdowns, a legal-action uniform
@@ -655,7 +649,7 @@ napoleon-train-exchange-mlp ./datasets/rule-based-exchange-v1 \
   --seed 0
 ```
 
-The model consumes exchange `model_input` with shape `(batch, 4081)` and
+The model consumes exchange `model_input` with shape `(batch, 2611)` and
 emits 53 card logits. Training computes a masked binary multi-label loss
 over `legal_discard_card_mask`, and evaluation selects distinct legal top-3
 discard cards. The report includes exact set accuracy, average overlap,
@@ -683,7 +677,7 @@ napoleon-train-adjutant-mlp ./datasets/rule-based-adjutant-v1 \
   --seed 0
 ```
 
-The model consumes adjutant `model_input` with shape `(batch, 3963)` and
+The model consumes adjutant `model_input` with shape `(batch, 2553)` and
 emits 53 card logits. Training, evaluation, and
 `select_adjutant_action()` mask `legal_adjutant_mask` before cross entropy
 or argmax, so illegal adjutant cards are never selected or trained as
@@ -751,7 +745,7 @@ target model configs, migration strategy, and whether policy/value outputs
 are preserved. Actor-Critic checkpoints preserve both policy logits and value
 predictions; policy-only checkpoints preserve policy logits.
 
-The ONNX model has one input named `model_input` with shape `(batch, 7653)`
+The ONNX model has one input named `model_input` with shape `(batch, 6246)`
 and dtype `float32`, and one output named `logits` with shape `(batch, 53)`
 and dtype `float32`; the batch dimension is dynamic. The JSON metadata records
 the dataset schema version, playing encoder schema version, model input schema

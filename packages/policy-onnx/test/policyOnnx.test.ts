@@ -221,8 +221,8 @@ describe("non-playing policy ONNX metadata", () => {
       ["metadataSchemaVersion", { ...bidding, metadataSchemaVersion: NONPLAYING_ONNX_METADATA_SCHEMA_VERSION + 1 }],
       ["policyType", { ...bidding, policyType: "playing" }],
       ["datasetSchemaVersion", { ...bidding, datasetSchemaVersion: MULTIPHASE_DATASET_SCHEMA_VERSION + 1 }],
-      ["encoderSchemaVersion", { ...bidding, encoderSchemaVersion: 1 }],
-      ["modelInputSchemaVersion", { ...bidding, modelInputSchemaVersion: 3 }],
+      ["encoderSchemaVersion", { ...bidding, encoderSchemaVersion: 2 }],
+      ["modelInputSchemaVersion", { ...bidding, modelInputSchemaVersion: 2 }],
       ["modelInputFeatureCount", { ...bidding, modelInputFeatureCount: BIDDING_MODEL_INPUT_FEATURE_COUNT + 1 }],
       ["outputLogitCount", { ...bidding, outputLogitCount: BIDDING_ACTION_COUNT + 1 }],
       ["cardIdsSha256", { ...bidding, cardIdsSha256: "0".repeat(64) }],
@@ -580,7 +580,7 @@ describe("policy ONNX Runtime smoke", () => {
     await expect(model.predictLogitsBatch([])).rejects.toThrow(/at least one input/);
     await expect(model.predictLogitsBatch([
       new Float32Array(MODEL_INPUT_FEATURE_COUNT - 1)
-    ])).rejects.toThrow(/7653/);
+    ])).rejects.toThrow(/6246/);
     await expect(model.predictLogitsBatch([
       createInputWithFirstFeature(Number.POSITIVE_INFINITY)
     ])).rejects.toThrow(/modelInput\[0\] must be finite/);
@@ -692,7 +692,7 @@ describe("non-playing policy ONNX Runtime smoke", () => {
 
     const model = await loadNonPlayingPolicyOnnxModel({ onnxPath, metadataPath });
     await expect(model.predictLogits(new Float32Array(BIDDING_MODEL_INPUT_FEATURE_COUNT - 1))).rejects.toThrow(
-      /3755/
+      /2333/
     );
 
     const input = new Float32Array(BIDDING_MODEL_INPUT_FEATURE_COUNT);
@@ -747,8 +747,8 @@ function createMetadata() {
     metadataSchemaVersion: 1,
     checkpointSchemaVersion: 1,
     datasetSchemaVersion: 1,
-    playingEncoderSchemaVersion: 3,
-    modelInputSchemaVersion: 3,
+    playingEncoderSchemaVersion: 2,
+    modelInputSchemaVersion: 2,
     cardIdsSha256: calculateCardIdsSha256(),
     onnx: {
       opsetVersion: ONNX_OPSET_VERSION,
@@ -782,8 +782,8 @@ function createCriticMetadata() {
     artifactType: "napoleon-playing-critic-onnx",
     checkpointSchemaVersion: 1,
     datasetSchemaVersion: 1,
-    playingEncoderSchemaVersion: 3,
-    modelInputSchemaVersion: 3,
+    playingEncoderSchemaVersion: 2,
+    modelInputSchemaVersion: 2,
     modelInputFeatureCount: MODEL_INPUT_FEATURE_COUNT,
     outputValueCount: 1,
     cardIdsSha256: calculateCardIdsSha256(),
@@ -886,8 +886,8 @@ function nonPlayingSpec(policyType: NonPlayingPolicyType): {
       artifactType: "napoleon-bidding-policy-onnx",
       inputFeatureCount: BIDDING_MODEL_INPUT_FEATURE_COUNT,
       outputCount: BIDDING_ACTION_COUNT,
-      encoderSchemaVersion: 2,
-      modelInputSchemaVersion: 2
+      encoderSchemaVersion: 1,
+      modelInputSchemaVersion: 1
     };
   }
   if (policyType === "exchange") {
@@ -895,16 +895,16 @@ function nonPlayingSpec(policyType: NonPlayingPolicyType): {
       artifactType: "napoleon-exchange-policy-onnx",
       inputFeatureCount: EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
       outputCount: CARD_COUNT,
-      encoderSchemaVersion: 3,
-      modelInputSchemaVersion: 3
+      encoderSchemaVersion: 2,
+      modelInputSchemaVersion: 2
     };
   }
   return {
     artifactType: "napoleon-adjutant-policy-onnx",
     inputFeatureCount: ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
     outputCount: CARD_COUNT,
-    encoderSchemaVersion: 2,
-    modelInputSchemaVersion: 2
+    encoderSchemaVersion: 1,
+    modelInputSchemaVersion: 1
   };
 }
 

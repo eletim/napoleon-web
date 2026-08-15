@@ -164,7 +164,7 @@ describe("createAdjutantTrainingSample", () => {
     }
   });
 
-  it("encodes the automatic all-pass contract target 9 with public pass history", async () => {
+  it("encodes the automatic all-pass contract target 12 with public pass history", async () => {
     const record = await runAutomatedGame({
       seed: smokeSeed,
       createAgent: ({ rng }) => new PassThenRuleBasedAgent(rng)
@@ -172,7 +172,7 @@ describe("createAdjutantTrainingSample", () => {
     const sample = createAdjutantTrainingSamples(record)[0];
 
     expect(sample).toBeDefined();
-    expect(sample.observation.contractTargetPointCards).toBe(9);
+    expect(sample.observation.contractTargetPointCards).toBe(12);
     expect(sample.observation.trumpSuitOneHot).toEqual([1, 0, 0, 0]);
     expect(sum(sample.observation.selfHandMask)).toBe(10);
     expect(sample.observation.legalAdjutantMask).toHaveLength(CARD_COUNT);

@@ -1563,7 +1563,7 @@ describe("server API", () => {
     expect(body.state.result).toBeNull();
   });
 
-  it("creates the special spades-9 contract when everyone passes", async () => {
+  it("creates the special spades-12 contract when everyone passes", async () => {
     const created = await createGame();
     const record = games.get(created.gameId);
 
@@ -1597,7 +1597,7 @@ describe("server API", () => {
     expect(body.state.contract).toEqual({
       napoleonPlayerId: "player-0",
       trumpSuit: "spades",
-      targetPointCards: 9
+      targetPointCards: 12
     });
     expect(body.state.currentPlayerId).toBe("player-0");
     expect(body.state.trumpSuit).toBe("spades");
@@ -2196,7 +2196,7 @@ describe("server API", () => {
 
     const cases = [
       { action: { type: "play-card", cardId: created.state.self.hand[0].id }, code: "INVALID_ACTION_FOR_PHASE" },
-      { action: { type: "bid", suit: "spades", targetPointCards: 9 }, code: "INVALID_BID" },
+      { action: { type: "bid", suit: "spades", targetPointCards: 12 }, code: "INVALID_BID" },
       { action: { type: "bid", suit: "spades", targetPointCards: 20 }, code: "INVALID_BID" }
     ] as const;
 

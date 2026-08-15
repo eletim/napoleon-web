@@ -63,7 +63,7 @@ describe("RandomAgent", () => {
       type: "bid",
       playerId,
       suit: "clubs",
-      targetPointCards: 10
+      targetPointCards: 13
     });
   });
 
@@ -221,11 +221,11 @@ describe("card evaluation", () => {
 describe("RuleBasedAgent bidding", () => {
   it("converts hand scores to bid limits", () => {
     expect(getBidLimitForScore(199)).toBeNull();
-    expect(getBidLimitForScore(200)).toBe(10);
-    expect(getBidLimitForScore(230)).toBe(11);
-    expect(getBidLimitForScore(260)).toBe(12);
-    expect(getBidLimitForScore(290)).toBe(13);
-    expect(getBidLimitForScore(470)).toBe(19);
+    expect(getBidLimitForScore(200)).toBe(13);
+    expect(getBidLimitForScore(230)).toBe(14);
+    expect(getBidLimitForScore(260)).toBe(15);
+    expect(getBidLimitForScore(290)).toBe(16);
+    expect(getBidLimitForScore(410)).toBe(20);
   });
 
   it("bids the minimum legal target for the highest-scoring suit", async () => {
@@ -234,8 +234,8 @@ describe("RuleBasedAgent bidding", () => {
     const view = withSelfHand(createPlayerView(state, playerId), playerId, strongSpadeHand());
     const legalActions: readonly GameAction[] = [
       { type: "pass", playerId },
-      { type: "bid", playerId, suit: "spades", targetPointCards: 10 },
-      { type: "bid", playerId, suit: "hearts", targetPointCards: 10 }
+      { type: "bid", playerId, suit: "spades", targetPointCards: 13 },
+      { type: "bid", playerId, suit: "hearts", targetPointCards: 13 }
     ];
     const agent = new RuleBasedAgent(() => 0);
 
@@ -243,7 +243,7 @@ describe("RuleBasedAgent bidding", () => {
       type: "bid",
       playerId,
       suit: "spades",
-      targetPointCards: 10
+      targetPointCards: 13
     });
   });
 
@@ -260,17 +260,17 @@ describe("RuleBasedAgent bidding", () => {
           ...baseView,
           bidding: {
             starterPlayerId: playerId,
-            highestBid: { playerId: "player-1", suit: "hearts", targetPointCards: 10 },
+            highestBid: { playerId: "player-1", suit: "hearts", targetPointCards: 13 },
             consecutivePassCount: 0,
             history: []
           }
         },
         legalActions: [
           { type: "pass", playerId },
-          { type: "bid", playerId, suit: "spades", targetPointCards: 11 }
+          { type: "bid", playerId, suit: "spades", targetPointCards: 14 }
         ]
       })
-    ).resolves.toEqual({ type: "bid", playerId, suit: "spades", targetPointCards: 11 });
+    ).resolves.toEqual({ type: "bid", playerId, suit: "spades", targetPointCards: 14 });
 
     await expect(
       agent.selectAction({
@@ -304,7 +304,7 @@ describe("RuleBasedAgent bidding", () => {
         ]),
         legalActions: [
           { type: "pass", playerId },
-          { type: "bid", playerId, suit: "clubs", targetPointCards: 10 }
+          { type: "bid", playerId, suit: "clubs", targetPointCards: 13 }
         ]
       })
     ).resolves.toEqual({ type: "pass", playerId });
@@ -315,7 +315,7 @@ describe("RuleBasedAgent bidding", () => {
         view: withSelfHand(createPlayerView(state, playerId), playerId, strongSpadeHand()),
         legalActions: [
           { type: "pass", playerId },
-          { type: "bid", playerId, suit: "hearts", targetPointCards: 10 }
+          { type: "bid", playerId, suit: "hearts", targetPointCards: 13 }
         ]
       })
     ).resolves.toEqual({ type: "pass", playerId });
@@ -331,8 +331,8 @@ describe("RuleBasedAgent bidding", () => {
 
   it("uses a passive bidding baseline above conservative but still bids strong hands", async () => {
     expect(getPassiveBidLimitForScore(329)).toBeNull();
-    expect(getPassiveBidLimitForScore(330)).toBe(10);
-    expect(getPassiveBidLimitForScore(405)).toBe(11);
+    expect(getPassiveBidLimitForScore(330)).toBe(13);
+    expect(getPassiveBidLimitForScore(405)).toBe(14);
 
     const state = createInitialGame({ rng: () => 0 });
     const playerId = state.currentPlayerId;
@@ -343,10 +343,10 @@ describe("RuleBasedAgent bidding", () => {
         view: withSelfHand(createPlayerView(state, playerId), playerId, strongSpadeHand()),
         legalActions: [
           { type: "pass", playerId },
-          { type: "bid", playerId, suit: "spades", targetPointCards: 10 }
+          { type: "bid", playerId, suit: "spades", targetPointCards: 13 }
         ]
       })
-    ).resolves.toEqual({ type: "bid", playerId, suit: "spades", targetPointCards: 10 });
+    ).resolves.toEqual({ type: "bid", playerId, suit: "spades", targetPointCards: 13 });
 
     const conservative = await countBiddingActions((rng) => new ConservativeBiddingAgent(rng));
     const passive = await countBiddingActions((rng) => new PassiveBiddingAgent(rng));

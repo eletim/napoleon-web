@@ -840,8 +840,8 @@ function createMetadata() {
     metadataSchemaVersion: 1,
     checkpointSchemaVersion: 1,
     datasetSchemaVersion: 1,
-    playingEncoderSchemaVersion: 3,
-    modelInputSchemaVersion: 3,
+    playingEncoderSchemaVersion: 2,
+    modelInputSchemaVersion: 2,
     cardIdsSha256: calculateCardIdsSha256(),
     onnx: {
       opsetVersion: ONNX_OPSET_VERSION,

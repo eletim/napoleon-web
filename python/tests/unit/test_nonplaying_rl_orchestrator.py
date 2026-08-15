@@ -15,13 +15,9 @@ from napoleon_ml.cli.run_nonplaying_rl import (
 from napoleon_ml.nonplaying_rl_orchestrator import (
     DEFAULT_ITERATIVE_BATCH_SIZE,
     DEFAULT_ITERATIVE_EVALUATION_GAMES,
-    CONSERVATIVE_BIDDING_BASELINE_ID,
-    FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION,
-    NONPLAYING_GAME_RULE,
     NONPLAYING_REWARD_ID,
     NONPLAYING_REWARD_TYPE,
     NONPLAYING_REWARD_VERSION,
-    PASSIVE_BIDDING_BASELINE_ID,
     NonPlayingIterativeRlRunConfig,
     NonPlayingRlOrchestratorError,
     NonPlayingRlRunConfig,
@@ -198,7 +194,6 @@ def test_iterative_nonplaying_rl_resumes_and_chains_checkpoints(
             "actualGameCount": 5,
             "rolloutPolicyTopology": "candidate-x1-frozen-x4-v1",
             "rotationOffsets": [0, 1, 2, 3, 4],
-            "gameRule": NONPLAYING_GAME_RULE,
             "reward": {
                 "type": NONPLAYING_REWARD_TYPE,
                 "version": NONPLAYING_REWARD_VERSION,
@@ -216,16 +211,16 @@ def test_iterative_nonplaying_rl_resumes_and_chains_checkpoints(
             manifest["nonLearningAgents"] = {
                 "bidding": {
                     "type": "mixed-frozen-bidding",
-                    "mixingRuleVersion": FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION,
+                    "mixingRuleVersion": "per-seat-seeded-conservative-passive-50-50-v1",
                     "policies": {
-                        "conservative": {"id": CONSERVATIVE_BIDDING_BASELINE_ID},
-                        "passive": {"id": PASSIVE_BIDDING_BASELINE_ID},
+                        "conservative": {"id": "conservative-bidding-v1"},
+                        "passive": {"id": "passive-bidding-v1"},
                     },
                 }
             }
             manifest["diagnostics"] = {
                 "frozenBiddingOpponentMix": {
-                    "mixingRuleVersion": FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION,
+                    "mixingRuleVersion": "per-seat-seeded-conservative-passive-50-50-v1",
                     "conservativeSeatCount": 10,
                     "passiveSeatCount": 10,
                     "seatAssignments": [{} for _ in range(20)],

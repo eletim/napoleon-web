@@ -21,13 +21,7 @@ from napoleon_ml.dataset import (
     iter_tensorized_samples,
     load_manifest,
 )
-from napoleon_ml.dataset.constants import (
-    ADJUTANT_ENCODER_SCHEMA_VERSION,
-    BIDDING_ACTION_COUNT,
-    BIDDING_ENCODER_SCHEMA_VERSION,
-    EXCHANGE_ENCODER_SCHEMA_VERSION,
-    EXPECTED_CARD_IDS,
-)
+from napoleon_ml.dataset.constants import EXPECTED_CARD_IDS
 from napoleon_ml.dataset.pytorch import (
     create_playing_dataloader,
     create_playing_self_play_dataloader,
@@ -56,11 +50,6 @@ _MULTIPHASE_SAMPLE_TYPES = {
     "bidding-training-sample": BIDDING_MODEL_INPUT_FEATURE_COUNT,
     "exchange-training-sample": EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
     "adjutant-training-sample": ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
-}
-_MULTIPHASE_ENCODER_SCHEMA_VERSIONS = {
-    "bidding-training-sample": BIDDING_ENCODER_SCHEMA_VERSION,
-    "exchange-training-sample": EXCHANGE_ENCODER_SCHEMA_VERSION,
-    "adjutant-training-sample": ADJUTANT_ENCODER_SCHEMA_VERSION,
 }
 
 
@@ -155,7 +144,7 @@ def test_typescript_generated_dataset_loads_and_tensorizes_cleanly() -> None:
             assert seed_to_split[tensorized.seed] == split  # same seed -> same split, always
 
         assert total_tensorized == _GAME_COUNT * _SAMPLES_PER_GAME
-        assert flat_shapes == {(732,)}
+        assert flat_shapes == {(684,)}
         assert flat_dtypes == {"float32"}
         assert legal_mask_shapes == {(53,)}
         assert belief_target_shapes == {(53,)}
@@ -209,10 +198,7 @@ def test_typescript_generated_multiphase_datasets_load_and_tensorize_cleanly() -
             manifest = load_manifest(output_directory)
             assert manifest.dataset_schema_version == 2
             assert manifest.sample_type == sample_type
-            assert (
-                manifest.encoder_schema_version
-                == _MULTIPHASE_ENCODER_SCHEMA_VERSIONS[sample_type]
-            )
+            assert manifest.encoder_schema_version == 1
             assert manifest.card_ids == EXPECTED_CARD_IDS
             assert manifest.card_ids_sha256 == calculate_card_ids_sha256()
 
@@ -249,7 +235,7 @@ def test_typescript_generated_multiphase_datasets_load_and_tensorize_cleanly() -
             assert str(batch["model_input"].dtype) == "torch.float32"
 
             if sample_type == "bidding-training-sample":
-                assert batch["legal_bid_mask"].shape == (1, BIDDING_ACTION_COUNT)
+                assert batch["legal_bid_mask"].shape == (1, 29)
                 assert str(batch["legal_bid_mask"].dtype) == "torch.bool"
                 assert batch["actor_target"].shape == (1,)
                 assert str(batch["actor_target"].dtype) == "torch.int64"
@@ -294,8 +280,8 @@ def test_typescript_generated_playing_self_play_dataset_loads_rl_batch() -> None
         assert manifest.sample_schema_version == 4
         assert manifest.tensor_schema is not None
         assert manifest.tensor_schema.compression == "none"
-        assert manifest.playing_encoder_schema_version == 3
-        assert manifest.playing_model_input_schema_version == 3
+        assert manifest.playing_encoder_schema_version == 2
+        assert manifest.playing_model_input_schema_version == 2
         assert manifest.sampling_algorithm == "masked-categorical"
         assert manifest.temperature == 1.25
         assert manifest.reward is not None

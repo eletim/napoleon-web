@@ -156,7 +156,7 @@ describe("createPlayingTrainingSample", () => {
           contract: {
             napoleonPlayerId: passPlayerIds[0],
             trumpSuit: "spades",
-            targetPointCards: 9
+            targetPointCards: 12
           }
         }
       }
@@ -171,7 +171,7 @@ describe("createPlayingTrainingSample", () => {
       throw new Error("Expected a playing sample.");
     }
 
-    expect(sample.observation.contractTargetPointCards).toBe(9);
+    expect(sample.observation.contractTargetPointCards).toBe(12);
     expect(sample.observation.trumpSuitOneHot).toEqual([1, 0, 0, 0]);
     expect(sum(sample.observation.biddingHistory.actionMask)).toBe(5);
     expect(sample.observation.biddingHistory.actionTypeIndices.slice(0, 5)).toEqual(

@@ -38,12 +38,6 @@ NON_PLAYING_RL_SAMPLE_TYPE = "non-playing-adjutant-rl-sample"
 NON_PLAYING_RL_REWARD_ID = "non-playing-terminal-role-reward-v3"
 NON_PLAYING_RL_REWARD_TYPE = "non-playing-terminal-role-reward"
 NON_PLAYING_RL_REWARD_VERSION = 3
-NON_PLAYING_RL_GAME_RULE = {
-    "id": "bidding-10-19-all-pass-9-v1",
-    "biddingMinTargetPointCards": 10,
-    "biddingMaxTargetPointCards": 19,
-    "allPassForcedTargetPointCards": 9,
-}
 ADJUTANT_PPO_ALGORITHM = "adjutant-ppo-separated-v1"
 ADJUTANT_ACTOR_CRITIC_MODEL_ARCHITECTURE = "adjutant-separated-actor-critic-v1"
 ADJUTANT_PPO_CHECKPOINT_SCHEMA_VERSION = 1
@@ -200,8 +194,6 @@ def load_non_playing_adjutant_rl_manifest(
         raise AdjutantPpoCompatibilityError("manifest actionCount mismatch.")
     if raw.get("cardIdsSha256") != calculate_card_ids_sha256():
         raise AdjutantPpoCompatibilityError("manifest cardIdsSha256 mismatch.")
-    if raw.get("gameRule") != NON_PLAYING_RL_GAME_RULE:
-        raise AdjutantPpoCompatibilityError("manifest gameRule metadata mismatch.")
 
     reward = _require_dict(raw.get("reward"), "manifest.reward")
     if (

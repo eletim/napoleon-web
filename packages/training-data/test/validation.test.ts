@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RuleBasedAgent, runAutomatedGame } from "@napoleon/ai";
 import {
-  BIDDING_ENCODER_SCHEMA_VERSION,
   CARD_IDS,
   PLAYING_ENCODER_SCHEMA_VERSION,
   createPlayingTrainingSamples
@@ -155,7 +154,7 @@ describe("validation", () => {
     })],
     ["v2 manifest with a mismatched encoderSchemaVersion", () => ({
       ...validV2Manifest(),
-      encoderSchemaVersion: 1
+      encoderSchemaVersion: 2
     })]
   ])("rejects mixed manifest schema identity: %s", (_label, createManifest) => {
     expect(() =>
@@ -225,7 +224,7 @@ function validV2Manifest(): RuleBasedDatasetManifest {
     ...validManifest(),
     datasetSchemaVersion: MULTIPHASE_DATASET_SCHEMA_VERSION,
     generatorVersion: MULTIPHASE_DATASET_GENERATOR_VERSION,
-    encoderSchemaVersion: BIDDING_ENCODER_SCHEMA_VERSION,
+    encoderSchemaVersion: 1,
     sampleType: BIDDING_DATASET_SAMPLE_TYPE
   };
 

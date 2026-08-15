@@ -22,7 +22,6 @@ export {
   biddingSuitOrder,
   biddingSuitPriority,
   compareBids,
-  forcedAllPassTargetPointCards,
   getLegalBidActions,
   isBidHigher,
   isSuit,

@@ -1,9 +1,4 @@
-import {
-  createDeck,
-  isStandardCard,
-  maxBidTargetPointCards,
-  minBidTargetPointCards
-} from "@napoleon/game-core";
+import { createDeck, isStandardCard } from "@napoleon/game-core";
 import type { Card, GameAction, PlayerId, PlayerView, Suit } from "@napoleon/game-core";
 import {
   countStandardCardsOfSuit,
@@ -17,7 +12,8 @@ import { selectRandom } from "./random.js";
 import type { Agent, PlayerObservation } from "./types.js";
 
 const suitEvaluationOrder: readonly Suit[] = ["spades", "hearts", "diamonds", "clubs"];
-const minAiBidTargetPointCards = minBidTargetPointCards;
+const maxAiBidTargetPointCards = 20;
+const minAiBidTargetPointCards = 13;
 const epsilon = 1e-9;
 
 export class RuleBasedAgent implements Agent {
@@ -83,19 +79,19 @@ export class PassiveBiddingAgent implements Agent {
 export function getBidLimitForScore(score: number): number | null {
   return score < 200
     ? null
-    : Math.min(maxBidTargetPointCards, minAiBidTargetPointCards + Math.floor((score - 200) / 30));
+    : Math.min(maxAiBidTargetPointCards, minAiBidTargetPointCards + Math.floor((score - 200) / 30));
 }
 
 export function getConservativeBidLimitForScore(score: number): number | null {
   return score < 280
     ? null
-    : Math.min(maxBidTargetPointCards, minAiBidTargetPointCards + Math.floor((score - 280) / 55));
+    : Math.min(19, minAiBidTargetPointCards + Math.floor((score - 280) / 55));
 }
 
 export function getPassiveBidLimitForScore(score: number): number | null {
   return score < 330
     ? null
-    : Math.min(maxBidTargetPointCards, minAiBidTargetPointCards + Math.floor((score - 330) / 75));
+    : Math.min(19, minAiBidTargetPointCards + Math.floor((score - 330) / 75));
 }
 
 export function evaluateHandForTrump(hand: readonly Card[], trumpSuit: Suit): number {
@@ -146,9 +142,7 @@ function selectConservativeBiddingAction(observation: PlayerObservation): GameAc
 
   const currentTarget = observation.view.bidding?.highestBid?.targetPointCards ?? null;
   const neededTarget = currentTarget === null ? minAiBidTargetPointCards : currentTarget + 1;
-  const raisePremium = currentTarget === null
-    ? 0
-    : 35 + Math.max(0, currentTarget - minAiBidTargetPointCards) * 20;
+  const raisePremium = currentTarget === null ? 0 : 35 + Math.max(0, currentTarget - 13) * 20;
   const effectiveBidLimit = getConservativeBidLimitForScore(handScore - raisePremium);
 
   if (effectiveBidLimit === null || neededTarget > Math.min(bidLimit, effectiveBidLimit)) {
@@ -178,9 +172,7 @@ function selectPassiveBiddingAction(observation: PlayerObservation): GameAction 
 
   const currentTarget = observation.view.bidding?.highestBid?.targetPointCards ?? null;
   const neededTarget = currentTarget === null ? minAiBidTargetPointCards : currentTarget + 1;
-  const raisePremium = currentTarget === null
-    ? 0
-    : 60 + Math.max(0, currentTarget - minAiBidTargetPointCards) * 35;
+  const raisePremium = currentTarget === null ? 0 : 60 + Math.max(0, currentTarget - 13) * 35;
   const effectiveBidLimit = getPassiveBidLimitForScore(handScore - raisePremium);
 
   if (effectiveBidLimit === null || neededTarget > Math.min(bidLimit, effectiveBidLimit)) {

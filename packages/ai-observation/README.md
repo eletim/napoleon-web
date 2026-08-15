@@ -24,13 +24,13 @@ included.
 - Adjutant legal mask: 53-card mask generated from `choose-adjutant` legal actions
 - Exchange discard target space: 53-card exactly 3-hot mask
 - Exchange legal discard mask: 53-card mask equal to Napoleon's 13-card self hand
-- Bidding schema version: `2`
-- Bidding action space: 41 fixed indices
+- Bidding schema version: `1`
+- Bidding action space: 29 fixed indices
   - index `0`: pass
-  - index `1..40`: 10 to 19 cards x 4 suits
-  - bid index: `1 + (targetPointCards - 10) * 4 + suitIndex`
+  - index `1..28`: 13 to 19 cards x 4 suits
+  - bid index: `1 + (targetPointCards - 13) * 4 + suitIndex`
 - Relative players: 5 seats rotated so the acting player is index `0`
-- Bidding history: fixed-length public action sequence with max length `165`
+- Bidding history: fixed-length public action sequence with max length `117`
 - Belief owner classes: `0..4` for relative players currently holding a card,
   `5` for not currently in any player's hand
 
@@ -65,7 +65,7 @@ Adjutant training sample generation also uses this same public history schema.
 
 The suit index order matches `trumpSuitOneHot` for model I/O. It is separate
 from the internal bidding suit priority. An all-pass contract is represented as
-the real five pass actions. The automatic 9-card spades contract is visible via
+the real five pass actions. The automatic 12-card spades contract is visible via
 `contractTargetPointCards` and `trumpSuitOneHot`; it is not added as a synthetic
 bid.
 
@@ -76,19 +76,19 @@ the absolute table player order, and public bidding history. It contains:
 
 - `relativePlayerIds`: `[5]`, with the acting player at index `0`
 - `selfHandMask`: `[53]`
-- `legalBidMask`: `[41]`
+- `legalBidMask`: `[29]`
 - `starterPlayerIndex`: `0..4`
 - `highestBidPresent`: `0/1`
 - `highestBidPlayerIndex`: `-1` or `0..4`
 - `highestBidSuitIndex`: `-1` or `0..3`
-- `highestBidTargetPointCards`: `0` or `10..19`
+- `highestBidTargetPointCards`: `0` or `13..19`
 - `consecutivePassCount`: `0..5`
-- `biddingHistory`: existing fixed `[165]` public history fields
+- `biddingHistory`: existing fixed `[117]` public history fields
 
 `legalBidMask` is generated only from `decision.observation.legalActions`; it
 does not recalculate bidding rules. `actorTarget` is the RuleBasedAgent-selected
-action encoded into `0..40`, and the validator requires
-`legalBidMask[actorTarget] === 1`. The all-pass automatic spades-9 contract is
+action encoded into `0..28`, and the validator requires
+`legalBidMask[actorTarget] === 1`. The all-pass automatic spades-12 contract is
 not part of the action space, so the fifth all-pass teacher action remains
 `pass = 0`.
 
@@ -100,11 +100,11 @@ not part of the action space, so the fifth all-pass teacher action remains
 
 - `relativePlayerIds`: `[5]`, with Napoleon at index `0`
 - `trumpSuitOneHot`: `[4]`
-- `contractTargetPointCards`: `9..19`
+- `contractTargetPointCards`: `12..19`
 - `selfHandMask`: `[53]`, exactly 10 cards
 - `legalAdjutantMask`: `[53]`
 - `specialCardIndices`: public special card indices for the resolved trump
-- `biddingHistory`: existing fixed `[165]` public history fields
+- `biddingHistory`: existing fixed `[117]` public history fields
 
 `legalAdjutantMask` is generated only from `decision.observation.legalActions`
 entries whose type is `choose-adjutant`. It does not apply RuleBasedAgent's
@@ -124,14 +124,14 @@ not included.
 `EncodedBiddingHistory`. It contains:
 
 - `relativePlayerIds`: `[5]`, with Napoleon at index `0`
-- `contractTargetPointCards`: `9..19`
+- `contractTargetPointCards`: `12..19`
 - `trumpSuitOneHot`: `[4]`
 - `calledAdjutantCardMask`: `[53]`
 - `selfHandMask`: `[53]`, exactly 13 cards
 - `legalDiscardCardMask`: `[53]`, exactly equal to `selfHandMask`
 - `handCountByPlayer`: `[5]`
 - `specialCardIndices`: public special card indices for the resolved trump
-- `biddingHistory`: existing fixed `[165]` public history fields
+- `biddingHistory`: existing fixed `[117]` public history fields
 
 `actorTarget.discardTargetMask` is a separate `[53]` exactly 3-hot mask. The
 three selected cards must be a subset of `legalDiscardCardMask`, and
@@ -163,11 +163,11 @@ adjutant ownership, buried-card provenance, or the teacher discard mask.
 | `completedTrickSlotMask` | `[50]` |
 | `completedTrickWinnerIndices` | `[10]` |
 | `completedTrickMask` | `[10]` |
-| `biddingHistory.actionTypeIndices` | `[165]` |
-| `biddingHistory.playerIndices` | `[165]` |
-| `biddingHistory.suitIndices` | `[165]` |
-| `biddingHistory.targetPointCards` | `[165]` |
-| `biddingHistory.actionMask` | `[165]` |
+| `biddingHistory.actionTypeIndices` | `[117]` |
+| `biddingHistory.playerIndices` | `[117]` |
+| `biddingHistory.suitIndices` | `[117]` |
+| `biddingHistory.targetPointCards` | `[117]` |
+| `biddingHistory.actionMask` | `[117]` |
 | `latestBuriedEventPointCardMask` | `[53]` |
 | `ownerClassByCard` | `[53]` |
 | `hiddenOwnershipLossMask` | `[53]` |
@@ -177,8 +177,8 @@ Missing card and player slots use `-1` with a companion slot mask of `0`.
 ## Model Input
 
 `encodePlayingModelInput()` converts an encoded playing observation into the
-policy `model_input` vector. The output is a `Float32Array` with 7653 features:
-the 732-feature flat observation first, then the card/player/bidding index
+policy `model_input` vector. The output is a `Float32Array` with 6246 features:
+the 684-feature flat observation first, then the card/player/bidding index
 fields one-hot encoded in the same order as the Python
 `napoleon_ml.dataset.tensors.MODEL_INPUT_LAYOUT` schema, followed by the
 4-feature `selfRoleOneHot` vector. Empty index slots encode as all-zero rows.
@@ -187,9 +187,9 @@ The non-playing phases expose the same API shape:
 
 | Phase | Encoder | Wrapper | Features | Legal mask returned by wrapper |
 | --- | --- | --- | ---: | --- |
-| bidding | `encodeBiddingModelInput()` | `createBiddingModelInput()` | 3755 | `legalBidMask` |
-| exchange | `encodeExchangeModelInput()` | `createExchangeModelInput()` | 4081 | `legalDiscardCardMask` |
-| adjutant | `encodeAdjutantModelInput()` | `createAdjutantModelInput()` | 3963 | `legalAdjutantMask` |
+| bidding | `encodeBiddingModelInput()` | `createBiddingModelInput()` | 2333 | `legalBidMask` |
+| exchange | `encodeExchangeModelInput()` | `createExchangeModelInput()` | 2611 | `legalDiscardCardMask` |
+| adjutant | `encodeAdjutantModelInput()` | `createAdjutantModelInput()` | 2553 | `legalAdjutantMask` |
 
 Each phase exports its named layout (`BIDDING_MODEL_INPUT_LAYOUT`,
 `EXCHANGE_MODEL_INPUT_LAYOUT`, `ADJUTANT_MODEL_INPUT_LAYOUT`), feature count,

@@ -110,7 +110,7 @@ def _write_dataset(
     manifest = {
         "datasetSchemaVersion": 1,
         "generatorVersion": 1,
-        "playingEncoderSchemaVersion": 3,
+        "playingEncoderSchemaVersion": 2,
         "format": "jsonl",
         "sampleType": "playing-training-sample",
         "agent": {"type": "rule-based", "version": 1},
@@ -830,23 +830,20 @@ def test_migrate_policy_checkpoint_v1_to_v2_preserves_logits_and_zeroes_new_role
     provenance = cast(dict[str, object], checkpoint["migration_provenance"])
     assert provenance["sourceCheckpointSha256"] == source_sha256
     assert provenance["sourceModelInputSchemaVersion"] == 1
-    assert provenance["targetModelInputSchemaVersion"] == 3
+    assert provenance["targetModelInputSchemaVersion"] == 2
 
     old_model.eval()
     migrated_model.eval()
     old_input = torch.randn((3, 6242), generator=torch.Generator().manual_seed(456))
-    migrated_input = torch.cat(
-        [
-            old_input,
-            torch.zeros((3, MODEL_INPUT_FEATURE_COUNT - 6242), dtype=torch.float32),
-        ],
-        dim=1,
+    role_features = torch.tensor(
+        [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]],
+        dtype=torch.float32,
     )
     with torch.no_grad():
         old_logits = old_model(old_input)
-        migrated_logits = migrated_model(migrated_input)
+        migrated_logits = migrated_model(torch.cat([old_input, role_features], dim=1))
 
-    torch.testing.assert_close(migrated_logits, old_logits, rtol=0, atol=1e-6)
+    torch.testing.assert_close(migrated_logits, old_logits, rtol=0, atol=1e-7)
 
 
 def test_migrate_policy_checkpoint_to_hidden_dims_preserves_logits_and_reloads(
@@ -1106,8 +1103,8 @@ def test_policy_onnx_metadata_records_runtime_contract(tmp_path: Path) -> None:
 
     validate_policy_onnx_metadata(metadata)
     assert metadata["datasetSchemaVersion"] == 1
-    assert metadata["playingEncoderSchemaVersion"] == 3
-    assert metadata["modelInputSchemaVersion"] == 3
+    assert metadata["playingEncoderSchemaVersion"] == 2
+    assert metadata["modelInputSchemaVersion"] == 2
     assert metadata["cardIdsSha256"] == calculate_card_ids_sha256()
     assert metadata["policyModel"] == {
         "input_dim": MODEL_INPUT_FEATURE_COUNT,
@@ -1148,8 +1145,8 @@ def test_policy_onnx_export_rejects_checkpoint_with_wrong_input_shape_before_out
             "model_config": bad_model.config.to_dict(),
             "training_config": {},
             "dataset_schema_version": 1,
-            "playing_encoder_schema_version": 3,
-            "model_input_schema_version": 3,
+            "playing_encoder_schema_version": 2,
+            "model_input_schema_version": 2,
             "card_ids_sha256": calculate_card_ids_sha256(),
         },
         checkpoint_path,
@@ -1582,8 +1579,8 @@ def _write_current_policy_checkpoint(path: Path, model: PolicyMlpModel) -> None:
                 "hidden_dims": list(model.config.hidden_widths),
             },
             "dataset_schema_version": 1,
-            "playing_encoder_schema_version": 3,
-            "model_input_schema_version": 3,
+            "playing_encoder_schema_version": 2,
+            "model_input_schema_version": 2,
             "card_ids_sha256": calculate_card_ids_sha256(),
         },
         path,

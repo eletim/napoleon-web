@@ -8,15 +8,7 @@ from typing import Any, cast
 import pytest
 import torch
 
-from napoleon_ml.dataset.constants import (
-    CARD_COUNT,
-    EXPECTED_CARD_IDS,
-    MODEL_INPUT_FEATURE_COUNT,
-    PLAYING_ENCODER_SCHEMA_VERSION,
-    PLAYING_SELF_PLAY_LEGACY_DATASET_SCHEMA_VERSION,
-    PLAYING_SELF_PLAY_LEGACY_SAMPLE_SCHEMA_VERSION,
-    PLAYING_MODEL_INPUT_SCHEMA_VERSION,
-)
+from napoleon_ml.dataset.constants import CARD_COUNT, EXPECTED_CARD_IDS
 from napoleon_ml.dataset.errors import SampleValidationError
 from napoleon_ml.dataset.pytorch import create_playing_self_play_dataloader
 from napoleon_ml.dataset.reader import load_manifest
@@ -177,7 +169,7 @@ def test_ppo_clipped_actor_loss_uses_dataset_behavior_log_probability() -> None:
 def test_ppo_advantage_uses_frozen_old_critic_after_current_critic_changes() -> None:
     torch.manual_seed(123)
     model = PolicySeparatedActorCriticModel(PolicyMlpConfig(hidden_dim=8, hidden_layers=1))
-    model_input = torch.randn((2, MODEL_INPUT_FEATURE_COUNT))
+    model_input = torch.randn((2, 6246))
     reward = torch.tensor([1.0, -1.0])
     frozen_old_critic = _clone_frozen_old_critic(model)
 
@@ -197,7 +189,7 @@ def test_ppo_advantage_uses_frozen_old_critic_after_current_critic_changes() -> 
 def test_ppo_separated_actor_and_critic_updates_are_isolated() -> None:
     torch.manual_seed(123)
     model = PolicySeparatedActorCriticModel(PolicyMlpConfig(hidden_dim=8, hidden_layers=1))
-    model_input = torch.randn((2, MODEL_INPUT_FEATURE_COUNT))
+    model_input = torch.randn((2, 6246))
     selected = torch.tensor([0, 1])
     legal_mask = torch.zeros((2, CARD_COUNT), dtype=torch.bool)
     legal_mask[0, [0, 2]] = True
@@ -510,7 +502,7 @@ def test_ppo_separated_actor_critic_saves_diagnostics_and_provenance(
 def test_separated_actor_critic_actor_and_critic_updates_are_isolated() -> None:
     torch.manual_seed(123)
     model = PolicySeparatedActorCriticModel(PolicyMlpConfig(hidden_dim=8, hidden_layers=1))
-    model_input = torch.randn((2, MODEL_INPUT_FEATURE_COUNT))
+    model_input = torch.randn((2, 6246))
     selected = torch.tensor([0, 1])
     legal_mask = torch.zeros((2, CARD_COUNT), dtype=torch.bool)
     legal_mask[0, [0, 2]] = True
@@ -636,8 +628,8 @@ def test_actor_critic_hidden_dims_migration_preserves_policy_and_value(
             "model_config": source_model.config.to_dict(),
             "training_config": {},
             "dataset_schema_version": 1,
-            "playing_encoder_schema_version": PLAYING_ENCODER_SCHEMA_VERSION,
-            "model_input_schema_version": PLAYING_MODEL_INPUT_SCHEMA_VERSION,
+            "playing_encoder_schema_version": 2,
+            "model_input_schema_version": 2,
             "card_ids_sha256": calculate_card_ids_sha256(),
         },
         source_path,
@@ -654,10 +646,7 @@ def test_actor_critic_hidden_dims_migration_preserves_policy_and_value(
     migrated_model = PolicyActorCriticModel(migrated_config)
     migrated_model.load_state_dict(raw["model_state"])
 
-    model_input = torch.randn(
-        (4, MODEL_INPUT_FEATURE_COUNT),
-        generator=torch.Generator().manual_seed(456),
-    )
+    model_input = torch.randn((4, 6246), generator=torch.Generator().manual_seed(456))
     source_model.eval()
     migrated_model.eval()
     with torch.no_grad():
@@ -684,8 +673,8 @@ def test_separated_actor_critic_hidden_dims_migration_preserves_policy_and_value
             "model_config": source_model.config.to_dict(),
             "training_config": {},
             "dataset_schema_version": 1,
-            "playing_encoder_schema_version": PLAYING_ENCODER_SCHEMA_VERSION,
-            "model_input_schema_version": PLAYING_MODEL_INPUT_SCHEMA_VERSION,
+            "playing_encoder_schema_version": 2,
+            "model_input_schema_version": 2,
             "card_ids_sha256": calculate_card_ids_sha256(),
         },
         source_path,
@@ -702,10 +691,7 @@ def test_separated_actor_critic_hidden_dims_migration_preserves_policy_and_value
     migrated_model = PolicySeparatedActorCriticModel(migrated_config)
     migrated_model.load_state_dict(raw["model_state"])
 
-    model_input = torch.randn(
-        (4, MODEL_INPUT_FEATURE_COUNT),
-        generator=torch.Generator().manual_seed(456),
-    )
+    model_input = torch.randn((4, 6246), generator=torch.Generator().manual_seed(456))
     source_model.eval()
     migrated_model.eval()
     with torch.no_grad():
@@ -734,8 +720,8 @@ def test_separated_actor_critic_exports_critic_only_onnx(
             "model_config": model.config.to_dict(),
             "training_config": {},
             "dataset_schema_version": 1,
-            "playing_encoder_schema_version": PLAYING_ENCODER_SCHEMA_VERSION,
-            "model_input_schema_version": PLAYING_MODEL_INPUT_SCHEMA_VERSION,
+            "playing_encoder_schema_version": 2,
+            "model_input_schema_version": 2,
             "card_ids_sha256": calculate_card_ids_sha256(),
         },
         checkpoint_path,
@@ -759,7 +745,7 @@ def test_separated_actor_critic_exports_critic_only_onnx(
     session = onnxruntime.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
     output = session.run(
         [ONNX_CRITIC_OUTPUT_NAME],
-        {"model_input": torch.zeros((1, MODEL_INPUT_FEATURE_COUNT), dtype=torch.float32).numpy()},
+        {"model_input": torch.zeros((1, 6246), dtype=torch.float32).numpy()},
     )[0]
     assert output.shape == (1,)
 
@@ -1003,8 +989,8 @@ def _write_checkpoint(path: Path, model: PolicyMlpModel) -> dict[str, object]:
         "model_config": model.config.to_dict(),
         "training_config": {"source": "unit-test"},
         "dataset_schema_version": 1,
-        "playing_encoder_schema_version": PLAYING_ENCODER_SCHEMA_VERSION,
-        "model_input_schema_version": PLAYING_MODEL_INPUT_SCHEMA_VERSION,
+        "playing_encoder_schema_version": 2,
+        "model_input_schema_version": 2,
         "card_ids_sha256": calculate_card_ids_sha256(),
     }
     torch.save(checkpoint, path)
@@ -1045,7 +1031,7 @@ def _write_self_play_dataset(
         sample.update(
             {
                 "sampleType": "playing-self-play-sample",
-                "schemaVersion": PLAYING_SELF_PLAY_LEGACY_SAMPLE_SCHEMA_VERSION,
+                "schemaVersion": 3,
                 "seed": index,
                 "step": 1,
                 "actingSeatSource": "current-policy",
@@ -1078,12 +1064,12 @@ def _write_self_play_dataset(
         directory,
         samples=samples,
         manifest_extra={
-            "datasetSchemaVersion": PLAYING_SELF_PLAY_LEGACY_DATASET_SCHEMA_VERSION,
+            "datasetSchemaVersion": 3,
             "generatorVersion": 1,
             "sampleType": "playing-self-play-sample",
-            "sampleSchemaVersion": PLAYING_SELF_PLAY_LEGACY_SAMPLE_SCHEMA_VERSION,
-            "playingEncoderSchemaVersion": PLAYING_ENCODER_SCHEMA_VERSION,
-            "playingModelInputSchemaVersion": PLAYING_MODEL_INPUT_SCHEMA_VERSION,
+            "sampleSchemaVersion": 3,
+            "playingEncoderSchemaVersion": 2,
+            "playingModelInputSchemaVersion": 2,
             "behaviorPolicy": {
                 "type": "playing-onnx",
                 "artifactId": "unit-policy",
