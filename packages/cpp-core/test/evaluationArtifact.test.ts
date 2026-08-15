@@ -47,6 +47,7 @@ interface EvaluationArtifact {
     }[];
   };
   games: readonly {
+    resultType: "standard" | "all-pass";
     gameIndex: number;
     seed: number;
     runtimeSeed: number;
@@ -58,9 +59,9 @@ interface EvaluationArtifact {
         agent: { type: string; id: string };
       }[];
     };
-    winner: string;
-    contractSucceeded: boolean;
-    pointCards: { napoleonTeam: number; alliance: number };
+    winner: string | null;
+    contractSucceeded: boolean | null;
+    pointCards: { napoleonTeam: number; alliance: number } | null;
   }[];
 }
 
@@ -92,7 +93,10 @@ assert.equal(
   artifact.summary.candidate.wins + artifact.summary.candidate.losses
 );
 assert.equal(artifact.summary.candidate.contractSuccesses >= 0, true);
-assert.equal(typeof artifact.summary.candidate.averagePointCards, "number");
+assert(
+  artifact.summary.candidate.averagePointCards === null ||
+    typeof artifact.summary.candidate.averagePointCards === "number"
+);
 assert(artifact.summary.agents.some((agent) => agent.key === "current-policy:candidate"));
 assert(artifact.summary.agents.some((agent) => agent.key === "rule-based:RuleBasedAgent"));
 assert(artifact.summary.agents.some((agent) => agent.key === "frozen-policy:rl-v740"));
@@ -104,7 +108,7 @@ assert(artifact.metrics.gamesPerSecond > 0);
 assert(artifact.metrics.decisionsPerSecond > 0);
 assert(artifact.metrics.requestCount > 0);
 assert(artifact.metrics.sessionRunCount > 0);
-assert(artifact.metrics.meanBatchSize !== null && artifact.metrics.meanBatchSize <= 3);
+assert(artifact.metrics.meanBatchSize === null || artifact.metrics.meanBatchSize <= 3);
 assert(artifact.metrics.maxBatchSize <= 3);
 assert(artifact.metrics.policyStats.some((stats) => stats.key === "current-policy:candidate"));
 assert(artifact.metrics.policyStats.some((stats) => stats.key === "frozen-policy:rl-v740"));
@@ -129,6 +133,7 @@ assert.deepEqual(
   artifact.games.map((game) => game.runtimeSeed),
   artifact.games.map((game) => game.seed)
 );
+assert(artifact.games.some((game) => game.resultType === "standard"));
 assert.deepEqual(
   artifact.games.map((game) => game.rotationOffset),
   [0, 1, 2, 3, 4, 0, 1, 2, 3, 4]
@@ -141,7 +146,14 @@ for (const game of artifact.games) {
   const currentSeats = game.roster.seats.filter((seat) => seat.agent.type === "current-policy");
   assert.equal(currentSeats.length, 1);
   assert.equal(currentSeats[0].seatIndex, game.roster.currentSeatIndex);
-  assert.equal(game.pointCards.napoleonTeam + game.pointCards.alliance, 20);
+  if (game.resultType === "standard") {
+    assert(game.pointCards !== null);
+    assert.equal(game.pointCards.napoleonTeam + game.pointCards.alliance, 20);
+  } else {
+    assert.equal(game.pointCards, null);
+    assert.equal(game.winner, null);
+    assert.equal(game.contractSucceeded, null);
+  }
 }
 
 console.log("C++ evaluation artifact ok");

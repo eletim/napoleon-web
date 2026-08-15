@@ -53,6 +53,10 @@ describe("runEvaluation", () => {
       expect(game.seats.every((seat) => seat.agentName.startsWith("RuleBasedAgent-"))).toBe(true);
 
       if (game.status === "completed") {
+        expect(game.resultType).toBe("standard");
+        if (game.resultType !== "standard" || game.contract === null || game.pointCards === null) {
+          throw new Error("Expected a standard completed game.");
+        }
         expect(game.contract.targetPointCards).toBeGreaterThanOrEqual(13);
         expect(game.contract.targetPointCards).toBeLessThanOrEqual(20);
         expect(game.pointCards.napoleonTeam + game.pointCards.alliance).toBe(20);
@@ -207,6 +211,10 @@ describe("runEvaluation", () => {
       createAgent: ({ rng }) => new RuleBasedAgent(rng)
     });
 
+    expect(record.result.resultType).toBe("standard");
+    if (record.result.resultType !== "standard") {
+      throw new Error("Expected a standard game result.");
+    }
     expect(record.result.winner).toMatch(/^(napoleon-team|alliance)$/);
     expect(record.playerIds).toEqual(playerIds);
     expect(record.decisions.length).toBeGreaterThan(0);

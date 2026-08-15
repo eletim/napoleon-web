@@ -26,6 +26,7 @@ import {
   CONSERVATIVE_BIDDING_BASELINE_ID,
   FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION,
   NON_PLAYING_RL_DATASET_GENERATOR_VERSION,
+  NON_PLAYING_RL_ALL_PASS_RULE_ID,
   NON_PLAYING_RL_DATASET_SAMPLE_TYPE,
   NON_PLAYING_RL_PHASE_SCOPE,
   NON_PLAYING_RL_REWARD_ID,
@@ -37,6 +38,9 @@ import {
   calculateNonPlayingBiddingLogProbability,
   calculateNonPlayingExchangeLogProbability,
   calculateNonPlayingTerminalRoleReward,
+  completeNonPlayingAdjutantRlSamples,
+  completeNonPlayingBiddingRlSamples,
+  completeNonPlayingExchangeRlSamples,
   generateNonPlayingAdjutantRlDataset,
   generateNonPlayingBiddingRlDataset,
   generateNonPlayingExchangeRlDataset,
@@ -131,6 +135,11 @@ describe("generateNonPlayingBiddingRlDataset", () => {
         version: NON_PLAYING_RL_REWARD_VERSION,
         id: NON_PLAYING_RL_REWARD_ID
       });
+      expect(manifest.allPassRule).toEqual({
+        id: NON_PLAYING_RL_ALL_PASS_RULE_ID,
+        starterPayoff: 1,
+        otherPayoff: -1
+      });
       expect(manifest.behaviorPolicy).toMatchObject({
         type: "bidding-onnx",
         artifactId: "test-bidding-policy",
@@ -185,6 +194,7 @@ describe("generateNonPlayingBiddingRlDataset", () => {
         rotationOffsets: [0, 1, 2, 3, 4]
       });
       expect(manifest.diagnostics?.bidding?.candidateBiddingDecisionCount).toBe(samples.length);
+      expect(manifest.diagnostics?.bidding?.allPassImmediateEndCount).toBeGreaterThanOrEqual(0);
       expect(
         (manifest.diagnostics?.bidding?.passCount ?? 0) +
           (manifest.diagnostics?.bidding?.bidCount ?? 0)
@@ -222,8 +232,15 @@ describe("generateNonPlayingBiddingRlDataset", () => {
         expect(sample.legalBidMask).toHaveLength(BIDDING_ACTION_COUNT);
         expect(sample.legalBidMask[sample.selectedActionIndex]).toBe(1);
         expect(sample.terminalReward).toBe(calculateNonPlayingTerminalRoleReward(sample.outcome));
-        expect(sample.outcome.targetPointCards).toBeGreaterThanOrEqual(12);
-        expect(sample.outcome.targetPointCards).toBeLessThanOrEqual(19);
+        if (sample.outcome.outcomeType === "all-pass") {
+          expect(sample.outcome.actingPlayerPayoff).toBe(
+            sample.actingPlayerId === sample.outcome.starterPlayerId ? 1 : -1
+          );
+          expect(sample.terminalReward).toBe(sample.outcome.actingPlayerPayoff);
+        } else {
+          expect(sample.outcome.targetPointCards).toBeGreaterThanOrEqual(13);
+          expect(sample.outcome.targetPointCards).toBeLessThanOrEqual(19);
+        }
 
         const logits = await biddingPolicy.predictLogits(sample.modelInput);
         const recomputedLogProbability = calculateNonPlayingBiddingLogProbability({
@@ -364,8 +381,101 @@ describe("generateNonPlayingBiddingRlDataset", () => {
       targetPointCards: 19,
       actingPlayerRole: "napoleon-adjutant"
     }, 57);
-    expectReward({ winner: "napoleon-team", targetPointCards: 12, actingPlayerRole: "napoleon" }, 24);
-    expectReward({ winner: "alliance", targetPointCards: 12, actingPlayerRole: "napoleon" }, -5);
+    expect(
+      calculateNonPlayingTerminalRoleReward({
+        outcomeType: "all-pass",
+        starterPlayerId: "player-0",
+        actingPlayerRole: "all-pass-starter",
+        actingPlayerPayoff: 1
+      })
+    ).toBe(1);
+    expect(
+      calculateNonPlayingTerminalRoleReward({
+        outcomeType: "all-pass",
+        starterPlayerId: "player-0",
+        actingPlayerRole: "all-pass-other",
+        actingPlayerPayoff: -1
+      })
+    ).toBe(-1);
+  });
+
+  it("assigns all-pass bidding rewards and emits no adjutant or exchange samples", () => {
+    const playerIds = ["player-0", "player-1", "player-2", "player-3", "player-4"] as const;
+    const record = {
+      schemaVersion: 1,
+      seed: 99,
+      playerIds,
+      initialHands: {},
+      initialActualState: {},
+      decisions: playerIds.map((playerId, index) => ({
+        step: index + 1,
+        playerId,
+        phase: "bidding",
+        trickNumber: 1,
+        observation: {},
+        legalActions: [],
+        action: { type: "pass", playerId },
+        actualHands: {},
+        actualState: {},
+        handCounts: {}
+      })),
+      result: {
+        resultType: "all-pass",
+        starterPlayerId: "player-0",
+        payoffs: playerIds.map((playerId) => ({
+          playerId,
+          payoff: playerId === "player-0" ? 1 : -1
+        }))
+      }
+    } as const;
+    const legalBidMask = Array.from({ length: BIDDING_ACTION_COUNT }, (_, index) =>
+      index === 0 ? 1 : 0
+    );
+    const draft = (step: number, playerId: string) => ({
+      step,
+      playerId,
+      relativePlayerIds: [playerId, ...playerIds.filter((id) => id !== playerId)],
+      modelInput: new Float32Array(BIDDING_MODEL_INPUT_FEATURE_COUNT),
+      legalBidMask,
+      selectedActionIndex: 0,
+      behaviorLogProbability: 0
+    });
+
+    const starterSamples = completeNonPlayingBiddingRlSamples(
+      record as never,
+      [draft(1, "player-0")],
+      { candidateSeatIndex: 0, rotationOffset: 0 }
+    );
+    const otherSamples = completeNonPlayingBiddingRlSamples(
+      record as never,
+      [draft(2, "player-1")],
+      { candidateSeatIndex: 1, rotationOffset: 1 }
+    );
+
+    expect(starterSamples).toHaveLength(1);
+    expect(starterSamples[0].terminalReward).toBe(1);
+    expect(starterSamples[0].outcome).toMatchObject({
+      outcomeType: "all-pass",
+      starterPlayerId: "player-0",
+      actingPlayerRole: "all-pass-starter",
+      actingPlayerPayoff: 1
+    });
+    expect(otherSamples).toHaveLength(1);
+    expect(otherSamples[0].terminalReward).toBe(-1);
+    expect(otherSamples[0].outcome).toMatchObject({
+      outcomeType: "all-pass",
+      starterPlayerId: "player-0",
+      actingPlayerRole: "all-pass-other",
+      actingPlayerPayoff: -1
+    });
+    expect(completeNonPlayingAdjutantRlSamples(record as never, [], {
+      candidateSeatIndex: 0,
+      rotationOffset: 0
+    })).toEqual([]);
+    expect(completeNonPlayingExchangeRlSamples(record as never, [], {
+      candidateSeatIndex: 0,
+      rotationOffset: 0
+    })).toEqual([]);
   });
 
   it("generates deterministic exchange RL samples with 3 sequential legal card steps", async () => {
@@ -381,9 +491,9 @@ describe("generateNonPlayingBiddingRlDataset", () => {
         exchangePolicyArtifact: exchangeArtifact,
         playingPolicy,
         playingPolicyArtifact: playingArtifact,
-        startSeed: 31,
-        gameCount: 2,
-        gamesPerShard: 1,
+        startSeed: 0,
+        gameCount: 10,
+        gamesPerShard: 5,
         temperature: 0.05
       });
 

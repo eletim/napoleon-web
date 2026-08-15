@@ -17,7 +17,7 @@ import type {
   EvaluationSeatRole
 } from "./types.js";
 
-type CompletedRole = Exclude<EvaluationSeatRole, "unknown">;
+type CompletedRole = Extract<EvaluationSeatRole, "napoleon" | "adjutant" | "alliance">;
 
 const completedRoles: readonly CompletedRole[] = ["napoleon", "adjutant", "alliance"];
 const confidenceLevel = 0.95;
@@ -27,6 +27,7 @@ interface MutableStats {
   games: {
     total: number;
     completed: number;
+    standardCompleted: number;
     failed: number;
   };
   wins: number;
@@ -117,9 +118,17 @@ function countGame(
   }
 
   stats.games.completed += 1;
+  if (game.resultType === "all-pass") {
+    return;
+  }
+
+  stats.games.standardCompleted += 1;
   stats.contractSuccesses += game.contractSucceeded ? 1 : 0;
 
   if (seat === undefined) {
+    if (game.pointCards === null || game.winner === null) {
+      return;
+    }
     const pointCards = game.pointCards.napoleonTeam;
     stats.wins += game.winner === "napoleon-team" ? 1 : 0;
     stats.losses += game.winner === "alliance" ? 1 : 0;
@@ -141,12 +150,20 @@ function countGame(
 }
 
 function didSeatWin(game: CompletedEvaluationGameRecord, role: CompletedRole): boolean {
+  if (game.winner === null) {
+    return false;
+  }
+
   return role === "alliance"
     ? game.winner === "alliance"
     : game.winner === "napoleon-team";
 }
 
 function pointCardsForRole(game: CompletedEvaluationGameRecord, role: CompletedRole): number {
+  if (game.pointCards === null) {
+    return 0;
+  }
+
   return role === "alliance" ? game.pointCards.alliance : game.pointCards.napoleonTeam;
 }
 
@@ -203,17 +220,18 @@ function toRoleSummary(
 }
 
 function toPerformanceSummary(stats: MutableStats): EvaluationPerformanceSummary {
+  const standardCompleted = stats.games.standardCompleted;
   return {
     games: toGameCountSummary(stats.games),
-    sampleCount: stats.games.completed,
+    sampleCount: standardCompleted,
     wins: stats.wins,
     losses: stats.losses,
-    winRate: toRate(stats.wins, stats.games.completed),
+    winRate: toRate(stats.wins, standardCompleted),
     contractSuccesses: stats.contractSuccesses,
-    contractSuccessRate: toRate(stats.contractSuccesses, stats.games.completed),
-    averagePointCards: stats.games.completed === 0
+    contractSuccessRate: toRate(stats.contractSuccesses, standardCompleted),
+    averagePointCards: standardCompleted === 0
       ? null
-      : stats.pointCardTotal / stats.games.completed,
+      : stats.pointCardTotal / standardCompleted,
     failures: toFailureSummary(stats.failuresByReason)
   };
 }
@@ -256,6 +274,7 @@ function createStats(): MutableStats {
     games: {
       total: 0,
       completed: 0,
+      standardCompleted: 0,
       failed: 0
     },
     wins: 0,
@@ -377,14 +396,15 @@ function toMeanDeltaConfidenceInterval(
 }
 
 function pointCardMeanVariance(stats: MutableStats): number | null {
-  if (stats.games.completed < 2) {
+  const standardCompleted = stats.games.standardCompleted;
+  if (standardCompleted < 2) {
     return null;
   }
 
-  const mean = stats.pointCardTotal / stats.games.completed;
-  const numerator = stats.pointCardSquareTotal - stats.games.completed * mean ** 2;
+  const mean = stats.pointCardTotal / standardCompleted;
+  const numerator = stats.pointCardSquareTotal - standardCompleted * mean ** 2;
 
-  return Math.max(0, numerator / (stats.games.completed - 1));
+  return Math.max(0, numerator / (standardCompleted - 1));
 }
 
 function emptyConfidenceInterval(
@@ -455,7 +475,7 @@ function subtractNullable(left: number | null, right: number | null): number | n
 }
 
 function isCompletedRole(role: EvaluationSeatRole): role is CompletedRole {
-  return role !== "unknown";
+  return role === "napoleon" || role === "adjutant" || role === "alliance";
 }
 
 function compareGames(left: EvaluationGameRecord, right: EvaluationGameRecord): number {

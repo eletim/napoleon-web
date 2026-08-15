@@ -38,6 +38,7 @@ NON_PLAYING_RL_SAMPLE_TYPE = "non-playing-exchange-rl-sample"
 NON_PLAYING_RL_REWARD_ID = "non-playing-terminal-role-reward-v3"
 NON_PLAYING_RL_REWARD_TYPE = "non-playing-terminal-role-reward"
 NON_PLAYING_RL_REWARD_VERSION = 3
+NON_PLAYING_RL_ALL_PASS_RULE_ID = "all-pass-immediate-starter-plus1-others-minus1-v1"
 EXCHANGE_PPO_ALGORITHM = "exchange-ppo-sequential-card-v1"
 EXCHANGE_ACTOR_CRITIC_MODEL_ARCHITECTURE = "exchange-separated-actor-critic-v1"
 EXCHANGE_PPO_CHECKPOINT_SCHEMA_VERSION = 1
@@ -205,8 +206,15 @@ def load_non_playing_exchange_rl_manifest(
         or reward.get("id") != NON_PLAYING_RL_REWARD_ID
     ):
         raise ExchangePpoCompatibilityError("manifest reward metadata mismatch.")
+    all_pass_rule = _require_dict(raw.get("allPassRule"), "manifest.allPassRule")
+    if (
+        all_pass_rule.get("id") != NON_PLAYING_RL_ALL_PASS_RULE_ID
+        or all_pass_rule.get("starterPayoff") != 1
+        or all_pass_rule.get("otherPayoff") != -1
+    ):
+        raise ExchangePpoCompatibilityError("manifest allPassRule metadata mismatch.")
 
-    sample_count = _require_positive_int(raw.get("sampleCount"), "manifest.sampleCount")
+    sample_count = _require_non_negative_int(raw.get("sampleCount"), "manifest.sampleCount")
 
     return NonPlayingExchangeRlManifest(
         dataset_schema_version=_require_int(
@@ -248,7 +256,7 @@ def iter_non_playing_exchange_rl_samples(
             lines = shard_path.read_text(encoding="utf-8").splitlines()
         except OSError as error:
             raise ExchangePpoCompatibilityError(f"shard cannot be read: {error}") from error
-        expected_count = _require_positive_int(
+        expected_count = _require_non_negative_int(
             shard_obj.get("sampleCount"), f"manifest.shards[{shard_index}].sampleCount"
         )
         if len(lines) != expected_count:
@@ -736,6 +744,13 @@ def _require_positive_int(value: object, path: str) -> int:
     item = _require_int(value, path)
     if item <= 0:
         raise ExchangePpoCompatibilityError(f"{path} must be positive.")
+    return item
+
+
+def _require_non_negative_int(value: object, path: str) -> int:
+    item = _require_int(value, path)
+    if item < 0:
+        raise ExchangePpoCompatibilityError(f"{path} must be non-negative.")
     return item
 
 

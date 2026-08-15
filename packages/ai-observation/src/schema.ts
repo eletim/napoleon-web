@@ -45,7 +45,7 @@ export const EMPTY_BIDDING_SUIT_INDEX = -1;
 
 export const MIN_BIDDING_TARGET_POINT_CARDS = minBidTargetPointCards;
 export const MAX_BIDDING_TARGET_POINT_CARDS = maxBidTargetPointCards;
-// All-pass bidding resolves to a forced spades-12 contract before adjutant/exchange.
+// Contract observations may still carry legacy/custom 12-point fixtures; bidding remains 13..19.
 export const MIN_CONTRACT_TARGET_POINT_CARDS = 12 as const;
 const BIDDING_BID_ACTION_COUNT =
   (MAX_BIDDING_TARGET_POINT_CARDS - MIN_BIDDING_TARGET_POINT_CARDS + 1) *

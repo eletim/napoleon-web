@@ -17,7 +17,7 @@ export {
   yoromekiCardId
 } from "./cards.js";
 export { GameRuleError } from "./errors.js";
-export { calculateGameResult } from "./scoring.js";
+export { calculateGameResult, createAllPassGameResult } from "./scoring.js";
 export {
   biddingSuitOrder,
   biddingSuitPriority,
@@ -68,8 +68,10 @@ export type {
   GamePhase,
   GameResult,
   GameState,
+  AllPassGameResult,
   PassAction,
   PlayedCard,
+  PlayerPayoff,
   PlayerId,
   PlayerState,
   PlayerView,
@@ -79,6 +81,7 @@ export type {
   Rank,
   SpecialCardsView,
   StandardCard,
+  StandardGameResult,
   Suit,
   WinningTeam
 } from "./types.js";

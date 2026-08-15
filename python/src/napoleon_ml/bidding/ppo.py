@@ -38,6 +38,7 @@ NON_PLAYING_RL_SAMPLE_TYPE = "non-playing-bidding-rl-sample"
 NON_PLAYING_RL_REWARD_ID = "non-playing-terminal-role-reward-v3"
 NON_PLAYING_RL_REWARD_TYPE = "non-playing-terminal-role-reward"
 NON_PLAYING_RL_REWARD_VERSION = 3
+NON_PLAYING_RL_ALL_PASS_RULE_ID = "all-pass-immediate-starter-plus1-others-minus1-v1"
 BIDDING_PPO_ALGORITHM = "bidding-ppo-separated-v1"
 BIDDING_ACTOR_CRITIC_MODEL_ARCHITECTURE = "bidding-separated-actor-critic-v1"
 BIDDING_PPO_CHECKPOINT_SCHEMA_VERSION = 1
@@ -202,6 +203,13 @@ def load_non_playing_bidding_rl_manifest(
         or reward.get("id") != NON_PLAYING_RL_REWARD_ID
     ):
         raise BiddingPpoCompatibilityError("manifest reward metadata mismatch.")
+    all_pass_rule = _require_dict(raw.get("allPassRule"), "manifest.allPassRule")
+    if (
+        all_pass_rule.get("id") != NON_PLAYING_RL_ALL_PASS_RULE_ID
+        or all_pass_rule.get("starterPayoff") != 1
+        or all_pass_rule.get("otherPayoff") != -1
+    ):
+        raise BiddingPpoCompatibilityError("manifest allPassRule metadata mismatch.")
 
     sample_count = _require_positive_int(raw.get("sampleCount"), "manifest.sampleCount")
 

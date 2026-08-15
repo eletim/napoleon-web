@@ -683,9 +683,16 @@ describe("RuleBasedAgent trick play", () => {
 });
 
 function createAllPassAdjutantChoiceState(): GameState {
-  return Array.from({ length: 5 }).reduce<GameState>(
+  const bidState = applyAction(createInitialGame({ rng: () => 0 }), {
+    type: "bid",
+    playerId: "player-0",
+    suit: "spades",
+    targetPointCards: 13
+  });
+
+  return Array.from({ length: 4 }).reduce<GameState>(
     (current) => applyAction(current, { type: "pass", playerId: current.currentPlayerId }),
-    createInitialGame({ rng: () => 0 })
+    bidState
   );
 }
 

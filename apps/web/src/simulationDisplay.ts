@@ -57,6 +57,10 @@ export function formatSimulationTrump(
 export function formatSimulationContractTarget(
   result: PublicGameResult
 ): string {
+  if (result.resultType === "all-pass") {
+    return "全員パス";
+  }
+
   return `${result.targetPointCards}枚`;
 }
 
@@ -64,6 +68,10 @@ export function getSimulationPlayerRole(
   playerId: string,
   result: PublicGameResult
 ): string {
+  if (result.resultType === "all-pass") {
+    return playerId === result.starterPlayerId ? "親" : "全員パス";
+  }
+
   if (playerId === result.napoleonPlayerId) {
     return "ナポレオン";
   }
@@ -80,6 +88,10 @@ export function createSimulationFilename(seed: number): string {
 }
 
 export function formatSimulationWinner(result: PublicGameResult): string {
+  if (result.resultType === "all-pass") {
+    return "全員パス";
+  }
+
   return formatWinningTeam(result.winner);
 }
 

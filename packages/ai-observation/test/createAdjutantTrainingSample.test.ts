@@ -3,7 +3,6 @@ import { RuleBasedAgent, runAutomatedGame } from "@napoleon/ai";
 import type { Agent, AutomatedGameRecord, DecisionRecord, PlayerObservation } from "@napoleon/ai";
 import {
   ADJUTANT_ENCODER_SCHEMA_VERSION,
-  BIDDING_ACTION_TYPE_PASS,
   CARD_COUNT,
   CARD_IDS,
   createAdjutantTrainingSample,
@@ -164,27 +163,14 @@ describe("createAdjutantTrainingSample", () => {
     }
   });
 
-  it("encodes the automatic all-pass contract target 12 with public pass history", async () => {
+  it("does not create adjutant samples for all-pass games", async () => {
     const record = await runAutomatedGame({
       seed: smokeSeed,
       createAgent: ({ rng }) => new PassThenRuleBasedAgent(rng)
     });
-    const sample = createAdjutantTrainingSamples(record)[0];
 
-    expect(sample).toBeDefined();
-    expect(sample.observation.contractTargetPointCards).toBe(12);
-    expect(sample.observation.trumpSuitOneHot).toEqual([1, 0, 0, 0]);
-    expect(sum(sample.observation.selfHandMask)).toBe(10);
-    expect(sample.observation.legalAdjutantMask).toHaveLength(CARD_COUNT);
-    expect(sample.observation.legalAdjutantMask).toEqual(Array(CARD_COUNT).fill(1));
-    expect(sum(sample.observation.biddingHistory.actionMask)).toBe(5);
-    expect(sample.observation.biddingHistory.actionTypeIndices.slice(0, 5)).toEqual(
-      Array(5).fill(BIDDING_ACTION_TYPE_PASS)
-    );
-    expect(sample.observation.biddingHistory.targetPointCards.slice(0, 5)).toEqual(
-      Array(5).fill(0)
-    );
-    validateAdjutantTrainingSample(sample);
+    expect(record.result.resultType).toBe("all-pass");
+    expect(createAdjutantTrainingSamples(record)).toEqual([]);
   });
 
   it("keeps adjutant observations independent from complete-information card locations", async () => {

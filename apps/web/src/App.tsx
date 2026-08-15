@@ -541,20 +541,33 @@ export function App() {
           {session?.state.result !== null && session?.state.result !== undefined ? (
             <section className="result-panel" aria-label="ゲーム結果">
               <h2>ゲーム終了</h2>
-              <div className="result-grid">
-                <span>勝者</span>
-                <strong>{formatWinningTeam(session.state.result.winner)}</strong>
-                <span>契約</span>
-                <strong>{session.state.result.targetPointCards}枚</strong>
-                <span>ナポレオン陣営</span>
-                <strong>{session.state.result.napoleonTeamPointCards}枚</strong>
-                <span>連合軍</span>
-                <strong>{session.state.result.alliancePointCards}枚</strong>
-                <span>ナポレオン</span>
-                <strong>{formatPlayerLabel(session.state.result.napoleonPlayerId, tablePlayers)}</strong>
-                <span>副官</span>
-                <strong>{formatPlayerLabel(session.state.result.adjutantPlayerId, tablePlayers)}</strong>
-              </div>
+              {session.state.result.resultType === "all-pass" ? (
+                <div className="result-grid">
+                  <span>結果</span>
+                  <strong>全員パス</strong>
+                  <span>親</span>
+                  <strong>{formatPlayerLabel(session.state.result.starterPlayerId, tablePlayers)}</strong>
+                  <span>親の報酬</span>
+                  <strong>+1</strong>
+                  <span>他プレイヤー</span>
+                  <strong>-1</strong>
+                </div>
+              ) : (
+                <div className="result-grid">
+                  <span>勝者</span>
+                  <strong>{formatWinningTeam(session.state.result.winner)}</strong>
+                  <span>契約</span>
+                  <strong>{session.state.result.targetPointCards}枚</strong>
+                  <span>ナポレオン陣営</span>
+                  <strong>{session.state.result.napoleonTeamPointCards}枚</strong>
+                  <span>連合軍</span>
+                  <strong>{session.state.result.alliancePointCards}枚</strong>
+                  <span>ナポレオン</span>
+                  <strong>{formatPlayerLabel(session.state.result.napoleonPlayerId, tablePlayers)}</strong>
+                  <span>副官</span>
+                  <strong>{formatPlayerLabel(session.state.result.adjutantPlayerId, tablePlayers)}</strong>
+                </div>
+              )}
             </section>
           ) : null}
             </div>

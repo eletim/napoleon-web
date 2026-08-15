@@ -89,7 +89,13 @@ export interface PublicAdjutantChoiceState {
 
 export type PublicWinningTeam = "napoleon-team" | "alliance";
 
-export interface PublicGameResult {
+export interface PublicPlayerPayoff {
+  playerId: string;
+  payoff: number;
+}
+
+export interface PublicStandardGameResult {
+  resultType: "standard";
   winner: PublicWinningTeam;
   napoleonTeamPointCards: number;
   alliancePointCards: number;
@@ -97,6 +103,14 @@ export interface PublicGameResult {
   napoleonPlayerId: string;
   adjutantPlayerId: string | null;
 }
+
+export interface PublicAllPassGameResult {
+  resultType: "all-pass";
+  starterPlayerId: string;
+  payoffs: readonly PublicPlayerPayoff[];
+}
+
+export type PublicGameResult = PublicStandardGameResult | PublicAllPassGameResult;
 
 export interface PublicBuriedCardsResolvedEvent {
   type: "buried-cards-resolved";

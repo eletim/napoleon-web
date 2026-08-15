@@ -859,22 +859,32 @@ describe("game-core", () => {
     });
   });
 
-  it("creates a special spades-12 contract when everyone passes", () => {
+  it("finishes immediately with starter payoff when everyone passes", () => {
     const state = Array.from({ length: 5 }).reduce<GameState>(
       (current) => applyAction(current, { type: "pass", playerId: current.currentPlayerId }),
       createInitialGame({ rng: noShuffle })
     );
 
-    expect(state.phase).toBe("choosing-adjutant");
-    expect(state.contract).toEqual({
-      napoleonPlayerId: "player-0",
-      trumpSuit: "spades",
-      targetPointCards: 12
-    });
-    expect(state.trumpSuit).toBe("spades");
+    expect(state.phase).toBe("finished");
+    expect(state.isGameOver).toBe(true);
+    expect(state.contract).toBeNull();
+    expect(state.trumpSuit).toBeNull();
+    expect(state.adjutant).toBeNull();
+    expect(state.bidding).toBeNull();
     expect(state.currentPlayerId).toBe("player-0");
     expect(state.players[0].hand).toHaveLength(10);
     expect(state.unusedCards).toHaveLength(3);
+    expect(state.result).toEqual({
+      resultType: "all-pass",
+      starterPlayerId: "player-0",
+      payoffs: [
+        { playerId: "player-0", payoff: 1 },
+        { playerId: "player-1", payoff: -1 },
+        { playerId: "player-2", payoff: -1 },
+        { playerId: "player-3", payoff: -1 },
+        { playerId: "player-4", payoff: -1 }
+      ]
+    });
   });
 
   it("resolves discarded buried cards and starts play", () => {
@@ -2253,6 +2263,7 @@ describe("game-core", () => {
     });
 
     expect(calculateGameResult(state)).toEqual({
+      resultType: "standard",
       winner: "napoleon-team",
       napoleonTeamPointCards: 11,
       alliancePointCards: 9,
@@ -2494,7 +2505,7 @@ describe("game-core", () => {
     expect(view.contract).toEqual({
       napoleonPlayerId: "player-0",
       trumpSuit: "spades",
-      targetPointCards: 12
+      targetPointCards: 13
     });
     expect(view.bidding).toBeNull();
     expect(view.trumpSuit).toBe("spades");
@@ -2694,9 +2705,16 @@ function hasOwn(value: object, key: string): boolean {
 }
 
 function createAllPassAdjutantChoiceState(): GameState {
-  return Array.from({ length: 5 }).reduce<GameState>(
+  const bidState = applyAction(createInitialGame({ rng: noShuffle }), {
+    type: "bid",
+    playerId: "player-0",
+    suit: "spades",
+    targetPointCards: 13
+  });
+
+  return Array.from({ length: 4 }).reduce<GameState>(
     (current) => applyAction(current, { type: "pass", playerId: current.currentPlayerId }),
-    createInitialGame({ rng: noShuffle })
+    bidState
   );
 }
 

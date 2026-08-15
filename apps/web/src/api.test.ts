@@ -131,6 +131,7 @@ describe("api client", () => {
         actionCountByType: {}
       },
       result: {
+        resultType: "standard",
         winner: "alliance",
         napoleonTeamPointCards: 0,
         alliancePointCards: 0,

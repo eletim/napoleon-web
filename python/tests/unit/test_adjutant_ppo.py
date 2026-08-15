@@ -12,11 +12,15 @@ from napoleon_ml.adjutant.model import AdjutantActorCriticModel, AdjutantMlpConf
 from napoleon_ml.adjutant.ppo import (
     ADJUTANT_ACTOR_CRITIC_MODEL_ARCHITECTURE,
     ADJUTANT_PPO_ALGORITHM,
+    NON_PLAYING_RL_ALL_PASS_RULE_ID,
     NON_PLAYING_RL_REWARD_ID,
+    AdjutantPpoCompatibilityError,
     AdjutantPpoTrainSettings,
     adjutant_ppo_loss,
     initialize_actor_from_checkpoint,
+    iter_non_playing_adjutant_rl_samples,
     load_adjutant_ppo_checkpoint,
+    load_non_playing_adjutant_rl_manifest,
     masked_selected_log_probability,
     train_adjutant_ppo,
 )
@@ -216,6 +220,26 @@ def test_initialize_actor_from_actor_critic_checkpoint_leaves_critic_independent
     )
 
 
+def test_adjutant_ppo_loader_skips_zero_sample_shards(tmp_path: Path) -> None:
+    dataset = _write_rl_dataset(tmp_path / "dataset")
+    _append_empty_shard(dataset)
+
+    samples = list(iter_non_playing_adjutant_rl_samples(dataset))
+
+    assert len(samples) == 4
+
+
+def test_adjutant_ppo_loader_rejects_missing_all_pass_rule(tmp_path: Path) -> None:
+    dataset = _write_rl_dataset(tmp_path / "dataset")
+    manifest_path = dataset / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    del manifest["allPassRule"]
+    manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+
+    with pytest.raises(AdjutantPpoCompatibilityError, match="allPassRule"):
+        load_non_playing_adjutant_rl_manifest(dataset)
+
+
 def _write_rl_dataset(directory: Path) -> Path:
     directory.mkdir(parents=True)
     samples = [_sample(seed=7, step=index + 1, selected=index % 2) for index in range(4)]
@@ -256,6 +280,11 @@ def _write_rl_dataset(directory: Path) -> Path:
             "version": 3,
             "id": NON_PLAYING_RL_REWARD_ID,
         },
+        "allPassRule": {
+            "id": NON_PLAYING_RL_ALL_PASS_RULE_ID,
+            "starterPayoff": 1,
+            "otherPayoff": -1,
+        },
         "nonLearningAgents": {
             "choosingAdjutant": {"type": "rule-based", "version": 1},
             "exchanging": {"type": "rule-based", "version": 1},
@@ -274,6 +303,27 @@ def _write_rl_dataset(directory: Path) -> Path:
     }
     (directory / "manifest.json").write_text(json.dumps(manifest) + "\n", encoding="utf-8")
     return directory
+
+
+def _append_empty_shard(directory: Path) -> None:
+    empty = b""
+    empty_file = "shard-00001.jsonl"
+    (directory / empty_file).write_bytes(empty)
+    manifest_path = directory / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["shardCount"] = 2
+    manifest["shards"].append(
+        {
+            "file": empty_file,
+            "startSeed": 8,
+            "endSeed": 8,
+            "gameCount": 1,
+            "sampleCount": 0,
+            "byteLength": 0,
+            "sha256": hashlib.sha256(empty).hexdigest(),
+        }
+    )
+    manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
 
 
 def _sample(*, seed: int, step: int, selected: int) -> dict[str, object]:

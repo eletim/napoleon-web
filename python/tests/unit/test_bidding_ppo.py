@@ -12,6 +12,7 @@ from napoleon_ml.bidding.model import BiddingActorCriticModel, BiddingMlpConfig,
 from napoleon_ml.bidding.ppo import (
     BIDDING_ACTOR_CRITIC_MODEL_ARCHITECTURE,
     BIDDING_PPO_ALGORITHM,
+    NON_PLAYING_RL_ALL_PASS_RULE_ID,
     NON_PLAYING_RL_REWARD_ID,
     BiddingPpoTrainSettings,
     bidding_ppo_loss,
@@ -255,6 +256,11 @@ def _write_rl_dataset(directory: Path) -> Path:
             "type": "non-playing-terminal-role-reward",
             "version": 3,
             "id": NON_PLAYING_RL_REWARD_ID,
+        },
+        "allPassRule": {
+            "id": NON_PLAYING_RL_ALL_PASS_RULE_ID,
+            "starterPayoff": 1,
+            "otherPayoff": -1,
         },
         "nonLearningAgents": {
             "choosingAdjutant": {"type": "rule-based", "version": 1},
