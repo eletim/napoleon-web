@@ -250,6 +250,7 @@ _SPECS: dict[PolicyType, _NonPlayingPolicySpec] = {
         selection_kind="single",
     ),
 }
+NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION = 2
 
 
 def export_nonplaying_checkpoint_to_onnx(
@@ -782,7 +783,7 @@ def _create_bootstrap_model_and_checkpoint(
             },
             "dataset_schema_version": MULTIPHASE_DATASET_SCHEMA_VERSION,
             "sample_type": NON_PLAYING_RL_SAMPLE_TYPE,
-            "sample_schema_version": 1,
+            "sample_schema_version": NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION,
             "phase_scope": "bidding-only",
             "bidding_encoder_schema_version": BIDDING_ENCODER_SCHEMA_VERSION,
             "model_input_schema_version": BIDDING_MODEL_INPUT_SCHEMA_VERSION,
@@ -810,7 +811,7 @@ def _create_bootstrap_model_and_checkpoint(
             },
             "dataset_schema_version": MULTIPHASE_DATASET_SCHEMA_VERSION,
             "sample_type": ADJUTANT_PPO_SAMPLE_TYPE,
-            "sample_schema_version": 1,
+            "sample_schema_version": NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION,
             "phase_scope": "adjutant-only",
             "adjutant_encoder_schema_version": ADJUTANT_ENCODER_SCHEMA_VERSION,
             "adjutant_model_input_schema_version": ADJUTANT_MODEL_INPUT_SCHEMA_VERSION,
@@ -838,7 +839,7 @@ def _create_bootstrap_model_and_checkpoint(
         },
         "dataset_schema_version": MULTIPHASE_DATASET_SCHEMA_VERSION,
         "sample_type": EXCHANGE_PPO_SAMPLE_TYPE,
-        "sample_schema_version": 1,
+        "sample_schema_version": NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION,
         "phase_scope": "exchange-only",
         "decision_mode": EXCHANGE_DECISION_MODE,
         "exchange_encoder_schema_version": EXCHANGE_ENCODER_SCHEMA_VERSION,

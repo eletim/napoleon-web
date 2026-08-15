@@ -61,7 +61,12 @@ describe("generateNonPlayingBiddingRlDataset", () => {
       const biddingPolicy = await loadNonPlayingPolicyOnnxModel(biddingArtifact);
       const firstOutput = join(directory, "first");
       const secondOutput = join(directory, "second");
-      const progressEvents: Array<{ completedGames: number; sampleCount: number; currentSeed: number }> = [];
+      const progressEvents: Array<{
+        completedGames: number;
+        sampleCount: number;
+        completedShards: number;
+        currentSeed: number;
+      }> = [];
       const options = {
         outputDirectory: firstOutput,
         biddingPolicy,
@@ -75,11 +80,13 @@ describe("generateNonPlayingBiddingRlDataset", () => {
         onProgress: (progress: {
           completedGames: number;
           sampleCount: number;
+          completedShards: number;
           currentSeed: number;
         }) => {
           progressEvents.push({
             completedGames: progress.completedGames,
             sampleCount: progress.sampleCount,
+            completedShards: progress.completedShards,
             currentSeed: progress.currentSeed
           });
         }
@@ -99,7 +106,8 @@ describe("generateNonPlayingBiddingRlDataset", () => {
 
       expect(result.manifest).toEqual(manifest);
       validateNonPlayingRlDatasetManifest(manifest);
-      expect(manifest.datasetSchemaVersion).toBe(1);
+      expect(manifest.datasetSchemaVersion).toBe(2);
+      expect(manifest.sampleSchemaVersion).toBe(2);
       expect(manifest.generatorVersion).toBe(NON_PLAYING_RL_DATASET_GENERATOR_VERSION);
       expect(manifest.format).toBe(DATASET_FORMAT);
       expect(manifest.sampleType).toBe(NON_PLAYING_RL_DATASET_SAMPLE_TYPE);
@@ -107,6 +115,11 @@ describe("generateNonPlayingBiddingRlDataset", () => {
       expect(manifest.learnedPhases).toEqual(["bidding"]);
       expect(manifest.ruleBasedPhases).toEqual(["choosing-adjutant", "exchanging"]);
       expect(manifest.fixedPhases).toEqual(["playing"]);
+      expect(manifest.rolloutPolicyTopology).toBe("candidate-x1-frozen-x4-v1");
+      expect(manifest.gameCountUnit).toBe("logical-seeds");
+      expect(manifest.logicalSeedCount).toBe(2);
+      expect(manifest.actualGameCount).toBe(10);
+      expect(manifest.rotationOffsets).toEqual([0, 1, 2, 3, 4]);
       expect(manifest.samplingAlgorithm).toBe(NON_PLAYING_RL_SAMPLING_ALGORITHM);
       expect(manifest.temperature).toBe(0.01);
       expect(manifest.reward).toEqual({
@@ -136,14 +149,38 @@ describe("generateNonPlayingBiddingRlDataset", () => {
       expect(manifest.actionCount).toBe(BIDDING_ACTION_COUNT);
       expect(manifest.sampleCount).toBe(lines.length);
       expect(manifest.sampleCount).toBeGreaterThan(0);
-      expect(progressEvents.map((event) => event.completedGames)).toEqual([1, 2]);
-      expect(progressEvents.map((event) => event.currentSeed)).toEqual([7, 8]);
+      expect(progressEvents.map((event) => event.completedGames)).toEqual([
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10
+      ]);
+      expect(progressEvents.map((event) => event.currentSeed)).toEqual([
+        7, 7, 7, 7, 7, 8, 8, 8, 8, 8
+      ]);
       expect(progressEvents.at(-1)?.sampleCount).toBe(manifest.sampleCount);
+      expect(progressEvents.at(-1)?.completedShards).toBe(manifest.shardCount);
+      expect(manifest.nonLearningAgents.bidding).toMatchObject({
+        type: "conservative-bidding",
+        id: "conservative-bidding-v1"
+      });
+      expect(manifest.diagnostics).toMatchObject({
+        candidateSeatCount: 1,
+        frozenSeatCount: 4,
+        candidateRotationSeatCount: 5,
+        actualGameCount: 10,
+        logicalSeedCount: 2,
+        rotationOffsets: [0, 1, 2, 3, 4]
+      });
+      expect(manifest.diagnostics?.bidding?.candidateBiddingDecisionCount).toBe(samples.length);
+      expect(
+        (manifest.diagnostics?.bidding?.passCount ?? 0) +
+          (manifest.diagnostics?.bidding?.bidCount ?? 0)
+      ).toBe(samples.length);
 
       const playerDecisionCounts = new Map<string, number>();
       for (const sample of samples) {
         validateNonPlayingBiddingRlSample(sample, sample.seed);
         expect(sample.phase).toBe("bidding");
+        expect(sample.actingPlayerIndex).toBe(sample.candidateSeatIndex);
+        expect(sample.candidateSeatIndex).toBe(sample.rotationOffset);
         expect(sample.modelInput).toHaveLength(BIDDING_MODEL_INPUT_FEATURE_COUNT);
         expect(sample.legalBidMask).toHaveLength(BIDDING_ACTION_COUNT);
         expect(sample.legalBidMask[sample.selectedActionIndex]).toBe(1);
@@ -170,8 +207,10 @@ describe("generateNonPlayingBiddingRlDataset", () => {
         playerDecisionCounts.set(key, (playerDecisionCounts.get(key) ?? 0) + 1);
       }
 
-      expect([...playerDecisionCounts.values()].some((count) => count > 1)).toBe(true);
-      expect(samples.some((sample) => sample.selectedActionIndex === 0)).toBe(true);
+      expect(new Set(samples.map((sample) => sample.candidateSeatIndex))).toEqual(
+        new Set([0, 1, 2, 3, 4])
+      );
+      expect([...playerDecisionCounts.values()].every((count) => count === 1)).toBe(true);
       expect(samples.some((sample) => sample.selectedActionIndex > 0)).toBe(true);
 
       for (const shard of manifest.shards) {
@@ -213,6 +252,12 @@ describe("generateNonPlayingBiddingRlDataset", () => {
 
       expect(result.manifest).toEqual(manifest);
       validateNonPlayingAdjutantRlDatasetManifest(manifest);
+      expect(() =>
+        validateNonPlayingAdjutantRlDatasetManifest({
+          ...manifest,
+          rolloutPolicyTopology: "legacy-self-play-x5"
+        } as unknown as NonPlayingRlDatasetManifest)
+      ).toThrow("rollout topology");
       expect(manifest.sampleType).toBe("non-playing-adjutant-rl-sample");
       expect(manifest.phaseScope).toBe("adjutant-only");
       expect(manifest.learnedPhases).toEqual(["choosing-adjutant"]);
@@ -225,7 +270,8 @@ describe("generateNonPlayingBiddingRlDataset", () => {
         artifactId: "test-adjutant-policy"
       });
       expect(manifest.nonLearningAgents.bidding).toMatchObject({
-        type: "rule-based"
+        type: "conservative-bidding",
+        id: "conservative-bidding-v1"
       });
       expect(manifest.sampleCount).toBe(samples.length);
       expect(samples.length).toBeGreaterThan(0);
@@ -299,6 +345,12 @@ describe("generateNonPlayingBiddingRlDataset", () => {
 
       expect(result.manifest).toEqual(manifest);
       validateNonPlayingExchangeRlDatasetManifest(manifest);
+      expect(() =>
+        validateNonPlayingExchangeRlDatasetManifest({
+          ...manifest,
+          actualGameCount: manifest.logicalSeedCount
+        })
+      ).toThrow("rotation metadata");
       expect(manifest.sampleType).toBe("non-playing-exchange-rl-sample");
       expect(manifest.phaseScope).toBe("exchange-only");
       expect(manifest.learnedPhases).toEqual(["exchanging"]);

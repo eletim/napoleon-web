@@ -2,7 +2,9 @@ export type { Agent, PlayerObservation, PublicActionRecord } from "./types.js";
 export { NoLegalActionsError } from "./errors.js";
 export { RandomAgent } from "./randomAgent.js";
 export {
+  ConservativeBiddingAgent,
   evaluateHandForTrump,
+  getConservativeBidLimitForScore,
   getBidLimitForScore,
   RuleBasedAgent,
   selectAdjutantCardId,

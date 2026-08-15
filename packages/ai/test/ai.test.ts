@@ -21,6 +21,7 @@ import {
   calculateExpectedPointCardsInTrick,
   calculateUsedCardValue,
   collectKnownCardIdsForPlayEvaluation,
+  ConservativeBiddingAgent,
   createSpecialCardsForTrump,
   estimateLeadWinProbability,
   evaluateCardForTrump,
@@ -28,8 +29,10 @@ import {
   NoLegalActionsError,
   RandomAgent,
   RuleBasedAgent,
+  runAutomatedGame,
   selectAdjutantCardId,
-  selectDiscardCardIds
+  selectDiscardCardIds,
+  type Agent
 } from "../src/index.js";
 
 describe("RandomAgent", () => {
@@ -314,6 +317,14 @@ describe("RuleBasedAgent bidding", () => {
         ]
       })
     ).resolves.toEqual({ type: "pass", playerId });
+  });
+
+  it("uses a conservative bidding baseline with a higher fixed-seed pass rate", async () => {
+    const ruleBased = await countBiddingActions((rng) => new RuleBasedAgent(rng));
+    const conservative = await countBiddingActions((rng) => new ConservativeBiddingAgent(rng));
+
+    expect(conservative.bidCount).toBeGreaterThan(0);
+    expect(conservative.passRate).toBeGreaterThan(ruleBased.passRate + 0.1);
   });
 });
 
@@ -696,6 +707,37 @@ function withSelfHand(view: PlayerView, playerId: string, hand: readonly Card[])
     players: view.players.map((player) =>
       player.id === playerId ? { ...player, hand, handCount: hand.length } : player
     )
+  };
+}
+
+async function countBiddingActions(
+  createAgent: (rng: () => number) => Agent
+): Promise<{ passCount: number; bidCount: number; passRate: number }> {
+  let passCount = 0;
+  let bidCount = 0;
+
+  for (let seed = 1000; seed < 1100; seed += 1) {
+    const record = await runAutomatedGame({
+      seed,
+      createAgent: ({ rng }) => createAgent(rng)
+    });
+
+    for (const decision of record.decisions) {
+      if (decision.phase !== "bidding") {
+        continue;
+      }
+      if (decision.action.type === "pass") {
+        passCount += 1;
+      } else if (decision.action.type === "bid") {
+        bidCount += 1;
+      }
+    }
+  }
+
+  return {
+    passCount,
+    bidCount,
+    passRate: passCount / (passCount + bidCount)
   };
 }
 

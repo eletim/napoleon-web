@@ -204,7 +204,7 @@ async function runNonPlayingRollout(
     gameCount: args.games,
     gamesPerShard: args.gamesPerShard,
     temperature: args.temperature,
-    onProgress: createProgressReporter(args.games, (text) => {
+    onProgress: createProgressReporter(args.games * 5, (text) => {
       io.stderr.write(`${args.progressPrefix}${text}`);
     })
   };
@@ -231,6 +231,10 @@ async function runNonPlayingRollout(
     phase: args.phase,
     outputDirectory: result.outputDirectory,
     gameCount: result.manifest.gameCount,
+    gameCountUnit: result.manifest.gameCountUnit,
+    logicalSeedCount: result.manifest.logicalSeedCount,
+    actualGameCount: result.manifest.actualGameCount,
+    rotationOffsets: result.manifest.rotationOffsets,
     sampleCount: result.manifest.sampleCount,
     shardCount: result.manifest.shardCount,
     startSeed: result.manifest.startSeed,
@@ -241,7 +245,9 @@ async function runNonPlayingRollout(
     resolvedInferenceDevice: result.manifest.behaviorPolicy.resolvedInferenceDevice,
     executionProvider: result.manifest.behaviorPolicy.executionProvider,
     behaviorOnnxSha256: result.manifest.behaviorPolicy.onnxSha256,
-    behaviorMetadataSha256: result.manifest.behaviorPolicy.metadataSha256
+    behaviorMetadataSha256: result.manifest.behaviorPolicy.metadataSha256,
+    nonLearningAgents: result.manifest.nonLearningAgents,
+    diagnostics: result.manifest.diagnostics
   })}\n`);
 }
 

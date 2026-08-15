@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
+
 from napoleon_ml.cli.run_nonplaying_rl import (
     _iterative_config_from_args,
     _provided_iterative_config_keys,
@@ -14,7 +16,9 @@ from napoleon_ml.nonplaying_rl_orchestrator import (
     DEFAULT_ITERATIVE_BATCH_SIZE,
     DEFAULT_ITERATIVE_EVALUATION_GAMES,
     NonPlayingIterativeRlRunConfig,
+    NonPlayingRlOrchestratorError,
     NonPlayingRlRunConfig,
+    _validate_iterative_resume_config,
     run_iterative_nonplaying_rl_pipeline,
     run_nonplaying_rl_pipeline,
 )
@@ -182,6 +186,11 @@ def test_iterative_nonplaying_rl_resumes_and_chains_checkpoints(
         manifest = {
             "startSeed": start_seed,
             "gameCount": 1,
+            "gameCountUnit": "logical-seeds",
+            "logicalSeedCount": 1,
+            "actualGameCount": 5,
+            "rolloutPolicyTopology": "candidate-x1-frozen-x4-v1",
+            "rotationOffsets": [0, 1, 2, 3, 4],
             "sampleCount": 1,
             "behaviorPolicy": {
                 "artifactId": kwargs["artifact_id"],
@@ -197,8 +206,19 @@ def test_iterative_nonplaying_rl_resumes_and_chains_checkpoints(
         return {
             "phase": phase,
             "gameCount": 1,
+            "gameCountUnit": "logical-seeds",
+            "logicalSeedCount": 1,
+            "actualGameCount": 5,
             "sampleCount": 1,
             "shardCount": 1,
+            "diagnostics": {
+                "candidateSeatCount": 1,
+                "frozenSeatCount": 4,
+                "candidateRotationSeatCount": 5,
+                "actualGameCount": 5,
+                "logicalSeedCount": 1,
+                "rotationOffsets": [0, 1, 2, 3, 4],
+            },
         }
 
     def fake_train(
@@ -352,6 +372,85 @@ def test_iterative_nonplaying_rl_resumes_and_chains_checkpoints(
         ("exchange", None),
     ]
     assert all(parent is not None for _phase, parent in parent_checkpoints[3:])
+
+
+def test_iterative_resume_rejects_legacy_self_play_schema(tmp_path: Path) -> None:
+    playing_onnx = tmp_path / "playing.onnx"
+    playing_metadata = tmp_path / "playing.json"
+    playing_onnx.write_bytes(b"playing-onnx")
+    playing_metadata.write_text("{}\n", encoding="utf-8")
+    requested_config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        iterations=3,
+        games_per_iteration=1,
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    ).file_dict()
+    legacy_config = dict(requested_config)
+    legacy_config["schemaVersion"] = 1
+    legacy_config.pop("rolloutPolicyTopology")
+    legacy_config.pop("gamesPerIterationUnit")
+    legacy_config.pop("actualGamesPerIteration")
+    legacy_config.pop("rotationOffsets")
+
+    with pytest.raises(NonPlayingRlOrchestratorError, match="schemaVersion mismatch"):
+        _validate_iterative_resume_config(
+            legacy_config,
+            requested_config,
+            provided_config_keys=set(),
+        )
+
+
+def test_iterative_resume_allows_omitted_games_per_iteration(tmp_path: Path) -> None:
+    playing_onnx = tmp_path / "playing.onnx"
+    playing_metadata = tmp_path / "playing.json"
+    playing_onnx.write_bytes(b"playing-onnx")
+    playing_metadata.write_text("{}\n", encoding="utf-8")
+    stored_config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        games_per_iteration=200,
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    ).file_dict()
+    requested_config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    ).file_dict()
+
+    _validate_iterative_resume_config(
+        stored_config,
+        requested_config,
+        provided_config_keys=set(),
+    )
+
+
+def test_iterative_resume_rejects_explicit_games_per_iteration_mismatch(
+    tmp_path: Path,
+) -> None:
+    playing_onnx = tmp_path / "playing.onnx"
+    playing_metadata = tmp_path / "playing.json"
+    playing_onnx.write_bytes(b"playing-onnx")
+    playing_metadata.write_text("{}\n", encoding="utf-8")
+    stored_config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        games_per_iteration=200,
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    ).file_dict()
+    requested_config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        games_per_iteration=201,
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    ).file_dict()
+
+    with pytest.raises(NonPlayingRlOrchestratorError, match="gamesPerIteration"):
+        _validate_iterative_resume_config(
+            stored_config,
+            requested_config,
+            provided_config_keys={"gamesPerIteration"},
+        )
 
 
 def test_iterative_cli_honors_explicit_one_shot_default_values() -> None:
