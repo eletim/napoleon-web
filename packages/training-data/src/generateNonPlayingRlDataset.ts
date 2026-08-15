@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
-import { ConservativeBiddingAgent, RuleBasedAgent, runAutomatedGame } from "@napoleon/ai";
+import {
+  ConservativeBiddingAgent,
+  PassiveBiddingAgent,
+  RuleBasedAgent,
+  runAutomatedGame
+} from "@napoleon/ai";
 import type {
   ActualCardState,
   Agent,
@@ -56,11 +61,14 @@ export const NON_PLAYING_EXCHANGE_RL_DATASET_SAMPLE_TYPE = "non-playing-exchange
 export const NON_PLAYING_RL_DATASET_SAMPLE_TYPE = NON_PLAYING_BIDDING_RL_DATASET_SAMPLE_TYPE;
 export const NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION = 2 as const;
 export const NON_PLAYING_RL_DATASET_SCHEMA_VERSION = 2 as const;
-export const NON_PLAYING_RL_DATASET_GENERATOR_VERSION = 2 as const;
+export const NON_PLAYING_RL_DATASET_GENERATOR_VERSION = 3 as const;
 export const NON_PLAYING_RL_ROLLOUT_POLICY_TOPOLOGY = "candidate-x1-frozen-x4-v1" as const;
 export const NON_PLAYING_RL_GAME_COUNT_UNIT = "logical-seeds" as const;
 export const NON_PLAYING_RL_ROTATION_OFFSETS = [0, 1, 2, 3, 4] as const;
 export const CONSERVATIVE_BIDDING_BASELINE_ID = "conservative-bidding-v1" as const;
+export const PASSIVE_BIDDING_BASELINE_ID = "passive-bidding-v1" as const;
+export const FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION =
+  "per-seat-seeded-conservative-passive-50-50-v1" as const;
 export const NON_PLAYING_RL_REWARD_TYPE = "non-playing-terminal-role-reward" as const;
 export const NON_PLAYING_RL_REWARD_VERSION = 1 as const;
 export const NON_PLAYING_RL_REWARD_ID = "non-playing-terminal-role-reward-v1" as const;
@@ -77,6 +85,40 @@ export type NonPlayingBiddingRlRole =
   | "adjutant"
   | "citizen"
   | "napoleon-adjutant";
+
+export type FrozenBiddingOpponentPolicyType = "conservative-bidding" | "passive-bidding";
+
+export interface FrozenBiddingOpponentPolicyMetadata {
+  type: FrozenBiddingOpponentPolicyType;
+  id: typeof CONSERVATIVE_BIDDING_BASELINE_ID | typeof PASSIVE_BIDDING_BASELINE_ID;
+}
+
+export interface FrozenBiddingOpponentSeatAssignment {
+  seed: number;
+  rotationOffset: number;
+  candidateSeatIndex: number;
+  playerIndex: number;
+  playerId: PlayerId;
+  policy: FrozenBiddingOpponentPolicyMetadata;
+}
+
+export interface FrozenBiddingOpponentMixMetadata {
+  type: "mixed-frozen-bidding";
+  mixingRuleVersion: typeof FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION;
+  selectionUnit: "game-seat";
+  conservativeWeight: 0.5;
+  passiveWeight: 0.5;
+  policies: {
+    conservative: {
+      type: "conservative-bidding";
+      id: typeof CONSERVATIVE_BIDDING_BASELINE_ID;
+    };
+    passive: {
+      type: "passive-bidding";
+      id: typeof PASSIVE_BIDDING_BASELINE_ID;
+    };
+  };
+}
 
 export interface NonPlayingBiddingRlPolicy {
   metadata: unknown;
@@ -238,10 +280,12 @@ export interface NonPlayingRlDatasetManifest {
   };
   nonLearningAgents: {
     bidding?: {
-      type: "rule-based" | "conservative-bidding";
+      type: "rule-based";
       version?: typeof RULE_BASED_AGENT_VERSION;
+    } | {
+      type: "conservative-bidding";
       id?: typeof CONSERVATIVE_BIDDING_BASELINE_ID;
-    };
+    } | FrozenBiddingOpponentMixMetadata;
     choosingAdjutant?: {
       type: "rule-based";
       version: typeof RULE_BASED_AGENT_VERSION;
@@ -262,7 +306,14 @@ export interface NonPlayingRlDatasetDiagnostics {
   actualGameCount: number;
   logicalSeedCount: number;
   rotationOffsets: readonly number[];
+  frozenBiddingOpponentMix?: FrozenBiddingOpponentMixDiagnostics;
   bidding?: NonPlayingBiddingDiagnostics;
+}
+
+export interface FrozenBiddingOpponentMixDiagnostics extends FrozenBiddingOpponentMixMetadata {
+  conservativeSeatCount: number;
+  passiveSeatCount: number;
+  seatAssignments: readonly FrozenBiddingOpponentSeatAssignment[];
 }
 
 export interface NonPlayingBiddingDiagnostics {
@@ -366,6 +417,7 @@ export interface BiddingRlGameRunResult {
   drafts: readonly BiddingRlSampleDraft[];
   candidateSeatIndex: number;
   rotationOffset: number;
+  frozenBiddingOpponentAssignments: readonly FrozenBiddingOpponentSeatAssignment[];
 }
 
 export interface AdjutantRlSampleDraft {
@@ -421,6 +473,11 @@ interface NonPlayingRlDiagnosticsAccumulator {
     rewardSum: number;
     rewardCount: number;
   };
+  frozenBiddingOpponentMix?: {
+    conservativeSeatCount: number;
+    passiveSeatCount: number;
+    seatAssignments: FrozenBiddingOpponentSeatAssignment[];
+  };
 }
 
 function createDiagnosticsAccumulator(
@@ -452,6 +509,11 @@ function createDiagnosticsAccumulator(
       rewardSum: 0,
       rewardCount: 0
     };
+    accumulator.frozenBiddingOpponentMix = {
+      conservativeSeatCount: 0,
+      passiveSeatCount: 0,
+      seatAssignments: []
+    };
   }
 
   return accumulator;
@@ -465,6 +527,20 @@ function recordCandidateGame(
 
   if (accumulator.bidding === undefined) {
     return;
+  }
+
+  if (
+    accumulator.frozenBiddingOpponentMix !== undefined &&
+    "frozenBiddingOpponentAssignments" in result
+  ) {
+    for (const assignment of result.frozenBiddingOpponentAssignments) {
+      accumulator.frozenBiddingOpponentMix.seatAssignments.push(assignment);
+      if (assignment.policy.type === "conservative-bidding") {
+        accumulator.frozenBiddingOpponentMix.conservativeSeatCount += 1;
+      } else {
+        accumulator.frozenBiddingOpponentMix.passiveSeatCount += 1;
+      }
+    }
   }
 
   const candidatePlayerId = result.record.playerIds[result.candidateSeatIndex];
@@ -510,6 +586,7 @@ function finalizeDiagnostics(
   accumulator: NonPlayingRlDiagnosticsAccumulator
 ): NonPlayingRlDatasetDiagnostics {
   const bidding = accumulator.bidding;
+  const opponentMix = accumulator.frozenBiddingOpponentMix;
   return {
     candidateSeatCount: 1,
     frozenSeatCount: 4,
@@ -517,6 +594,16 @@ function finalizeDiagnostics(
     actualGameCount: accumulator.actualGameCount,
     logicalSeedCount: accumulator.logicalSeedCount,
     rotationOffsets: [...accumulator.rotationOffsets],
+    ...(opponentMix === undefined
+      ? {}
+      : {
+          frozenBiddingOpponentMix: {
+            ...createFrozenBiddingOpponentMixMetadata(),
+            conservativeSeatCount: opponentMix.conservativeSeatCount,
+            passiveSeatCount: opponentMix.passiveSeatCount,
+            seatAssignments: opponentMix.seatAssignments
+          }
+        }),
     ...(bidding === undefined
       ? {}
       : {
@@ -605,6 +692,53 @@ function isAllPassForcedD12Game(record: AutomatedGameRecord): boolean {
   const biddingDecisions = record.decisions.filter((decision) => decision.phase === "bidding");
   return biddingDecisions.length === PLAYER_COUNT &&
     biddingDecisions.every((decision) => decision.action.type === "pass");
+}
+
+export function createFrozenBiddingOpponentMixMetadata(): FrozenBiddingOpponentMixMetadata {
+  return {
+    type: "mixed-frozen-bidding",
+    mixingRuleVersion: FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION,
+    selectionUnit: "game-seat",
+    conservativeWeight: 0.5,
+    passiveWeight: 0.5,
+    policies: {
+      conservative: {
+        type: "conservative-bidding",
+        id: CONSERVATIVE_BIDDING_BASELINE_ID
+      },
+      passive: {
+        type: "passive-bidding",
+        id: PASSIVE_BIDDING_BASELINE_ID
+      }
+    }
+  };
+}
+
+export function selectFrozenBiddingOpponentPolicy(input: {
+  seed: number;
+  candidateSeatIndex: number;
+  playerIndex: number;
+}): FrozenBiddingOpponentPolicyMetadata {
+  if (input.playerIndex === input.candidateSeatIndex) {
+    throw new Error("candidate seat cannot be assigned a frozen bidding opponent policy.");
+  }
+
+  const digest = createHash("sha256")
+    .update(
+      `${FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION}:${input.seed}:${input.candidateSeatIndex}:${input.playerIndex}`
+    )
+    .digest();
+  const bucket = digest.readUInt32BE(0) % 2;
+
+  return bucket === 0
+    ? {
+        type: "conservative-bidding",
+        id: CONSERVATIVE_BIDDING_BASELINE_ID
+      }
+    : {
+        type: "passive-bidding",
+        id: PASSIVE_BIDDING_BASELINE_ID
+      };
 }
 
 export async function generateNonPlayingBiddingRlDataset(
@@ -1021,32 +1155,53 @@ export async function runNonPlayingBiddingRlGame(options: {
   const drafts: BiddingRlSampleDraft[] = [];
   const temperature = options.temperature ?? DEFAULT_NON_PLAYING_RL_TEMPERATURE;
   validateTemperature(temperature);
+  const frozenBiddingOpponentAssignments = new Map<number, FrozenBiddingOpponentPolicyMetadata>();
 
   const record = await runAutomatedGame({
     seed: options.seed,
     maxDecisionSteps: options.maxDecisionSteps,
-    createAgent: ({ rng, playerIndex }) =>
-      playerIndex === options.candidateSeatIndex
-        ? new NonPlayingBiddingRlAgent({
-            biddingPolicy: options.biddingPolicy,
-            playingPolicy: options.playingPolicy,
-            rng,
-            temperature,
-            recordSample: (sample) => {
-              drafts.push(sample);
-            }
-          })
-        : new FrozenNonPlayingRlAgent({
-            playingPolicy: options.playingPolicy,
-            rng
-          })
+    createAgent: ({ rng, playerIndex }) => {
+      if (playerIndex === options.candidateSeatIndex) {
+        return new NonPlayingBiddingRlAgent({
+          biddingPolicy: options.biddingPolicy,
+          playingPolicy: options.playingPolicy,
+          rng,
+          temperature,
+          recordSample: (sample) => {
+            drafts.push(sample);
+          }
+        });
+      }
+
+      const policy = selectFrozenBiddingOpponentPolicy({
+        seed: options.seed,
+        candidateSeatIndex: options.candidateSeatIndex,
+        playerIndex
+      });
+      frozenBiddingOpponentAssignments.set(playerIndex, policy);
+      return new FrozenNonPlayingRlAgent({
+        playingPolicy: options.playingPolicy,
+        rng,
+        biddingPolicyType: policy.type
+      });
+    }
   });
 
   return {
     record,
     drafts,
     candidateSeatIndex: options.candidateSeatIndex,
-    rotationOffset: options.candidateSeatIndex
+    rotationOffset: options.candidateSeatIndex,
+    frozenBiddingOpponentAssignments: [...frozenBiddingOpponentAssignments.entries()]
+      .sort(([left], [right]) => left - right)
+      .map(([playerIndex, policy]) => ({
+        seed: options.seed,
+        rotationOffset: options.candidateSeatIndex,
+        candidateSeatIndex: options.candidateSeatIndex,
+        playerIndex,
+        playerId: record.playerIds[playerIndex],
+        policy
+      }))
   };
 }
 
@@ -1776,8 +1931,6 @@ export function validateNonPlayingRlDatasetManifest(
     throw new Error("Non-playing RL manifest reward metadata mismatch.");
   }
   if (
-    manifest.nonLearningAgents.bidding?.type !== "conservative-bidding" ||
-    manifest.nonLearningAgents.bidding?.id !== CONSERVATIVE_BIDDING_BASELINE_ID ||
     manifest.nonLearningAgents.choosingAdjutant?.type !== "rule-based" ||
     manifest.nonLearningAgents.choosingAdjutant?.version !== RULE_BASED_AGENT_VERSION ||
     manifest.nonLearningAgents.exchanging?.type !== "rule-based" ||
@@ -1785,6 +1938,8 @@ export function validateNonPlayingRlDatasetManifest(
   ) {
     throw new Error("Non-playing RL manifest non-learning agent metadata mismatch.");
   }
+  validateFrozenBiddingOpponentMixMetadata(manifest.nonLearningAgents.bidding);
+  validateFrozenBiddingOpponentMixDiagnostics(manifest.diagnostics?.frozenBiddingOpponentMix);
   validateShards(manifest);
 }
 
@@ -1945,6 +2100,68 @@ function validateCommonNonPlayingRlPolicyMetadata(manifest: NonPlayingRlDatasetM
   }
 }
 
+function validateFrozenBiddingOpponentMixMetadata(
+  metadata: NonPlayingRlDatasetManifest["nonLearningAgents"]["bidding"] | undefined
+): void {
+  if (metadata === undefined || metadata.type !== "mixed-frozen-bidding") {
+    throw new Error("Non-playing RL manifest frozen bidding opponent mix metadata mismatch.");
+  }
+  if (
+    metadata.mixingRuleVersion !== FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION ||
+    metadata.selectionUnit !== "game-seat" ||
+    metadata.conservativeWeight !== 0.5 ||
+    metadata.passiveWeight !== 0.5 ||
+    metadata.policies.conservative.type !== "conservative-bidding" ||
+    metadata.policies.conservative.id !== CONSERVATIVE_BIDDING_BASELINE_ID ||
+    metadata.policies.passive.type !== "passive-bidding" ||
+    metadata.policies.passive.id !== PASSIVE_BIDDING_BASELINE_ID
+  ) {
+    throw new Error("Non-playing RL manifest frozen bidding opponent mix metadata mismatch.");
+  }
+}
+
+function validateFrozenBiddingOpponentMixDiagnostics(
+  diagnostics: FrozenBiddingOpponentMixDiagnostics | undefined
+): void {
+  if (diagnostics === undefined) {
+    throw new Error("Non-playing RL manifest frozen bidding opponent mix diagnostics missing.");
+  }
+  validateFrozenBiddingOpponentMixMetadata(diagnostics);
+  if (
+    diagnostics.conservativeSeatCount < 0 ||
+    diagnostics.passiveSeatCount < 0 ||
+    !Number.isInteger(diagnostics.conservativeSeatCount) ||
+    !Number.isInteger(diagnostics.passiveSeatCount)
+  ) {
+    throw new Error("Non-playing RL manifest frozen bidding opponent mix counts mismatch.");
+  }
+  if (
+    diagnostics.conservativeSeatCount + diagnostics.passiveSeatCount !==
+    diagnostics.seatAssignments.length
+  ) {
+    throw new Error("Non-playing RL manifest frozen bidding opponent mix counts mismatch.");
+  }
+  for (const assignment of diagnostics.seatAssignments) {
+    validateUint32("Frozen bidding opponent assignment seed", assignment.seed);
+    validatePlayerIndex("Frozen bidding opponent assignment candidateSeatIndex", assignment.candidateSeatIndex);
+    validatePlayerIndex("Frozen bidding opponent assignment playerIndex", assignment.playerIndex);
+    if (assignment.rotationOffset !== assignment.candidateSeatIndex) {
+      throw new Error("Frozen bidding opponent assignment rotation mismatch.");
+    }
+    if (assignment.playerIndex === assignment.candidateSeatIndex) {
+      throw new Error("Frozen bidding opponent assignment cannot target candidate seat.");
+    }
+    const expected = selectFrozenBiddingOpponentPolicy({
+      seed: assignment.seed,
+      candidateSeatIndex: assignment.candidateSeatIndex,
+      playerIndex: assignment.playerIndex
+    });
+    if (assignment.policy.type !== expected.type || assignment.policy.id !== expected.id) {
+      throw new Error("Frozen bidding opponent assignment policy mismatch.");
+    }
+  }
+}
+
 class NonPlayingBiddingRlAgent implements Agent {
   private readonly ruleBasedAgent: RuleBasedAgent;
 
@@ -2050,15 +2267,18 @@ class NonPlayingBiddingRlAgent implements Agent {
 
 class FrozenNonPlayingRlAgent implements Agent {
   private readonly conservativeBiddingAgent: ConservativeBiddingAgent;
+  private readonly passiveBiddingAgent: PassiveBiddingAgent;
   private readonly ruleBasedAgent: RuleBasedAgent;
 
   constructor(
     private readonly options: {
       playingPolicy: FixedPlayingPolicy;
       rng: () => number;
+      biddingPolicyType?: FrozenBiddingOpponentPolicyType;
     }
   ) {
     this.conservativeBiddingAgent = new ConservativeBiddingAgent(options.rng);
+    this.passiveBiddingAgent = new PassiveBiddingAgent(options.rng);
     this.ruleBasedAgent = new RuleBasedAgent(options.rng);
   }
 
@@ -2072,7 +2292,9 @@ class FrozenNonPlayingRlAgent implements Agent {
   ): Promise<GameAction> {
     switch (observation.view.phase) {
       case "bidding":
-        return this.conservativeBiddingAgent.selectAction(observation);
+        return this.options.biddingPolicyType === "passive-bidding"
+          ? this.passiveBiddingAgent.selectAction(observation)
+          : this.conservativeBiddingAgent.selectAction(observation);
       case "playing":
         return selectFixedPlayingAction({
           observation,
@@ -2565,10 +2787,7 @@ function createNonPlayingRlDatasetManifest(input: {
       id: NON_PLAYING_RL_REWARD_ID
     },
     nonLearningAgents: {
-      bidding: {
-        type: "conservative-bidding",
-        id: CONSERVATIVE_BIDDING_BASELINE_ID
-      },
+      bidding: createFrozenBiddingOpponentMixMetadata(),
       choosingAdjutant: {
         type: "rule-based",
         version: RULE_BASED_AGENT_VERSION

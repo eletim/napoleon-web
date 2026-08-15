@@ -199,6 +199,25 @@ def test_iterative_nonplaying_rl_resumes_and_chains_checkpoints(
             },
             "fixedPlayingPolicy": {"artifactId": "ppo-separated-v1000"},
         }
+        if phase == "bidding":
+            manifest["nonLearningAgents"] = {
+                "bidding": {
+                    "type": "mixed-frozen-bidding",
+                    "mixingRuleVersion": "per-seat-seeded-conservative-passive-50-50-v1",
+                    "policies": {
+                        "conservative": {"id": "conservative-bidding-v1"},
+                        "passive": {"id": "passive-bidding-v1"},
+                    },
+                }
+            }
+            manifest["diagnostics"] = {
+                "frozenBiddingOpponentMix": {
+                    "mixingRuleVersion": "per-seat-seeded-conservative-passive-50-50-v1",
+                    "conservativeSeatCount": 10,
+                    "passiveSeatCount": 10,
+                    "seatAssignments": [{} for _ in range(20)],
+                }
+            }
         (dataset_dir / "manifest.json").write_text(
             json.dumps(manifest) + "\n",
             encoding="utf-8",
@@ -392,6 +411,31 @@ def test_iterative_resume_rejects_legacy_self_play_schema(tmp_path: Path) -> Non
     legacy_config.pop("gamesPerIterationUnit")
     legacy_config.pop("actualGamesPerIteration")
     legacy_config.pop("rotationOffsets")
+
+    with pytest.raises(NonPlayingRlOrchestratorError, match="schemaVersion mismatch"):
+        _validate_iterative_resume_config(
+            legacy_config,
+            requested_config,
+            provided_config_keys=set(),
+        )
+
+
+def test_iterative_resume_rejects_pre_mix_schema(tmp_path: Path) -> None:
+    playing_onnx = tmp_path / "playing.onnx"
+    playing_metadata = tmp_path / "playing.json"
+    playing_onnx.write_bytes(b"playing-onnx")
+    playing_metadata.write_text("{}\n", encoding="utf-8")
+    requested_config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        iterations=3,
+        games_per_iteration=1,
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    ).file_dict()
+    legacy_config = dict(requested_config)
+    legacy_config["schemaVersion"] = 2
+    legacy_config.pop("biddingFrozenOpponentMixRuleVersion")
+    legacy_config.pop("biddingFrozenOpponentPolicyIds")
 
     with pytest.raises(NonPlayingRlOrchestratorError, match="schemaVersion mismatch"):
         _validate_iterative_resume_config(
