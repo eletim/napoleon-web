@@ -12,6 +12,7 @@ from napoleon_ml.bidding.model import BiddingActorCriticModel, BiddingMlpConfig,
 from napoleon_ml.bidding.ppo import (
     BIDDING_ACTOR_CRITIC_MODEL_ARCHITECTURE,
     BIDDING_PPO_ALGORITHM,
+    NON_PLAYING_RL_GAME_RULE,
     NON_PLAYING_RL_REWARD_ID,
     BiddingPpoTrainSettings,
     bidding_ppo_loss,
@@ -22,8 +23,16 @@ from napoleon_ml.bidding.ppo import (
 )
 from napoleon_ml.cli.export_policy_onnx import main as export_policy_onnx_main
 from napoleon_ml.cli.train_bidding_ppo import main as train_bidding_ppo_main
-from napoleon_ml.dataset.constants import BIDDING_ACTION_COUNT
-from napoleon_ml.dataset.tensors import BIDDING_MODEL_INPUT_FEATURE_COUNT
+from napoleon_ml.dataset.constants import (
+    BIDDING_ACTION_COUNT,
+    BIDDING_ENCODER_SCHEMA_VERSION,
+    MODEL_INPUT_FEATURE_COUNT,
+    PLAYING_MODEL_INPUT_SCHEMA_VERSION,
+)
+from napoleon_ml.dataset.tensors import (
+    BIDDING_MODEL_INPUT_FEATURE_COUNT,
+    BIDDING_MODEL_INPUT_SCHEMA_VERSION,
+)
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 from napoleon_ml.nonplaying_onnx_export import export_bidding_rl_checkpoint_to_onnx
 
@@ -241,11 +250,11 @@ def _write_rl_dataset(directory: Path) -> Path:
         "cardCount": 53,
         "cardIds": [],
         "cardIdsSha256": calculate_card_ids_sha256(),
-        "biddingEncoderSchemaVersion": 1,
-        "biddingModelInputSchemaVersion": 1,
+        "biddingEncoderSchemaVersion": BIDDING_ENCODER_SCHEMA_VERSION,
+        "biddingModelInputSchemaVersion": BIDDING_MODEL_INPUT_SCHEMA_VERSION,
         "biddingModelInputFeatureCount": BIDDING_MODEL_INPUT_FEATURE_COUNT,
-        "playingModelInputSchemaVersion": 2,
-        "playingModelInputFeatureCount": 6246,
+        "playingModelInputSchemaVersion": PLAYING_MODEL_INPUT_SCHEMA_VERSION,
+        "playingModelInputFeatureCount": MODEL_INPUT_FEATURE_COUNT,
         "actionCount": BIDDING_ACTION_COUNT,
         "behaviorPolicy": _policy("bidding-onnx"),
         "fixedPlayingPolicy": _policy("playing-onnx"),
@@ -256,6 +265,7 @@ def _write_rl_dataset(directory: Path) -> Path:
             "version": 3,
             "id": NON_PLAYING_RL_REWARD_ID,
         },
+        "gameRule": NON_PLAYING_RL_GAME_RULE,
         "nonLearningAgents": {
             "choosingAdjutant": {"type": "rule-based", "version": 1},
             "exchanging": {"type": "rule-based", "version": 1},

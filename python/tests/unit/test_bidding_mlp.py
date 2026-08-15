@@ -35,6 +35,7 @@ from napoleon_ml.cli.train_bidding_mlp import main as train_main
 from napoleon_ml.dataset.constants import (
     BIDDING_ACTION_COUNT,
     BIDDING_DATASET_SAMPLE_TYPE,
+    BIDDING_ENCODER_SCHEMA_VERSION,
     CARD_COUNT,
     EXPECTED_CARD_IDS,
     MAX_BIDDING_ACTION_COUNT,
@@ -72,13 +73,13 @@ def _bidding_sample(*, seed: int, actor_target: int, legal_actions: list[int]) -
     relative_player_ids = [f"player-{index}" for index in range(5)]
     return {
         "sampleType": BIDDING_DATASET_SAMPLE_TYPE,
-        "schemaVersion": 1,
+        "schemaVersion": BIDDING_ENCODER_SCHEMA_VERSION,
         "seed": seed,
         "step": 1,
         "actingPlayerId": "player-0",
         "relativePlayerIds": relative_player_ids,
         "observation": {
-            "schemaVersion": 1,
+            "schemaVersion": BIDDING_ENCODER_SCHEMA_VERSION,
             "relativePlayerIds": relative_player_ids,
             "selfHandMask": _mask(list(range(10)), length=CARD_COUNT),
             "legalBidMask": _mask(legal_actions, length=BIDDING_ACTION_COUNT),
@@ -127,7 +128,7 @@ def _write_bidding_dataset(
     manifest = {
         "datasetSchemaVersion": 2,
         "generatorVersion": 2,
-        "encoderSchemaVersion": 1,
+        "encoderSchemaVersion": BIDDING_ENCODER_SCHEMA_VERSION,
         "format": "jsonl",
         "sampleType": BIDDING_DATASET_SAMPLE_TYPE,
         "agent": {"type": "rule-based", "version": 1},
@@ -238,12 +239,12 @@ def test_bidding_config_rejects_invalid_values(
 def test_bidding_action_breakdown_decoding() -> None:
     assert bidding_action_target_point_cards(0) is None
     assert bidding_action_suit(0) is None
-    assert bidding_action_target_point_cards(1) == 13
+    assert bidding_action_target_point_cards(1) == 10
     assert bidding_action_suit(1) == "spades"
-    assert bidding_action_target_point_cards(5) == 14
+    assert bidding_action_target_point_cards(5) == 11
     assert bidding_action_suit(5) == "spades"
-    assert bidding_action_target_point_cards(28) == 19
-    assert bidding_action_suit(28) == "clubs"
+    assert bidding_action_target_point_cards(40) == 19
+    assert bidding_action_suit(40) == "clubs"
 
 
 def test_bidding_evaluation_reports_required_breakdowns_and_uniform_baseline(
@@ -266,8 +267,8 @@ def test_bidding_evaluation_reports_required_breakdowns_and_uniform_baseline(
     assert report.top1.legal_uniform_accuracy == pytest.approx(0.2)
     assert report.pass_actions.count == 1
     assert report.bid_actions.count == 2
-    assert report.target_point_cards["13"].count == 1
-    assert report.target_point_cards["14"].count == 1
+    assert report.target_point_cards["10"].count == 1
+    assert report.target_point_cards["11"].count == 1
     assert report.suits["spades"].count == 2
 
 
@@ -362,7 +363,7 @@ def test_train_cli_saves_checkpoint_and_evaluate_cli_loads_test_split(
     assert evaluate_report["split"] == "test"
     assert evaluate_report["model"]["top1"]["count"] == 1
     assert evaluate_report["model"]["illegalPredictionCount"] == 0
-    assert evaluate_report["model"]["targetPointCards"]["14"]["count"] == 1
+    assert evaluate_report["model"]["targetPointCards"]["11"]["count"] == 1
 
 
 def test_evaluate_cli_loads_bidding_checkpoint_in_new_process(tmp_path: Path) -> None:

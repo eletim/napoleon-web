@@ -10,17 +10,17 @@
 
 namespace napoleon::observation {
 
-constexpr int kPlayingEncoderSchemaVersion = 2;
-constexpr int kPlayingModelInputSchemaVersion = 2;
+constexpr int kPlayingEncoderSchemaVersion = 3;
+constexpr int kPlayingModelInputSchemaVersion = 3;
 constexpr int kCompleteInfoPlayingEncoderSchemaVersion = 1;
 constexpr int kCompleteInfoPlayingModelInputSchemaVersion = 1;
 constexpr int kCardCount = 53;
 constexpr int kTrickCount = 10;
 constexpr int kCardsPerTrick = 5;
-constexpr int kMaxBiddingActionCount = 117;
-constexpr int kPlayingModelInputFeatureCount = 6246;
+constexpr int kMaxBiddingActionCount = 165;
+constexpr int kPlayingModelInputFeatureCount = 7653;
 constexpr int kCompleteInfoPlayingModelInputFeatureCount = 385;
-constexpr int kFlatObservationFeatureCount = 684;
+constexpr int kFlatObservationFeatureCount = 732;
 constexpr int kCompleteInfoOwnerClassCount = 6;
 constexpr int kNotInHandOwnerClassIndex = 5;
 
@@ -42,7 +42,7 @@ struct EncodedPlayingObservation {
   std::array<int, kPlayerCount> relative_player_indices{};
   int trick_number = 1;
   int completed_trick_count = 0;
-  int contract_target_point_cards = 12;
+  int contract_target_point_cards = 9;
   std::array<int, 4> trump_suit_one_hot{};
   std::array<int, kPlayerCount> napoleon_player_one_hot{};
   std::array<int, kPlayerCount + 1> revealed_adjutant_player_one_hot{};

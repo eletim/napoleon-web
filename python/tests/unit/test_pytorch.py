@@ -16,7 +16,22 @@ import torch
 import napoleon_ml.dataset.binary as binary_module
 import napoleon_ml.dataset.pytorch as pytorch_module
 import napoleon_ml.dataset.reader as reader_module
-from napoleon_ml.dataset.constants import CARD_COUNT, EXPECTED_CARD_IDS
+from napoleon_ml.dataset.constants import (
+    ADJUTANT_ENCODER_SCHEMA_VERSION,
+    BIDDING_ACTION_COUNT,
+    BIDDING_ENCODER_SCHEMA_VERSION,
+    CARD_COUNT,
+    EXCHANGE_ENCODER_SCHEMA_VERSION,
+    EXPECTED_CARD_IDS,
+    MAX_BIDDING_ACTION_COUNT,
+    MIN_CONTRACT_TARGET_POINT_CARDS,
+    PLAYING_ENCODER_SCHEMA_VERSION,
+    PLAYING_SELF_PLAY_LEGACY_DATASET_SCHEMA_VERSION,
+    PLAYING_SELF_PLAY_LEGACY_SAMPLE_SCHEMA_VERSION,
+    PLAYING_MODEL_INPUT_SCHEMA_VERSION,
+    PLAYING_SELF_PLAY_DATASET_SCHEMA_VERSION,
+    PLAYING_SELF_PLAY_SAMPLE_SCHEMA_VERSION,
+)
 from napoleon_ml.dataset.errors import DatasetError, ShardIntegrityError
 from napoleon_ml.dataset.pytorch import (
     AdjutantIterableDataset,
@@ -75,7 +90,7 @@ def _self_play_sample(*, seed: int = 0, step: int = 1) -> dict[str, Any]:
     raw.update(
         {
             "sampleType": "playing-self-play-sample",
-            "schemaVersion": 3,
+            "schemaVersion": PLAYING_SELF_PLAY_LEGACY_SAMPLE_SCHEMA_VERSION,
             "actingSeatSource": "current-policy",
             "behaviorPolicyArtifactId": "unit-policy",
             "rolloutSeatSources": [
@@ -118,7 +133,7 @@ def _write_dataset(directory: Path, samples: list[dict[str, Any]]) -> None:
     manifest = {
         "datasetSchemaVersion": 1,
         "generatorVersion": 1,
-        "playingEncoderSchemaVersion": 2,
+        "playingEncoderSchemaVersion": PLAYING_ENCODER_SCHEMA_VERSION,
         "format": "jsonl",
         "sampleType": "playing-training-sample",
         "agent": {"type": "rule-based", "version": 1},
@@ -160,11 +175,11 @@ def _write_self_play_dataset(directory: Path, samples: list[dict[str, Any]]) -> 
             previous_seed = seed
 
     manifest = {
-        "datasetSchemaVersion": 3,
+        "datasetSchemaVersion": PLAYING_SELF_PLAY_LEGACY_DATASET_SCHEMA_VERSION,
         "generatorVersion": 1,
         "format": "jsonl",
         "sampleType": "playing-self-play-sample",
-        "sampleSchemaVersion": 3,
+        "sampleSchemaVersion": PLAYING_SELF_PLAY_LEGACY_SAMPLE_SCHEMA_VERSION,
         "startSeed": seeds[0],
         "endSeed": seeds[-1],
         "gameCount": unique_seed_runs,
@@ -186,8 +201,8 @@ def _write_self_play_dataset(directory: Path, samples: list[dict[str, Any]]) -> 
                 "sha256": hashlib.sha256(shard_bytes).hexdigest(),
             }
         ],
-        "playingEncoderSchemaVersion": 2,
-        "playingModelInputSchemaVersion": 2,
+        "playingEncoderSchemaVersion": PLAYING_ENCODER_SCHEMA_VERSION,
+        "playingModelInputSchemaVersion": PLAYING_MODEL_INPUT_SCHEMA_VERSION,
         "behaviorPolicy": {
             "type": "playing-onnx",
             "artifactId": "unit-policy",
@@ -266,8 +281,8 @@ def _write_binary_self_play_dataset(
         "cardIds": list(EXPECTED_CARD_IDS),
         "cardIdsSha256": calculate_card_ids_sha256(),
         "shards": shards,
-        "playingEncoderSchemaVersion": 2,
-        "playingModelInputSchemaVersion": 2,
+        "playingEncoderSchemaVersion": PLAYING_ENCODER_SCHEMA_VERSION,
+        "playingModelInputSchemaVersion": PLAYING_MODEL_INPUT_SCHEMA_VERSION,
         "behaviorPolicy": {
             "type": "playing-onnx",
             "artifactId": "unit-policy",
@@ -407,11 +422,11 @@ def _binary_self_play_shard_bytes(samples: list[dict[str, Any]], *, compression:
 
 def _empty_bidding_history() -> dict[str, list[int]]:
     return {
-        "actionTypeIndices": [-1] * 117,
-        "playerIndices": [-1] * 117,
-        "suitIndices": [-1] * 117,
-        "targetPointCards": [0] * 117,
-        "actionMask": [0] * 117,
+        "actionTypeIndices": [-1] * MAX_BIDDING_ACTION_COUNT,
+        "playerIndices": [-1] * MAX_BIDDING_ACTION_COUNT,
+        "suitIndices": [-1] * MAX_BIDDING_ACTION_COUNT,
+        "targetPointCards": [0] * MAX_BIDDING_ACTION_COUNT,
+        "actionMask": [0] * MAX_BIDDING_ACTION_COUNT,
     }
 
 
@@ -425,11 +440,14 @@ def _mask(indices: list[int], *, length: int = CARD_COUNT) -> list[int]:
 
 
 def _common_multiphase_sample(
-    sample_type: str, observation: dict[str, Any], actor_target: Any
+    sample_type: str,
+    observation: dict[str, Any],
+    actor_target: Any,
+    schema_version: int,
 ) -> dict[str, Any]:
     return {
         "sampleType": sample_type,
-        "schemaVersion": 1,
+        "schemaVersion": schema_version,
         "seed": 0,
         "step": 1,
         "actingPlayerId": "player-0",
@@ -441,10 +459,10 @@ def _common_multiphase_sample(
 
 def _bidding_sample() -> dict[str, Any]:
     observation = {
-        "schemaVersion": 1,
+        "schemaVersion": BIDDING_ENCODER_SCHEMA_VERSION,
         "relativePlayerIds": ["player-0", "player-1", "player-2", "player-3", "player-4"],
         "selfHandMask": _mask(list(range(10))),
-        "legalBidMask": _mask([0, 5], length=29),
+        "legalBidMask": _mask([0, 5], length=BIDDING_ACTION_COUNT),
         "starterPlayerIndex": 0,
         "highestBidPresent": 0,
         "highestBidPlayerIndex": -1,
@@ -453,40 +471,56 @@ def _bidding_sample() -> dict[str, Any]:
         "consecutivePassCount": 0,
         "biddingHistory": _empty_bidding_history(),
     }
-    return _common_multiphase_sample("bidding-training-sample", observation, 0)
+    return _common_multiphase_sample(
+        "bidding-training-sample",
+        observation,
+        0,
+        BIDDING_ENCODER_SCHEMA_VERSION,
+    )
 
 
 def _exchange_sample() -> dict[str, Any]:
     self_hand = _mask(list(range(13)))
     observation = {
-        "schemaVersion": 1,
+        "schemaVersion": EXCHANGE_ENCODER_SCHEMA_VERSION,
         "relativePlayerIds": ["player-0", "player-1", "player-2", "player-3", "player-4"],
-        "contractTargetPointCards": 12,
+        "contractTargetPointCards": MIN_CONTRACT_TARGET_POINT_CARDS,
         "trumpSuitOneHot": [1, 0, 0, 0],
         "calledAdjutantCardMask": _mask([20]),
         "selfHandMask": self_hand,
+        "partialDiscardMask": _mask([]),
         "legalDiscardCardMask": list(self_hand),
+        "exchangeStepIndex": 0,
+        "remainingDiscardCount": 3,
         "handCountByPlayer": [13, 10, 10, 10, 10],
         "specialCardIndices": {"oruma": 0, "yoromeki": 15, "seiJack": 29, "uraJack": 16},
         "biddingHistory": _empty_bidding_history(),
     }
     return _common_multiphase_sample(
-        "exchange-training-sample", observation, {"discardTargetMask": _mask([0, 1, 2])}
+        "exchange-training-sample",
+        observation,
+        {"discardTargetMask": _mask([0, 1, 2])},
+        EXCHANGE_ENCODER_SCHEMA_VERSION,
     )
 
 
 def _adjutant_sample() -> dict[str, Any]:
     observation = {
-        "schemaVersion": 1,
+        "schemaVersion": ADJUTANT_ENCODER_SCHEMA_VERSION,
         "relativePlayerIds": ["player-0", "player-1", "player-2", "player-3", "player-4"],
         "trumpSuitOneHot": [1, 0, 0, 0],
-        "contractTargetPointCards": 12,
+        "contractTargetPointCards": MIN_CONTRACT_TARGET_POINT_CARDS,
         "selfHandMask": _mask(list(range(10))),
         "legalAdjutantMask": _mask([20, 21]),
         "specialCardIndices": {"oruma": 0, "yoromeki": 15, "seiJack": 29, "uraJack": 16},
         "biddingHistory": _empty_bidding_history(),
     }
-    return _common_multiphase_sample("adjutant-training-sample", observation, 20)
+    return _common_multiphase_sample(
+        "adjutant-training-sample",
+        observation,
+        20,
+        ADJUTANT_ENCODER_SCHEMA_VERSION,
+    )
 
 
 def _write_multiphase_dataset(directory: Path, sample: dict[str, Any]) -> None:
@@ -495,7 +529,7 @@ def _write_multiphase_dataset(directory: Path, sample: dict[str, Any]) -> None:
     manifest = {
         "datasetSchemaVersion": 2,
         "generatorVersion": 2,
-        "encoderSchemaVersion": 1,
+        "encoderSchemaVersion": sample["schemaVersion"],
         "format": "jsonl",
         "sampleType": sample["sampleType"],
         "agent": {"type": "rule-based", "version": 1},
@@ -1009,7 +1043,10 @@ def _assert_multiphase_batch(
     assert set(batch) == expected_fields
     assert batch["model_input"].shape == (1, model_input_width)
     assert batch["model_input"].dtype == torch.float32
-    assert batch[mask_field].shape == (1, CARD_COUNT if mask_field != "legal_bid_mask" else 29)
+    assert batch[mask_field].shape == (
+        1,
+        CARD_COUNT if mask_field != "legal_bid_mask" else BIDDING_ACTION_COUNT,
+    )
     assert batch[mask_field].dtype == torch.bool
     assert batch["seed"].shape == (1,)
     assert batch["seed"].dtype == torch.int64

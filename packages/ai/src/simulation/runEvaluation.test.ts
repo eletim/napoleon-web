@@ -53,8 +53,8 @@ describe("runEvaluation", () => {
       expect(game.seats.every((seat) => seat.agentName.startsWith("RuleBasedAgent-"))).toBe(true);
 
       if (game.status === "completed") {
-        expect(game.contract.targetPointCards).toBeGreaterThanOrEqual(13);
-        expect(game.contract.targetPointCards).toBeLessThanOrEqual(20);
+        expect(game.contract.targetPointCards).toBeGreaterThanOrEqual(10);
+        expect(game.contract.targetPointCards).toBeLessThanOrEqual(19);
         expect(game.pointCards.napoleonTeam + game.pointCards.alliance).toBe(20);
         expect(game.contractSucceeded).toBe(game.winner === "napoleon-team");
         expect(game.seats.filter((seat) => seat.role === "napoleon")).toHaveLength(1);

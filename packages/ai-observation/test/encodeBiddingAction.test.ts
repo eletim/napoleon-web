@@ -10,8 +10,8 @@ import {
 } from "../src/index.js";
 
 describe("bidding action encoding", () => {
-  it("round-trips the fixed 29 bidding action space", () => {
-    expect(BIDDING_ACTION_COUNT).toBe(29);
+  it("round-trips the fixed 41 bidding action space", () => {
+    expect(BIDDING_ACTION_COUNT).toBe(41);
     expect(decodeBiddingAction(0, "player-0")).toEqual({
       type: "pass",
       playerId: "player-0"
@@ -49,33 +49,33 @@ describe("bidding action encoding", () => {
       playerId: "player-0",
       suit: "spades",
       targetPointCards: 13
-    })).toBe(1);
+    })).toBe(13);
     expect(encodeBiddingAction({
       type: "bid",
       playerId: "player-0",
       suit: "clubs",
       targetPointCards: 13
-    })).toBe(4);
+    })).toBe(16);
     expect(encodeBiddingAction({
       type: "bid",
       playerId: "player-0",
       suit: "spades",
       targetPointCards: 19
-    })).toBe(25);
+    })).toBe(37);
     expect(encodeBiddingAction({
       type: "bid",
       playerId: "player-0",
       suit: "clubs",
       targetPointCards: 19
-    })).toBe(28);
+    })).toBe(40);
   });
 
   it("builds legalBidMask only from supplied legalActions", () => {
     const mask = encodeLegalBidMask([
       { type: "pass", playerId: "player-0" },
-      { type: "bid", playerId: "player-0", suit: "spades", targetPointCards: 13 },
-      { type: "bid", playerId: "player-0", suit: "hearts", targetPointCards: 13 },
-      { type: "bid", playerId: "player-0", suit: "clubs", targetPointCards: 14 }
+      { type: "bid", playerId: "player-0", suit: "spades", targetPointCards: 10 },
+      { type: "bid", playerId: "player-0", suit: "hearts", targetPointCards: 10 },
+      { type: "bid", playerId: "player-0", suit: "clubs", targetPointCards: 11 }
     ], "player-0");
 
     expect(mask).toHaveLength(BIDDING_ACTION_COUNT);
@@ -108,15 +108,15 @@ describe("bidding action encoding", () => {
     )).toThrow("Decision action playerId");
   });
 
-  it("rejects invalid action indices and bids outside 13 to 19", () => {
-    expect(() => decodeBiddingAction(-1, "player-0")).toThrow("between 0 and 28");
-    expect(() => decodeBiddingAction(29, "player-0")).toThrow("between 0 and 28");
+  it("rejects invalid action indices and bids outside 10 to 19", () => {
+    expect(() => decodeBiddingAction(-1, "player-0")).toThrow("between 0 and 40");
+    expect(() => decodeBiddingAction(41, "player-0")).toThrow("between 0 and 40");
     expect(() => encodeBiddingAction({
       type: "bid",
       playerId: "player-0",
       suit: "spades",
-      targetPointCards: 12
-    })).toThrow("between 13 and 19");
+      targetPointCards: 9
+    })).toThrow("between 10 and 19");
   });
 });
 

@@ -66,7 +66,7 @@ concurrency and GPU batch size can be tuned independently.
 
 When `SimulationRuntimeConfig::build_agent_request_payload` is set to
 `onnx_policy::attach_playing_model_input`, playing requests carry value-only
-`playing_model_input` `[6246]` and `legal_play_mask` `[53]` fields. Non-playing
+`playing_model_input` `[7653]` and `legal_play_mask` `[53]` fields. Non-playing
 requests leave those fields empty; the ONNX executor rejects them instead of
 falling back silently. Selected actions are sampled from the same masked
 categorical softmax contract as the TypeScript policy path, including

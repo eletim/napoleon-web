@@ -14,7 +14,13 @@ import torch
 from napoleon_ml.cli.evaluate_exchange_mlp import main as evaluate_main
 from napoleon_ml.cli.export_policy_onnx import main as export_main
 from napoleon_ml.cli.train_exchange_mlp import main as train_main
-from napoleon_ml.dataset.constants import CARD_COUNT, EXPECTED_CARD_IDS
+from napoleon_ml.dataset.constants import (
+    CARD_COUNT,
+    EXCHANGE_ENCODER_SCHEMA_VERSION,
+    EXPECTED_CARD_IDS,
+    MAX_BIDDING_ACTION_COUNT,
+    MIN_CONTRACT_TARGET_POINT_CARDS,
+)
 from napoleon_ml.dataset.pytorch import create_exchange_dataloader
 from napoleon_ml.dataset.reader import iter_tensorized_samples, load_manifest
 from napoleon_ml.dataset.split import DatasetSplit, SplitConfig, split_for_seed
@@ -48,11 +54,11 @@ from napoleon_ml.nonplaying_onnx_export import (
 
 def _empty_bidding_history() -> dict[str, list[int]]:
     return {
-        "actionTypeIndices": [-1] * 117,
-        "playerIndices": [-1] * 117,
-        "suitIndices": [-1] * 117,
-        "targetPointCards": [0] * 117,
-        "actionMask": [0] * 117,
+        "actionTypeIndices": [-1] * MAX_BIDDING_ACTION_COUNT,
+        "playerIndices": [-1] * MAX_BIDDING_ACTION_COUNT,
+        "suitIndices": [-1] * MAX_BIDDING_ACTION_COUNT,
+        "targetPointCards": [0] * MAX_BIDDING_ACTION_COUNT,
+        "actionMask": [0] * MAX_BIDDING_ACTION_COUNT,
     }
 
 
@@ -66,9 +72,9 @@ def _mask(indices: list[int], *, length: int = CARD_COUNT) -> list[int]:
 def _exchange_sample(*, seed: int, step: int, target_indices: list[int]) -> dict[str, Any]:
     self_hand = _mask(list(range(13)))
     observation = {
-        "schemaVersion": 2,
+        "schemaVersion": EXCHANGE_ENCODER_SCHEMA_VERSION,
         "relativePlayerIds": ["player-0", "player-1", "player-2", "player-3", "player-4"],
-        "contractTargetPointCards": 12,
+        "contractTargetPointCards": MIN_CONTRACT_TARGET_POINT_CARDS,
         "trumpSuitOneHot": [1, 0, 0, 0],
         "calledAdjutantCardMask": _mask([20]),
         "selfHandMask": self_hand,
@@ -82,7 +88,7 @@ def _exchange_sample(*, seed: int, step: int, target_indices: list[int]) -> dict
     }
     return {
         "sampleType": "exchange-training-sample",
-        "schemaVersion": 2,
+        "schemaVersion": EXCHANGE_ENCODER_SCHEMA_VERSION,
         "seed": seed,
         "step": step,
         "actingPlayerId": "player-0",
@@ -111,7 +117,7 @@ def _write_dataset(directory: Path, *, seeds: tuple[int, ...]) -> None:
     manifest = {
         "datasetSchemaVersion": 2,
         "generatorVersion": 2,
-        "encoderSchemaVersion": 2,
+        "encoderSchemaVersion": EXCHANGE_ENCODER_SCHEMA_VERSION,
         "format": "jsonl",
         "sampleType": "exchange-training-sample",
         "agent": {"type": "rule-based", "version": 1},

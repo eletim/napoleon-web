@@ -940,7 +940,7 @@ def _write_supervised_dataset(directory: Path, *, seeds: tuple[int, ...]) -> Non
     manifest = {
         "datasetSchemaVersion": 1,
         "generatorVersion": 1,
-        "playingEncoderSchemaVersion": 2,
+        "playingEncoderSchemaVersion": 3,
         "format": "jsonl",
         "sampleType": "playing-training-sample",
         "agent": {"type": "rule-based", "version": 1},

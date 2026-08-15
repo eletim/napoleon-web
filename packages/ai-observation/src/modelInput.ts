@@ -244,9 +244,9 @@ validateLayout(
 
 if (
   COMPLETE_INFO_PLAYING_MODEL_INPUT_SCHEMA_VERSION !== 1 ||
-  BIDDING_MODEL_INPUT_SCHEMA_VERSION !== 1 ||
-  EXCHANGE_MODEL_INPUT_SCHEMA_VERSION !== 2 ||
-  ADJUTANT_MODEL_INPUT_SCHEMA_VERSION !== 1
+  BIDDING_MODEL_INPUT_SCHEMA_VERSION !== 2 ||
+  EXCHANGE_MODEL_INPUT_SCHEMA_VERSION !== 3 ||
+  ADJUTANT_MODEL_INPUT_SCHEMA_VERSION !== 2
 ) {
   throw new Error("Complete-info/non-playing model_input schema versions must match expected schema versions.");
 }

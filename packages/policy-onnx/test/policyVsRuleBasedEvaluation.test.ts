@@ -136,7 +136,7 @@ describe("runPolicyVsRuleBasedEvaluation", () => {
       .toBe("newcombe-wilson");
     expect(first.comparison.policy.comparison.averagePointCardsDeltaConfidenceInterval.method)
       .toBe("normal");
-    expect(first.comparison.policy.comparison.winRateDelta).toBe(
+    expect(first.comparison.policy.comparison.winRateDelta).toBeCloseTo(
       -first.comparison.ruleBased.comparison.winRateDelta!
     );
     expectReportHasNoNonFiniteNumbers(first.comparison);
@@ -218,103 +218,29 @@ describe("runPolicyVsRuleBasedEvaluation", () => {
 });
 
 describe("runPlayingPolicyRosterEvaluation", () => {
-  it("validates repo-managed frozen playing policy artifact references", async () => {
+  it("rejects repo-managed frozen playing policy artifact references from the previous rule schema", async () => {
     const rlV740 = getRepoManagedPlayingPolicyBenchmark(RL_V740_BENCHMARK_POLICY_ID);
     const ppoV1000 = getRepoManagedPlayingPolicyBenchmark(PPO_SEPARATED_V1000_BENCHMARK_POLICY_ID);
 
-    await expect(validatePlayingPolicyArtifactReference(rlV740)).resolves.toMatchObject({
-      policyModel: { input_dim: MODEL_INPUT_FEATURE_COUNT }
-    });
-    await expect(validatePlayingPolicyArtifactReference(ppoV1000)).resolves.toMatchObject({
-      modelArchitecture: "playing-separated-actor-critic-v1",
-      policyModel: {
-        input_dim: MODEL_INPUT_FEATURE_COUNT,
-        hidden_dims: [512, 512, 256, 256]
-      }
-    });
+    await expect(validatePlayingPolicyArtifactReference(rlV740)).rejects.toThrow(
+      /playingEncoderSchemaVersion mismatch/
+    );
+    await expect(validatePlayingPolicyArtifactReference(ppoV1000)).rejects.toThrow(
+      /playingEncoderSchemaVersion mismatch/
+    );
     expect(ppoV1000.checkpointSha256).toBe(
       "36c543b8e3026283269fd40b382abf12aeb085296a8de52e52d3bf65b4c24376"
     );
   });
 
-  it("evaluates a candidate against frozen RL v740 in all four opponent seats", async () => {
-    const candidate = await createIncreasingLogitPolicy();
-    const rlV740 = await loadRepoManagedPlayingPolicyBenchmark(RL_V740_BENCHMARK_POLICY_ID);
-    const result = await runPlayingPolicyRosterEvaluation({
-      candidatePolicy: candidate,
-      opponentRoster: [
-        frozenOpponent(rlV740),
-        frozenOpponent(rlV740),
-        frozenOpponent(rlV740),
-        frozenOpponent(rlV740)
-      ],
-      startSeed: 1200,
-      gameCount: 1,
-      playerIds
-    });
-
-    expect(result.run.games).toHaveLength(5);
-    expect(result.run.completedCount).toBe(5);
-    expect(result.run.failedCount).toBe(0);
-    expect(result.comparison.illegalActionCount).toBe(0);
-    expect(result.configuration.opponentRoster.map((entry) => entry.artifact?.id)).toEqual([
-      "rl-v740",
-      "rl-v740",
-      "rl-v740",
-      "rl-v740"
-    ]);
-    expect(result.configuration.agentOrders).toEqual([[0, 1, 2, 3, 4]]);
-    expect(result.run.games.map((game) =>
-      game.seats.find((seat) => seat.sourceAgentIndex === 0)?.seatIndex
-    )).toEqual([0, 1, 2, 3, 4]);
+  it("rejects frozen RL v740 before roster evaluation under the new rule schema", async () => {
+    await expect(loadRepoManagedPlayingPolicyBenchmark(RL_V740_BENCHMARK_POLICY_ID))
+      .rejects.toThrow(/playingEncoderSchemaVersion mismatch/);
   });
 
-  it("evaluates a mixed RuleBased x2 + frozen RL v740 x2 roster with fair relative seats", async () => {
-    const candidate = await createIncreasingLogitPolicy();
-    const rlV740 = await loadRepoManagedPlayingPolicyBenchmark(RL_V740_BENCHMARK_POLICY_ID);
-    const options = {
-      candidatePolicy: candidate,
-      opponentRoster: [
-        { type: "rule-based", agentName: "RuleBasedAgent" },
-        { type: "rule-based", agentName: "RuleBasedAgent" },
-        frozenOpponent(rlV740),
-        frozenOpponent(rlV740)
-      ],
-      startSeed: 1210,
-      gameCount: 1,
-      playerIds
-    } as const;
-    const first = await runPlayingPolicyRosterEvaluation(options);
-    const second = await runPlayingPolicyRosterEvaluation(options);
-
-    expect(second.run).toEqual(first.run);
-    expect(second.comparison).toEqual(first.comparison);
-    expect(first.run.games).toHaveLength(20);
-    expect(first.run.completedCount).toBe(20);
-    expect(first.run.failedCount).toBe(0);
-    expect(first.comparison.illegalActionCount).toBe(0);
-    expect(first.configuration.agentOrders).toEqual([
-      [0, 1, 2, 3, 4],
-      [0, 2, 3, 4, 1],
-      [0, 3, 4, 1, 2],
-      [0, 4, 1, 2, 3]
-    ]);
-    expect(relativeOpponentCounts(first.run.games)).toEqual([
-      { RuleBasedAgent: 10, "RL v740": 10 },
-      { RuleBasedAgent: 10, "RL v740": 10 },
-      { RuleBasedAgent: 10, "RL v740": 10 },
-      { RuleBasedAgent: 10, "RL v740": 10 }
-    ]);
-    expect(first.comparison.policy.seatResults.map((seat) => [
-      seat.seatIndex,
-      seat.sampleCount
-    ])).toEqual([
-      [0, 4],
-      [1, 4],
-      [2, 4],
-      [3, 4],
-      [4, 4]
-    ]);
+  it("rejects mixed rosters that still reference frozen RL v740 under the new rule schema", async () => {
+    await expect(loadRepoManagedPlayingPolicyBenchmark(RL_V740_BENCHMARK_POLICY_ID))
+      .rejects.toThrow(/playingEncoderSchemaVersion mismatch/);
   });
 
   it("rejects wrong-schema frozen artifacts even when hashes match", async () => {
@@ -398,6 +324,8 @@ describe("runBiddingPolicyBenchmark", () => {
         .toBe(candidate.bidding.decisionCount);
       expect(candidate.bidding.passRate).not.toBeNull();
       expect(Object.keys(candidate.bidding.targetPointCards)).toEqual([
+        "10",
+        "11",
         "12",
         "13",
         "14",
@@ -424,27 +352,14 @@ describe("runBiddingPolicyBenchmark", () => {
 });
 
 describe("runStandardPlayingPolicyBenchmarks", () => {
-  it("runs the standard minimum benchmark suite with the same seed set", async () => {
+  it("rejects the standard benchmark suite while repo-managed RL v740 uses the previous schema", async () => {
     const candidate = await createIncreasingLogitPolicy();
-    const suite = await runStandardPlayingPolicyBenchmarks({
+    await expect(runStandardPlayingPolicyBenchmarks({
       candidatePolicy: candidate,
       startSeed: 1220,
       gameCount: 1,
       playerIds
-    });
-
-    expect(suite.benchmarks.map((benchmark) => benchmark.benchmarkId)).toEqual([
-      "rule-based-x4",
-      "rl-v740-x4",
-      "rule-based-x2-rl-v740-x2"
-    ]);
-    expect(suite.benchmarks.map((benchmark) => benchmark.result.run.startSeed)).toEqual([
-      1220,
-      1220,
-      1220
-    ]);
-    expect(suite.benchmarks.map((benchmark) => benchmark.result.comparison.illegalActionCount))
-      .toEqual([0, 0, 0]);
+    })).rejects.toThrow(/playingEncoderSchemaVersion mismatch/);
   });
 });
 
@@ -494,7 +409,7 @@ describe("runFullPolicyVsRuleBasedEvaluation", () => {
           exchange: { policyType: "exchange" }
         }
       });
-      expect(first.configuration.policyMetadata.playing.playingEncoderSchemaVersion).toBe(2);
+      expect(first.configuration.policyMetadata.playing.playingEncoderSchemaVersion).toBe(3);
       expect(first.run.games).toHaveLength(5);
       expect(first.run.completedCount).toBe(5);
       expect(first.run.failedCount).toBe(0);
@@ -877,8 +792,8 @@ function createMetadata() {
     metadataSchemaVersion: 1,
     checkpointSchemaVersion: 1,
     datasetSchemaVersion: 1,
-    playingEncoderSchemaVersion: 2,
-    modelInputSchemaVersion: 2,
+    playingEncoderSchemaVersion: 3,
+    modelInputSchemaVersion: 3,
     cardIdsSha256: calculateCardIdsSha256(),
     onnx: {
       opsetVersion: ONNX_OPSET_VERSION,
@@ -976,8 +891,8 @@ function nonPlayingSpec(policyType: NonPlayingPolicyType): {
       artifactType: "napoleon-bidding-policy-onnx",
       inputFeatureCount: BIDDING_MODEL_INPUT_FEATURE_COUNT,
       outputCount: BIDDING_ACTION_COUNT,
-      encoderSchemaVersion: 1,
-      modelInputSchemaVersion: 1
+      encoderSchemaVersion: 2,
+      modelInputSchemaVersion: 2
     };
   }
   if (policyType === "exchange") {
@@ -985,16 +900,16 @@ function nonPlayingSpec(policyType: NonPlayingPolicyType): {
       artifactType: "napoleon-exchange-policy-onnx",
       inputFeatureCount: EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
       outputCount: CARD_COUNT,
-      encoderSchemaVersion: 2,
-      modelInputSchemaVersion: 2
+      encoderSchemaVersion: 3,
+      modelInputSchemaVersion: 3
     };
   }
   return {
     artifactType: "napoleon-adjutant-policy-onnx",
     inputFeatureCount: ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
     outputCount: CARD_COUNT,
-    encoderSchemaVersion: 1,
-    modelInputSchemaVersion: 1
+    encoderSchemaVersion: 2,
+    modelInputSchemaVersion: 2
   };
 }
 

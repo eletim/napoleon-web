@@ -296,7 +296,7 @@ describe("runPolicyEvaluationCli", () => {
         onnx: {
           inputs: [
             {
-              shape: ["batch", 6246]
+              shape: ["batch", 7653]
             }
           ]
         }
@@ -408,7 +408,7 @@ describe("runPolicyEvaluationCli", () => {
             onnxPath: "/models/public.onnx",
             metadataPath: "/models/public.json",
             playingObservationVariant: "public",
-            modelInputFeatureCount: 6246
+            modelInputFeatureCount: 7653
           },
           result: publicResult
         }
@@ -429,7 +429,7 @@ describe("runPolicyEvaluationCli", () => {
         {
           label: "public",
           variant: "public",
-          modelInputFeatureCount: 6246,
+          modelInputFeatureCount: 7653,
           runtime: publicPolicy.runtime,
           scheduledGames: 10,
           completedGames: 9,

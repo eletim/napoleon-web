@@ -27,6 +27,9 @@ import {
   EXCHANGE_ENCODER_SCHEMA_VERSION,
   EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
   EXCHANGE_MODEL_INPUT_SCHEMA_VERSION,
+  MAX_BIDDING_TARGET_POINT_CARDS,
+  MIN_BIDDING_TARGET_POINT_CARDS,
+  MIN_CONTRACT_TARGET_POINT_CARDS,
   MODEL_INPUT_FEATURE_COUNT,
   MODEL_INPUT_SCHEMA_VERSION,
   PLAYER_COUNT,
@@ -61,14 +64,15 @@ export const NON_PLAYING_EXCHANGE_RL_DATASET_SAMPLE_TYPE = "non-playing-exchange
 export const NON_PLAYING_RL_DATASET_SAMPLE_TYPE = NON_PLAYING_BIDDING_RL_DATASET_SAMPLE_TYPE;
 export const NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION = 2 as const;
 export const NON_PLAYING_RL_DATASET_SCHEMA_VERSION = 2 as const;
-export const NON_PLAYING_RL_DATASET_GENERATOR_VERSION = 3 as const;
+export const NON_PLAYING_RL_DATASET_GENERATOR_VERSION = 4 as const;
 export const NON_PLAYING_RL_ROLLOUT_POLICY_TOPOLOGY = "candidate-x1-frozen-x4-v1" as const;
 export const NON_PLAYING_RL_GAME_COUNT_UNIT = "logical-seeds" as const;
 export const NON_PLAYING_RL_ROTATION_OFFSETS = [0, 1, 2, 3, 4] as const;
-export const CONSERVATIVE_BIDDING_BASELINE_ID = "conservative-bidding-v1" as const;
-export const PASSIVE_BIDDING_BASELINE_ID = "passive-bidding-v1" as const;
+export const CONSERVATIVE_BIDDING_BASELINE_ID = "conservative-bidding-v2" as const;
+export const PASSIVE_BIDDING_BASELINE_ID = "passive-bidding-v2" as const;
 export const FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION =
-  "per-seat-seeded-conservative-passive-50-50-v1" as const;
+  "per-seat-seeded-conservative-passive-50-50-v2" as const;
+export const NON_PLAYING_RL_GAME_RULE_ID = "bidding-10-19-all-pass-9-v1" as const;
 export const NON_PLAYING_RL_REWARD_TYPE = "non-playing-terminal-role-reward" as const;
 export const NON_PLAYING_RL_REWARD_VERSION = 3 as const;
 export const NON_PLAYING_RL_REWARD_ID = "non-playing-terminal-role-reward-v3" as const;
@@ -256,6 +260,7 @@ export interface NonPlayingRlDatasetManifest {
   cardCount: 53;
   cardIds: readonly string[];
   cardIdsSha256: string;
+  gameRule: NonPlayingRlGameRuleMetadata;
   biddingEncoderSchemaVersion: typeof BIDDING_ENCODER_SCHEMA_VERSION;
   biddingModelInputSchemaVersion: typeof BIDDING_MODEL_INPUT_SCHEMA_VERSION;
   biddingModelInputFeatureCount: typeof BIDDING_MODEL_INPUT_FEATURE_COUNT;
@@ -310,6 +315,13 @@ export interface NonPlayingRlDatasetDiagnostics {
   bidding?: NonPlayingBiddingDiagnostics;
 }
 
+export interface NonPlayingRlGameRuleMetadata {
+  id: typeof NON_PLAYING_RL_GAME_RULE_ID;
+  biddingMinTargetPointCards: typeof MIN_BIDDING_TARGET_POINT_CARDS;
+  biddingMaxTargetPointCards: typeof MAX_BIDDING_TARGET_POINT_CARDS;
+  allPassForcedTargetPointCards: typeof MIN_CONTRACT_TARGET_POINT_CARDS;
+}
+
 export interface FrozenBiddingOpponentMixDiagnostics extends FrozenBiddingOpponentMixMetadata {
   conservativeSeatCount: number;
   passiveSeatCount: number;
@@ -327,7 +339,7 @@ export interface NonPlayingBiddingDiagnostics {
   candidateNapoleonFormationRate: number | null;
   declarationSuccessCount: number;
   declarationSuccessRate: number | null;
-  allPassForcedD12Count: number;
+  allPassForcedD9Count: number;
   candidateRoleDistribution: Record<NonPlayingBiddingRlRole, number>;
   meanReward: number | null;
 }
@@ -468,7 +480,7 @@ interface NonPlayingRlDiagnosticsAccumulator {
     suitDistribution: Record<string, number>;
     candidateNapoleonFormationCount: number;
     declarationSuccessCount: number;
-    allPassForcedD12Count: number;
+    allPassForcedD9Count: number;
     candidateRoleDistribution: Record<NonPlayingBiddingRlRole, number>;
     rewardSum: number;
     rewardCount: number;
@@ -504,7 +516,7 @@ function createDiagnosticsAccumulator(
       },
       candidateNapoleonFormationCount: 0,
       declarationSuccessCount: 0,
-      allPassForcedD12Count: 0,
+      allPassForcedD9Count: 0,
       candidateRoleDistribution: emptyRoleDistribution(),
       rewardSum: 0,
       rewardCount: 0
@@ -554,8 +566,8 @@ function recordCandidateGame(
     }
   }
 
-  if (isAllPassForcedD12Game(result.record)) {
-    accumulator.bidding.allPassForcedD12Count += 1;
+  if (isAllPassForcedD9Game(result.record)) {
+    accumulator.bidding.allPassForcedD9Count += 1;
   }
 }
 
@@ -624,7 +636,7 @@ function finalizeDiagnostics(
               bidding.declarationSuccessCount,
               bidding.candidateNapoleonFormationCount
             ),
-            allPassForcedD12Count: bidding.allPassForcedD12Count,
+            allPassForcedD9Count: bidding.allPassForcedD9Count,
             candidateRoleDistribution: bidding.candidateRoleDistribution,
             meanReward: safeMean(bidding.rewardSum, bidding.rewardCount)
           }
@@ -656,15 +668,12 @@ function projectedCompletedShardCount(input: {
 }
 
 function emptyTargetDistribution(): Record<string, number> {
-  return {
-    "13": 0,
-    "14": 0,
-    "15": 0,
-    "16": 0,
-    "17": 0,
-    "18": 0,
-    "19": 0
-  };
+  return Object.fromEntries(
+    Array.from(
+      { length: MAX_BIDDING_TARGET_POINT_CARDS - MIN_BIDDING_TARGET_POINT_CARDS + 1 },
+      (_, index) => [String(MIN_BIDDING_TARGET_POINT_CARDS + index), 0]
+    )
+  );
 }
 
 function emptyRoleDistribution(): Record<NonPlayingBiddingRlRole, number> {
@@ -684,8 +693,8 @@ function safeMean(sumValue: number, count: number): number | null {
   return count === 0 ? null : sumValue / count;
 }
 
-function isAllPassForcedD12Game(record: AutomatedGameRecord): boolean {
-  if (record.result.targetPointCards !== 12) {
+function isAllPassForcedD9Game(record: AutomatedGameRecord): boolean {
+  if (record.result.targetPointCards !== MIN_CONTRACT_TARGET_POINT_CARDS) {
     return false;
   }
 
@@ -711,6 +720,15 @@ export function createFrozenBiddingOpponentMixMetadata(): FrozenBiddingOpponentM
         id: PASSIVE_BIDDING_BASELINE_ID
       }
     }
+  };
+}
+
+export function createNonPlayingRlGameRuleMetadata(): NonPlayingRlGameRuleMetadata {
+  return {
+    id: NON_PLAYING_RL_GAME_RULE_ID,
+    biddingMinTargetPointCards: MIN_BIDDING_TARGET_POINT_CARDS,
+    biddingMaxTargetPointCards: MAX_BIDDING_TARGET_POINT_CARDS,
+    allPassForcedTargetPointCards: MIN_CONTRACT_TARGET_POINT_CARDS
   };
 }
 
@@ -1907,6 +1925,7 @@ export function validateNonPlayingRlDatasetManifest(
   if (manifest.cardIdsSha256 !== calculateCardIdsSha256()) {
     throw new Error("Non-playing RL manifest cardIdsSha256 mismatch.");
   }
+  validateNonPlayingRlGameRuleMetadata(manifest.gameRule);
   if (
     manifest.biddingEncoderSchemaVersion !== BIDDING_ENCODER_SCHEMA_VERSION ||
     manifest.biddingModelInputSchemaVersion !== BIDDING_MODEL_INPUT_SCHEMA_VERSION ||
@@ -2065,6 +2084,21 @@ function validateCommonNonPlayingRlDatasetManifest(manifest: NonPlayingRlDataset
   }
   if (manifest.cardIdsSha256 !== calculateCardIdsSha256()) {
     throw new Error("Non-playing RL manifest cardIdsSha256 mismatch.");
+  }
+  validateNonPlayingRlGameRuleMetadata(manifest.gameRule);
+}
+
+function validateNonPlayingRlGameRuleMetadata(
+  metadata: NonPlayingRlGameRuleMetadata | undefined
+): void {
+  if (
+    metadata === undefined ||
+    metadata.id !== NON_PLAYING_RL_GAME_RULE_ID ||
+    metadata.biddingMinTargetPointCards !== MIN_BIDDING_TARGET_POINT_CARDS ||
+    metadata.biddingMaxTargetPointCards !== MAX_BIDDING_TARGET_POINT_CARDS ||
+    metadata.allPassForcedTargetPointCards !== MIN_CONTRACT_TARGET_POINT_CARDS
+  ) {
+    throw new Error("Non-playing RL manifest gameRule metadata mismatch.");
   }
 }
 
@@ -2771,6 +2805,7 @@ function createNonPlayingRlDatasetManifest(input: {
     cardCount: CARD_COUNT,
     cardIds: CARD_IDS,
     cardIdsSha256: calculateCardIdsSha256(),
+    gameRule: createNonPlayingRlGameRuleMetadata(),
     biddingEncoderSchemaVersion: BIDDING_ENCODER_SCHEMA_VERSION,
     biddingModelInputSchemaVersion: BIDDING_MODEL_INPUT_SCHEMA_VERSION,
     biddingModelInputFeatureCount: BIDDING_MODEL_INPUT_FEATURE_COUNT,
@@ -2836,6 +2871,7 @@ function createNonPlayingAdjutantRlDatasetManifest(input: {
     cardCount: CARD_COUNT,
     cardIds: CARD_IDS,
     cardIdsSha256: calculateCardIdsSha256(),
+    gameRule: createNonPlayingRlGameRuleMetadata(),
     biddingEncoderSchemaVersion: BIDDING_ENCODER_SCHEMA_VERSION,
     biddingModelInputSchemaVersion: BIDDING_MODEL_INPUT_SCHEMA_VERSION,
     biddingModelInputFeatureCount: BIDDING_MODEL_INPUT_FEATURE_COUNT,
@@ -2907,6 +2943,7 @@ function createNonPlayingExchangeRlDatasetManifest(input: {
     cardCount: CARD_COUNT,
     cardIds: CARD_IDS,
     cardIdsSha256: calculateCardIdsSha256(),
+    gameRule: createNonPlayingRlGameRuleMetadata(),
     biddingEncoderSchemaVersion: BIDDING_ENCODER_SCHEMA_VERSION,
     biddingModelInputSchemaVersion: BIDDING_MODEL_INPUT_SCHEMA_VERSION,
     biddingModelInputFeatureCount: BIDDING_MODEL_INPUT_FEATURE_COUNT,

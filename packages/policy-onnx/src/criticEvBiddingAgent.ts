@@ -5,6 +5,7 @@ import {
 import type { Agent, PlayerObservation, PublicActionRecord } from "@napoleon/ai";
 import {
   createDeck,
+  forcedAllPassTargetPointCards,
   isPointCard,
   isStandardCard,
   orumaCardId
@@ -217,7 +218,7 @@ function contractForBiddingAction(
   return {
     playerId: bidding?.starterPlayerId ?? observation.view.players[0].id,
     suit: "spades",
-    targetPointCards: 12
+    targetPointCards: forcedAllPassTargetPointCards
   };
 }
 

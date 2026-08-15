@@ -156,7 +156,7 @@ int main() {
   assert(first.contract.has_value());
   assert(first.contract->napoleon_player_index == 0);
   assert(first.contract->trump_suit == napoleon::Suit::Spades);
-  assert(first.contract->target_point_cards == 12);
+  assert(first.contract->target_point_cards == 9);
 
   const napoleon::AgentIdentity current = napoleon::current_policy_agent("current");
   const napoleon::AgentIdentity rule = napoleon::rule_based_agent("rule");

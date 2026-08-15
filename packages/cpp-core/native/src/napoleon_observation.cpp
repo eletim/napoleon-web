@@ -14,8 +14,8 @@ constexpr int kEmptyBiddingActionType = -1;
 constexpr int kEmptyBiddingSuitIndex = -1;
 constexpr int kBiddingActionTypePass = 0;
 constexpr int kBiddingActionTypeBid = 1;
-constexpr int kMinBiddingTargetPointCards = 13;
-constexpr int kBiddingTargetPointCardsClassCount = 7;
+constexpr int kMinBiddingTargetPointCards = 10;
+constexpr int kBiddingTargetPointCardsClassCount = 10;
 constexpr int kCompletedTrickCardSlotCount = kTrickCount * kCardsPerTrick;
 constexpr int kSelfRoleCount = 4;
 
