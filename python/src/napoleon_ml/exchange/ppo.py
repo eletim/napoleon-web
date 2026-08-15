@@ -35,9 +35,9 @@ from .model import (
 )
 
 NON_PLAYING_RL_SAMPLE_TYPE = "non-playing-exchange-rl-sample"
-NON_PLAYING_RL_REWARD_ID = "non-playing-terminal-role-reward-v2"
+NON_PLAYING_RL_REWARD_ID = "non-playing-terminal-role-reward-v3"
 NON_PLAYING_RL_REWARD_TYPE = "non-playing-terminal-role-reward"
-NON_PLAYING_RL_REWARD_VERSION = 2
+NON_PLAYING_RL_REWARD_VERSION = 3
 EXCHANGE_PPO_ALGORITHM = "exchange-ppo-sequential-card-v1"
 EXCHANGE_ACTOR_CRITIC_MODEL_ARCHITECTURE = "exchange-separated-actor-critic-v1"
 EXCHANGE_PPO_CHECKPOINT_SCHEMA_VERSION = 1
@@ -697,7 +697,12 @@ def _validate_exchange_ppo_checkpoint(raw: dict[str, object]) -> None:
                 f"checkpoint {key} mismatch: expected {value!r}, got {raw.get(key)!r}."
             )
     reward = raw.get("reward")
-    if not isinstance(reward, dict) or reward.get("id") != NON_PLAYING_RL_REWARD_ID:
+    expected_reward = {
+        "type": NON_PLAYING_RL_REWARD_TYPE,
+        "version": NON_PLAYING_RL_REWARD_VERSION,
+        "id": NON_PLAYING_RL_REWARD_ID,
+    }
+    if not isinstance(reward, dict) or reward != expected_reward:
         raise ExchangePpoCompatibilityError("checkpoint reward metadata mismatch.")
 
 
