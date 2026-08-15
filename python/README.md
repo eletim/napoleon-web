@@ -98,9 +98,13 @@ phase PPO trainers, exports ONNX artifacts, and periodically runs a full-policy
 evaluation against the frozen `ppo-separated-v1000` playing policy. The
 candidate seat rotates over offsets `[0, 1, 2, 3, 4]`; therefore
 `--games-per-iteration` is a logical seed count and each phase runs
-`games-per-iteration * 5` actual games. Bidding opponents use the conservative
-frozen bidding baseline, while adjutant, exchange, and all playing decisions for
-non-candidate seats remain frozen.
+`games-per-iteration * 5` actual games. In bidding rollouts, the candidate is
+one learned seat and the four frozen bidding opponents are selected per game
+seat from a seeded deterministic 50:50 conservative/passive baseline mix. The
+manifest records the mix rule, policy ids, per-seat assignments, and aggregate
+seat counts. Adjutant and exchange rollouts keep the existing conservative
+frozen bidding baseline, and all playing seats remain frozen to
+`ppo-separated-v1000`.
 
 ```bash
 uv run --project python --extra dev napoleon-run-non-playing-rl \

@@ -50,10 +50,15 @@ DEFAULT_TEMPERATURE = 1.0
 DEFAULT_INFERENCE_DEVICE: Literal["cpu", "auto", "cuda"] = "cpu"
 DEFAULT_INFERENCE_MAX_BATCH_SIZE = 256
 DEFAULT_SEED = 202
-ITERATIVE_RUN_CONFIG_SCHEMA_VERSION = 2
+ITERATIVE_RUN_CONFIG_SCHEMA_VERSION = 3
 NONPLAYING_ROLLOUT_POLICY_TOPOLOGY = "candidate-x1-frozen-x4-v1"
 NONPLAYING_GAME_COUNT_UNIT = "logical-seeds"
 NONPLAYING_ROTATION_OFFSETS = [0, 1, 2, 3, 4]
+FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION = (
+    "per-seat-seeded-conservative-passive-50-50-v1"
+)
+CONSERVATIVE_BIDDING_BASELINE_ID = "conservative-bidding-v1"
+PASSIVE_BIDDING_BASELINE_ID = "passive-bidding-v1"
 ITERATION_SEED_STRIDE = 1_000_000
 PHASE_SEED_STRIDE = 100_000
 EVALUATION_SEED_OFFSET = 300_000
@@ -246,6 +251,11 @@ class NonPlayingIterativeRlRunConfig:
             ),
             "rolloutPolicyTopology": NONPLAYING_ROLLOUT_POLICY_TOPOLOGY,
             "rotationOffsets": NONPLAYING_ROTATION_OFFSETS,
+            "biddingFrozenOpponentMixRuleVersion": FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION,
+            "biddingFrozenOpponentPolicyIds": {
+                "conservative": CONSERVATIVE_BIDDING_BASELINE_ID,
+                "passive": PASSIVE_BIDDING_BASELINE_ID,
+            },
             "gamesPerShard": self.effective_games_per_shard,
             "evaluationInterval": self.evaluation_interval,
             "evaluationGames": self.evaluation_games,
@@ -454,6 +464,7 @@ def _run_iterative_iteration(
         behavior_metadata_sha256 = _sha256_file(Path(behavior_artifact["metadataPath"]))
         _validate_nonplaying_rollout_manifest(
             manifest_path,
+            phase=phase,
             expected_start_seed=rollout_seed,
             expected_game_count=config.games_per_iteration,
             expected_behavior_onnx_sha256=behavior_onnx_sha256,
@@ -1102,6 +1113,7 @@ def _validate_nonplaying_iteration_artifacts(record: dict[str, object]) -> None:
 def _validate_nonplaying_rollout_manifest(
     manifest_path: Path,
     *,
+    phase: PhaseName,
     expected_start_seed: int,
     expected_game_count: int,
     expected_behavior_onnx_sha256: str,
@@ -1131,6 +1143,43 @@ def _validate_nonplaying_rollout_manifest(
     fixed_playing = _require_dict(manifest.get("fixedPlayingPolicy"), "manifest.fixedPlayingPolicy")
     if fixed_playing.get("artifactId") != expected_playing_artifact_id:
         raise NonPlayingRlOrchestratorError("rollout fixed playing artifact mismatch.")
+    if phase == "bidding":
+        _validate_frozen_bidding_opponent_mix(manifest, expected_game_count)
+
+
+def _validate_frozen_bidding_opponent_mix(
+    manifest: dict[str, object],
+    expected_game_count: int,
+) -> None:
+    non_learning = _require_dict(manifest.get("nonLearningAgents"), "manifest.nonLearningAgents")
+    bidding = _require_dict(non_learning.get("bidding"), "manifest.nonLearningAgents.bidding")
+    if bidding.get("type") != "mixed-frozen-bidding":
+        raise NonPlayingRlOrchestratorError("rollout frozen bidding mix metadata mismatch.")
+    if bidding.get("mixingRuleVersion") != FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION:
+        raise NonPlayingRlOrchestratorError("rollout frozen bidding mix rule mismatch.")
+    policies = _require_dict(bidding.get("policies"), "manifest.nonLearningAgents.bidding.policies")
+    conservative = _require_dict(policies.get("conservative"), "bidding.policies.conservative")
+    passive = _require_dict(policies.get("passive"), "bidding.policies.passive")
+    if conservative.get("id") != CONSERVATIVE_BIDDING_BASELINE_ID:
+        raise NonPlayingRlOrchestratorError("rollout conservative bidding baseline mismatch.")
+    if passive.get("id") != PASSIVE_BIDDING_BASELINE_ID:
+        raise NonPlayingRlOrchestratorError("rollout passive bidding baseline mismatch.")
+
+    diagnostics = _require_dict(manifest.get("diagnostics"), "manifest.diagnostics")
+    mix = _require_dict(
+        diagnostics.get("frozenBiddingOpponentMix"),
+        "manifest.diagnostics.frozenBiddingOpponentMix",
+    )
+    if mix.get("mixingRuleVersion") != FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION:
+        raise NonPlayingRlOrchestratorError("rollout frozen bidding diagnostics mix rule mismatch.")
+    expected_assignment_count = expected_game_count * len(NONPLAYING_ROTATION_OFFSETS) * 4
+    assignments = mix.get("seatAssignments")
+    if not isinstance(assignments, list) or len(assignments) != expected_assignment_count:
+        raise NonPlayingRlOrchestratorError("rollout frozen bidding assignment count mismatch.")
+    conservative_count = _required_int(mix.get("conservativeSeatCount"))
+    passive_count = _required_int(mix.get("passiveSeatCount"))
+    if conservative_count + passive_count != expected_assignment_count:
+        raise NonPlayingRlOrchestratorError("rollout frozen bidding mix counts mismatch.")
 
 
 def _update_latest_links(config: NonPlayingIterativeRlRunConfig, iteration: int) -> None:
@@ -1275,6 +1324,8 @@ def _validate_iterative_resume_config(
         "gamesPerIterationUnit",
         "rolloutPolicyTopology",
         "rotationOffsets",
+        "biddingFrozenOpponentMixRuleVersion",
+        "biddingFrozenOpponentPolicyIds",
         "playingPolicyOnnxSha256",
         "playingPolicyMetadataSha256",
         "playingPolicyArtifactId",

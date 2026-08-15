@@ -23,6 +23,8 @@ import type { NonPlayingPolicyOnnxMetadata, NonPlayingPolicyType } from "../../p
 import { createConstantPolicyOnnx } from "../../policy-onnx/test/testOnnxFixture.js";
 import {
   DATASET_FORMAT,
+  CONSERVATIVE_BIDDING_BASELINE_ID,
+  FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION,
   NON_PLAYING_RL_DATASET_GENERATOR_VERSION,
   NON_PLAYING_RL_DATASET_SAMPLE_TYPE,
   NON_PLAYING_RL_PHASE_SCOPE,
@@ -30,6 +32,7 @@ import {
   NON_PLAYING_RL_REWARD_TYPE,
   NON_PLAYING_RL_REWARD_VERSION,
   NON_PLAYING_RL_SAMPLING_ALGORITHM,
+  PASSIVE_BIDDING_BASELINE_ID,
   calculateNonPlayingAdjutantLogProbability,
   calculateNonPlayingBiddingLogProbability,
   calculateNonPlayingExchangeLogProbability,
@@ -37,6 +40,7 @@ import {
   generateNonPlayingAdjutantRlDataset,
   generateNonPlayingBiddingRlDataset,
   generateNonPlayingExchangeRlDataset,
+  selectFrozenBiddingOpponentPolicy,
   validateNonPlayingAdjutantRlDatasetManifest,
   validateNonPlayingAdjutantRlSample,
   validateNonPlayingBiddingRlSample,
@@ -158,8 +162,19 @@ describe("generateNonPlayingBiddingRlDataset", () => {
       expect(progressEvents.at(-1)?.sampleCount).toBe(manifest.sampleCount);
       expect(progressEvents.at(-1)?.completedShards).toBe(manifest.shardCount);
       expect(manifest.nonLearningAgents.bidding).toMatchObject({
-        type: "conservative-bidding",
-        id: "conservative-bidding-v1"
+        type: "mixed-frozen-bidding",
+        mixingRuleVersion: FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION,
+        selectionUnit: "game-seat",
+        policies: {
+          conservative: {
+            type: "conservative-bidding",
+            id: CONSERVATIVE_BIDDING_BASELINE_ID
+          },
+          passive: {
+            type: "passive-bidding",
+            id: PASSIVE_BIDDING_BASELINE_ID
+          }
+        }
       });
       expect(manifest.diagnostics).toMatchObject({
         candidateSeatCount: 1,
@@ -174,6 +189,28 @@ describe("generateNonPlayingBiddingRlDataset", () => {
         (manifest.diagnostics?.bidding?.passCount ?? 0) +
           (manifest.diagnostics?.bidding?.bidCount ?? 0)
       ).toBe(samples.length);
+      const opponentMix = manifest.diagnostics?.frozenBiddingOpponentMix;
+      expect(opponentMix).toMatchObject({
+        type: "mixed-frozen-bidding",
+        mixingRuleVersion: FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION
+      });
+      expect(opponentMix?.seatAssignments).toHaveLength(manifest.actualGameCount * 4);
+      expect(
+        (opponentMix?.conservativeSeatCount ?? 0) + (opponentMix?.passiveSeatCount ?? 0)
+      ).toBe(opponentMix?.seatAssignments.length);
+      expect(opponentMix?.conservativeSeatCount).toBeGreaterThan(0);
+      expect(opponentMix?.passiveSeatCount).toBeGreaterThan(0);
+      for (const assignment of opponentMix?.seatAssignments ?? []) {
+        expect(assignment.playerIndex).not.toBe(assignment.candidateSeatIndex);
+        expect(assignment.rotationOffset).toBe(assignment.candidateSeatIndex);
+        expect(assignment.policy).toEqual(
+          selectFrozenBiddingOpponentPolicy({
+            seed: assignment.seed,
+            candidateSeatIndex: assignment.candidateSeatIndex,
+            playerIndex: assignment.playerIndex
+          })
+        );
+      }
 
       const playerDecisionCounts = new Map<string, number>();
       for (const sample of samples) {

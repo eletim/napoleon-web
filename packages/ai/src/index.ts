@@ -6,6 +6,8 @@ export {
   evaluateHandForTrump,
   getConservativeBidLimitForScore,
   getBidLimitForScore,
+  getPassiveBidLimitForScore,
+  PassiveBiddingAgent,
   RuleBasedAgent,
   selectAdjutantCardId,
   selectDiscardCardIds

@@ -26,7 +26,9 @@ import {
   estimateLeadWinProbability,
   evaluateCardForTrump,
   getBidLimitForScore,
+  getPassiveBidLimitForScore,
   NoLegalActionsError,
+  PassiveBiddingAgent,
   RandomAgent,
   RuleBasedAgent,
   runAutomatedGame,
@@ -325,6 +327,33 @@ describe("RuleBasedAgent bidding", () => {
 
     expect(conservative.bidCount).toBeGreaterThan(0);
     expect(conservative.passRate).toBeGreaterThan(ruleBased.passRate + 0.1);
+  });
+
+  it("uses a passive bidding baseline above conservative but still bids strong hands", async () => {
+    expect(getPassiveBidLimitForScore(329)).toBeNull();
+    expect(getPassiveBidLimitForScore(330)).toBe(13);
+    expect(getPassiveBidLimitForScore(405)).toBe(14);
+
+    const state = createInitialGame({ rng: () => 0 });
+    const playerId = state.currentPlayerId;
+    const passiveAgent = new PassiveBiddingAgent(() => 0);
+    await expect(
+      passiveAgent.selectAction({
+        playerId,
+        view: withSelfHand(createPlayerView(state, playerId), playerId, strongSpadeHand()),
+        legalActions: [
+          { type: "pass", playerId },
+          { type: "bid", playerId, suit: "spades", targetPointCards: 13 }
+        ]
+      })
+    ).resolves.toEqual({ type: "bid", playerId, suit: "spades", targetPointCards: 13 });
+
+    const conservative = await countBiddingActions((rng) => new ConservativeBiddingAgent(rng));
+    const passive = await countBiddingActions((rng) => new PassiveBiddingAgent(rng));
+
+    expect(passive.bidCount).toBeGreaterThan(0);
+    expect(passive.passRate).toBeGreaterThan(conservative.passRate + 0.05);
+    expect(passive.passRate).toBeLessThan(1);
   });
 });
 
