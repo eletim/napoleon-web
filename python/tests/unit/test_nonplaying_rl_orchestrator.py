@@ -453,7 +453,18 @@ def test_iterative_resume_rejects_pre_mix_schema(tmp_path: Path) -> None:
         )
 
 
-def test_iterative_resume_rejects_reward_v1_config(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("legacy_version", "legacy_id"),
+    [
+        (1, "non-playing-terminal-role-reward-v1"),
+        (2, "non-playing-terminal-role-reward-v2"),
+    ],
+)
+def test_iterative_resume_rejects_older_reward_config(
+    tmp_path: Path,
+    legacy_version: int,
+    legacy_id: str,
+) -> None:
     playing_onnx = tmp_path / "playing.onnx"
     playing_metadata = tmp_path / "playing.json"
     playing_onnx.write_bytes(b"playing-onnx")
@@ -468,8 +479,8 @@ def test_iterative_resume_rejects_reward_v1_config(tmp_path: Path) -> None:
     legacy_config = dict(requested_config)
     legacy_config["reward"] = {
         "type": NONPLAYING_REWARD_TYPE,
-        "version": 1,
-        "id": "non-playing-terminal-role-reward-v1",
+        "version": legacy_version,
+        "id": legacy_id,
     }
 
     with pytest.raises(NonPlayingRlOrchestratorError, match="reward"):

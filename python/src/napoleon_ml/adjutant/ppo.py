@@ -35,9 +35,9 @@ from .model import (
 )
 
 NON_PLAYING_RL_SAMPLE_TYPE = "non-playing-adjutant-rl-sample"
-NON_PLAYING_RL_REWARD_ID = "non-playing-terminal-role-reward-v2"
+NON_PLAYING_RL_REWARD_ID = "non-playing-terminal-role-reward-v3"
 NON_PLAYING_RL_REWARD_TYPE = "non-playing-terminal-role-reward"
-NON_PLAYING_RL_REWARD_VERSION = 2
+NON_PLAYING_RL_REWARD_VERSION = 3
 ADJUTANT_PPO_ALGORITHM = "adjutant-ppo-separated-v1"
 ADJUTANT_ACTOR_CRITIC_MODEL_ARCHITECTURE = "adjutant-separated-actor-critic-v1"
 ADJUTANT_PPO_CHECKPOINT_SCHEMA_VERSION = 1
@@ -692,7 +692,12 @@ def _validate_adjutant_ppo_checkpoint(raw: dict[str, object]) -> None:
                 f"checkpoint {key} mismatch: expected {value!r}, got {raw.get(key)!r}."
             )
     reward = raw.get("reward")
-    if not isinstance(reward, dict) or reward.get("id") != NON_PLAYING_RL_REWARD_ID:
+    expected_reward = {
+        "type": NON_PLAYING_RL_REWARD_TYPE,
+        "version": NON_PLAYING_RL_REWARD_VERSION,
+        "id": NON_PLAYING_RL_REWARD_ID,
+    }
+    if not isinstance(reward, dict) or reward != expected_reward:
         raise AdjutantPpoCompatibilityError("checkpoint reward metadata mismatch.")
 
 

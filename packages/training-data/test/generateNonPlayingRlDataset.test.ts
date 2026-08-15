@@ -338,8 +338,8 @@ describe("generateNonPlayingBiddingRlDataset", () => {
     });
   });
 
-  it("calculates terminal role rewards from the v2 reward table", () => {
-    expectReward({ winner: "napoleon-team", targetPointCards: 13, actingPlayerRole: "napoleon" }, 39);
+  it("calculates terminal role rewards from the v3 reward table", () => {
+    expectReward({ winner: "napoleon-team", targetPointCards: 13, actingPlayerRole: "napoleon" }, 26);
     expectReward({ winner: "alliance", targetPointCards: 13, actingPlayerRole: "napoleon" }, -5);
     expectReward({ winner: "napoleon-team", targetPointCards: 13, actingPlayerRole: "adjutant" }, 13);
     expectReward({ winner: "alliance", targetPointCards: 13, actingPlayerRole: "adjutant" }, 0);
@@ -349,22 +349,22 @@ describe("generateNonPlayingBiddingRlDataset", () => {
       winner: "napoleon-team",
       targetPointCards: 13,
       actingPlayerRole: "napoleon-adjutant"
-    }, 52);
+    }, 39);
     expectReward({
       winner: "alliance",
       targetPointCards: 13,
       actingPlayerRole: "napoleon-adjutant"
     }, -5);
 
-    expectReward({ winner: "napoleon-team", targetPointCards: 19, actingPlayerRole: "napoleon" }, 57);
+    expectReward({ winner: "napoleon-team", targetPointCards: 19, actingPlayerRole: "napoleon" }, 38);
     expectReward({ winner: "napoleon-team", targetPointCards: 19, actingPlayerRole: "adjutant" }, 19);
     expectReward({ winner: "napoleon-team", targetPointCards: 19, actingPlayerRole: "citizen" }, 19);
     expectReward({
       winner: "napoleon-team",
       targetPointCards: 19,
       actingPlayerRole: "napoleon-adjutant"
-    }, 76);
-    expectReward({ winner: "napoleon-team", targetPointCards: 12, actingPlayerRole: "napoleon" }, 36);
+    }, 57);
+    expectReward({ winner: "napoleon-team", targetPointCards: 12, actingPlayerRole: "napoleon" }, 24);
     expectReward({ winner: "alliance", targetPointCards: 12, actingPlayerRole: "napoleon" }, -5);
   });
 

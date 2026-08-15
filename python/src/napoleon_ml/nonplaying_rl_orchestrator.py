@@ -55,8 +55,8 @@ NONPLAYING_ROLLOUT_POLICY_TOPOLOGY = "candidate-x1-frozen-x4-v1"
 NONPLAYING_GAME_COUNT_UNIT = "logical-seeds"
 NONPLAYING_ROTATION_OFFSETS = [0, 1, 2, 3, 4]
 NONPLAYING_REWARD_TYPE = "non-playing-terminal-role-reward"
-NONPLAYING_REWARD_VERSION = 2
-NONPLAYING_REWARD_ID = "non-playing-terminal-role-reward-v2"
+NONPLAYING_REWARD_VERSION = 3
+NONPLAYING_REWARD_ID = "non-playing-terminal-role-reward-v3"
 FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION = (
     "per-seat-seeded-conservative-passive-50-50-v1"
 )
