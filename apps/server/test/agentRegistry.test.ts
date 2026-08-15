@@ -12,14 +12,17 @@ import {
 import {
   ADJUTANT_ENCODER_SCHEMA_VERSION,
   ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
+  ADJUTANT_MODEL_INPUT_SCHEMA_VERSION,
   BIDDING_ACTION_COUNT,
   BIDDING_ENCODER_SCHEMA_VERSION,
   BIDDING_MODEL_INPUT_FEATURE_COUNT,
+  BIDDING_MODEL_INPUT_SCHEMA_VERSION,
   CARD_COUNT,
   DATASET_SCHEMA_VERSION,
   EXCHANGE_DECISION_MODE_SEQUENTIAL_CARD,
   EXCHANGE_ENCODER_SCHEMA_VERSION,
   EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
+  EXCHANGE_MODEL_INPUT_SCHEMA_VERSION,
   MODEL_INPUT_FEATURE_COUNT,
   MODEL_INPUT_SCHEMA_VERSION,
   MULTIPHASE_DATASET_SCHEMA_VERSION,
@@ -529,21 +532,21 @@ function createNonPlayingMetadata(
     bidding: {
       artifactType: "napoleon-bidding-policy-onnx",
       encoderSchemaVersion: BIDDING_ENCODER_SCHEMA_VERSION,
-      modelInputSchemaVersion: 1,
+      modelInputSchemaVersion: BIDDING_MODEL_INPUT_SCHEMA_VERSION,
       modelInputFeatureCount: BIDDING_MODEL_INPUT_FEATURE_COUNT,
       outputCount: BIDDING_ACTION_COUNT
     },
     adjutant: {
       artifactType: "napoleon-adjutant-policy-onnx",
       encoderSchemaVersion: ADJUTANT_ENCODER_SCHEMA_VERSION,
-      modelInputSchemaVersion: 1,
+      modelInputSchemaVersion: ADJUTANT_MODEL_INPUT_SCHEMA_VERSION,
       modelInputFeatureCount: ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
       outputCount: CARD_COUNT
     },
     exchange: {
       artifactType: "napoleon-exchange-policy-onnx",
       encoderSchemaVersion: EXCHANGE_ENCODER_SCHEMA_VERSION,
-      modelInputSchemaVersion: 2,
+      modelInputSchemaVersion: EXCHANGE_MODEL_INPUT_SCHEMA_VERSION,
       modelInputFeatureCount: EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
       outputCount: CARD_COUNT,
       discardCount: 3,

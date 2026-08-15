@@ -33,7 +33,7 @@ def _write_single_shard_dataset(directory: Path) -> None:
     manifest = {
         "datasetSchemaVersion": 1,
         "generatorVersion": 1,
-        "playingEncoderSchemaVersion": 2,
+        "playingEncoderSchemaVersion": 3,
         "format": "jsonl",
         "sampleType": "playing-training-sample",
         "agent": {"type": "rule-based", "version": 1},

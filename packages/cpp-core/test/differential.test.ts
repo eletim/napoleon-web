@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import assert from "node:assert/strict";
 import {
@@ -321,6 +321,7 @@ function writeDifferentialCase(name: string, seed: number, script: readonly stri
   const slug = name.replaceAll(/[^a-zA-Z0-9]+/g, "-").replaceAll(/^-|-$/g, "").toLowerCase();
   const caseDir = resolve(".differential", slug);
 
+  rmSync(caseDir, { recursive: true, force: true });
   mkdirSync(caseDir, { recursive: true });
   writeFileSync(resolve(caseDir, "actions.txt"), `${script.join("\n")}\n`);
   writeFileSync(resolve(caseDir, "expected.json"), `${JSON.stringify(tsSnapshot)}\n`);

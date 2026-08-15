@@ -2,8 +2,9 @@ import { suits } from "./deck.js";
 import { GameRuleError } from "./errors.js";
 import type { Bid, GameAction, PlayerId, Suit } from "./types.js";
 
-export const minBidTargetPointCards = 13;
+export const minBidTargetPointCards = 10;
 export const maxBidTargetPointCards = 19;
+export const forcedAllPassTargetPointCards = 9;
 
 export const biddingSuitPriority: Record<Suit, number> = {
   clubs: 0,
@@ -39,7 +40,10 @@ export function validateBidRange(targetPointCards: number): void {
     targetPointCards < minBidTargetPointCards ||
     targetPointCards > maxBidTargetPointCards
   ) {
-    throw new GameRuleError("INVALID_BID", "Bid target must be between 13 and 19.");
+    throw new GameRuleError(
+      "INVALID_BID",
+      `Bid target must be between ${minBidTargetPointCards} and ${maxBidTargetPointCards}.`
+    );
   }
 }
 

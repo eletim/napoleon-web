@@ -138,7 +138,7 @@ describe("createExchangeTrainingSample", () => {
 
         expect(sample.step).toBe(sourceDecision.step);
         expect(sample.relativePlayerIds[0]).toBe(sourceDecision.playerId);
-        expect(sample.observation.contractTargetPointCards).toBeGreaterThanOrEqual(12);
+        expect(sample.observation.contractTargetPointCards).toBeGreaterThanOrEqual(9);
         expect(sample.observation.contractTargetPointCards).toBeLessThanOrEqual(19);
         expect(sum(sample.observation.selfHandMask)).toBe(13);
         expect(sample.observation.legalDiscardCardMask).toHaveLength(CARD_COUNT);
@@ -150,7 +150,7 @@ describe("createExchangeTrainingSample", () => {
     }
   });
 
-  it("encodes the automatic all-pass contract target 12 with public pass history", async () => {
+  it("encodes the automatic all-pass contract target 9 with public pass history", async () => {
     const record = await runAutomatedGame({
       seed: smokeSeed,
       createAgent: ({ rng }) => new PassThenRuleBasedAgent(rng)
@@ -158,7 +158,7 @@ describe("createExchangeTrainingSample", () => {
     const sample = createExchangeTrainingSamples(record)[0];
 
     expect(sample).toBeDefined();
-    expect(sample.observation.contractTargetPointCards).toBe(12);
+    expect(sample.observation.contractTargetPointCards).toBe(9);
     expect(sum(sample.observation.biddingHistory.actionMask)).toBe(5);
     expect(sample.observation.biddingHistory.actionTypeIndices.slice(0, 5)).toEqual(
       Array(5).fill(BIDDING_ACTION_TYPE_PASS)

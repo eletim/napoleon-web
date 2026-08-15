@@ -663,9 +663,21 @@ describe("game-core", () => {
     const state = createInitialGame({ rng: noShuffle });
     const actions = getLegalActions(state, "player-0");
 
-    expect(actions).toHaveLength(29);
+    expect(actions).toHaveLength(41);
     expect(actions[0]).toEqual({ type: "pass", playerId: "player-0" });
-    expect(actions.filter((action) => action.type === "bid")).toHaveLength(28);
+    expect(actions.filter((action) => action.type === "bid")).toHaveLength(40);
+    expect(actions).toContainEqual({
+      type: "bid",
+      playerId: "player-0",
+      suit: "clubs",
+      targetPointCards: 10
+    });
+    expect(actions).not.toContainEqual({
+      type: "bid",
+      playerId: "player-0",
+      suit: "spades",
+      targetPointCards: 9
+    });
     expect(getLegalActions(state, "player-1")).toEqual([]);
   });
 
@@ -732,7 +744,7 @@ describe("game-core", () => {
           type: "bid",
           playerId: "player-0",
           suit: "spades",
-          targetPointCards: 12
+          targetPointCards: 9
         }),
       "INVALID_BID"
     );
@@ -859,7 +871,7 @@ describe("game-core", () => {
     });
   });
 
-  it("creates a special spades-12 contract when everyone passes", () => {
+  it("creates a special spades-9 contract when everyone passes", () => {
     const state = Array.from({ length: 5 }).reduce<GameState>(
       (current) => applyAction(current, { type: "pass", playerId: current.currentPlayerId }),
       createInitialGame({ rng: noShuffle })
@@ -869,7 +881,7 @@ describe("game-core", () => {
     expect(state.contract).toEqual({
       napoleonPlayerId: "player-0",
       trumpSuit: "spades",
-      targetPointCards: 12
+      targetPointCards: 9
     });
     expect(state.trumpSuit).toBe("spades");
     expect(state.currentPlayerId).toBe("player-0");
@@ -2494,7 +2506,7 @@ describe("game-core", () => {
     expect(view.contract).toEqual({
       napoleonPlayerId: "player-0",
       trumpSuit: "spades",
-      targetPointCards: 12
+      targetPointCards: 9
     });
     expect(view.bidding).toBeNull();
     expect(view.trumpSuit).toBe("spades");

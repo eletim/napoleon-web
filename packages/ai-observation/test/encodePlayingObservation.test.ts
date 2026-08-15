@@ -419,7 +419,7 @@ function createPlayingFixtureState(currentPlayerId: PlayerId, adjutant: Adjutant
     contract: {
       napoleonPlayerId: "player-0",
       trumpSuit: "spades",
-      targetPointCards: 12
+      targetPointCards: 9
     },
     adjutant,
     bidding: null,

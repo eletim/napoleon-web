@@ -60,13 +60,13 @@ struct CompletedTrick {
 struct Bid {
   int player_index = 0;
   Suit suit = Suit::Spades;
-  int target_point_cards = 13;
+  int target_point_cards = 10;
 };
 
 struct Contract {
   int napoleon_player_index = 0;
   Suit trump_suit = Suit::Spades;
-  int target_point_cards = 13;
+  int target_point_cards = 10;
 };
 
 struct AdjutantState {

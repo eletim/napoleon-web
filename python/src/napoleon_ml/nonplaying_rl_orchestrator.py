@@ -50,18 +50,24 @@ DEFAULT_TEMPERATURE = 1.0
 DEFAULT_INFERENCE_DEVICE: Literal["cpu", "auto", "cuda"] = "cpu"
 DEFAULT_INFERENCE_MAX_BATCH_SIZE = 256
 DEFAULT_SEED = 202
-ITERATIVE_RUN_CONFIG_SCHEMA_VERSION = 4
+ITERATIVE_RUN_CONFIG_SCHEMA_VERSION = 5
 NONPLAYING_ROLLOUT_POLICY_TOPOLOGY = "candidate-x1-frozen-x4-v1"
 NONPLAYING_GAME_COUNT_UNIT = "logical-seeds"
 NONPLAYING_ROTATION_OFFSETS = [0, 1, 2, 3, 4]
+NONPLAYING_GAME_RULE = {
+    "id": "bidding-10-19-all-pass-9-v1",
+    "biddingMinTargetPointCards": 10,
+    "biddingMaxTargetPointCards": 19,
+    "allPassForcedTargetPointCards": 9,
+}
 NONPLAYING_REWARD_TYPE = "non-playing-terminal-role-reward"
 NONPLAYING_REWARD_VERSION = 3
 NONPLAYING_REWARD_ID = "non-playing-terminal-role-reward-v3"
 FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION = (
-    "per-seat-seeded-conservative-passive-50-50-v1"
+    "per-seat-seeded-conservative-passive-50-50-v2"
 )
-CONSERVATIVE_BIDDING_BASELINE_ID = "conservative-bidding-v1"
-PASSIVE_BIDDING_BASELINE_ID = "passive-bidding-v1"
+CONSERVATIVE_BIDDING_BASELINE_ID = "conservative-bidding-v2"
+PASSIVE_BIDDING_BASELINE_ID = "passive-bidding-v2"
 ITERATION_SEED_STRIDE = 1_000_000
 PHASE_SEED_STRIDE = 100_000
 EVALUATION_SEED_OFFSET = 300_000
@@ -259,6 +265,7 @@ class NonPlayingIterativeRlRunConfig:
             ),
             "rolloutPolicyTopology": NONPLAYING_ROLLOUT_POLICY_TOPOLOGY,
             "rotationOffsets": NONPLAYING_ROTATION_OFFSETS,
+            "gameRule": NONPLAYING_GAME_RULE,
             "reward": {
                 "type": NONPLAYING_REWARD_TYPE,
                 "version": NONPLAYING_REWARD_VERSION,
@@ -594,6 +601,7 @@ def _run_iterative_iteration(
         "actualGamesPerIteration": config.games_per_iteration * len(NONPLAYING_ROTATION_OFFSETS),
         "rolloutPolicyTopology": NONPLAYING_ROLLOUT_POLICY_TOPOLOGY,
         "rotationOffsets": NONPLAYING_ROTATION_OFFSETS,
+        "gameRule": NONPLAYING_GAME_RULE,
         "reward": {
             "type": NONPLAYING_REWARD_TYPE,
             "version": NONPLAYING_REWARD_VERSION,
@@ -1153,6 +1161,8 @@ def _validate_nonplaying_rollout_manifest(
         raise NonPlayingRlOrchestratorError("rollout manifest policy topology mismatch.")
     if manifest.get("rotationOffsets") != NONPLAYING_ROTATION_OFFSETS:
         raise NonPlayingRlOrchestratorError("rollout manifest rotationOffsets mismatch.")
+    if manifest.get("gameRule") != NONPLAYING_GAME_RULE:
+        raise NonPlayingRlOrchestratorError("rollout manifest gameRule mismatch.")
     reward = _require_dict(manifest.get("reward"), "manifest.reward")
     if (
         reward.get("type") != NONPLAYING_REWARD_TYPE
@@ -1349,6 +1359,7 @@ def _validate_iterative_resume_config(
         "gamesPerIterationUnit",
         "rolloutPolicyTopology",
         "rotationOffsets",
+        "gameRule",
         "reward",
         "biddingFrozenOpponentMixRuleVersion",
         "biddingFrozenOpponentPolicyIds",

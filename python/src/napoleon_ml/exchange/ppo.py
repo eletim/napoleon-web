@@ -38,6 +38,12 @@ NON_PLAYING_RL_SAMPLE_TYPE = "non-playing-exchange-rl-sample"
 NON_PLAYING_RL_REWARD_ID = "non-playing-terminal-role-reward-v3"
 NON_PLAYING_RL_REWARD_TYPE = "non-playing-terminal-role-reward"
 NON_PLAYING_RL_REWARD_VERSION = 3
+NON_PLAYING_RL_GAME_RULE = {
+    "id": "bidding-10-19-all-pass-9-v1",
+    "biddingMinTargetPointCards": 10,
+    "biddingMaxTargetPointCards": 19,
+    "allPassForcedTargetPointCards": 9,
+}
 EXCHANGE_PPO_ALGORITHM = "exchange-ppo-sequential-card-v1"
 EXCHANGE_ACTOR_CRITIC_MODEL_ARCHITECTURE = "exchange-separated-actor-critic-v1"
 EXCHANGE_PPO_CHECKPOINT_SCHEMA_VERSION = 1
@@ -197,6 +203,8 @@ def load_non_playing_exchange_rl_manifest(
         raise ExchangePpoCompatibilityError("manifest actionCount mismatch.")
     if raw.get("cardIdsSha256") != calculate_card_ids_sha256():
         raise ExchangePpoCompatibilityError("manifest cardIdsSha256 mismatch.")
+    if raw.get("gameRule") != NON_PLAYING_RL_GAME_RULE:
+        raise ExchangePpoCompatibilityError("manifest gameRule metadata mismatch.")
 
     reward = _require_dict(raw.get("reward"), "manifest.reward")
     if (
