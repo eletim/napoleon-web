@@ -253,7 +253,7 @@ def _write_rl_dataset(directory: Path) -> Path:
         "temperature": 1.0,
         "reward": {
             "type": "non-playing-terminal-role-reward",
-            "version": 1,
+            "version": 2,
             "id": NON_PLAYING_RL_REWARD_ID,
         },
         "nonLearningAgents": {

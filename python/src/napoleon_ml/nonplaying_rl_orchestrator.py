@@ -50,10 +50,13 @@ DEFAULT_TEMPERATURE = 1.0
 DEFAULT_INFERENCE_DEVICE: Literal["cpu", "auto", "cuda"] = "cpu"
 DEFAULT_INFERENCE_MAX_BATCH_SIZE = 256
 DEFAULT_SEED = 202
-ITERATIVE_RUN_CONFIG_SCHEMA_VERSION = 3
+ITERATIVE_RUN_CONFIG_SCHEMA_VERSION = 4
 NONPLAYING_ROLLOUT_POLICY_TOPOLOGY = "candidate-x1-frozen-x4-v1"
 NONPLAYING_GAME_COUNT_UNIT = "logical-seeds"
 NONPLAYING_ROTATION_OFFSETS = [0, 1, 2, 3, 4]
+NONPLAYING_REWARD_TYPE = "non-playing-terminal-role-reward"
+NONPLAYING_REWARD_VERSION = 2
+NONPLAYING_REWARD_ID = "non-playing-terminal-role-reward-v2"
 FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION = (
     "per-seat-seeded-conservative-passive-50-50-v1"
 )
@@ -146,6 +149,11 @@ class NonPlayingRlRunConfig:
             "valueLossCoefficient": self.value_loss_coefficient,
             "seed": self.seed,
             "temperature": self.temperature,
+            "reward": {
+                "type": NONPLAYING_REWARD_TYPE,
+                "version": NONPLAYING_REWARD_VERSION,
+                "id": NONPLAYING_REWARD_ID,
+            },
             "inferenceDevice": self.inference_device,
             "inferenceMaxBatchSize": self.inference_max_batch_size,
             "playingPolicyOnnx": str(self.playing_policy_onnx),
@@ -251,6 +259,11 @@ class NonPlayingIterativeRlRunConfig:
             ),
             "rolloutPolicyTopology": NONPLAYING_ROLLOUT_POLICY_TOPOLOGY,
             "rotationOffsets": NONPLAYING_ROTATION_OFFSETS,
+            "reward": {
+                "type": NONPLAYING_REWARD_TYPE,
+                "version": NONPLAYING_REWARD_VERSION,
+                "id": NONPLAYING_REWARD_ID,
+            },
             "biddingFrozenOpponentMixRuleVersion": FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION,
             "biddingFrozenOpponentPolicyIds": {
                 "conservative": CONSERVATIVE_BIDDING_BASELINE_ID,
@@ -581,6 +594,11 @@ def _run_iterative_iteration(
         "actualGamesPerIteration": config.games_per_iteration * len(NONPLAYING_ROTATION_OFFSETS),
         "rolloutPolicyTopology": NONPLAYING_ROLLOUT_POLICY_TOPOLOGY,
         "rotationOffsets": NONPLAYING_ROTATION_OFFSETS,
+        "reward": {
+            "type": NONPLAYING_REWARD_TYPE,
+            "version": NONPLAYING_REWARD_VERSION,
+            "id": NONPLAYING_REWARD_ID,
+        },
         "evaluationDue": evaluation_summary is not None,
         "evaluation": evaluation_summary,
         "evaluationPath": evaluation_path,
@@ -1135,6 +1153,13 @@ def _validate_nonplaying_rollout_manifest(
         raise NonPlayingRlOrchestratorError("rollout manifest policy topology mismatch.")
     if manifest.get("rotationOffsets") != NONPLAYING_ROTATION_OFFSETS:
         raise NonPlayingRlOrchestratorError("rollout manifest rotationOffsets mismatch.")
+    reward = _require_dict(manifest.get("reward"), "manifest.reward")
+    if (
+        reward.get("type") != NONPLAYING_REWARD_TYPE
+        or reward.get("version") != NONPLAYING_REWARD_VERSION
+        or reward.get("id") != NONPLAYING_REWARD_ID
+    ):
+        raise NonPlayingRlOrchestratorError("rollout manifest reward metadata mismatch.")
     behavior = _require_dict(manifest.get("behaviorPolicy"), "manifest.behaviorPolicy")
     if behavior.get("onnxSha256") != expected_behavior_onnx_sha256:
         raise NonPlayingRlOrchestratorError("rollout behavior ONNX SHA mismatch.")
@@ -1324,6 +1349,7 @@ def _validate_iterative_resume_config(
         "gamesPerIterationUnit",
         "rolloutPolicyTopology",
         "rotationOffsets",
+        "reward",
         "biddingFrozenOpponentMixRuleVersion",
         "biddingFrozenOpponentPolicyIds",
         "playingPolicyOnnxSha256",

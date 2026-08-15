@@ -35,9 +35,9 @@ from .model import (
 )
 
 NON_PLAYING_RL_SAMPLE_TYPE = "non-playing-bidding-rl-sample"
-NON_PLAYING_RL_REWARD_ID = "non-playing-terminal-role-reward-v1"
+NON_PLAYING_RL_REWARD_ID = "non-playing-terminal-role-reward-v2"
 NON_PLAYING_RL_REWARD_TYPE = "non-playing-terminal-role-reward"
-NON_PLAYING_RL_REWARD_VERSION = 1
+NON_PLAYING_RL_REWARD_VERSION = 2
 BIDDING_PPO_ALGORITHM = "bidding-ppo-separated-v1"
 BIDDING_ACTOR_CRITIC_MODEL_ARCHITECTURE = "bidding-separated-actor-critic-v1"
 BIDDING_PPO_CHECKPOINT_SCHEMA_VERSION = 1

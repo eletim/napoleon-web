@@ -70,8 +70,8 @@ export const PASSIVE_BIDDING_BASELINE_ID = "passive-bidding-v1" as const;
 export const FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION =
   "per-seat-seeded-conservative-passive-50-50-v1" as const;
 export const NON_PLAYING_RL_REWARD_TYPE = "non-playing-terminal-role-reward" as const;
-export const NON_PLAYING_RL_REWARD_VERSION = 1 as const;
-export const NON_PLAYING_RL_REWARD_ID = "non-playing-terminal-role-reward-v1" as const;
+export const NON_PLAYING_RL_REWARD_VERSION = 2 as const;
+export const NON_PLAYING_RL_REWARD_ID = "non-playing-terminal-role-reward-v2" as const;
 export const NON_PLAYING_RL_SAMPLING_ALGORITHM = "masked-categorical" as const;
 export const DEFAULT_NON_PLAYING_RL_TEMPERATURE = 1.0 as const;
 export const NON_PLAYING_BIDDING_RL_PHASE_SCOPE = "bidding-only" as const;
@@ -1494,13 +1494,13 @@ export function calculateNonPlayingTerminalRoleReward(
 
   switch (outcome.actingPlayerRole) {
     case "napoleon":
-      return napoleonWon ? d : -3;
+      return napoleonWon ? 3 * d : -5;
     case "adjutant":
-      return napoleonWon ? d - 7 : 0;
+      return napoleonWon ? d : 0;
     case "citizen":
-      return napoleonWon ? 7 : 0;
+      return napoleonWon ? d : 0;
     case "napoleon-adjutant":
-      return napoleonWon ? 2 * d - 7 : -3;
+      return napoleonWon ? 4 * d : -5;
   }
 }
 

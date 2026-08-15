@@ -15,6 +15,9 @@ from napoleon_ml.cli.run_nonplaying_rl import (
 from napoleon_ml.nonplaying_rl_orchestrator import (
     DEFAULT_ITERATIVE_BATCH_SIZE,
     DEFAULT_ITERATIVE_EVALUATION_GAMES,
+    NONPLAYING_REWARD_ID,
+    NONPLAYING_REWARD_TYPE,
+    NONPLAYING_REWARD_VERSION,
     NonPlayingIterativeRlRunConfig,
     NonPlayingRlOrchestratorError,
     NonPlayingRlRunConfig,
@@ -191,6 +194,11 @@ def test_iterative_nonplaying_rl_resumes_and_chains_checkpoints(
             "actualGameCount": 5,
             "rolloutPolicyTopology": "candidate-x1-frozen-x4-v1",
             "rotationOffsets": [0, 1, 2, 3, 4],
+            "reward": {
+                "type": NONPLAYING_REWARD_TYPE,
+                "version": NONPLAYING_REWARD_VERSION,
+                "id": NONPLAYING_REWARD_ID,
+            },
             "sampleCount": 1,
             "behaviorPolicy": {
                 "artifactId": kwargs["artifact_id"],
@@ -433,11 +441,38 @@ def test_iterative_resume_rejects_pre_mix_schema(tmp_path: Path) -> None:
         playing_policy_metadata=playing_metadata,
     ).file_dict()
     legacy_config = dict(requested_config)
-    legacy_config["schemaVersion"] = 2
+    legacy_config["schemaVersion"] = 3
     legacy_config.pop("biddingFrozenOpponentMixRuleVersion")
     legacy_config.pop("biddingFrozenOpponentPolicyIds")
 
     with pytest.raises(NonPlayingRlOrchestratorError, match="schemaVersion mismatch"):
+        _validate_iterative_resume_config(
+            legacy_config,
+            requested_config,
+            provided_config_keys=set(),
+        )
+
+
+def test_iterative_resume_rejects_reward_v1_config(tmp_path: Path) -> None:
+    playing_onnx = tmp_path / "playing.onnx"
+    playing_metadata = tmp_path / "playing.json"
+    playing_onnx.write_bytes(b"playing-onnx")
+    playing_metadata.write_text("{}\n", encoding="utf-8")
+    requested_config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        iterations=3,
+        games_per_iteration=1,
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    ).file_dict()
+    legacy_config = dict(requested_config)
+    legacy_config["reward"] = {
+        "type": NONPLAYING_REWARD_TYPE,
+        "version": 1,
+        "id": "non-playing-terminal-role-reward-v1",
+    }
+
+    with pytest.raises(NonPlayingRlOrchestratorError, match="reward"):
         _validate_iterative_resume_config(
             legacy_config,
             requested_config,

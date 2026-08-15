@@ -35,9 +35,9 @@ from .model import (
 )
 
 NON_PLAYING_RL_SAMPLE_TYPE = "non-playing-adjutant-rl-sample"
-NON_PLAYING_RL_REWARD_ID = "non-playing-terminal-role-reward-v1"
+NON_PLAYING_RL_REWARD_ID = "non-playing-terminal-role-reward-v2"
 NON_PLAYING_RL_REWARD_TYPE = "non-playing-terminal-role-reward"
-NON_PLAYING_RL_REWARD_VERSION = 1
+NON_PLAYING_RL_REWARD_VERSION = 2
 ADJUTANT_PPO_ALGORITHM = "adjutant-ppo-separated-v1"
 ADJUTANT_ACTOR_CRITIC_MODEL_ARCHITECTURE = "adjutant-separated-actor-critic-v1"
 ADJUTANT_PPO_CHECKPOINT_SCHEMA_VERSION = 1

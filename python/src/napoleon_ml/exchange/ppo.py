@@ -35,9 +35,9 @@ from .model import (
 )
 
 NON_PLAYING_RL_SAMPLE_TYPE = "non-playing-exchange-rl-sample"
-NON_PLAYING_RL_REWARD_ID = "non-playing-terminal-role-reward-v1"
+NON_PLAYING_RL_REWARD_ID = "non-playing-terminal-role-reward-v2"
 NON_PLAYING_RL_REWARD_TYPE = "non-playing-terminal-role-reward"
-NON_PLAYING_RL_REWARD_VERSION = 1
+NON_PLAYING_RL_REWARD_VERSION = 2
 EXCHANGE_PPO_ALGORITHM = "exchange-ppo-sequential-card-v1"
 EXCHANGE_ACTOR_CRITIC_MODEL_ARCHITECTURE = "exchange-separated-actor-critic-v1"
 EXCHANGE_PPO_CHECKPOINT_SCHEMA_VERSION = 1
