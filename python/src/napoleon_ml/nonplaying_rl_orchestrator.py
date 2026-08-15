@@ -50,6 +50,10 @@ DEFAULT_TEMPERATURE = 1.0
 DEFAULT_INFERENCE_DEVICE: Literal["cpu", "auto", "cuda"] = "cpu"
 DEFAULT_INFERENCE_MAX_BATCH_SIZE = 256
 DEFAULT_SEED = 202
+ITERATIVE_RUN_CONFIG_SCHEMA_VERSION = 2
+NONPLAYING_ROLLOUT_POLICY_TOPOLOGY = "candidate-x1-frozen-x4-v1"
+NONPLAYING_GAME_COUNT_UNIT = "logical-seeds"
+NONPLAYING_ROTATION_OFFSETS = [0, 1, 2, 3, 4]
 ITERATION_SEED_STRIDE = 1_000_000
 PHASE_SEED_STRIDE = 100_000
 EVALUATION_SEED_OFFSET = 300_000
@@ -231,11 +235,17 @@ class NonPlayingIterativeRlRunConfig:
 
     def file_dict(self) -> dict[str, object]:
         return {
-            "schemaVersion": 1,
+            "schemaVersion": ITERATIVE_RUN_CONFIG_SCHEMA_VERSION,
             "runType": "non-playing-iterative-ppo",
             "outputDir": str(self.output_dir),
             "iterations": self.iterations,
             "gamesPerIteration": self.games_per_iteration,
+            "gamesPerIterationUnit": NONPLAYING_GAME_COUNT_UNIT,
+            "actualGamesPerIteration": (
+                self.games_per_iteration * len(NONPLAYING_ROTATION_OFFSETS)
+            ),
+            "rolloutPolicyTopology": NONPLAYING_ROLLOUT_POLICY_TOPOLOGY,
+            "rotationOffsets": NONPLAYING_ROTATION_OFFSETS,
             "gamesPerShard": self.effective_games_per_shard,
             "evaluationInterval": self.evaluation_interval,
             "evaluationGames": self.evaluation_games,
@@ -422,7 +432,9 @@ def _run_iterative_iteration(
 
         print(
             f"[iter {iteration + 1}/{total}] {phase} rollout "
-            f"games={config.games_per_iteration} start_seed={rollout_seed}",
+            f"logical_seeds={config.games_per_iteration} "
+            f"actual_games={config.games_per_iteration * len(NONPLAYING_ROTATION_OFFSETS)} "
+            f"start_seed={rollout_seed}",
             flush=True,
         )
         rollout_summary = _stage(
@@ -554,6 +566,10 @@ def _run_iterative_iteration(
         "iterationIndexWidth": 6,
         "phaseOrder": ["bidding", "adjutant", "exchange"],
         "gamesPerIteration": config.games_per_iteration,
+        "gamesPerIterationUnit": NONPLAYING_GAME_COUNT_UNIT,
+        "actualGamesPerIteration": config.games_per_iteration * len(NONPLAYING_ROTATION_OFFSETS),
+        "rolloutPolicyTopology": NONPLAYING_ROLLOUT_POLICY_TOPOLOGY,
+        "rotationOffsets": NONPLAYING_ROTATION_OFFSETS,
         "evaluationDue": evaluation_summary is not None,
         "evaluation": evaluation_summary,
         "evaluationPath": evaluation_path,
@@ -1097,6 +1113,16 @@ def _validate_nonplaying_rollout_manifest(
         raise NonPlayingRlOrchestratorError("rollout manifest startSeed mismatch.")
     if manifest.get("gameCount") != expected_game_count:
         raise NonPlayingRlOrchestratorError("rollout manifest gameCount mismatch.")
+    if manifest.get("gameCountUnit") != NONPLAYING_GAME_COUNT_UNIT:
+        raise NonPlayingRlOrchestratorError("rollout manifest gameCountUnit mismatch.")
+    if manifest.get("logicalSeedCount") != expected_game_count:
+        raise NonPlayingRlOrchestratorError("rollout manifest logicalSeedCount mismatch.")
+    if manifest.get("actualGameCount") != expected_game_count * len(NONPLAYING_ROTATION_OFFSETS):
+        raise NonPlayingRlOrchestratorError("rollout manifest actualGameCount mismatch.")
+    if manifest.get("rolloutPolicyTopology") != NONPLAYING_ROLLOUT_POLICY_TOPOLOGY:
+        raise NonPlayingRlOrchestratorError("rollout manifest policy topology mismatch.")
+    if manifest.get("rotationOffsets") != NONPLAYING_ROTATION_OFFSETS:
+        raise NonPlayingRlOrchestratorError("rollout manifest rotationOffsets mismatch.")
     behavior = _require_dict(manifest.get("behaviorPolicy"), "manifest.behaviorPolicy")
     if behavior.get("onnxSha256") != expected_behavior_onnx_sha256:
         raise NonPlayingRlOrchestratorError("rollout behavior ONNX SHA mismatch.")
@@ -1144,6 +1170,10 @@ def _iteration_summary_line(record: dict[str, object]) -> dict[str, object]:
         rollout = _require_dict(phase["rollout"], f"{phase_name}.rollout")
         summary[phase_name] = {
             "sampleCount": rollout.get("sampleCount"),
+            "gameCountUnit": rollout.get("gameCountUnit"),
+            "logicalSeedCount": rollout.get("logicalSeedCount"),
+            "actualGameCount": rollout.get("actualGameCount"),
+            "diagnostics": rollout.get("diagnostics"),
             "meanReward": train.get("meanReward"),
             "meanTotalLoss": train.get("meanTotalLoss"),
             "meanValueLoss": train.get("meanValueLoss"),
@@ -1236,12 +1266,15 @@ def _validate_iterative_resume_config(
     *,
     provided_config_keys: set[str],
 ) -> None:
-    if stored_config.get("schemaVersion") != 1:
+    if stored_config.get("schemaVersion") != ITERATIVE_RUN_CONFIG_SCHEMA_VERSION:
         raise NonPlayingRlOrchestratorError("stored config schemaVersion mismatch.")
     always_check = {
         "schemaVersion",
         "runType",
         "outputDir",
+        "gamesPerIterationUnit",
+        "rolloutPolicyTopology",
+        "rotationOffsets",
         "playingPolicyOnnxSha256",
         "playingPolicyMetadataSha256",
         "playingPolicyArtifactId",

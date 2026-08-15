@@ -93,9 +93,14 @@ a non-empty output directory unless `--overwrite` is provided.
 ## Iterative non-playing PPO
 
 Pass `--iterations` to run the long-form non-playing PPO loop. Each iteration
-rolls out with the current bidding, adjutant, and exchange policies, trains the
-existing phase PPO trainers, exports ONNX artifacts, and periodically runs a
-full-policy evaluation against the frozen `ppo-separated-v1000` playing policy.
+rolls out with one candidate seat and four frozen seats, trains the existing
+phase PPO trainers, exports ONNX artifacts, and periodically runs a full-policy
+evaluation against the frozen `ppo-separated-v1000` playing policy. The
+candidate seat rotates over offsets `[0, 1, 2, 3, 4]`; therefore
+`--games-per-iteration` is a logical seed count and each phase runs
+`games-per-iteration * 5` actual games. Bidding opponents use the conservative
+frozen bidding baseline, while adjutant, exchange, and all playing decisions for
+non-candidate seats remain frozen.
 
 ```bash
 uv run --project python --extra dev napoleon-run-non-playing-rl \
@@ -111,8 +116,9 @@ uv run --project python --extra dev napoleon-run-non-playing-rl \
 ```
 
 Resume uses the stored `config.json`; the command fails closed if explicitly
-provided resume settings or policy artifact hashes do not match the original
-run:
+provided resume settings, policy topology, game-count semantics, or policy
+artifact hashes do not match the original run. Older self-play-x5 non-playing
+runs are rejected by schema version and must not be resumed with this topology:
 
 ```bash
 uv run --project python --extra dev napoleon-run-non-playing-rl \
