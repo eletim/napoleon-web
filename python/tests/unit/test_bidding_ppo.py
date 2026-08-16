@@ -227,11 +227,11 @@ def _write_rl_dataset(directory: Path) -> Path:
     shard = "".join(json.dumps(sample, separators=(",", ":")) + "\n" for sample in samples)
     (directory / "shard-00000.jsonl").write_text(shard, encoding="utf-8")
     manifest = {
-        "datasetSchemaVersion": 3,
-        "generatorVersion": 1,
+        "datasetSchemaVersion": 4,
+        "generatorVersion": 5,
         "format": "jsonl",
         "sampleType": "non-playing-bidding-rl-sample",
-        "sampleSchemaVersion": 3,
+        "sampleSchemaVersion": 4,
         "phaseScope": "bidding-only",
         "learnedPhases": ["bidding"],
         "ruleBasedPhases": ["choosing-adjutant", "exchanging"],
@@ -264,8 +264,8 @@ def _write_rl_dataset(directory: Path) -> Path:
         "terminalRewardTransform": _terminal_reward_transform(),
         "allPassRule": {
             "id": NON_PLAYING_RL_ALL_PASS_RULE_ID,
-            "starterPayoff": 1,
-            "otherPayoff": -1,
+            "starterPayoff": 0,
+            "otherPayoff": 0,
         },
         "nonLearningAgents": {
             "choosingAdjutant": {"type": "rule-based", "version": 1},

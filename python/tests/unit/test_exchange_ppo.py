@@ -59,11 +59,11 @@ def _write_zero_sample_dataset(directory: Path) -> Path:
     shard = b""
     (directory / "shard-00000.jsonl").write_bytes(shard)
     manifest = {
-        "datasetSchemaVersion": 3,
-        "generatorVersion": 1,
+        "datasetSchemaVersion": 4,
+        "generatorVersion": 5,
         "format": "jsonl",
         "sampleType": "non-playing-exchange-rl-sample",
-        "sampleSchemaVersion": 3,
+        "sampleSchemaVersion": 4,
         "phaseScope": "exchange-only",
         "learnedPhases": ["exchanging"],
         "ruleBasedPhases": ["bidding", "choosing-adjutant"],
@@ -97,8 +97,8 @@ def _write_zero_sample_dataset(directory: Path) -> Path:
         "terminalRewardTransform": _terminal_reward_transform(),
         "allPassRule": {
             "id": NON_PLAYING_RL_ALL_PASS_RULE_ID,
-            "starterPayoff": 1,
-            "otherPayoff": -1,
+            "starterPayoff": 0,
+            "otherPayoff": 0,
         },
         "nonLearningAgents": {
             "bidding": {"type": "conservative-bidding", "id": "conservative-bidding-v1"},

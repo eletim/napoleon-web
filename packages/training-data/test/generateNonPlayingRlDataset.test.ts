@@ -28,10 +28,12 @@ import {
   NON_PLAYING_RL_DATASET_GENERATOR_VERSION,
   NON_PLAYING_RL_ALL_PASS_RULE_ID,
   NON_PLAYING_RL_DATASET_SAMPLE_TYPE,
+  NON_PLAYING_RL_DATASET_SCHEMA_VERSION,
   NON_PLAYING_RL_PHASE_SCOPE,
   NON_PLAYING_RL_REWARD_ID,
   NON_PLAYING_RL_REWARD_TYPE,
   NON_PLAYING_RL_REWARD_VERSION,
+  NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION,
   NON_PLAYING_RL_SAMPLING_ALGORITHM,
   NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID,
   NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_TYPE,
@@ -118,8 +120,8 @@ describe("generateNonPlayingBiddingRlDataset", () => {
 
       expect(result.manifest).toEqual(manifest);
       validateNonPlayingRlDatasetManifest(manifest);
-      expect(manifest.datasetSchemaVersion).toBe(3);
-      expect(manifest.sampleSchemaVersion).toBe(3);
+      expect(manifest.datasetSchemaVersion).toBe(NON_PLAYING_RL_DATASET_SCHEMA_VERSION);
+      expect(manifest.sampleSchemaVersion).toBe(NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION);
       expect(manifest.generatorVersion).toBe(NON_PLAYING_RL_DATASET_GENERATOR_VERSION);
       expect(manifest.format).toBe(DATASET_FORMAT);
       expect(manifest.sampleType).toBe(NON_PLAYING_RL_DATASET_SAMPLE_TYPE);
@@ -149,8 +151,8 @@ describe("generateNonPlayingBiddingRlDataset", () => {
       });
       expect(manifest.allPassRule).toEqual({
         id: NON_PLAYING_RL_ALL_PASS_RULE_ID,
-        starterPayoff: 1,
-        otherPayoff: -1
+        starterPayoff: 0,
+        otherPayoff: 0
       });
       expect(manifest.behaviorPolicy).toMatchObject({
         type: "bidding-onnx",
@@ -245,10 +247,9 @@ describe("generateNonPlayingBiddingRlDataset", () => {
         expect(sample.legalBidMask[sample.selectedActionIndex]).toBe(1);
         assertSampleUsesRelativeReward(sample);
         if (sample.outcome.outcomeType === "all-pass") {
-          expect(sample.outcome.actingPlayerPayoff).toBe(
-            sample.actingPlayerId === sample.outcome.starterPlayerId ? 1 : -1
-          );
-          expect(sample.rawTerminalReward).toBe(sample.outcome.actingPlayerPayoff);
+          expect(sample.outcome.actingPlayerPayoff).toBe(0);
+          expect(sample.rawTerminalReward).toBe(0);
+          expect(sample.terminalReward).toBe(0);
         } else {
           expect(sample.outcome.targetPointCards).toBeGreaterThanOrEqual(13);
           expect(sample.outcome.targetPointCards).toBeLessThanOrEqual(19);
@@ -398,17 +399,17 @@ describe("generateNonPlayingBiddingRlDataset", () => {
         outcomeType: "all-pass",
         starterPlayerId: "player-0",
         actingPlayerRole: "all-pass-starter",
-        actingPlayerPayoff: 1
+        actingPlayerPayoff: 0
       })
-    ).toBe(1);
+    ).toBe(0);
     expect(
       calculateNonPlayingTerminalRoleReward({
         outcomeType: "all-pass",
         starterPlayerId: "player-0",
         actingPlayerRole: "all-pass-other",
-        actingPlayerPayoff: -1
+        actingPlayerPayoff: 0
       })
-    ).toBe(-1);
+    ).toBe(0);
   });
 
   it("calculates zero-sum relative learning rewards from raw terminal rewards", () => {
@@ -441,12 +442,10 @@ describe("generateNonPlayingBiddingRlDataset", () => {
     const allPassRewards = playerIds.map((playerId) =>
       calculateNonPlayingLearningTerminalReward(allPassResult, playerId, playerIds)
     );
-    expect(allPassRewards.map((reward) => reward.rawTerminalReward)).toEqual([
-      1, -1, -1, -1, -1
-    ]);
-    expect(allPassRewards[0].terminalReward).toBeCloseTo(1.6, 12);
-    for (const reward of allPassRewards.slice(1)) {
-      expect(reward.terminalReward).toBeCloseTo(-0.4, 12);
+    expect(allPassRewards.map((reward) => reward.rawTerminalReward)).toEqual([0, 0, 0, 0, 0]);
+    for (const reward of allPassRewards) {
+      expect(reward.gameMeanRawTerminalReward).toBe(0);
+      expect(reward.terminalReward).toBe(0);
     }
     expect(sum(allPassRewards.map((reward) => reward.terminalReward))).toBeCloseTo(0, 12);
   });
@@ -515,7 +514,7 @@ describe("generateNonPlayingBiddingRlDataset", () => {
     );
 
     expect(starterSamples).toHaveLength(1);
-    expect(starterSamples[0].rawTerminalReward).toBe(1);
+    expect(starterSamples[0].rawTerminalReward).toBe(0);
     expect(starterSamples[0].gameMeanRawTerminalReward).toBeCloseTo(
       starterReward.gameMeanRawTerminalReward,
       12
@@ -525,10 +524,10 @@ describe("generateNonPlayingBiddingRlDataset", () => {
       outcomeType: "all-pass",
       starterPlayerId: "player-0",
       actingPlayerRole: "all-pass-starter",
-      actingPlayerPayoff: 1
+      actingPlayerPayoff: 0
     });
     expect(otherSamples).toHaveLength(1);
-    expect(otherSamples[0].rawTerminalReward).toBe(-1);
+    expect(otherSamples[0].rawTerminalReward).toBe(0);
     expect(otherSamples[0].gameMeanRawTerminalReward).toBeCloseTo(
       otherReward.gameMeanRawTerminalReward,
       12
@@ -538,7 +537,7 @@ describe("generateNonPlayingBiddingRlDataset", () => {
       outcomeType: "all-pass",
       starterPlayerId: "player-0",
       actingPlayerRole: "all-pass-other",
-      actingPlayerPayoff: -1
+      actingPlayerPayoff: 0
     });
     expect(completeNonPlayingAdjutantRlSamples(record as never, [], {
       candidateSeatIndex: 0,
