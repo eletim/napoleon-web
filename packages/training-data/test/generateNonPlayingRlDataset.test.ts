@@ -38,7 +38,7 @@ import {
   NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID,
   NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_TYPE,
   NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_VERSION,
-  PASSIVE_BIDDING_BASELINE_ID,
+  RULE_BASED_BIDDING_BASELINE_ID,
   calculateNonPlayingLearningTerminalReward,
   calculateNonPlayingAdjutantLogProbability,
   calculateNonPlayingBiddingLogProbability,
@@ -188,14 +188,16 @@ describe("generateNonPlayingBiddingRlDataset", () => {
         type: "mixed-frozen-bidding",
         mixingRuleVersion: FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION,
         selectionUnit: "game-seat",
+        ruleBasedWeight: 0.5,
+        conservativeWeight: 0.5,
         policies: {
+          ruleBased: {
+            type: "rule-based-bidding",
+            id: RULE_BASED_BIDDING_BASELINE_ID
+          },
           conservative: {
             type: "conservative-bidding",
             id: CONSERVATIVE_BIDDING_BASELINE_ID
-          },
-          passive: {
-            type: "passive-bidding",
-            id: PASSIVE_BIDDING_BASELINE_ID
           }
         }
       });
@@ -220,10 +222,14 @@ describe("generateNonPlayingBiddingRlDataset", () => {
       });
       expect(opponentMix?.seatAssignments).toHaveLength(manifest.actualGameCount * 4);
       expect(
-        (opponentMix?.conservativeSeatCount ?? 0) + (opponentMix?.passiveSeatCount ?? 0)
+        (opponentMix?.ruleBasedSeatCount ?? 0) + (opponentMix?.conservativeSeatCount ?? 0)
       ).toBe(opponentMix?.seatAssignments.length);
+      expect(opponentMix?.ruleBasedSeatCount).toBeGreaterThan(0);
       expect(opponentMix?.conservativeSeatCount).toBeGreaterThan(0);
-      expect(opponentMix?.passiveSeatCount).toBeGreaterThan(0);
+      const assignmentPolicyTypes = new Set(
+        (opponentMix?.seatAssignments ?? []).map((assignment) => assignment.policy.type as string)
+      );
+      expect(assignmentPolicyTypes).toEqual(new Set(["rule-based-bidding", "conservative-bidding"]));
       for (const assignment of opponentMix?.seatAssignments ?? []) {
         expect(assignment.playerIndex).not.toBe(assignment.candidateSeatIndex);
         expect(assignment.rotationOffset).toBe(assignment.candidateSeatIndex);
@@ -277,7 +283,7 @@ describe("generateNonPlayingBiddingRlDataset", () => {
       expect(new Set(samples.map((sample) => sample.candidateSeatIndex))).toEqual(
         new Set([0, 1, 2, 3, 4])
       );
-      expect([...playerDecisionCounts.values()].every((count) => count === 1)).toBe(true);
+      expect([...playerDecisionCounts.values()].every((count) => count >= 1)).toBe(true);
       expect(samples.some((sample) => sample.selectedActionIndex > 0)).toBe(true);
 
       for (const shard of manifest.shards) {

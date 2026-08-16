@@ -221,19 +221,45 @@ def test_iterative_nonplaying_rl_resumes_and_chains_checkpoints(
             manifest["nonLearningAgents"] = {
                 "bidding": {
                     "type": "mixed-frozen-bidding",
-                    "mixingRuleVersion": "per-seat-seeded-conservative-passive-50-50-v1",
+                    "mixingRuleVersion": "per-seat-seeded-rule-based-conservative-50-50-v1",
+                    "selectionUnit": "game-seat",
+                    "ruleBasedWeight": 0.5,
+                    "conservativeWeight": 0.5,
                     "policies": {
-                        "conservative": {"id": "conservative-bidding-v1"},
-                        "passive": {"id": "passive-bidding-v1"},
+                        "ruleBased": {
+                            "type": "rule-based-bidding",
+                            "id": "rule-based-bidding-v1",
+                        },
+                        "conservative": {
+                            "type": "conservative-bidding",
+                            "id": "conservative-bidding-v1",
+                        },
                     },
                 }
             }
             manifest["diagnostics"] = {
                 "frozenBiddingOpponentMix": {
-                    "mixingRuleVersion": "per-seat-seeded-conservative-passive-50-50-v1",
+                    "mixingRuleVersion": "per-seat-seeded-rule-based-conservative-50-50-v1",
+                    "ruleBasedSeatCount": 10,
                     "conservativeSeatCount": 10,
-                    "passiveSeatCount": 10,
-                    "seatAssignments": [{} for _ in range(20)],
+                    "seatAssignments": [
+                        {
+                            "policy": {
+                                "type": "rule-based-bidding",
+                                "id": "rule-based-bidding-v1",
+                            }
+                        }
+                        for _ in range(10)
+                    ]
+                    + [
+                        {
+                            "policy": {
+                                "type": "conservative-bidding",
+                                "id": "conservative-bidding-v1",
+                            }
+                        }
+                        for _ in range(10)
+                    ],
                 }
             }
         (dataset_dir / "manifest.json").write_text(
