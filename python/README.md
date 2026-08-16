@@ -104,7 +104,10 @@ seat from a seeded deterministic 50:50 conservative/passive baseline mix. The
 manifest records the mix rule, policy ids, per-seat assignments, and aggregate
 seat counts. Adjutant and exchange rollouts keep the existing conservative
 frozen bidding baseline, and all playing seats remain frozen to
-`ppo-separated-v1000`.
+`ppo-separated-v1000`. Non-playing PPO rollouts keep raw Reward v3 and the
+all-pass raw payoff (`starter +1`, others `-1`) in the outcome metadata, then
+train on `terminalReward = rawTerminalReward - gameMeanRawTerminalReward` so
+each game's five learning rewards sum to zero.
 
 ```bash
 uv run --project python --extra dev napoleon-run-non-playing-rl \

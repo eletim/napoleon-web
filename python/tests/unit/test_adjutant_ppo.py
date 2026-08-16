@@ -14,6 +14,7 @@ from napoleon_ml.adjutant.ppo import (
     ADJUTANT_PPO_ALGORITHM,
     NON_PLAYING_RL_ALL_PASS_RULE_ID,
     NON_PLAYING_RL_REWARD_ID,
+    NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID,
     AdjutantPpoCompatibilityError,
     AdjutantPpoTrainSettings,
     adjutant_ppo_loss,
@@ -121,6 +122,9 @@ def test_adjutant_ppo_train_checkpoint_and_export_smoke(tmp_path: Path) -> None:
     assert isinstance(reward, dict)
     assert isinstance(fixed_playing_policy, dict)
     assert reward["id"] == NON_PLAYING_RL_REWARD_ID
+    assert checkpoint["terminal_reward_transform"]["id"] == (
+        NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID
+    )
     assert checkpoint["parent_actor_checkpoint_sha256"] == _sha256(parent)
     assert fixed_playing_policy["onnxSha256"] == "0" * 64
 
@@ -240,17 +244,30 @@ def test_adjutant_ppo_loader_rejects_missing_all_pass_rule(tmp_path: Path) -> No
         load_non_playing_adjutant_rl_manifest(dataset)
 
 
+def test_adjutant_ppo_loader_rejects_missing_terminal_reward_transform(
+    tmp_path: Path,
+) -> None:
+    dataset = _write_rl_dataset(tmp_path / "dataset")
+    manifest_path = dataset / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    del manifest["terminalRewardTransform"]
+    manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+
+    with pytest.raises(AdjutantPpoCompatibilityError, match="terminalRewardTransform"):
+        load_non_playing_adjutant_rl_manifest(dataset)
+
+
 def _write_rl_dataset(directory: Path) -> Path:
     directory.mkdir(parents=True)
     samples = [_sample(seed=7, step=index + 1, selected=index % 2) for index in range(4)]
     shard = "".join(json.dumps(sample, separators=(",", ":")) + "\n" for sample in samples)
     (directory / "shard-00000.jsonl").write_text(shard, encoding="utf-8")
     manifest = {
-        "datasetSchemaVersion": 1,
+        "datasetSchemaVersion": 3,
         "generatorVersion": 1,
         "format": "jsonl",
         "sampleType": "non-playing-adjutant-rl-sample",
-        "sampleSchemaVersion": 1,
+        "sampleSchemaVersion": 3,
         "phaseScope": "adjutant-only",
         "learnedPhases": ["choosing-adjutant"],
         "ruleBasedPhases": ["bidding", "exchanging"],
@@ -280,6 +297,7 @@ def _write_rl_dataset(directory: Path) -> Path:
             "version": 3,
             "id": NON_PLAYING_RL_REWARD_ID,
         },
+        "terminalRewardTransform": _terminal_reward_transform(),
         "allPassRule": {
             "id": NON_PLAYING_RL_ALL_PASS_RULE_ID,
             "starterPayoff": 1,
@@ -332,7 +350,7 @@ def _sample(*, seed: int, step: int, selected: int) -> dict[str, object]:
     legal[1] = 1
     return {
         "sampleType": "non-playing-adjutant-rl-sample",
-        "schemaVersion": 1,
+        "schemaVersion": 3,
         "seed": seed,
         "step": step,
         "phase": "choosing-adjutant",
@@ -362,6 +380,17 @@ def _policy(policy_type: str) -> dict[str, object]:
         "onnxSha256": "0" * 64,
         "metadataSha256": "1" * 64,
         "metadata": {},
+    }
+
+
+def _terminal_reward_transform() -> dict[str, object]:
+    return {
+        "type": "raw-reward-minus-game-player-mean",
+        "version": 1,
+        "id": NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID,
+        "sourceRewardId": NON_PLAYING_RL_REWARD_ID,
+        "baseline": "meanRawRewardAllPlayers",
+        "formula": "relative_reward_i = raw_reward_i - mean(raw_reward_all_players)",
     }
 
 

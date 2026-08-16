@@ -250,7 +250,7 @@ _SPECS: dict[PolicyType, _NonPlayingPolicySpec] = {
         selection_kind="single",
     ),
 }
-NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION = 2
+NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION = 3
 
 
 def export_nonplaying_checkpoint_to_onnx(
@@ -669,6 +669,9 @@ def build_nonplaying_onnx_metadata(
         "checkpointSeed": checkpoint["seed"],
         "checkpointCompatibilityMetadata": compatibility_metadata,
     }
+    terminal_reward_transform = checkpoint.get("terminal_reward_transform")
+    if isinstance(terminal_reward_transform, dict):
+        metadata["terminalRewardTransform"] = terminal_reward_transform
     if spec.discard_count is not None:
         metadata["discardCount"] = spec.discard_count
     if spec.policy_type == "exchange":
@@ -709,6 +712,10 @@ def validate_nonplaying_onnx_metadata(metadata: dict[str, Any]) -> None:
             raise NonPlayingOnnxExportError(
                 f"metadata decisionMode is unsupported: {decision_mode!r}."
             )
+    if "terminalRewardTransform" in metadata:
+        transform = metadata["terminalRewardTransform"]
+        if not isinstance(transform, dict):
+            raise NonPlayingOnnxExportError("metadata terminalRewardTransform must be an object.")
 
     for key, value in expected.items():
         actual = metadata.get(key)
@@ -1097,6 +1104,9 @@ def _checkpoint_compatibility_metadata(
         metadata["discardCount"] = checkpoint.get("discard_count", spec.discard_count)
     if spec.policy_type == "exchange" and "decision_mode" in checkpoint:
         metadata["decisionMode"] = checkpoint["decision_mode"]
+    terminal_reward_transform = checkpoint.get("terminal_reward_transform")
+    if isinstance(terminal_reward_transform, dict):
+        metadata["terminalRewardTransform"] = terminal_reward_transform
     return metadata
 
 

@@ -33,7 +33,11 @@ import {
   NON_PLAYING_RL_REWARD_TYPE,
   NON_PLAYING_RL_REWARD_VERSION,
   NON_PLAYING_RL_SAMPLING_ALGORITHM,
+  NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID,
+  NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_TYPE,
+  NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_VERSION,
   PASSIVE_BIDDING_BASELINE_ID,
+  calculateNonPlayingLearningTerminalReward,
   calculateNonPlayingAdjutantLogProbability,
   calculateNonPlayingBiddingLogProbability,
   calculateNonPlayingExchangeLogProbability,
@@ -114,8 +118,8 @@ describe("generateNonPlayingBiddingRlDataset", () => {
 
       expect(result.manifest).toEqual(manifest);
       validateNonPlayingRlDatasetManifest(manifest);
-      expect(manifest.datasetSchemaVersion).toBe(2);
-      expect(manifest.sampleSchemaVersion).toBe(2);
+      expect(manifest.datasetSchemaVersion).toBe(3);
+      expect(manifest.sampleSchemaVersion).toBe(3);
       expect(manifest.generatorVersion).toBe(NON_PLAYING_RL_DATASET_GENERATOR_VERSION);
       expect(manifest.format).toBe(DATASET_FORMAT);
       expect(manifest.sampleType).toBe(NON_PLAYING_RL_DATASET_SAMPLE_TYPE);
@@ -134,6 +138,14 @@ describe("generateNonPlayingBiddingRlDataset", () => {
         type: NON_PLAYING_RL_REWARD_TYPE,
         version: NON_PLAYING_RL_REWARD_VERSION,
         id: NON_PLAYING_RL_REWARD_ID
+      });
+      expect(manifest.terminalRewardTransform).toEqual({
+        type: NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_TYPE,
+        version: NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_VERSION,
+        id: NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID,
+        sourceRewardId: NON_PLAYING_RL_REWARD_ID,
+        baseline: "meanRawRewardAllPlayers",
+        formula: "relative_reward_i = raw_reward_i - mean(raw_reward_all_players)"
       });
       expect(manifest.allPassRule).toEqual({
         id: NON_PLAYING_RL_ALL_PASS_RULE_ID,
@@ -231,12 +243,12 @@ describe("generateNonPlayingBiddingRlDataset", () => {
         expect(sample.modelInput).toHaveLength(BIDDING_MODEL_INPUT_FEATURE_COUNT);
         expect(sample.legalBidMask).toHaveLength(BIDDING_ACTION_COUNT);
         expect(sample.legalBidMask[sample.selectedActionIndex]).toBe(1);
-        expect(sample.terminalReward).toBe(calculateNonPlayingTerminalRoleReward(sample.outcome));
+        assertSampleUsesRelativeReward(sample);
         if (sample.outcome.outcomeType === "all-pass") {
           expect(sample.outcome.actingPlayerPayoff).toBe(
             sample.actingPlayerId === sample.outcome.starterPlayerId ? 1 : -1
           );
-          expect(sample.terminalReward).toBe(sample.outcome.actingPlayerPayoff);
+          expect(sample.rawTerminalReward).toBe(sample.outcome.actingPlayerPayoff);
         } else {
           expect(sample.outcome.targetPointCards).toBeGreaterThanOrEqual(13);
           expect(sample.outcome.targetPointCards).toBeLessThanOrEqual(19);
@@ -337,7 +349,7 @@ describe("generateNonPlayingBiddingRlDataset", () => {
         expect(sample.legalAdjutantMask).toHaveLength(CARD_COUNT);
         expect(sum(sample.legalAdjutantMask)).toBe(CARD_COUNT);
         expect(sample.legalAdjutantMask[sample.selectedActionIndex]).toBe(1);
-        expect(sample.terminalReward).toBe(calculateNonPlayingTerminalRoleReward(sample.outcome));
+        assertSampleUsesRelativeReward(sample);
 
         const logits = await adjutantPolicy.predictLogits(sample.modelInput);
         const recomputedLogProbability = calculateNonPlayingAdjutantLogProbability({
@@ -399,6 +411,46 @@ describe("generateNonPlayingBiddingRlDataset", () => {
     ).toBe(-1);
   });
 
+  it("calculates zero-sum relative learning rewards from raw terminal rewards", () => {
+    const playerIds = ["player-0", "player-1", "player-2", "player-3", "player-4"] as const;
+    const standardResult = {
+      resultType: "standard",
+      winner: "napoleon-team",
+      napoleonTeamPointCards: 13,
+      alliancePointCards: 7,
+      targetPointCards: 13,
+      napoleonPlayerId: "player-0",
+      adjutantPlayerId: "player-1"
+    } as const;
+    const standardRewards = playerIds.map((playerId) =>
+      calculateNonPlayingLearningTerminalReward(standardResult, playerId, playerIds)
+    );
+    expect(standardRewards.map((reward) => reward.rawTerminalReward)).toEqual([
+      26, 13, 13, 13, 13
+    ]);
+    expect(sum(standardRewards.map((reward) => reward.terminalReward))).toBeCloseTo(0, 12);
+
+    const allPassResult = {
+      resultType: "all-pass",
+      starterPlayerId: "player-0",
+      payoffs: playerIds.map((playerId) => ({
+        playerId,
+        payoff: playerId === "player-0" ? 1 : -1
+      }))
+    } as const;
+    const allPassRewards = playerIds.map((playerId) =>
+      calculateNonPlayingLearningTerminalReward(allPassResult, playerId, playerIds)
+    );
+    expect(allPassRewards.map((reward) => reward.rawTerminalReward)).toEqual([
+      1, -1, -1, -1, -1
+    ]);
+    expect(allPassRewards[0].terminalReward).toBeCloseTo(1.6, 12);
+    for (const reward of allPassRewards.slice(1)) {
+      expect(reward.terminalReward).toBeCloseTo(-0.4, 12);
+    }
+    expect(sum(allPassRewards.map((reward) => reward.terminalReward))).toBeCloseTo(0, 12);
+  });
+
   it("assigns all-pass bidding rewards and emits no adjutant or exchange samples", () => {
     const playerIds = ["player-0", "player-1", "player-2", "player-3", "player-4"] as const;
     const record = {
@@ -451,9 +503,24 @@ describe("generateNonPlayingBiddingRlDataset", () => {
       [draft(2, "player-1")],
       { candidateSeatIndex: 1, rotationOffset: 1 }
     );
+    const starterReward = calculateNonPlayingLearningTerminalReward(
+      record.result as never,
+      "player-0",
+      playerIds
+    );
+    const otherReward = calculateNonPlayingLearningTerminalReward(
+      record.result as never,
+      "player-1",
+      playerIds
+    );
 
     expect(starterSamples).toHaveLength(1);
-    expect(starterSamples[0].terminalReward).toBe(1);
+    expect(starterSamples[0].rawTerminalReward).toBe(1);
+    expect(starterSamples[0].gameMeanRawTerminalReward).toBeCloseTo(
+      starterReward.gameMeanRawTerminalReward,
+      12
+    );
+    expect(starterSamples[0].terminalReward).toBeCloseTo(starterReward.terminalReward, 12);
     expect(starterSamples[0].outcome).toMatchObject({
       outcomeType: "all-pass",
       starterPlayerId: "player-0",
@@ -461,7 +528,12 @@ describe("generateNonPlayingBiddingRlDataset", () => {
       actingPlayerPayoff: 1
     });
     expect(otherSamples).toHaveLength(1);
-    expect(otherSamples[0].terminalReward).toBe(-1);
+    expect(otherSamples[0].rawTerminalReward).toBe(-1);
+    expect(otherSamples[0].gameMeanRawTerminalReward).toBeCloseTo(
+      otherReward.gameMeanRawTerminalReward,
+      12
+    );
+    expect(otherSamples[0].terminalReward).toBeCloseTo(otherReward.terminalReward, 12);
     expect(otherSamples[0].outcome).toMatchObject({
       outcomeType: "all-pass",
       starterPlayerId: "player-0",
@@ -539,7 +611,7 @@ describe("generateNonPlayingBiddingRlDataset", () => {
         expect(sample.legalDiscardCardMask).toHaveLength(CARD_COUNT);
         expect(sum(sample.legalDiscardCardMask)).toBe(13 - sample.exchangeStepIndex);
         expect(sample.legalDiscardCardMask[sample.selectedActionIndex]).toBe(1);
-        expect(sample.terminalReward).toBe(calculateNonPlayingTerminalRoleReward(sample.outcome));
+        assertSampleUsesRelativeReward(sample);
 
         const logits = await exchangePolicy.predictLogits(sample.modelInput);
         const recomputedLogProbability = calculateNonPlayingExchangeLogProbability({
@@ -837,6 +909,17 @@ function expectReward(
   reward: number
 ): void {
   expect(calculateNonPlayingTerminalRoleReward(outcome)).toBe(reward);
+}
+
+function assertSampleUsesRelativeReward(
+  sample: NonPlayingBiddingRlSample | NonPlayingAdjutantRlSample | NonPlayingExchangeRlSample
+): void {
+  expect(sample.rawTerminalReward).toBe(calculateNonPlayingTerminalRoleReward(sample.outcome));
+  expect(sample.gameMeanRawTerminalReward).toEqual(expect.any(Number));
+  expect(sample.terminalReward).toBeCloseTo(
+    sample.rawTerminalReward - sample.gameMeanRawTerminalReward,
+    12
+  );
 }
 
 async function withTempDir(run: (directory: string) => Promise<void>): Promise<void> {

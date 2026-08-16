@@ -14,6 +14,7 @@ from napoleon_ml.bidding.ppo import (
     BIDDING_PPO_ALGORITHM,
     NON_PLAYING_RL_ALL_PASS_RULE_ID,
     NON_PLAYING_RL_REWARD_ID,
+    NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID,
     BiddingPpoTrainSettings,
     bidding_ppo_loss,
     initialize_actor_from_checkpoint,
@@ -118,6 +119,9 @@ def test_bidding_ppo_train_checkpoint_and_export_smoke(tmp_path: Path) -> None:
     assert isinstance(reward, dict)
     assert isinstance(fixed_playing_policy, dict)
     assert reward["id"] == NON_PLAYING_RL_REWARD_ID
+    assert checkpoint["terminal_reward_transform"]["id"] == (
+        NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID
+    )
     assert checkpoint["parent_actor_checkpoint_sha256"] == _sha256(parent)
     assert fixed_playing_policy["onnxSha256"] == "0" * 64
 
@@ -223,11 +227,11 @@ def _write_rl_dataset(directory: Path) -> Path:
     shard = "".join(json.dumps(sample, separators=(",", ":")) + "\n" for sample in samples)
     (directory / "shard-00000.jsonl").write_text(shard, encoding="utf-8")
     manifest = {
-        "datasetSchemaVersion": 1,
+        "datasetSchemaVersion": 3,
         "generatorVersion": 1,
         "format": "jsonl",
         "sampleType": "non-playing-bidding-rl-sample",
-        "sampleSchemaVersion": 1,
+        "sampleSchemaVersion": 3,
         "phaseScope": "bidding-only",
         "learnedPhases": ["bidding"],
         "ruleBasedPhases": ["choosing-adjutant", "exchanging"],
@@ -257,6 +261,7 @@ def _write_rl_dataset(directory: Path) -> Path:
             "version": 3,
             "id": NON_PLAYING_RL_REWARD_ID,
         },
+        "terminalRewardTransform": _terminal_reward_transform(),
         "allPassRule": {
             "id": NON_PLAYING_RL_ALL_PASS_RULE_ID,
             "starterPayoff": 1,
@@ -288,7 +293,7 @@ def _sample(*, seed: int, step: int, selected: int) -> dict[str, object]:
     legal[1] = 1
     return {
         "sampleType": "non-playing-bidding-rl-sample",
-        "schemaVersion": 1,
+        "schemaVersion": 3,
         "seed": seed,
         "step": step,
         "phase": "bidding",
@@ -318,6 +323,17 @@ def _policy(policy_type: str) -> dict[str, object]:
         "onnxSha256": "0" * 64,
         "metadataSha256": "1" * 64,
         "metadata": {},
+    }
+
+
+def _terminal_reward_transform() -> dict[str, object]:
+    return {
+        "type": "raw-reward-minus-game-player-mean",
+        "version": 1,
+        "id": NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID,
+        "sourceRewardId": NON_PLAYING_RL_REWARD_ID,
+        "baseline": "meanRawRewardAllPlayers",
+        "formula": "relative_reward_i = raw_reward_i - mean(raw_reward_all_players)",
     }
 
 

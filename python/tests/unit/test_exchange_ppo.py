@@ -15,6 +15,7 @@ from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 from napoleon_ml.exchange.ppo import (
     NON_PLAYING_RL_ALL_PASS_RULE_ID,
     NON_PLAYING_RL_REWARD_ID,
+    NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID,
     ExchangePpoCompatibilityError,
     iter_non_playing_exchange_rl_samples,
     load_non_playing_exchange_rl_manifest,
@@ -42,16 +43,27 @@ def test_exchange_ppo_loader_rejects_missing_all_pass_rule(tmp_path: Path) -> No
         load_non_playing_exchange_rl_manifest(dataset)
 
 
+def test_exchange_ppo_loader_rejects_missing_terminal_reward_transform(tmp_path: Path) -> None:
+    dataset = _write_zero_sample_dataset(tmp_path / "dataset")
+    manifest_path = dataset / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    del manifest["terminalRewardTransform"]
+    manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+
+    with pytest.raises(ExchangePpoCompatibilityError, match="terminalRewardTransform"):
+        load_non_playing_exchange_rl_manifest(dataset)
+
+
 def _write_zero_sample_dataset(directory: Path) -> Path:
     directory.mkdir(parents=True)
     shard = b""
     (directory / "shard-00000.jsonl").write_bytes(shard)
     manifest = {
-        "datasetSchemaVersion": 1,
+        "datasetSchemaVersion": 3,
         "generatorVersion": 1,
         "format": "jsonl",
         "sampleType": "non-playing-exchange-rl-sample",
-        "sampleSchemaVersion": 1,
+        "sampleSchemaVersion": 3,
         "phaseScope": "exchange-only",
         "learnedPhases": ["exchanging"],
         "ruleBasedPhases": ["bidding", "choosing-adjutant"],
@@ -82,6 +94,7 @@ def _write_zero_sample_dataset(directory: Path) -> Path:
             "version": 3,
             "id": NON_PLAYING_RL_REWARD_ID,
         },
+        "terminalRewardTransform": _terminal_reward_transform(),
         "allPassRule": {
             "id": NON_PLAYING_RL_ALL_PASS_RULE_ID,
             "starterPayoff": 1,
@@ -116,4 +129,15 @@ def _policy(policy_type: str) -> dict[str, object]:
         "onnxSha256": "0" * 64,
         "metadataSha256": "1" * 64,
         "metadata": {},
+    }
+
+
+def _terminal_reward_transform() -> dict[str, object]:
+    return {
+        "type": "raw-reward-minus-game-player-mean",
+        "version": 1,
+        "id": NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID,
+        "sourceRewardId": NON_PLAYING_RL_REWARD_ID,
+        "baseline": "meanRawRewardAllPlayers",
+        "formula": "relative_reward_i = raw_reward_i - mean(raw_reward_all_players)",
     }
