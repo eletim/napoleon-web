@@ -50,7 +50,7 @@ DEFAULT_TEMPERATURE = 1.0
 DEFAULT_INFERENCE_DEVICE: Literal["cpu", "auto", "cuda"] = "cpu"
 DEFAULT_INFERENCE_MAX_BATCH_SIZE = 256
 DEFAULT_SEED = 202
-ITERATIVE_RUN_CONFIG_SCHEMA_VERSION = 6
+ITERATIVE_RUN_CONFIG_SCHEMA_VERSION = 7
 NONPLAYING_ROLLOUT_POLICY_TOPOLOGY = "candidate-x1-frozen-x4-v1"
 NONPLAYING_GAME_COUNT_UNIT = "logical-seeds"
 NONPLAYING_ROTATION_OFFSETS = [0, 1, 2, 3, 4]
@@ -62,7 +62,7 @@ NONPLAYING_TERMINAL_REWARD_TRANSFORM_VERSION = 1
 NONPLAYING_TERMINAL_REWARD_TRANSFORM_ID = (
     "non-playing-terminal-role-reward-v3-minus-game-player-mean-v1"
 )
-NONPLAYING_ALL_PASS_RULE_ID = "all-pass-immediate-starter-plus1-others-minus1-v1"
+NONPLAYING_ALL_PASS_RULE_ID = "all-pass-immediate-zero-raw-terminal-reward-v1"
 FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION = (
     "per-seat-seeded-conservative-passive-50-50-v1"
 )
@@ -163,8 +163,8 @@ class NonPlayingRlRunConfig:
             "terminalRewardTransform": _terminal_reward_transform_metadata(),
             "allPassRule": {
                 "id": NONPLAYING_ALL_PASS_RULE_ID,
-                "starterPayoff": 1,
-                "otherPayoff": -1,
+                "starterPayoff": 0,
+                "otherPayoff": 0,
             },
             "inferenceDevice": self.inference_device,
             "inferenceMaxBatchSize": self.inference_max_batch_size,
@@ -279,8 +279,8 @@ class NonPlayingIterativeRlRunConfig:
             "terminalRewardTransform": _terminal_reward_transform_metadata(),
             "allPassRule": {
                 "id": NONPLAYING_ALL_PASS_RULE_ID,
-                "starterPayoff": 1,
-                "otherPayoff": -1,
+                "starterPayoff": 0,
+                "otherPayoff": 0,
             },
             "biddingFrozenOpponentMixRuleVersion": FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION,
             "biddingFrozenOpponentPolicyIds": {
@@ -620,8 +620,8 @@ def _run_iterative_iteration(
         "terminalRewardTransform": _terminal_reward_transform_metadata(),
         "allPassRule": {
             "id": NONPLAYING_ALL_PASS_RULE_ID,
-            "starterPayoff": 1,
-            "otherPayoff": -1,
+            "starterPayoff": 0,
+            "otherPayoff": 0,
         },
         "evaluationDue": evaluation_summary is not None,
         "evaluation": evaluation_summary,
@@ -1190,8 +1190,8 @@ def _validate_nonplaying_rollout_manifest(
     all_pass_rule = _require_dict(manifest.get("allPassRule"), "manifest.allPassRule")
     if (
         all_pass_rule.get("id") != NONPLAYING_ALL_PASS_RULE_ID
-        or all_pass_rule.get("starterPayoff") != 1
-        or all_pass_rule.get("otherPayoff") != -1
+        or all_pass_rule.get("starterPayoff") != 0
+        or all_pass_rule.get("otherPayoff") != 0
     ):
         raise NonPlayingRlOrchestratorError("rollout manifest all-pass rule metadata mismatch.")
     behavior = _require_dict(manifest.get("behaviorPolicy"), "manifest.behaviorPolicy")

@@ -250,7 +250,7 @@ _SPECS: dict[PolicyType, _NonPlayingPolicySpec] = {
         selection_kind="single",
     ),
 }
-NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION = 3
+NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION = 4
 
 
 def export_nonplaying_checkpoint_to_onnx(

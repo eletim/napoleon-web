@@ -206,8 +206,8 @@ def test_iterative_nonplaying_rl_resumes_and_chains_checkpoints(
             "terminalRewardTransform": _terminal_reward_transform(),
             "allPassRule": {
                 "id": NONPLAYING_ALL_PASS_RULE_ID,
-                "starterPayoff": 1,
-                "otherPayoff": -1,
+                "starterPayoff": 0,
+                "otherPayoff": 0,
             },
             "sampleCount": 1,
             "behaviorPolicy": {

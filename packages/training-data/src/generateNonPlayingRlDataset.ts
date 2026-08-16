@@ -59,9 +59,9 @@ export const NON_PLAYING_BIDDING_RL_DATASET_SAMPLE_TYPE = "non-playing-bidding-r
 export const NON_PLAYING_ADJUTANT_RL_DATASET_SAMPLE_TYPE = "non-playing-adjutant-rl-sample" as const;
 export const NON_PLAYING_EXCHANGE_RL_DATASET_SAMPLE_TYPE = "non-playing-exchange-rl-sample" as const;
 export const NON_PLAYING_RL_DATASET_SAMPLE_TYPE = NON_PLAYING_BIDDING_RL_DATASET_SAMPLE_TYPE;
-export const NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION = 3 as const;
-export const NON_PLAYING_RL_DATASET_SCHEMA_VERSION = 3 as const;
-export const NON_PLAYING_RL_DATASET_GENERATOR_VERSION = 4 as const;
+export const NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION = 4 as const;
+export const NON_PLAYING_RL_DATASET_SCHEMA_VERSION = 4 as const;
+export const NON_PLAYING_RL_DATASET_GENERATOR_VERSION = 5 as const;
 export const NON_PLAYING_RL_ROLLOUT_POLICY_TOPOLOGY = "candidate-x1-frozen-x4-v1" as const;
 export const NON_PLAYING_RL_GAME_COUNT_UNIT = "logical-seeds" as const;
 export const NON_PLAYING_RL_ROTATION_OFFSETS = [0, 1, 2, 3, 4] as const;
@@ -77,7 +77,7 @@ export const NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_TYPE =
 export const NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_VERSION = 1 as const;
 export const NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID =
   "non-playing-terminal-role-reward-v3-minus-game-player-mean-v1" as const;
-export const NON_PLAYING_RL_ALL_PASS_RULE_ID = "all-pass-immediate-starter-plus1-others-minus1-v1" as const;
+export const NON_PLAYING_RL_ALL_PASS_RULE_ID = "all-pass-immediate-zero-raw-terminal-reward-v1" as const;
 export const NON_PLAYING_RL_SAMPLING_ALGORITHM = "masked-categorical" as const;
 export const DEFAULT_NON_PLAYING_RL_TEMPERATURE = 1.0 as const;
 export const NON_PLAYING_BIDDING_RL_PHASE_SCOPE = "bidding-only" as const;
@@ -176,7 +176,7 @@ export interface NonPlayingAllPassBiddingRlOutcome {
   outcomeType: "all-pass";
   starterPlayerId: PlayerId;
   actingPlayerRole: Extract<NonPlayingBiddingRlRole, "all-pass-starter" | "all-pass-other">;
-  actingPlayerPayoff: 1 | -1;
+  actingPlayerPayoff: 0;
 }
 
 export type NonPlayingBiddingRlOutcome =
@@ -314,8 +314,8 @@ export interface NonPlayingRlDatasetManifest {
   };
   allPassRule: {
     id: typeof NON_PLAYING_RL_ALL_PASS_RULE_ID;
-    starterPayoff: 1;
-    otherPayoff: -1;
+    starterPayoff: 0;
+    otherPayoff: 0;
   };
   nonLearningAgents: {
     bidding?: {
@@ -767,8 +767,8 @@ export function createFrozenBiddingOpponentMixMetadata(): FrozenBiddingOpponentM
 function createAllPassRuleMetadata(): NonPlayingRlDatasetManifest["allPassRule"] {
   return {
     id: NON_PLAYING_RL_ALL_PASS_RULE_ID,
-    starterPayoff: 1,
-    otherPayoff: -1
+    starterPayoff: 0,
+    otherPayoff: 0
   };
 }
 
@@ -2266,8 +2266,8 @@ function validateTerminalRewardTransformMetadata(manifest: NonPlayingRlDatasetMa
 function validateAllPassRuleMetadata(manifest: NonPlayingRlDatasetManifest): void {
   if (
     manifest.allPassRule.id !== NON_PLAYING_RL_ALL_PASS_RULE_ID ||
-    manifest.allPassRule.starterPayoff !== 1 ||
-    manifest.allPassRule.otherPayoff !== -1
+    manifest.allPassRule.starterPayoff !== 0 ||
+    manifest.allPassRule.otherPayoff !== 0
   ) {
     throw new Error("Non-playing RL manifest all-pass rule metadata mismatch.");
   }
@@ -2753,7 +2753,7 @@ function createBiddingRlOutcome(
       outcomeType: "all-pass",
       starterPlayerId: result.starterPlayerId,
       actingPlayerRole: isStarter ? "all-pass-starter" : "all-pass-other",
-      actingPlayerPayoff: isStarter ? 1 : -1
+      actingPlayerPayoff: 0
     };
   }
 
@@ -3247,14 +3247,8 @@ function validateOutcome(outcome: NonPlayingBiddingRlOutcome): void {
     ) {
       throw new Error("outcome.actingPlayerRole is invalid.");
     }
-    if (outcome.actingPlayerPayoff !== 1 && outcome.actingPlayerPayoff !== -1) {
-      throw new Error("outcome.actingPlayerPayoff must be 1 or -1.");
-    }
-    if (
-      (outcome.actingPlayerRole === "all-pass-starter" && outcome.actingPlayerPayoff !== 1) ||
-      (outcome.actingPlayerRole === "all-pass-other" && outcome.actingPlayerPayoff !== -1)
-    ) {
-      throw new Error("outcome all-pass role/payoff mismatch.");
+    if (outcome.actingPlayerPayoff !== 0) {
+      throw new Error("outcome.actingPlayerPayoff must be 0 for all-pass.");
     }
     return;
   }

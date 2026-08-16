@@ -43,7 +43,7 @@ NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID = (
 )
 NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_TYPE = "raw-reward-minus-game-player-mean"
 NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_VERSION = 1
-NON_PLAYING_RL_ALL_PASS_RULE_ID = "all-pass-immediate-starter-plus1-others-minus1-v1"
+NON_PLAYING_RL_ALL_PASS_RULE_ID = "all-pass-immediate-zero-raw-terminal-reward-v1"
 ADJUTANT_PPO_ALGORITHM = "adjutant-ppo-separated-v1"
 ADJUTANT_ACTOR_CRITIC_MODEL_ARCHITECTURE = "adjutant-separated-actor-critic-v1"
 ADJUTANT_PPO_CHECKPOINT_SCHEMA_VERSION = 1
@@ -212,8 +212,8 @@ def load_non_playing_adjutant_rl_manifest(
     all_pass_rule = _require_dict(raw.get("allPassRule"), "manifest.allPassRule")
     if (
         all_pass_rule.get("id") != NON_PLAYING_RL_ALL_PASS_RULE_ID
-        or all_pass_rule.get("starterPayoff") != 1
-        or all_pass_rule.get("otherPayoff") != -1
+        or all_pass_rule.get("starterPayoff") != 0
+        or all_pass_rule.get("otherPayoff") != 0
     ):
         raise AdjutantPpoCompatibilityError("manifest allPassRule metadata mismatch.")
     terminal_reward_transform = _require_terminal_reward_transform(
