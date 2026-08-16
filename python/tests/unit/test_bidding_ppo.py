@@ -19,6 +19,7 @@ from napoleon_ml.bidding.ppo import (
     bidding_ppo_loss,
     initialize_actor_from_checkpoint,
     load_bidding_ppo_checkpoint,
+    masked_policy_distribution,
     masked_selected_log_probability,
     train_bidding_ppo,
 )
@@ -82,6 +83,58 @@ def test_bidding_ppo_loss_clips_ratio_and_accepts_arbitrary_float_reward() -> No
     assert torch.isfinite(loss.total_loss)
 
 
+def test_bidding_ppo_entropy_uses_only_legal_actions() -> None:
+    logits = torch.zeros((2, BIDDING_ACTION_COUNT), dtype=torch.float32)
+    logits[0, 2] = 100.0
+    legal_mask = torch.zeros((2, BIDDING_ACTION_COUNT), dtype=torch.bool)
+    legal_mask[0, 0] = True
+    legal_mask[0, 1] = True
+    legal_mask[1, 0] = True
+    legal_mask[1, 1] = True
+    legal_mask[1, 2] = True
+    legal_mask[1, 3] = True
+
+    probabilities, entropy = masked_policy_distribution(logits, legal_mask)
+
+    assert probabilities[0, 2].item() == 0.0
+    assert entropy.tolist() == pytest.approx([math.log(2.0), math.log(4.0)])
+
+
+def test_bidding_ppo_entropy_coefficient_reduces_minimized_loss() -> None:
+    logits = torch.zeros((1, BIDDING_ACTION_COUNT), dtype=torch.float32)
+    legal_mask = torch.zeros((1, BIDDING_ACTION_COUNT), dtype=torch.bool)
+    legal_mask[0, 0] = True
+    legal_mask[0, 1] = True
+
+    baseline = bidding_ppo_loss(
+        logits=logits,
+        value_prediction=torch.tensor([0.0], dtype=torch.float32),
+        selected_action_index=torch.tensor([0], dtype=torch.int64),
+        legal_bid_mask=legal_mask,
+        behavior_log_probability=torch.log(torch.tensor([0.5], dtype=torch.float32)),
+        terminal_reward=torch.tensor([0.0], dtype=torch.float32),
+        clip_epsilon=0.2,
+        value_loss_coefficient=0.5,
+        entropy_coefficient=0.0,
+    )
+    regularized = bidding_ppo_loss(
+        logits=logits,
+        value_prediction=torch.tensor([0.0], dtype=torch.float32),
+        selected_action_index=torch.tensor([0], dtype=torch.int64),
+        legal_bid_mask=legal_mask,
+        behavior_log_probability=torch.log(torch.tensor([0.5], dtype=torch.float32)),
+        terminal_reward=torch.tensor([0.0], dtype=torch.float32),
+        clip_epsilon=0.2,
+        value_loss_coefficient=0.5,
+        entropy_coefficient=0.01,
+    )
+
+    assert baseline.entropy_bonus.item() == pytest.approx(math.log(2.0))
+    assert regularized.total_loss.item() == pytest.approx(
+        baseline.total_loss.item() - 0.01 * math.log(2.0)
+    )
+
+
 def test_bidding_ppo_train_checkpoint_and_export_smoke(tmp_path: Path) -> None:
     dataset = _write_rl_dataset(tmp_path / "dataset")
     parent = tmp_path / "parent.pt"
@@ -104,6 +157,7 @@ def test_bidding_ppo_train_checkpoint_and_export_smoke(tmp_path: Path) -> None:
             epochs=1,
             batch_size=2,
             learning_rate=1e-3,
+            entropy_coefficient=0.01,
             parent_actor_checkpoint=str(parent),
         ),
         model_config=config,
@@ -114,14 +168,22 @@ def test_bidding_ppo_train_checkpoint_and_export_smoke(tmp_path: Path) -> None:
     assert isinstance(model, BiddingActorCriticModel)
     assert checkpoint["algorithm"] == BIDDING_PPO_ALGORITHM
     assert checkpoint["model_architecture"] == BIDDING_ACTOR_CRITIC_MODEL_ARCHITECTURE
+    assert checkpoint["entropy_coefficient"] == 0.01
+    training_config = checkpoint["training_config"]
+    assert isinstance(training_config, dict)
+    assert training_config["entropyCoefficient"] == 0.01
+    assert report.mean_policy_entropy > 0.0
+    assert 0.0 <= report.pass_mean_probability <= 1.0
+    assert set(report.suit_mean_probability) == {"spades", "hearts", "diamonds", "clubs"}
+    assert report.target_suit_chosen_count["13"]["spades"] == 2
     reward = checkpoint["reward"]
     fixed_playing_policy = checkpoint["fixed_playing_policy"]
+    terminal_reward_transform = checkpoint["terminal_reward_transform"]
     assert isinstance(reward, dict)
     assert isinstance(fixed_playing_policy, dict)
+    assert isinstance(terminal_reward_transform, dict)
     assert reward["id"] == NON_PLAYING_RL_REWARD_ID
-    assert checkpoint["terminal_reward_transform"]["id"] == (
-        NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID
-    )
+    assert terminal_reward_transform["id"] == NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID
     assert checkpoint["parent_actor_checkpoint_sha256"] == _sha256(parent)
     assert fixed_playing_policy["onnxSha256"] == "0" * 64
 
@@ -138,6 +200,9 @@ def test_bidding_ppo_train_checkpoint_and_export_smoke(tmp_path: Path) -> None:
     assert metadata_json["artifactType"] == "napoleon-bidding-policy-onnx"
     assert metadata_json["policyType"] == "bidding"
     assert metadata_json["outputLogitCount"] == BIDDING_ACTION_COUNT
+    compatibility_metadata = metadata_json["checkpointCompatibilityMetadata"]
+    assert isinstance(compatibility_metadata, dict)
+    assert compatibility_metadata["biddingEntropyCoefficient"] == 0.01
 
 
 def test_bidding_ppo_train_and_export_cli_smoke(tmp_path: Path) -> None:
@@ -159,6 +224,8 @@ def test_bidding_ppo_train_and_export_cli_smoke(tmp_path: Path) -> None:
             "8",
             "--hidden-layers",
             "1",
+            "--entropy-coefficient",
+            "0.01",
             "--json",
         ]
     ) == 0
@@ -179,9 +246,12 @@ def test_bidding_ppo_train_and_export_cli_smoke(tmp_path: Path) -> None:
 
     metadata_json = json.loads(metadata.read_text(encoding="utf-8"))
     assert metadata_json["policyType"] == "bidding"
-    assert metadata_json["checkpointCompatibilityMetadata"]["sampleType"] == (
+    compatibility_metadata = metadata_json["checkpointCompatibilityMetadata"]
+    assert isinstance(compatibility_metadata, dict)
+    assert compatibility_metadata["sampleType"] == (
         "non-playing-bidding-rl-sample"
     )
+    assert compatibility_metadata["biddingEntropyCoefficient"] == 0.01
 
 
 def test_initialize_actor_from_actor_critic_checkpoint_leaves_critic_independent(
