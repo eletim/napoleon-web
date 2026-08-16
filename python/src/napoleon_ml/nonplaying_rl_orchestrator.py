@@ -46,11 +46,12 @@ DEFAULT_HIDDEN_LAYERS = 2
 DEFAULT_DROPOUT = 0.0
 DEFAULT_PPO_CLIP_EPSILON = 0.2
 DEFAULT_VALUE_LOSS_COEFFICIENT = 0.5
+DEFAULT_BIDDING_ENTROPY_COEFFICIENT = 0.0
 DEFAULT_TEMPERATURE = 1.0
 DEFAULT_INFERENCE_DEVICE: Literal["cpu", "auto", "cuda"] = "cpu"
 DEFAULT_INFERENCE_MAX_BATCH_SIZE = 256
 DEFAULT_SEED = 202
-ITERATIVE_RUN_CONFIG_SCHEMA_VERSION = 7
+ITERATIVE_RUN_CONFIG_SCHEMA_VERSION = 8
 NONPLAYING_ROLLOUT_POLICY_TOPOLOGY = "candidate-x1-frozen-x4-v1"
 NONPLAYING_GAME_COUNT_UNIT = "logical-seeds"
 NONPLAYING_ROTATION_OFFSETS = [0, 1, 2, 3, 4]
@@ -101,6 +102,7 @@ class NonPlayingRlRunConfig:
     dropout: float = DEFAULT_DROPOUT
     ppo_clip_epsilon: float = DEFAULT_PPO_CLIP_EPSILON
     value_loss_coefficient: float = DEFAULT_VALUE_LOSS_COEFFICIENT
+    bidding_entropy_coefficient: float = DEFAULT_BIDDING_ENTROPY_COEFFICIENT
     seed: int = DEFAULT_SEED
     temperature: float = DEFAULT_TEMPERATURE
     inference_device: Literal["cpu", "auto", "cuda"] = DEFAULT_INFERENCE_DEVICE
@@ -125,6 +127,7 @@ class NonPlayingRlRunConfig:
             dropout=self.dropout,
             ppo_clip_epsilon=self.ppo_clip_epsilon,
             value_loss_coefficient=self.value_loss_coefficient,
+            bidding_entropy_coefficient=self.bidding_entropy_coefficient,
             seed=self.seed,
             temperature=self.temperature,
             inference_device=self.inference_device,
@@ -153,6 +156,7 @@ class NonPlayingRlRunConfig:
             "dropout": self.dropout,
             "ppoClipEpsilon": self.ppo_clip_epsilon,
             "valueLossCoefficient": self.value_loss_coefficient,
+            "biddingEntropyCoefficient": self.bidding_entropy_coefficient,
             "seed": self.seed,
             "temperature": self.temperature,
             "reward": {
@@ -190,6 +194,7 @@ class NonPlayingIterativeRlRunConfig:
     dropout: float = DEFAULT_DROPOUT
     ppo_clip_epsilon: float = DEFAULT_PPO_CLIP_EPSILON
     value_loss_coefficient: float = DEFAULT_VALUE_LOSS_COEFFICIENT
+    bidding_entropy_coefficient: float = DEFAULT_BIDDING_ENTROPY_COEFFICIENT
     seed: int = DEFAULT_SEED
     temperature: float = DEFAULT_TEMPERATURE
     inference_device: Literal["cpu", "auto", "cuda"] = DEFAULT_INFERENCE_DEVICE
@@ -216,6 +221,7 @@ class NonPlayingIterativeRlRunConfig:
             dropout=self.dropout,
             ppo_clip_epsilon=self.ppo_clip_epsilon,
             value_loss_coefficient=self.value_loss_coefficient,
+            bidding_entropy_coefficient=self.bidding_entropy_coefficient,
             seed=self.seed,
             temperature=self.temperature,
             inference_device=self.inference_device,
@@ -247,6 +253,7 @@ class NonPlayingIterativeRlRunConfig:
             dropout=self.dropout,
             ppo_clip_epsilon=self.ppo_clip_epsilon,
             value_loss_coefficient=self.value_loss_coefficient,
+            bidding_entropy_coefficient=self.bidding_entropy_coefficient,
             seed=self.seed,
             temperature=self.temperature,
             inference_device=self.inference_device,
@@ -298,6 +305,7 @@ class NonPlayingIterativeRlRunConfig:
             "dropout": self.dropout,
             "ppoClipEpsilon": self.ppo_clip_epsilon,
             "valueLossCoefficient": self.value_loss_coefficient,
+            "biddingEntropyCoefficient": self.bidding_entropy_coefficient,
             "seed": self.seed,
             "temperature": self.temperature,
             "inferenceDevice": self.inference_device,
@@ -835,6 +843,7 @@ def _train_phase(
                 learning_rate=config.learning_rate,
                 ppo_clip_epsilon=config.ppo_clip_epsilon,
                 value_loss_coefficient=config.value_loss_coefficient,
+                entropy_coefficient=config.bidding_entropy_coefficient,
                 parent_actor_checkpoint=None,
                 parent_checkpoint=str(parent_checkpoint) if parent_checkpoint is not None else None,
             ),
@@ -1269,7 +1278,9 @@ def _validate_frozen_bidding_opponent_mix(
                     "rollout frozen bidding conservative assignment mismatch."
                 )
         else:
-            raise NonPlayingRlOrchestratorError("rollout frozen bidding assignment policy mismatch.")
+            raise NonPlayingRlOrchestratorError(
+                "rollout frozen bidding assignment policy mismatch."
+            )
 
 
 def _terminal_reward_transform_metadata() -> dict[str, object]:
@@ -1469,6 +1480,7 @@ def _iterative_config_from_file_dict(
         dropout=_required_float(data["dropout"]),
         ppo_clip_epsilon=_required_float(data["ppoClipEpsilon"]),
         value_loss_coefficient=_required_float(data["valueLossCoefficient"]),
+        bidding_entropy_coefficient=_required_float(data["biddingEntropyCoefficient"]),
         seed=_required_int(data["seed"]),
         temperature=_required_float(data["temperature"]),
         inference_device=cast(
@@ -1508,6 +1520,10 @@ def _validate_config(config: NonPlayingRlRunConfig) -> None:
     _validate_positive_float(config.temperature, "temperature")
     if config.value_loss_coefficient < 0.0:
         raise NonPlayingRlOrchestratorError("value-loss-coefficient must be non-negative.")
+    if config.bidding_entropy_coefficient < 0.0:
+        raise NonPlayingRlOrchestratorError(
+            "bidding-entropy-coefficient must be non-negative."
+        )
     if config.dropout < 0.0 or config.dropout >= 1.0:
         raise NonPlayingRlOrchestratorError("dropout must be in [0.0, 1.0).")
     if config.inference_device not in SUPPORTED_INFERENCE_DEVICES:
@@ -1534,6 +1550,10 @@ def _validate_iterative_config(config: NonPlayingIterativeRlRunConfig) -> None:
     _validate_positive_float(config.temperature, "temperature")
     if config.value_loss_coefficient < 0.0:
         raise NonPlayingRlOrchestratorError("value-loss-coefficient must be non-negative.")
+    if config.bidding_entropy_coefficient < 0.0:
+        raise NonPlayingRlOrchestratorError(
+            "bidding-entropy-coefficient must be non-negative."
+        )
     if config.dropout < 0.0 or config.dropout >= 1.0:
         raise NonPlayingRlOrchestratorError("dropout must be in [0.0, 1.0).")
     if config.inference_device not in SUPPORTED_INFERENCE_DEVICES:

@@ -787,6 +787,7 @@ def _create_bootstrap_model_and_checkpoint(
             "training_config": {
                 "algorithm": BIDDING_PPO_ALGORITHM,
                 "bootstrap": True,
+                "entropyCoefficient": 0.0,
             },
             "dataset_schema_version": MULTIPHASE_DATASET_SCHEMA_VERSION,
             "sample_type": NON_PLAYING_RL_SAMPLE_TYPE,
@@ -1104,6 +1105,14 @@ def _checkpoint_compatibility_metadata(
         metadata["discardCount"] = checkpoint.get("discard_count", spec.discard_count)
     if spec.policy_type == "exchange" and "decision_mode" in checkpoint:
         metadata["decisionMode"] = checkpoint["decision_mode"]
+    training_config = checkpoint.get("training_config")
+    if isinstance(training_config, dict):
+        metadata["trainingConfig"] = dict(training_config)
+        if spec.policy_type == "bidding":
+            metadata["biddingEntropyCoefficient"] = training_config.get(
+                "entropyCoefficient",
+                checkpoint.get("entropy_coefficient", 0.0),
+            )
     terminal_reward_transform = checkpoint.get("terminal_reward_transform")
     if isinstance(terminal_reward_transform, dict):
         metadata["terminalRewardTransform"] = terminal_reward_transform

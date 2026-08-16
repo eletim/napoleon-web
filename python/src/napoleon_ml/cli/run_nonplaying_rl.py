@@ -11,6 +11,7 @@ from typing import Literal, cast
 
 from napoleon_ml.nonplaying_rl_orchestrator import (
     DEFAULT_BATCH_SIZE,
+    DEFAULT_BIDDING_ENTROPY_COEFFICIENT,
     DEFAULT_EPOCHS,
     DEFAULT_EVALUATION_GAMES,
     DEFAULT_EVALUATION_INTERVAL,
@@ -77,6 +78,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--value-loss-coefficient",
         type=float,
         default=DEFAULT_VALUE_LOSS_COEFFICIENT,
+    )
+    parser.add_argument(
+        "--bidding-entropy-coefficient",
+        type=float,
+        default=DEFAULT_BIDDING_ENTROPY_COEFFICIENT,
     )
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
@@ -156,6 +162,7 @@ def _config_from_args(args: argparse.Namespace) -> NonPlayingRlRunConfig:
         dropout=args.dropout,
         ppo_clip_epsilon=args.ppo_clip_epsilon,
         value_loss_coefficient=args.value_loss_coefficient,
+        bidding_entropy_coefficient=args.bidding_entropy_coefficient,
         seed=args.seed,
         temperature=args.temperature,
         inference_device=cast(Literal["cpu", "auto", "cuda"], args.inference_device),
@@ -206,6 +213,7 @@ def _iterative_config_from_args(
         dropout=args.dropout,
         ppo_clip_epsilon=args.ppo_clip_epsilon,
         value_loss_coefficient=args.value_loss_coefficient,
+        bidding_entropy_coefficient=args.bidding_entropy_coefficient,
         seed=args.seed,
         temperature=args.temperature,
         inference_device=cast(Literal["cpu", "auto", "cuda"], args.inference_device),
@@ -237,6 +245,7 @@ def _provided_iterative_config_keys(argv: Sequence[str] | None) -> list[str]:
         "--dropout": "dropout",
         "--ppo-clip-epsilon": "ppoClipEpsilon",
         "--value-loss-coefficient": "valueLossCoefficient",
+        "--bidding-entropy-coefficient": "biddingEntropyCoefficient",
         "--seed": "seed",
         "--temperature": "temperature",
         "--inference-device": "inferenceDevice",

@@ -20,6 +20,9 @@ from torch.utils.data import DataLoader, Dataset
 from napoleon_ml.dataset.constants import (
     BIDDING_ACTION_COUNT,
     BIDDING_ENCODER_SCHEMA_VERSION,
+    BIDDING_HISTORY_SUIT_ORDER,
+    MAX_BIDDING_TARGET_POINT_CARDS,
+    MIN_BIDDING_TARGET_POINT_CARDS,
 )
 from napoleon_ml.dataset.tensors import (
     BIDDING_MODEL_INPUT_FEATURE_COUNT,
@@ -49,6 +52,11 @@ BIDDING_ACTOR_CRITIC_MODEL_ARCHITECTURE = "bidding-separated-actor-critic-v1"
 BIDDING_PPO_CHECKPOINT_SCHEMA_VERSION = 1
 DEFAULT_PPO_CLIP_EPSILON = 0.2
 DEFAULT_VALUE_LOSS_COEFFICIENT = 0.5
+DEFAULT_ENTROPY_COEFFICIENT = 0.0
+BIDDING_PASS_ACTION_INDEX = 0
+BIDDING_TARGET_POINT_CARDS = tuple(
+    range(MIN_BIDDING_TARGET_POINT_CARDS, MAX_BIDDING_TARGET_POINT_CARDS + 1)
+)
 
 
 class BiddingPpoCompatibilityError(ValueError):
@@ -97,11 +105,14 @@ class BiddingPpoBatch(NamedTuple):
 class BiddingPpoLoss:
     actor_loss: Tensor
     value_loss: Tensor
+    entropy_bonus: Tensor
     total_loss: Tensor
     new_log_probability: Tensor
     probability_ratio: Tensor
     clipped_sample_mask: Tensor
     advantage: Tensor
+    policy_entropy: Tensor
+    policy_probability: Tensor
 
 
 @dataclass(frozen=True)
@@ -112,6 +123,7 @@ class BiddingPpoTrainSettings:
     learning_rate: float
     ppo_clip_epsilon: float = DEFAULT_PPO_CLIP_EPSILON
     value_loss_coefficient: float = DEFAULT_VALUE_LOSS_COEFFICIENT
+    entropy_coefficient: float = DEFAULT_ENTROPY_COEFFICIENT
     optimizer: str = "AdamW"
     parent_actor_checkpoint: str | None = None
     parent_checkpoint: str | None = None
@@ -124,6 +136,7 @@ class BiddingPpoTrainSettings:
             "learningRate": self.learning_rate,
             "ppoClipEpsilon": self.ppo_clip_epsilon,
             "valueLossCoefficient": self.value_loss_coefficient,
+            "entropyCoefficient": self.entropy_coefficient,
             "optimizer": self.optimizer,
             "algorithm": BIDDING_PPO_ALGORITHM,
             "parentActorCheckpoint": self.parent_actor_checkpoint,
@@ -140,6 +153,10 @@ class BiddingPpoTrainReport:
     mean_total_loss: float
     mean_reward: float
     mean_probability_ratio: float
+    mean_policy_entropy: float
+    pass_mean_probability: float
+    suit_mean_probability: dict[str, float]
+    target_suit_chosen_count: dict[str, dict[str, int]]
     clipped_fraction: float
     forced_sample_count: int
     output_checkpoint_path: Path
@@ -153,6 +170,13 @@ class BiddingPpoTrainReport:
             "meanTotalLoss": self.mean_total_loss,
             "meanReward": self.mean_reward,
             "meanProbabilityRatio": self.mean_probability_ratio,
+            "meanPolicyEntropy": self.mean_policy_entropy,
+            "passMeanProbability": self.pass_mean_probability,
+            "suitMeanProbability": dict(self.suit_mean_probability),
+            "targetSuitChosenCount": {
+                target: dict(counts)
+                for target, counts in self.target_suit_chosen_count.items()
+            },
             "clippedFraction": self.clipped_fraction,
             "forcedSampleCount": self.forced_sample_count,
             "outputCheckpointPath": str(self.output_checkpoint_path),
@@ -330,6 +354,28 @@ def masked_selected_log_probability(
     return torch.where(forced, torch.zeros_like(selected), selected)
 
 
+def masked_policy_distribution(logits: Tensor, legal_mask: Tensor) -> tuple[Tensor, Tensor]:
+    if logits.ndim != 2 or logits.shape[1] != BIDDING_ACTION_COUNT:
+        raise ValueError(f"logits must have shape (batch, {BIDDING_ACTION_COUNT}).")
+    if legal_mask.shape != logits.shape:
+        raise ValueError("legal_mask must have the same shape as logits.")
+
+    mask = legal_mask.to(dtype=torch.bool)
+    if not bool(mask.any(dim=1).all().item()):
+        raise ValueError("legal_mask must contain at least one legal action per sample.")
+
+    masked_logits = logits.masked_fill(~mask, torch.finfo(logits.dtype).min)
+    log_probabilities = F.log_softmax(masked_logits, dim=1)
+    probabilities = torch.where(mask, torch.exp(log_probabilities), torch.zeros_like(logits))
+    entropy_terms = torch.where(
+        mask,
+        probabilities * log_probabilities,
+        torch.zeros_like(log_probabilities),
+    )
+    entropy = -entropy_terms.sum(dim=1)
+    return probabilities, entropy
+
+
 def bidding_ppo_loss(
     *,
     logits: Tensor,
@@ -340,17 +386,21 @@ def bidding_ppo_loss(
     terminal_reward: Tensor,
     clip_epsilon: float = DEFAULT_PPO_CLIP_EPSILON,
     value_loss_coefficient: float = DEFAULT_VALUE_LOSS_COEFFICIENT,
+    entropy_coefficient: float = DEFAULT_ENTROPY_COEFFICIENT,
 ) -> BiddingPpoLoss:
     if clip_epsilon <= 0.0:
         raise ValueError("clip_epsilon must be positive.")
     if value_loss_coefficient < 0.0:
         raise ValueError("value_loss_coefficient must be non-negative.")
+    if entropy_coefficient < 0.0:
+        raise ValueError("entropy_coefficient must be non-negative.")
 
     new_log_probability = masked_selected_log_probability(
         logits,
         selected_action_index,
         legal_bid_mask,
     )
+    policy_probability, policy_entropy = masked_policy_distribution(logits, legal_bid_mask)
     advantage = terminal_reward - value_prediction.detach()
     probability_ratio = torch.exp(new_log_probability - behavior_log_probability)
     clipped_ratio = torch.clamp(probability_ratio, 1.0 - clip_epsilon, 1.0 + clip_epsilon)
@@ -358,16 +408,22 @@ def bidding_ppo_loss(
     clipped_objective = clipped_ratio * advantage
     actor_loss = -torch.minimum(unclipped_objective, clipped_objective).mean()
     value_loss = F.mse_loss(value_prediction, terminal_reward)
-    total_loss = actor_loss + value_loss_coefficient * value_loss
+    entropy_bonus = policy_entropy.mean()
+    total_loss = actor_loss + value_loss_coefficient * value_loss - (
+        entropy_coefficient * entropy_bonus
+    )
     clipped_sample_mask = (probability_ratio - clipped_ratio).abs().gt(1e-12)
     return BiddingPpoLoss(
         actor_loss=actor_loss,
         value_loss=value_loss,
+        entropy_bonus=entropy_bonus,
         total_loss=total_loss,
         new_log_probability=new_log_probability,
         probability_ratio=probability_ratio,
         clipped_sample_mask=clipped_sample_mask,
         advantage=advantage,
+        policy_entropy=policy_entropy,
+        policy_probability=policy_probability,
     )
 
 
@@ -379,6 +435,8 @@ def train_bidding_ppo(
     model_config: BiddingMlpConfig,
 ) -> BiddingPpoTrainReport:
     manifest = load_non_playing_bidding_rl_manifest(dataset_directory)
+    if settings.entropy_coefficient < 0.0:
+        raise ValueError("entropy_coefficient must be non-negative.")
     torch.manual_seed(settings.seed)
     model = create_seeded_bidding_actor_critic_model(model_config, seed=settings.seed)
     parent_sha256: str | None = None
@@ -387,6 +445,7 @@ def train_bidding_ppo(
         parent_checkpoint_sha256 = initialize_model_from_checkpoint(
             model,
             settings.parent_checkpoint,
+            expected_entropy_coefficient=settings.entropy_coefficient,
         )
     elif settings.parent_actor_checkpoint is not None:
         parent_sha256 = initialize_actor_from_checkpoint(
@@ -417,6 +476,7 @@ def train_bidding_ppo(
                 terminal_reward=batch.terminal_reward,
                 clip_epsilon=settings.ppo_clip_epsilon,
                 value_loss_coefficient=settings.value_loss_coefficient,
+                entropy_coefficient=settings.entropy_coefficient,
             )
             loss.total_loss.backward()  # type: ignore[no-untyped-call]
             optimizer.step()
@@ -441,10 +501,17 @@ def train_bidding_ppo(
 def initialize_model_from_checkpoint(
     model: BiddingActorCriticModel,
     checkpoint_path: Path | str,
+    *,
+    expected_entropy_coefficient: float | None = None,
 ) -> str:
     checkpoint_file = Path(checkpoint_path)
     raw = _load_raw_checkpoint(checkpoint_file)
     _validate_bidding_ppo_checkpoint(raw)
+    if expected_entropy_coefficient is not None:
+        _validate_parent_entropy_coefficient(
+            raw,
+            expected_entropy_coefficient=expected_entropy_coefficient,
+        )
     model_config_raw = raw.get("model_config")
     if not isinstance(model_config_raw, dict):
         raise BiddingPpoCompatibilityError("parent checkpoint model_config must be a dictionary.")
@@ -520,6 +587,7 @@ def save_bidding_ppo_checkpoint(
         "action_count": BIDDING_ACTION_COUNT,
         "card_ids_sha256": calculate_card_ids_sha256(),
         "seed": settings.seed,
+        "entropy_coefficient": settings.entropy_coefficient,
         "reward": dict(manifest.reward),
         "terminal_reward_transform": dict(manifest.terminal_reward_transform),
         "behavior_policy": dict(manifest.behavior_policy),
@@ -584,10 +652,15 @@ class _LossTotals:
     total_loss_sum: float = 0.0
     reward_sum: float = 0.0
     probability_ratio_sum: float = 0.0
+    policy_entropy_sum: float = 0.0
+    pass_probability_sum: float = 0.0
+    suit_probability_sums: dict[str, float] | None = None
+    target_suit_chosen_counts: dict[str, dict[str, int]] | None = None
     clipped_sample_count: int = 0
     forced_sample_count: int = 0
 
     def update(self, *, batch: BiddingPpoBatch, loss: BiddingPpoLoss) -> None:
+        self._ensure_action_diagnostics()
         batch_size = int(batch.terminal_reward.shape[0])
         self.sample_count += batch_size
         self.optimizer_step_count += 1
@@ -596,6 +669,21 @@ class _LossTotals:
         self.total_loss_sum += float(loss.total_loss.detach().item()) * batch_size
         self.reward_sum += float(batch.terminal_reward.detach().sum().item())
         self.probability_ratio_sum += float(loss.probability_ratio.detach().sum().item())
+        probabilities = loss.policy_probability.detach()
+        self.policy_entropy_sum += float(loss.policy_entropy.detach().sum().item())
+        self.pass_probability_sum += float(
+            probabilities[:, BIDDING_PASS_ACTION_INDEX].sum().item()
+        )
+        for suit in BIDDING_HISTORY_SUIT_ORDER:
+            self._suit_probability_sums[suit] += float(
+                probabilities[:, _bid_action_indices_for_suit(suit)].sum().item()
+            )
+        for selected in batch.selected_action_index.detach().tolist():
+            decoded = _decode_bid_action_index(int(selected))
+            if decoded is None:
+                continue
+            target, suit = decoded
+            self._target_suit_chosen_counts[str(target)][suit] += 1
         self.clipped_sample_count += int(loss.clipped_sample_mask.detach().sum().item())
         self.forced_sample_count += int(
             batch.legal_bid_mask.to(dtype=torch.int64).sum(dim=1).eq(1).sum().item()
@@ -610,10 +698,62 @@ class _LossTotals:
             mean_total_loss=self.total_loss_sum / self.sample_count,
             mean_reward=self.reward_sum / self.sample_count,
             mean_probability_ratio=self.probability_ratio_sum / self.sample_count,
+            mean_policy_entropy=self.policy_entropy_sum / self.sample_count,
+            pass_mean_probability=self.pass_probability_sum / self.sample_count,
+            suit_mean_probability={
+                suit: self._suit_probability_sums[suit] / self.sample_count
+                for suit in BIDDING_HISTORY_SUIT_ORDER
+            },
+            target_suit_chosen_count={
+                target: dict(counts)
+                for target, counts in self._target_suit_chosen_counts.items()
+            },
             clipped_fraction=self.clipped_sample_count / self.sample_count,
             forced_sample_count=self.forced_sample_count,
             output_checkpoint_path=output,
         )
+
+    @property
+    def _suit_probability_sums(self) -> dict[str, float]:
+        if self.suit_probability_sums is None:
+            raise AssertionError("suit probability diagnostics were not initialized.")
+        return self.suit_probability_sums
+
+    @property
+    def _target_suit_chosen_counts(self) -> dict[str, dict[str, int]]:
+        if self.target_suit_chosen_counts is None:
+            raise AssertionError("target-suit diagnostics were not initialized.")
+        return self.target_suit_chosen_counts
+
+    def _ensure_action_diagnostics(self) -> None:
+        if self.suit_probability_sums is None:
+            self.suit_probability_sums = {suit: 0.0 for suit in BIDDING_HISTORY_SUIT_ORDER}
+        if self.target_suit_chosen_counts is None:
+            self.target_suit_chosen_counts = {
+                str(target): {suit: 0 for suit in BIDDING_HISTORY_SUIT_ORDER}
+                for target in BIDDING_TARGET_POINT_CARDS
+            }
+
+
+def _bid_action_indices_for_suit(suit: str) -> list[int]:
+    suit_index = BIDDING_HISTORY_SUIT_ORDER.index(suit)
+    return [
+        1 + target_offset * len(BIDDING_HISTORY_SUIT_ORDER) + suit_index
+        for target_offset, _target in enumerate(BIDDING_TARGET_POINT_CARDS)
+    ]
+
+
+def _decode_bid_action_index(action_index: int) -> tuple[int, str] | None:
+    if action_index == BIDDING_PASS_ACTION_INDEX:
+        return None
+    if action_index < 1 or action_index >= BIDDING_ACTION_COUNT:
+        raise ValueError(f"bidding action index is out of range: {action_index}.")
+    bid_offset = action_index - 1
+    suit_index = bid_offset % len(BIDDING_HISTORY_SUIT_ORDER)
+    target_offset = bid_offset // len(BIDDING_HISTORY_SUIT_ORDER)
+    target = MIN_BIDDING_TARGET_POINT_CARDS + target_offset
+    suit = BIDDING_HISTORY_SUIT_ORDER[suit_index]
+    return target, suit
 
 
 def _parse_rl_sample(raw: object, *, context: str) -> NonPlayingBiddingRlSample:
@@ -718,6 +858,44 @@ def _validate_bidding_ppo_checkpoint(raw: dict[str, object]) -> None:
     _require_terminal_reward_transform(
         raw.get("terminal_reward_transform"), "checkpoint terminal_reward_transform"
     )
+    training_config = _require_dict(raw.get("training_config"), "checkpoint training_config")
+    training_entropy_coefficient = _require_non_negative_finite_number(
+        training_config.get("entropyCoefficient"),
+        "checkpoint training_config.entropyCoefficient",
+        default=DEFAULT_ENTROPY_COEFFICIENT,
+    )
+    root_entropy_coefficient = _require_non_negative_finite_number(
+        raw.get("entropy_coefficient"),
+        "checkpoint entropy_coefficient",
+        default=training_entropy_coefficient,
+    )
+    if not math.isclose(
+        root_entropy_coefficient,
+        training_entropy_coefficient,
+        rel_tol=0.0,
+        abs_tol=1e-12,
+    ):
+        raise BiddingPpoCompatibilityError(
+            "checkpoint entropy_coefficient must match training_config.entropyCoefficient."
+        )
+
+
+def _validate_parent_entropy_coefficient(
+    raw: dict[str, object],
+    *,
+    expected_entropy_coefficient: float,
+) -> None:
+    training_config = _require_dict(raw.get("training_config"), "parent checkpoint training_config")
+    actual = _require_non_negative_finite_number(
+        training_config.get("entropyCoefficient"),
+        "parent checkpoint training_config.entropyCoefficient",
+        default=DEFAULT_ENTROPY_COEFFICIENT,
+    )
+    if not math.isclose(actual, expected_entropy_coefficient, rel_tol=0.0, abs_tol=1e-12):
+        raise BiddingPpoCompatibilityError(
+            "parent checkpoint entropyCoefficient mismatch: "
+            f"expected {expected_entropy_coefficient!r}, got {actual!r}."
+        )
 
 
 def _require_terminal_reward_transform(value: object, path: str) -> dict[str, object]:
@@ -774,6 +952,20 @@ def _require_finite_number(value: object, path: str) -> float:
     item = float(value)
     if not math.isfinite(item):
         raise BiddingPpoCompatibilityError(f"{path} must be finite.")
+    return item
+
+
+def _require_non_negative_finite_number(
+    value: object,
+    path: str,
+    *,
+    default: object | None = None,
+) -> float:
+    if value is None and default is not None:
+        value = default
+    item = _require_finite_number(value, path)
+    if item < 0.0:
+        raise BiddingPpoCompatibilityError(f"{path} must be non-negative.")
     return item
 
 
