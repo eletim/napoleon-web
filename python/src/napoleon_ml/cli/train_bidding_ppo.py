@@ -10,6 +10,8 @@ from pathlib import Path
 
 from napoleon_ml.bidding.model import BiddingMlpConfig
 from napoleon_ml.bidding.ppo import (
+    DEFAULT_ADVANTAGE_NORMALIZATION,
+    SUPPORTED_ADVANTAGE_NORMALIZATIONS,
     BiddingPpoCompatibilityError,
     BiddingPpoTrainSettings,
     train_bidding_ppo,
@@ -30,6 +32,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ppo-clip-epsilon", type=float, default=0.2)
     parser.add_argument("--value-loss-coefficient", type=float, default=0.5)
     parser.add_argument("--entropy-coefficient", type=float, default=0.0)
+    parser.add_argument(
+        "--advantage-normalization",
+        choices=SUPPORTED_ADVANTAGE_NORMALIZATIONS,
+        default=DEFAULT_ADVANTAGE_NORMALIZATION,
+    )
     parser.add_argument(
         "--parent-actor-checkpoint",
         type=Path,
@@ -66,6 +73,7 @@ def _run(args: argparse.Namespace) -> int:
         ppo_clip_epsilon=args.ppo_clip_epsilon,
         value_loss_coefficient=args.value_loss_coefficient,
         entropy_coefficient=args.entropy_coefficient,
+        advantage_normalization=args.advantage_normalization,
         parent_actor_checkpoint=(
             str(args.parent_actor_checkpoint) if args.parent_actor_checkpoint is not None else None
         ),

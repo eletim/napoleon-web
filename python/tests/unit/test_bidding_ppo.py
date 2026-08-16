@@ -10,14 +10,19 @@ import torch
 
 from napoleon_ml.bidding.model import BiddingActorCriticModel, BiddingMlpConfig, BiddingMlpModel
 from napoleon_ml.bidding.ppo import (
+    ADVANTAGE_NORMALIZATION_DATASET,
+    ADVANTAGE_NORMALIZATION_NONE,
     BIDDING_ACTOR_CRITIC_MODEL_ARCHITECTURE,
     BIDDING_PPO_ALGORITHM,
     NON_PLAYING_RL_ALL_PASS_RULE_ID,
     NON_PLAYING_RL_REWARD_ID,
     NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID,
+    BiddingPpoCompatibilityError,
     BiddingPpoTrainSettings,
+    advantage_normalization_metadata,
     bidding_ppo_loss,
     initialize_actor_from_checkpoint,
+    initialize_model_from_checkpoint,
     load_bidding_ppo_checkpoint,
     masked_policy_distribution,
     masked_selected_log_probability,
@@ -80,6 +85,32 @@ def test_bidding_ppo_loss_clips_ratio_and_accepts_arbitrary_float_reward() -> No
     assert loss.probability_ratio.tolist() == pytest.approx([1.8, 0.2])
     assert loss.clipped_sample_mask.tolist() == [True, True]
     assert loss.value_loss.item() == pytest.approx(((17.0**2) + ((-1.0) ** 2)) / 2)
+    assert torch.isfinite(loss.total_loss)
+
+
+def test_bidding_ppo_loss_uses_external_actor_advantage_and_raw_value_target() -> None:
+    logits = torch.zeros((2, BIDDING_ACTION_COUNT), dtype=torch.float32)
+    legal_mask = torch.zeros((2, BIDDING_ACTION_COUNT), dtype=torch.bool)
+    legal_mask[:, 0] = True
+    legal_mask[:, 1] = True
+    actor_advantage = torch.tensor([1.0, -1.0], dtype=torch.float32)
+
+    loss = bidding_ppo_loss(
+        logits=logits,
+        value_prediction=torch.tensor([10.0, 10.0], dtype=torch.float32),
+        selected_action_index=torch.tensor([0, 1], dtype=torch.int64),
+        legal_bid_mask=legal_mask,
+        behavior_log_probability=torch.log(torch.tensor([0.5, 0.5], dtype=torch.float32)),
+        terminal_reward=torch.tensor([12.0, 8.0], dtype=torch.float32),
+        actor_advantage=actor_advantage,
+        clip_epsilon=0.2,
+        value_loss_coefficient=0.5,
+    )
+
+    assert loss.advantage.tolist() == pytest.approx([1.0, -1.0])
+    assert loss.raw_advantage.tolist() == pytest.approx([2.0, -2.0])
+    assert loss.actor_loss.item() == pytest.approx(0.0)
+    assert loss.value_loss.item() == pytest.approx(4.0)
     assert torch.isfinite(loss.total_loss)
 
 
@@ -169,9 +200,25 @@ def test_bidding_ppo_train_checkpoint_and_export_smoke(tmp_path: Path) -> None:
     assert checkpoint["algorithm"] == BIDDING_PPO_ALGORITHM
     assert checkpoint["model_architecture"] == BIDDING_ACTOR_CRITIC_MODEL_ARCHITECTURE
     assert checkpoint["entropy_coefficient"] == 0.01
+    assert checkpoint["advantage_normalization"] == advantage_normalization_metadata(
+        ADVANTAGE_NORMALIZATION_DATASET
+    )
     training_config = checkpoint["training_config"]
     assert isinstance(training_config, dict)
     assert training_config["entropyCoefficient"] == 0.01
+    assert training_config["advantageNormalization"] == advantage_normalization_metadata(
+        ADVANTAGE_NORMALIZATION_DATASET
+    )
+    report_dict = report.to_dict()
+    assert report_dict["advantageNormalization"] == advantage_normalization_metadata(
+        ADVANTAGE_NORMALIZATION_DATASET
+    )
+    advantage_stats = report_dict["advantageStatistics"]
+    assert isinstance(advantage_stats, dict)
+    assert advantage_stats["rawStd"] > 0.0
+    assert advantage_stats["normalizedMean"] == pytest.approx(0.0, abs=1e-6)
+    assert advantage_stats["normalizedStd"] == pytest.approx(1.0, abs=1e-6)
+    assert "meanApproximateKl" in report_dict
     assert report.mean_policy_entropy > 0.0
     assert 0.0 <= report.pass_mean_probability <= 1.0
     assert set(report.suit_mean_probability) == {"spades", "hearts", "diamonds", "clubs"}
@@ -203,6 +250,9 @@ def test_bidding_ppo_train_checkpoint_and_export_smoke(tmp_path: Path) -> None:
     compatibility_metadata = metadata_json["checkpointCompatibilityMetadata"]
     assert isinstance(compatibility_metadata, dict)
     assert compatibility_metadata["biddingEntropyCoefficient"] == 0.01
+    assert compatibility_metadata["biddingAdvantageNormalization"] == (
+        advantage_normalization_metadata(ADVANTAGE_NORMALIZATION_DATASET)
+    )
 
 
 def test_bidding_ppo_train_and_export_cli_smoke(tmp_path: Path) -> None:
@@ -226,6 +276,8 @@ def test_bidding_ppo_train_and_export_cli_smoke(tmp_path: Path) -> None:
             "1",
             "--entropy-coefficient",
             "0.01",
+            "--advantage-normalization",
+            "dataset",
             "--json",
         ]
     ) == 0
@@ -252,6 +304,62 @@ def test_bidding_ppo_train_and_export_cli_smoke(tmp_path: Path) -> None:
         "non-playing-bidding-rl-sample"
     )
     assert compatibility_metadata["biddingEntropyCoefficient"] == 0.01
+    assert compatibility_metadata["biddingAdvantageNormalization"] == (
+        advantage_normalization_metadata(ADVANTAGE_NORMALIZATION_DATASET)
+    )
+
+
+def test_bidding_ppo_dataset_advantage_normalization_handles_zero_std(tmp_path: Path) -> None:
+    dataset = _write_rl_dataset(tmp_path / "dataset", terminal_rewards=[3.0, 3.0, 3.0, 3.0])
+    output = tmp_path / "bidding-ppo.pt"
+    report = train_bidding_ppo(
+        dataset_directory=dataset,
+        output_checkpoint_path=output,
+        settings=BiddingPpoTrainSettings(
+            seed=123,
+            epochs=1,
+            batch_size=2,
+            learning_rate=1e-3,
+            advantage_normalization=ADVANTAGE_NORMALIZATION_DATASET,
+        ),
+        model_config=BiddingMlpConfig(hidden_dim=8, hidden_layers=1, dropout=0.0),
+    )
+
+    stats = report.advantage_statistics
+    assert math.isfinite(stats.normalized_mean)
+    assert math.isfinite(stats.normalized_std)
+    assert stats.raw_std == pytest.approx(0.0)
+    assert stats.normalized_std == pytest.approx(0.0)
+
+
+def test_bidding_ppo_parent_checkpoint_rejects_advantage_normalization_mismatch(
+    tmp_path: Path,
+) -> None:
+    dataset = _write_rl_dataset(tmp_path / "dataset")
+    config = BiddingMlpConfig(hidden_dim=8, hidden_layers=1, dropout=0.0)
+    parent = tmp_path / "parent.pt"
+    train_bidding_ppo(
+        dataset_directory=dataset,
+        output_checkpoint_path=parent,
+        settings=BiddingPpoTrainSettings(
+            seed=123,
+            epochs=1,
+            batch_size=2,
+            learning_rate=1e-3,
+            advantage_normalization=ADVANTAGE_NORMALIZATION_NONE,
+        ),
+        model_config=config,
+    )
+    target = BiddingActorCriticModel(config)
+
+    with pytest.raises(BiddingPpoCompatibilityError, match="advantageNormalization mismatch"):
+        initialize_model_from_checkpoint(
+            target,
+            parent,
+            expected_advantage_normalization=advantage_normalization_metadata(
+                ADVANTAGE_NORMALIZATION_DATASET
+            ),
+        )
 
 
 def test_initialize_actor_from_actor_critic_checkpoint_leaves_critic_independent(
@@ -291,9 +399,17 @@ def test_initialize_actor_from_actor_critic_checkpoint_leaves_critic_independent
     )
 
 
-def _write_rl_dataset(directory: Path) -> Path:
+def _write_rl_dataset(
+    directory: Path,
+    *,
+    terminal_rewards: list[float] | None = None,
+) -> Path:
     directory.mkdir(parents=True)
-    samples = [_sample(seed=7, step=index + 1, selected=index % 2) for index in range(4)]
+    rewards = terminal_rewards if terminal_rewards is not None else [-3.0, 18.5, -3.0, 18.5]
+    samples = [
+        _sample(seed=7, step=index + 1, selected=index % 2, terminal_reward=reward)
+        for index, reward in enumerate(rewards)
+    ]
     shard = "".join(json.dumps(sample, separators=(",", ":")) + "\n" for sample in samples)
     (directory / "shard-00000.jsonl").write_text(shard, encoding="utf-8")
     manifest = {
@@ -357,7 +473,13 @@ def _write_rl_dataset(directory: Path) -> Path:
     return directory
 
 
-def _sample(*, seed: int, step: int, selected: int) -> dict[str, object]:
+def _sample(
+    *,
+    seed: int,
+    step: int,
+    selected: int,
+    terminal_reward: float,
+) -> dict[str, object]:
     legal = [0] * BIDDING_ACTION_COUNT
     legal[0] = 1
     legal[1] = 1
@@ -374,7 +496,7 @@ def _sample(*, seed: int, step: int, selected: int) -> dict[str, object]:
         "legalBidMask": legal,
         "selectedActionIndex": selected,
         "behaviorLogProbability": -0.6931471805599453,
-        "terminalReward": 18.5 if step % 2 == 0 else -3.0,
+        "terminalReward": terminal_reward,
         "outcome": {
             "winner": "napoleon-team",
             "targetPointCards": 18,
