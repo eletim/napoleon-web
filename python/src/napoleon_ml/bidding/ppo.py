@@ -53,6 +53,14 @@ BIDDING_PPO_CHECKPOINT_SCHEMA_VERSION = 1
 DEFAULT_PPO_CLIP_EPSILON = 0.2
 DEFAULT_VALUE_LOSS_COEFFICIENT = 0.5
 DEFAULT_ENTROPY_COEFFICIENT = 0.0
+ADVANTAGE_NORMALIZATION_NONE = "none"
+ADVANTAGE_NORMALIZATION_DATASET = "dataset"
+SUPPORTED_ADVANTAGE_NORMALIZATIONS = (
+    ADVANTAGE_NORMALIZATION_NONE,
+    ADVANTAGE_NORMALIZATION_DATASET,
+)
+DEFAULT_ADVANTAGE_NORMALIZATION = ADVANTAGE_NORMALIZATION_DATASET
+DEFAULT_ADVANTAGE_NORMALIZATION_EPSILON = 1e-8
 BIDDING_PASS_ACTION_INDEX = 0
 BIDDING_TARGET_POINT_CARDS = tuple(
     range(MIN_BIDDING_TARGET_POINT_CARDS, MAX_BIDDING_TARGET_POINT_CARDS + 1)
@@ -80,6 +88,7 @@ class NonPlayingBiddingRlManifest:
 
 @dataclass(frozen=True)
 class NonPlayingBiddingRlSample:
+    sample_index: int
     seed: int
     step: int
     acting_player_index: int
@@ -91,6 +100,7 @@ class NonPlayingBiddingRlSample:
 
 
 class BiddingPpoBatch(NamedTuple):
+    sample_index: Tensor
     model_input: Tensor
     legal_bid_mask: Tensor
     selected_action_index: Tensor
@@ -109,10 +119,38 @@ class BiddingPpoLoss:
     total_loss: Tensor
     new_log_probability: Tensor
     probability_ratio: Tensor
+    approximate_kl: Tensor
     clipped_sample_mask: Tensor
     advantage: Tensor
+    raw_advantage: Tensor
     policy_entropy: Tensor
     policy_probability: Tensor
+
+
+@dataclass(frozen=True)
+class BiddingAdvantageStatistics:
+    raw_mean: float
+    raw_std: float
+    raw_min: float
+    raw_max: float
+    raw_mean_absolute: float
+    raw_p95_absolute: float
+    raw_p99_absolute: float
+    normalized_mean: float
+    normalized_std: float
+
+    def to_dict(self) -> dict[str, float]:
+        return {
+            "rawMean": self.raw_mean,
+            "rawStd": self.raw_std,
+            "rawMin": self.raw_min,
+            "rawMax": self.raw_max,
+            "rawMeanAbsolute": self.raw_mean_absolute,
+            "rawP95Absolute": self.raw_p95_absolute,
+            "rawP99Absolute": self.raw_p99_absolute,
+            "normalizedMean": self.normalized_mean,
+            "normalizedStd": self.normalized_std,
+        }
 
 
 @dataclass(frozen=True)
@@ -124,6 +162,8 @@ class BiddingPpoTrainSettings:
     ppo_clip_epsilon: float = DEFAULT_PPO_CLIP_EPSILON
     value_loss_coefficient: float = DEFAULT_VALUE_LOSS_COEFFICIENT
     entropy_coefficient: float = DEFAULT_ENTROPY_COEFFICIENT
+    advantage_normalization: str = DEFAULT_ADVANTAGE_NORMALIZATION
+    advantage_normalization_epsilon: float = DEFAULT_ADVANTAGE_NORMALIZATION_EPSILON
     optimizer: str = "AdamW"
     parent_actor_checkpoint: str | None = None
     parent_checkpoint: str | None = None
@@ -137,6 +177,10 @@ class BiddingPpoTrainSettings:
             "ppoClipEpsilon": self.ppo_clip_epsilon,
             "valueLossCoefficient": self.value_loss_coefficient,
             "entropyCoefficient": self.entropy_coefficient,
+            "advantageNormalization": advantage_normalization_metadata(
+                self.advantage_normalization,
+                epsilon=self.advantage_normalization_epsilon,
+            ),
             "optimizer": self.optimizer,
             "algorithm": BIDDING_PPO_ALGORITHM,
             "parentActorCheckpoint": self.parent_actor_checkpoint,
@@ -157,11 +201,15 @@ class BiddingPpoTrainReport:
     pass_mean_probability: float
     suit_mean_probability: dict[str, float]
     target_suit_chosen_count: dict[str, dict[str, int]]
+    advantage_normalization: dict[str, object]
+    advantage_statistics: BiddingAdvantageStatistics
+    mean_approximate_kl: float
     clipped_fraction: float
     forced_sample_count: int
     output_checkpoint_path: Path
 
     def to_dict(self) -> dict[str, object]:
+        advantage_statistics = self.advantage_statistics.to_dict()
         return {
             "sampleCount": self.sample_count,
             "optimizerStepCount": self.optimizer_step_count,
@@ -177,6 +225,18 @@ class BiddingPpoTrainReport:
                 target: dict(counts)
                 for target, counts in self.target_suit_chosen_count.items()
             },
+            "advantageNormalization": dict(self.advantage_normalization),
+            "advantageStatistics": advantage_statistics,
+            "rawAdvantageMean": advantage_statistics["rawMean"],
+            "rawAdvantageStd": advantage_statistics["rawStd"],
+            "rawAdvantageMin": advantage_statistics["rawMin"],
+            "rawAdvantageMax": advantage_statistics["rawMax"],
+            "rawAdvantageMeanAbsolute": advantage_statistics["rawMeanAbsolute"],
+            "rawAdvantageP95Absolute": advantage_statistics["rawP95Absolute"],
+            "rawAdvantageP99Absolute": advantage_statistics["rawP99Absolute"],
+            "normalizedAdvantageMean": advantage_statistics["normalizedMean"],
+            "normalizedAdvantageStd": advantage_statistics["normalizedStd"],
+            "meanApproximateKl": self.mean_approximate_kl,
             "clippedFraction": self.clipped_fraction,
             "forcedSampleCount": self.forced_sample_count,
             "outputCheckpointPath": str(self.output_checkpoint_path),
@@ -301,7 +361,11 @@ def iter_non_playing_bidding_rl_samples(
                 raise BiddingPpoCompatibilityError(
                     f"{file_name}:{line_number}: invalid JSON: {error}"
                 ) from error
-            yield _parse_rl_sample(raw, context=f"{file_name}:{line_number}")
+            yield _parse_rl_sample(
+                raw,
+                context=f"{file_name}:{line_number}",
+                sample_index=count,
+            )
             count += 1
 
     if count != manifest.sample_count:
@@ -384,6 +448,7 @@ def bidding_ppo_loss(
     legal_bid_mask: Tensor,
     behavior_log_probability: Tensor,
     terminal_reward: Tensor,
+    actor_advantage: Tensor | None = None,
     clip_epsilon: float = DEFAULT_PPO_CLIP_EPSILON,
     value_loss_coefficient: float = DEFAULT_VALUE_LOSS_COEFFICIENT,
     entropy_coefficient: float = DEFAULT_ENTROPY_COEFFICIENT,
@@ -401,8 +466,13 @@ def bidding_ppo_loss(
         legal_bid_mask,
     )
     policy_probability, policy_entropy = masked_policy_distribution(logits, legal_bid_mask)
-    advantage = terminal_reward - value_prediction.detach()
+    raw_advantage = terminal_reward - value_prediction.detach()
+    advantage = raw_advantage if actor_advantage is None else actor_advantage.detach()
+    if advantage.shape != raw_advantage.shape:
+        raise ValueError("actor_advantage must have the same shape as terminal_reward.")
     probability_ratio = torch.exp(new_log_probability - behavior_log_probability)
+    log_probability_ratio = new_log_probability - behavior_log_probability
+    approximate_kl = (probability_ratio - 1.0) - log_probability_ratio
     clipped_ratio = torch.clamp(probability_ratio, 1.0 - clip_epsilon, 1.0 + clip_epsilon)
     unclipped_objective = probability_ratio * advantage
     clipped_objective = clipped_ratio * advantage
@@ -420,11 +490,119 @@ def bidding_ppo_loss(
         total_loss=total_loss,
         new_log_probability=new_log_probability,
         probability_ratio=probability_ratio,
+        approximate_kl=approximate_kl,
         clipped_sample_mask=clipped_sample_mask,
         advantage=advantage,
+        raw_advantage=raw_advantage,
         policy_entropy=policy_entropy,
         policy_probability=policy_probability,
     )
+
+
+def advantage_normalization_metadata(
+    normalization: str,
+    *,
+    epsilon: float = DEFAULT_ADVANTAGE_NORMALIZATION_EPSILON,
+) -> dict[str, object]:
+    if normalization == ADVANTAGE_NORMALIZATION_NONE:
+        return {
+            "id": "raw-advantage-none-v1",
+            "type": ADVANTAGE_NORMALIZATION_NONE,
+            "appliedTo": "terminal_reward_minus_detached_value",
+        }
+    if normalization == ADVANTAGE_NORMALIZATION_DATASET:
+        if not math.isfinite(epsilon) or epsilon <= 0.0:
+            raise ValueError("advantage_normalization_epsilon must be positive and finite.")
+        return {
+            "id": "raw-advantage-dataset-standardization-v1",
+            "type": ADVANTAGE_NORMALIZATION_DATASET,
+            "scope": "iteration-bidding-training-dataset",
+            "center": True,
+            "scale": "population-std",
+            "epsilon": epsilon,
+            "appliedTo": "terminal_reward_minus_detached_value",
+        }
+    raise ValueError(
+        "advantage_normalization must be one of "
+        f"{', '.join(SUPPORTED_ADVANTAGE_NORMALIZATIONS)}, got {normalization!r}."
+    )
+
+
+def advantage_normalization_from_metadata(value: object) -> str:
+    if value is None:
+        return ADVANTAGE_NORMALIZATION_NONE
+    metadata = _require_dict(value, "advantageNormalization")
+    normalization = metadata.get("type")
+    if normalization not in SUPPORTED_ADVANTAGE_NORMALIZATIONS:
+        raise BiddingPpoCompatibilityError(
+            f"advantageNormalization.type is unsupported: {normalization!r}."
+        )
+    return normalization
+
+
+def _validate_advantage_normalization_settings(settings: BiddingPpoTrainSettings) -> None:
+    if (
+        not math.isfinite(settings.advantage_normalization_epsilon)
+        or settings.advantage_normalization_epsilon <= 0.0
+    ):
+        raise ValueError("advantage_normalization_epsilon must be positive and finite.")
+    advantage_normalization_metadata(
+        settings.advantage_normalization,
+        epsilon=settings.advantage_normalization_epsilon,
+    )
+
+
+def _prepare_actor_advantages(
+    model: BiddingActorCriticModel,
+    dataloader: DataLoader[BiddingPpoBatch],
+    *,
+    normalization: str,
+    epsilon: float,
+) -> tuple[Tensor, BiddingAdvantageStatistics]:
+    model.eval()
+    raw_advantages: list[Tensor] = []
+    sample_indices: list[Tensor] = []
+    with torch.no_grad():
+        for batch in dataloader:
+            value_prediction = model.value(batch.model_input)
+            raw_advantages.append(batch.terminal_reward - value_prediction)
+            sample_indices.append(batch.sample_index)
+
+    if not raw_advantages:
+        raise BiddingPpoCompatibilityError("training produced no PPO batches.")
+
+    raw_by_iteration_order = torch.empty(
+        sum(int(chunk.shape[0]) for chunk in raw_advantages),
+        dtype=torch.float32,
+    )
+    for indices, values in zip(sample_indices, raw_advantages, strict=True):
+        raw_by_iteration_order[indices] = values
+
+    raw_mean = raw_by_iteration_order.mean()
+    raw_std = raw_by_iteration_order.std(unbiased=False)
+    if normalization == ADVANTAGE_NORMALIZATION_NONE:
+        actor_advantage = raw_by_iteration_order.detach()
+    elif normalization == ADVANTAGE_NORMALIZATION_DATASET:
+        actor_advantage = ((raw_by_iteration_order - raw_mean) / (raw_std + epsilon)).detach()
+    else:
+        raise ValueError(
+            "advantage_normalization must be one of "
+            f"{', '.join(SUPPORTED_ADVANTAGE_NORMALIZATIONS)}, got {normalization!r}."
+        )
+
+    absolute_raw = raw_by_iteration_order.abs()
+    statistics = BiddingAdvantageStatistics(
+        raw_mean=float(raw_mean.item()),
+        raw_std=float(raw_std.item()),
+        raw_min=float(raw_by_iteration_order.min().item()),
+        raw_max=float(raw_by_iteration_order.max().item()),
+        raw_mean_absolute=float(absolute_raw.mean().item()),
+        raw_p95_absolute=float(torch.quantile(absolute_raw, 0.95).item()),
+        raw_p99_absolute=float(torch.quantile(absolute_raw, 0.99).item()),
+        normalized_mean=float(actor_advantage.mean().item()),
+        normalized_std=float(actor_advantage.std(unbiased=False).item()),
+    )
+    return actor_advantage, statistics
 
 
 def train_bidding_ppo(
@@ -437,6 +615,7 @@ def train_bidding_ppo(
     manifest = load_non_playing_bidding_rl_manifest(dataset_directory)
     if settings.entropy_coefficient < 0.0:
         raise ValueError("entropy_coefficient must be non-negative.")
+    _validate_advantage_normalization_settings(settings)
     torch.manual_seed(settings.seed)
     model = create_seeded_bidding_actor_critic_model(model_config, seed=settings.seed)
     parent_sha256: str | None = None
@@ -446,6 +625,10 @@ def train_bidding_ppo(
             model,
             settings.parent_checkpoint,
             expected_entropy_coefficient=settings.entropy_coefficient,
+            expected_advantage_normalization=advantage_normalization_metadata(
+                settings.advantage_normalization,
+                epsilon=settings.advantage_normalization_epsilon,
+            ),
         )
     elif settings.parent_actor_checkpoint is not None:
         parent_sha256 = initialize_actor_from_checkpoint(
@@ -457,6 +640,12 @@ def train_bidding_ppo(
         dataset_directory,
         batch_size=settings.batch_size,
         shuffle=False,
+    )
+    actor_advantage_by_sample, advantage_statistics = _prepare_actor_advantages(
+        model,
+        dataloader,
+        normalization=settings.advantage_normalization,
+        epsilon=settings.advantage_normalization_epsilon,
     )
     optimizer = optim.AdamW(model.parameters(), lr=settings.learning_rate)
     totals = _LossTotals()
@@ -474,6 +663,7 @@ def train_bidding_ppo(
                 legal_bid_mask=batch.legal_bid_mask,
                 behavior_log_probability=batch.behavior_log_probability,
                 terminal_reward=batch.terminal_reward,
+                actor_advantage=actor_advantage_by_sample[batch.sample_index],
                 clip_epsilon=settings.ppo_clip_epsilon,
                 value_loss_coefficient=settings.value_loss_coefficient,
                 entropy_coefficient=settings.entropy_coefficient,
@@ -495,7 +685,14 @@ def train_bidding_ppo(
         parent_actor_checkpoint_sha256=parent_sha256,
         parent_checkpoint_sha256=parent_checkpoint_sha256,
     )
-    return totals.to_report(output)
+    return totals.to_report(
+        output,
+        advantage_normalization=advantage_normalization_metadata(
+            settings.advantage_normalization,
+            epsilon=settings.advantage_normalization_epsilon,
+        ),
+        advantage_statistics=advantage_statistics,
+    )
 
 
 def initialize_model_from_checkpoint(
@@ -503,6 +700,7 @@ def initialize_model_from_checkpoint(
     checkpoint_path: Path | str,
     *,
     expected_entropy_coefficient: float | None = None,
+    expected_advantage_normalization: dict[str, object] | None = None,
 ) -> str:
     checkpoint_file = Path(checkpoint_path)
     raw = _load_raw_checkpoint(checkpoint_file)
@@ -511,6 +709,11 @@ def initialize_model_from_checkpoint(
         _validate_parent_entropy_coefficient(
             raw,
             expected_entropy_coefficient=expected_entropy_coefficient,
+        )
+    if expected_advantage_normalization is not None:
+        _validate_parent_advantage_normalization(
+            raw,
+            expected_advantage_normalization=expected_advantage_normalization,
         )
     model_config_raw = raw.get("model_config")
     if not isinstance(model_config_raw, dict):
@@ -588,6 +791,10 @@ def save_bidding_ppo_checkpoint(
         "card_ids_sha256": calculate_card_ids_sha256(),
         "seed": settings.seed,
         "entropy_coefficient": settings.entropy_coefficient,
+        "advantage_normalization": advantage_normalization_metadata(
+            settings.advantage_normalization,
+            epsilon=settings.advantage_normalization_epsilon,
+        ),
         "reward": dict(manifest.reward),
         "terminal_reward_transform": dict(manifest.terminal_reward_transform),
         "behavior_policy": dict(manifest.behavior_policy),
@@ -652,6 +859,7 @@ class _LossTotals:
     total_loss_sum: float = 0.0
     reward_sum: float = 0.0
     probability_ratio_sum: float = 0.0
+    approximate_kl_sum: float = 0.0
     policy_entropy_sum: float = 0.0
     pass_probability_sum: float = 0.0
     suit_probability_sums: dict[str, float] | None = None
@@ -669,6 +877,7 @@ class _LossTotals:
         self.total_loss_sum += float(loss.total_loss.detach().item()) * batch_size
         self.reward_sum += float(batch.terminal_reward.detach().sum().item())
         self.probability_ratio_sum += float(loss.probability_ratio.detach().sum().item())
+        self.approximate_kl_sum += float(loss.approximate_kl.detach().sum().item())
         probabilities = loss.policy_probability.detach()
         self.policy_entropy_sum += float(loss.policy_entropy.detach().sum().item())
         self.pass_probability_sum += float(
@@ -689,7 +898,13 @@ class _LossTotals:
             batch.legal_bid_mask.to(dtype=torch.int64).sum(dim=1).eq(1).sum().item()
         )
 
-    def to_report(self, output: Path) -> BiddingPpoTrainReport:
+    def to_report(
+        self,
+        output: Path,
+        *,
+        advantage_normalization: dict[str, object],
+        advantage_statistics: BiddingAdvantageStatistics,
+    ) -> BiddingPpoTrainReport:
         return BiddingPpoTrainReport(
             sample_count=self.sample_count,
             optimizer_step_count=self.optimizer_step_count,
@@ -708,6 +923,9 @@ class _LossTotals:
                 target: dict(counts)
                 for target, counts in self._target_suit_chosen_counts.items()
             },
+            advantage_normalization=advantage_normalization,
+            advantage_statistics=advantage_statistics,
+            mean_approximate_kl=self.approximate_kl_sum / self.sample_count,
             clipped_fraction=self.clipped_sample_count / self.sample_count,
             forced_sample_count=self.forced_sample_count,
             output_checkpoint_path=output,
@@ -756,7 +974,12 @@ def _decode_bid_action_index(action_index: int) -> tuple[int, str] | None:
     return target, suit
 
 
-def _parse_rl_sample(raw: object, *, context: str) -> NonPlayingBiddingRlSample:
+def _parse_rl_sample(
+    raw: object,
+    *,
+    context: str,
+    sample_index: int,
+) -> NonPlayingBiddingRlSample:
     obj = _require_dict(raw, context)
     if obj.get("sampleType") != NON_PLAYING_RL_SAMPLE_TYPE:
         raise BiddingPpoCompatibilityError(f"{context}: sampleType mismatch.")
@@ -781,6 +1004,7 @@ def _parse_rl_sample(raw: object, *, context: str) -> NonPlayingBiddingRlSample:
             f"{context}: behaviorLogProbability must be <= 0."
         )
     return NonPlayingBiddingRlSample(
+        sample_index=sample_index,
         seed=_require_int(obj.get("seed"), f"{context}.seed"),
         step=_require_int(obj.get("step"), f"{context}.step"),
         acting_player_index=_require_int(
@@ -798,6 +1022,7 @@ def _parse_rl_sample(raw: object, *, context: str) -> NonPlayingBiddingRlSample:
 
 def _collate_bidding_ppo_batch(samples: list[NonPlayingBiddingRlSample]) -> BiddingPpoBatch:
     return BiddingPpoBatch(
+        sample_index=torch.tensor([sample.sample_index for sample in samples], dtype=torch.int64),
         model_input=torch.from_numpy(np.stack([sample.model_input for sample in samples])),
         legal_bid_mask=torch.from_numpy(np.stack([sample.legal_bid_mask for sample in samples])).to(
             dtype=torch.bool
@@ -878,6 +1103,16 @@ def _validate_bidding_ppo_checkpoint(raw: dict[str, object]) -> None:
         raise BiddingPpoCompatibilityError(
             "checkpoint entropy_coefficient must match training_config.entropyCoefficient."
         )
+    training_advantage_normalization = _checkpoint_advantage_normalization(training_config)
+    root_advantage_normalization = _checkpoint_advantage_normalization(
+        raw,
+        default=training_advantage_normalization,
+    )
+    if root_advantage_normalization != training_advantage_normalization:
+        raise BiddingPpoCompatibilityError(
+            "checkpoint advantage_normalization must match "
+            "training_config.advantageNormalization."
+        )
 
 
 def _validate_parent_entropy_coefficient(
@@ -896,6 +1131,54 @@ def _validate_parent_entropy_coefficient(
             "parent checkpoint entropyCoefficient mismatch: "
             f"expected {expected_entropy_coefficient!r}, got {actual!r}."
         )
+
+
+def _validate_parent_advantage_normalization(
+    raw: dict[str, object],
+    *,
+    expected_advantage_normalization: dict[str, object],
+) -> None:
+    training_config = _require_dict(raw.get("training_config"), "parent checkpoint training_config")
+    actual = _checkpoint_advantage_normalization(training_config)
+    if actual != expected_advantage_normalization:
+        raise BiddingPpoCompatibilityError(
+            "parent checkpoint advantageNormalization mismatch: "
+            f"expected {expected_advantage_normalization!r}, got {actual!r}."
+        )
+
+
+def _checkpoint_advantage_normalization(
+    data: dict[str, object],
+    *,
+    default: dict[str, object] | None = None,
+) -> dict[str, object]:
+    value = data.get("advantageNormalization")
+    if value is None:
+        value = data.get("advantage_normalization")
+    if value is None:
+        if default is not None:
+            return dict(default)
+        return advantage_normalization_metadata(ADVANTAGE_NORMALIZATION_NONE)
+    metadata = _require_dict(value, "advantageNormalization")
+    normalization = advantage_normalization_from_metadata(metadata)
+    expected = advantage_normalization_metadata(
+        normalization,
+        epsilon=_advantage_normalization_epsilon(metadata),
+    )
+    if metadata != expected:
+        raise BiddingPpoCompatibilityError(
+            f"advantageNormalization metadata mismatch: expected {expected!r}, got {metadata!r}."
+        )
+    return expected
+
+
+def _advantage_normalization_epsilon(metadata: dict[str, object]) -> float:
+    if metadata.get("type") == ADVANTAGE_NORMALIZATION_NONE:
+        return DEFAULT_ADVANTAGE_NORMALIZATION_EPSILON
+    return _require_positive_finite_number(
+        metadata.get("epsilon"),
+        "advantageNormalization.epsilon",
+    )
 
 
 def _require_terminal_reward_transform(value: object, path: str) -> dict[str, object]:
@@ -966,6 +1249,13 @@ def _require_non_negative_finite_number(
     item = _require_finite_number(value, path)
     if item < 0.0:
         raise BiddingPpoCompatibilityError(f"{path} must be non-negative.")
+    return item
+
+
+def _require_positive_finite_number(value: object, path: str) -> float:
+    item = _require_finite_number(value, path)
+    if item <= 0.0:
+        raise BiddingPpoCompatibilityError(f"{path} must be positive.")
     return item
 
 

@@ -9,8 +9,10 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal, cast
 
+from napoleon_ml.bidding.ppo import SUPPORTED_ADVANTAGE_NORMALIZATIONS
 from napoleon_ml.nonplaying_rl_orchestrator import (
     DEFAULT_BATCH_SIZE,
+    DEFAULT_BIDDING_ADVANTAGE_NORMALIZATION,
     DEFAULT_BIDDING_ENTROPY_COEFFICIENT,
     DEFAULT_EPOCHS,
     DEFAULT_EVALUATION_GAMES,
@@ -83,6 +85,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--bidding-entropy-coefficient",
         type=float,
         default=DEFAULT_BIDDING_ENTROPY_COEFFICIENT,
+    )
+    parser.add_argument(
+        "--bidding-advantage-normalization",
+        choices=SUPPORTED_ADVANTAGE_NORMALIZATIONS,
+        default=DEFAULT_BIDDING_ADVANTAGE_NORMALIZATION,
     )
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
@@ -163,6 +170,7 @@ def _config_from_args(args: argparse.Namespace) -> NonPlayingRlRunConfig:
         ppo_clip_epsilon=args.ppo_clip_epsilon,
         value_loss_coefficient=args.value_loss_coefficient,
         bidding_entropy_coefficient=args.bidding_entropy_coefficient,
+        bidding_advantage_normalization=args.bidding_advantage_normalization,
         seed=args.seed,
         temperature=args.temperature,
         inference_device=cast(Literal["cpu", "auto", "cuda"], args.inference_device),
@@ -214,6 +222,7 @@ def _iterative_config_from_args(
         ppo_clip_epsilon=args.ppo_clip_epsilon,
         value_loss_coefficient=args.value_loss_coefficient,
         bidding_entropy_coefficient=args.bidding_entropy_coefficient,
+        bidding_advantage_normalization=args.bidding_advantage_normalization,
         seed=args.seed,
         temperature=args.temperature,
         inference_device=cast(Literal["cpu", "auto", "cuda"], args.inference_device),
@@ -246,6 +255,7 @@ def _provided_iterative_config_keys(argv: Sequence[str] | None) -> list[str]:
         "--ppo-clip-epsilon": "ppoClipEpsilon",
         "--value-loss-coefficient": "valueLossCoefficient",
         "--bidding-entropy-coefficient": "biddingEntropyCoefficient",
+        "--bidding-advantage-normalization": "biddingAdvantageNormalization",
         "--seed": "seed",
         "--temperature": "temperature",
         "--inference-device": "inferenceDevice",

@@ -1113,6 +1113,12 @@ def _checkpoint_compatibility_metadata(
                 "entropyCoefficient",
                 checkpoint.get("entropy_coefficient", 0.0),
             )
+            bidding_advantage_normalization = training_config.get(
+                "advantageNormalization",
+                checkpoint.get("advantage_normalization"),
+            )
+            if bidding_advantage_normalization is not None:
+                metadata["biddingAdvantageNormalization"] = bidding_advantage_normalization
     terminal_reward_transform = checkpoint.get("terminal_reward_transform")
     if isinstance(terminal_reward_transform, dict):
         metadata["terminalRewardTransform"] = terminal_reward_transform

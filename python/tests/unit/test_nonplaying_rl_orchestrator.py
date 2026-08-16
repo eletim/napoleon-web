@@ -7,12 +7,14 @@ from typing import Any, cast
 
 import pytest
 
+from napoleon_ml.bidding.ppo import advantage_normalization_metadata
 from napoleon_ml.cli.run_nonplaying_rl import (
     _iterative_config_from_args,
     _provided_iterative_config_keys,
     build_parser,
 )
 from napoleon_ml.nonplaying_rl_orchestrator import (
+    DEFAULT_BIDDING_ADVANTAGE_NORMALIZATION,
     DEFAULT_BIDDING_ENTROPY_COEFFICIENT,
     DEFAULT_ITERATIVE_BATCH_SIZE,
     DEFAULT_ITERATIVE_EVALUATION_GAMES,
@@ -401,6 +403,9 @@ def test_iterative_nonplaying_rl_resumes_and_chains_checkpoints(
     assert resumed_summary["completedIterationCount"] == 3
     stored_config = json.loads((output_dir / "config.json").read_text(encoding="utf-8"))
     assert stored_config["biddingEntropyCoefficient"] == 0.01
+    assert stored_config["biddingAdvantageNormalization"] == (
+        advantage_normalization_metadata(DEFAULT_BIDDING_ADVANTAGE_NORMALIZATION)
+    )
     assert build_count == 2
     assert list((output_dir / "iterations").glob("iter-000002.incomplete-*"))
 
@@ -636,6 +641,34 @@ def test_iterative_resume_rejects_explicit_bidding_entropy_mismatch(
         )
 
 
+def test_iterative_resume_rejects_bidding_advantage_normalization_mismatch(
+    tmp_path: Path,
+) -> None:
+    playing_onnx = tmp_path / "playing.onnx"
+    playing_metadata = tmp_path / "playing.json"
+    playing_onnx.write_bytes(b"playing-onnx")
+    playing_metadata.write_text("{}\n", encoding="utf-8")
+    stored_config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        bidding_advantage_normalization="dataset",
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    ).file_dict()
+    requested_config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        bidding_advantage_normalization="none",
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    ).file_dict()
+
+    with pytest.raises(NonPlayingRlOrchestratorError, match="biddingAdvantageNormalization"):
+        _validate_iterative_resume_config(
+            stored_config,
+            requested_config,
+            provided_config_keys=set(),
+        )
+
+
 def test_iterative_cli_honors_explicit_one_shot_default_values() -> None:
     argv = [
         "--output-dir",
@@ -652,6 +685,8 @@ def test_iterative_cli_honors_explicit_one_shot_default_values() -> None:
         "1e-3",
         "--bidding-entropy-coefficient",
         "0.01",
+        "--bidding-advantage-normalization",
+        "dataset",
     ]
     args = build_parser().parse_args(argv)
     config = _iterative_config_from_args(
@@ -664,6 +699,7 @@ def test_iterative_cli_honors_explicit_one_shot_default_values() -> None:
     assert config.batch_size == 32
     assert config.learning_rate == 1e-3
     assert config.bidding_entropy_coefficient == 0.01
+    assert config.bidding_advantage_normalization == "dataset"
 
 
 def test_iterative_cli_uses_iterative_defaults_when_values_are_omitted() -> None:
@@ -682,6 +718,7 @@ def test_iterative_cli_uses_iterative_defaults_when_values_are_omitted() -> None
     assert config.evaluation_games == DEFAULT_ITERATIVE_EVALUATION_GAMES
     assert config.batch_size == DEFAULT_ITERATIVE_BATCH_SIZE
     assert config.bidding_entropy_coefficient == DEFAULT_BIDDING_ENTROPY_COEFFICIENT
+    assert config.bidding_advantage_normalization == DEFAULT_BIDDING_ADVANTAGE_NORMALIZATION
 
 
 def _terminal_reward_transform() -> dict[str, object]:
