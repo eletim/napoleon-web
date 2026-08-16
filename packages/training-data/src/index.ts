@@ -70,7 +70,7 @@ export {
   NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID,
   NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_TYPE,
   NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_VERSION,
-  PASSIVE_BIDDING_BASELINE_ID,
+  RULE_BASED_BIDDING_BASELINE_ID,
   calculateNonPlayingLearningTerminalReward,
   calculateNonPlayingAdjutantLogProbability,
   calculateNonPlayingBiddingLogProbability,

@@ -64,10 +64,10 @@ NONPLAYING_TERMINAL_REWARD_TRANSFORM_ID = (
 )
 NONPLAYING_ALL_PASS_RULE_ID = "all-pass-immediate-zero-raw-terminal-reward-v1"
 FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION = (
-    "per-seat-seeded-conservative-passive-50-50-v1"
+    "per-seat-seeded-rule-based-conservative-50-50-v1"
 )
+RULE_BASED_BIDDING_BASELINE_ID = "rule-based-bidding-v1"
 CONSERVATIVE_BIDDING_BASELINE_ID = "conservative-bidding-v1"
-PASSIVE_BIDDING_BASELINE_ID = "passive-bidding-v1"
 ITERATION_SEED_STRIDE = 1_000_000
 PHASE_SEED_STRIDE = 100_000
 EVALUATION_SEED_OFFSET = 300_000
@@ -284,8 +284,8 @@ class NonPlayingIterativeRlRunConfig:
             },
             "biddingFrozenOpponentMixRuleVersion": FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION,
             "biddingFrozenOpponentPolicyIds": {
+                "ruleBased": RULE_BASED_BIDDING_BASELINE_ID,
                 "conservative": CONSERVATIVE_BIDDING_BASELINE_ID,
-                "passive": PASSIVE_BIDDING_BASELINE_ID,
             },
             "gamesPerShard": self.effective_games_per_shard,
             "evaluationInterval": self.evaluation_interval,
@@ -1216,13 +1216,23 @@ def _validate_frozen_bidding_opponent_mix(
         raise NonPlayingRlOrchestratorError("rollout frozen bidding mix metadata mismatch.")
     if bidding.get("mixingRuleVersion") != FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION:
         raise NonPlayingRlOrchestratorError("rollout frozen bidding mix rule mismatch.")
+    if bidding.get("selectionUnit") != "game-seat":
+        raise NonPlayingRlOrchestratorError("rollout frozen bidding mix selection unit mismatch.")
+    if bidding.get("ruleBasedWeight") != 0.5 or bidding.get("conservativeWeight") != 0.5:
+        raise NonPlayingRlOrchestratorError("rollout frozen bidding mix weights mismatch.")
     policies = _require_dict(bidding.get("policies"), "manifest.nonLearningAgents.bidding.policies")
+    if set(policies) != {"ruleBased", "conservative"}:
+        raise NonPlayingRlOrchestratorError("rollout frozen bidding policy set mismatch.")
+    rule_based = _require_dict(policies.get("ruleBased"), "bidding.policies.ruleBased")
     conservative = _require_dict(policies.get("conservative"), "bidding.policies.conservative")
-    passive = _require_dict(policies.get("passive"), "bidding.policies.passive")
+    if rule_based.get("type") != "rule-based-bidding":
+        raise NonPlayingRlOrchestratorError("rollout rule-based bidding policy type mismatch.")
+    if rule_based.get("id") != RULE_BASED_BIDDING_BASELINE_ID:
+        raise NonPlayingRlOrchestratorError("rollout rule-based bidding baseline mismatch.")
+    if conservative.get("type") != "conservative-bidding":
+        raise NonPlayingRlOrchestratorError("rollout conservative bidding policy type mismatch.")
     if conservative.get("id") != CONSERVATIVE_BIDDING_BASELINE_ID:
         raise NonPlayingRlOrchestratorError("rollout conservative bidding baseline mismatch.")
-    if passive.get("id") != PASSIVE_BIDDING_BASELINE_ID:
-        raise NonPlayingRlOrchestratorError("rollout passive bidding baseline mismatch.")
 
     diagnostics = _require_dict(manifest.get("diagnostics"), "manifest.diagnostics")
     mix = _require_dict(
@@ -1235,10 +1245,31 @@ def _validate_frozen_bidding_opponent_mix(
     assignments = mix.get("seatAssignments")
     if not isinstance(assignments, list) or len(assignments) != expected_assignment_count:
         raise NonPlayingRlOrchestratorError("rollout frozen bidding assignment count mismatch.")
+    rule_based_count = _required_int(mix.get("ruleBasedSeatCount"))
     conservative_count = _required_int(mix.get("conservativeSeatCount"))
-    passive_count = _required_int(mix.get("passiveSeatCount"))
-    if conservative_count + passive_count != expected_assignment_count:
+    if rule_based_count + conservative_count != expected_assignment_count:
         raise NonPlayingRlOrchestratorError("rollout frozen bidding mix counts mismatch.")
+    for assignment in assignments:
+        assignment_obj = _require_dict(
+            assignment,
+            "manifest.diagnostics.frozenBiddingOpponentMix.seatAssignments[]",
+        )
+        policy = _require_dict(
+            assignment_obj.get("policy"),
+            "manifest.diagnostics.frozenBiddingOpponentMix.seatAssignments[].policy",
+        )
+        if policy.get("type") == "rule-based-bidding":
+            if policy.get("id") != RULE_BASED_BIDDING_BASELINE_ID:
+                raise NonPlayingRlOrchestratorError(
+                    "rollout frozen bidding rule-based assignment mismatch."
+                )
+        elif policy.get("type") == "conservative-bidding":
+            if policy.get("id") != CONSERVATIVE_BIDDING_BASELINE_ID:
+                raise NonPlayingRlOrchestratorError(
+                    "rollout frozen bidding conservative assignment mismatch."
+                )
+        else:
+            raise NonPlayingRlOrchestratorError("rollout frozen bidding assignment policy mismatch.")
 
 
 def _terminal_reward_transform_metadata() -> dict[str, object]:
