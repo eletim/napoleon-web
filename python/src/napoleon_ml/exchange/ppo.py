@@ -38,6 +38,11 @@ NON_PLAYING_RL_SAMPLE_TYPE = "non-playing-exchange-rl-sample"
 NON_PLAYING_RL_REWARD_ID = "non-playing-terminal-role-reward-v3"
 NON_PLAYING_RL_REWARD_TYPE = "non-playing-terminal-role-reward"
 NON_PLAYING_RL_REWARD_VERSION = 3
+NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID = (
+    "non-playing-terminal-role-reward-v3-minus-game-player-mean-v1"
+)
+NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_TYPE = "raw-reward-minus-game-player-mean"
+NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_VERSION = 1
 NON_PLAYING_RL_ALL_PASS_RULE_ID = "all-pass-immediate-starter-plus1-others-minus1-v1"
 EXCHANGE_PPO_ALGORITHM = "exchange-ppo-sequential-card-v1"
 EXCHANGE_ACTOR_CRITIC_MODEL_ARCHITECTURE = "exchange-separated-actor-critic-v1"
@@ -62,6 +67,7 @@ class NonPlayingExchangeRlManifest:
     behavior_policy: dict[str, object]
     fixed_playing_policy: dict[str, object]
     reward: dict[str, object]
+    terminal_reward_transform: dict[str, object]
     raw: dict[str, object]
 
 
@@ -213,6 +219,9 @@ def load_non_playing_exchange_rl_manifest(
         or all_pass_rule.get("otherPayoff") != -1
     ):
         raise ExchangePpoCompatibilityError("manifest allPassRule metadata mismatch.")
+    terminal_reward_transform = _require_terminal_reward_transform(
+        raw.get("terminalRewardTransform"), "manifest.terminalRewardTransform"
+    )
 
     sample_count = _require_non_negative_int(raw.get("sampleCount"), "manifest.sampleCount")
 
@@ -232,6 +241,7 @@ def load_non_playing_exchange_rl_manifest(
             raw.get("fixedPlayingPolicy"), "manifest.fixedPlayingPolicy"
         ),
         reward=reward,
+        terminal_reward_transform=terminal_reward_transform,
         raw=cast(dict[str, object], raw),
     )
 
@@ -437,6 +447,7 @@ def initialize_model_from_checkpoint(
 ) -> str:
     checkpoint_file = Path(checkpoint_path)
     raw = _load_raw_checkpoint(checkpoint_file)
+    _validate_exchange_ppo_checkpoint(raw)
     model_config_raw = raw.get("model_config")
     if not isinstance(model_config_raw, dict):
         raise ExchangePpoCompatibilityError("parent checkpoint model_config must be a dictionary.")
@@ -515,6 +526,7 @@ def save_exchange_ppo_checkpoint(
         "card_ids_sha256": calculate_card_ids_sha256(),
         "seed": settings.seed,
         "reward": dict(manifest.reward),
+        "terminal_reward_transform": dict(manifest.terminal_reward_transform),
         "behavior_policy": dict(manifest.behavior_policy),
         "fixed_playing_policy": dict(manifest.fixed_playing_policy),
         "parent_actor_checkpoint_sha256": parent_actor_checkpoint_sha256,
@@ -712,6 +724,24 @@ def _validate_exchange_ppo_checkpoint(raw: dict[str, object]) -> None:
     }
     if not isinstance(reward, dict) or reward != expected_reward:
         raise ExchangePpoCompatibilityError("checkpoint reward metadata mismatch.")
+    _require_terminal_reward_transform(
+        raw.get("terminal_reward_transform"), "checkpoint terminal_reward_transform"
+    )
+
+
+def _require_terminal_reward_transform(value: object, path: str) -> dict[str, object]:
+    transform = _require_dict(value, path)
+    expected = {
+        "type": NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_TYPE,
+        "version": NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_VERSION,
+        "id": NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID,
+        "sourceRewardId": NON_PLAYING_RL_REWARD_ID,
+        "baseline": "meanRawRewardAllPlayers",
+        "formula": "relative_reward_i = raw_reward_i - mean(raw_reward_all_players)",
+    }
+    if transform != expected:
+        raise ExchangePpoCompatibilityError(f"{path} metadata mismatch.")
+    return transform
 
 
 def _load_raw_checkpoint(path: Path) -> dict[str, object]:

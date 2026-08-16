@@ -19,6 +19,9 @@ from napoleon_ml.nonplaying_rl_orchestrator import (
     NONPLAYING_REWARD_ID,
     NONPLAYING_REWARD_TYPE,
     NONPLAYING_REWARD_VERSION,
+    NONPLAYING_TERMINAL_REWARD_TRANSFORM_ID,
+    NONPLAYING_TERMINAL_REWARD_TRANSFORM_TYPE,
+    NONPLAYING_TERMINAL_REWARD_TRANSFORM_VERSION,
     NonPlayingIterativeRlRunConfig,
     NonPlayingRlOrchestratorError,
     NonPlayingRlRunConfig,
@@ -200,6 +203,7 @@ def test_iterative_nonplaying_rl_resumes_and_chains_checkpoints(
                 "version": NONPLAYING_REWARD_VERSION,
                 "id": NONPLAYING_REWARD_ID,
             },
+            "terminalRewardTransform": _terminal_reward_transform(),
             "allPassRule": {
                 "id": NONPLAYING_ALL_PASS_RULE_ID,
                 "starterPayoff": 1,
@@ -497,6 +501,31 @@ def test_iterative_resume_rejects_older_reward_config(
         )
 
 
+def test_iterative_resume_rejects_missing_terminal_reward_transform(
+    tmp_path: Path,
+) -> None:
+    playing_onnx = tmp_path / "playing.onnx"
+    playing_metadata = tmp_path / "playing.json"
+    playing_onnx.write_bytes(b"playing-onnx")
+    playing_metadata.write_text("{}\n", encoding="utf-8")
+    requested_config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        iterations=3,
+        games_per_iteration=1,
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    ).file_dict()
+    legacy_config = dict(requested_config)
+    legacy_config.pop("terminalRewardTransform")
+
+    with pytest.raises(NonPlayingRlOrchestratorError, match="terminalRewardTransform"):
+        _validate_iterative_resume_config(
+            legacy_config,
+            requested_config,
+            provided_config_keys=set(),
+        )
+
+
 def test_iterative_resume_allows_omitted_games_per_iteration(tmp_path: Path) -> None:
     playing_onnx = tmp_path / "playing.onnx"
     playing_metadata = tmp_path / "playing.json"
@@ -591,3 +620,14 @@ def test_iterative_cli_uses_iterative_defaults_when_values_are_omitted() -> None
 
     assert config.evaluation_games == DEFAULT_ITERATIVE_EVALUATION_GAMES
     assert config.batch_size == DEFAULT_ITERATIVE_BATCH_SIZE
+
+
+def _terminal_reward_transform() -> dict[str, object]:
+    return {
+        "type": NONPLAYING_TERMINAL_REWARD_TRANSFORM_TYPE,
+        "version": NONPLAYING_TERMINAL_REWARD_TRANSFORM_VERSION,
+        "id": NONPLAYING_TERMINAL_REWARD_TRANSFORM_ID,
+        "sourceRewardId": NONPLAYING_REWARD_ID,
+        "baseline": "meanRawRewardAllPlayers",
+        "formula": "relative_reward_i = raw_reward_i - mean(raw_reward_all_players)",
+    }

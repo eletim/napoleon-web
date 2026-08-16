@@ -59,9 +59,9 @@ export const NON_PLAYING_BIDDING_RL_DATASET_SAMPLE_TYPE = "non-playing-bidding-r
 export const NON_PLAYING_ADJUTANT_RL_DATASET_SAMPLE_TYPE = "non-playing-adjutant-rl-sample" as const;
 export const NON_PLAYING_EXCHANGE_RL_DATASET_SAMPLE_TYPE = "non-playing-exchange-rl-sample" as const;
 export const NON_PLAYING_RL_DATASET_SAMPLE_TYPE = NON_PLAYING_BIDDING_RL_DATASET_SAMPLE_TYPE;
-export const NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION = 2 as const;
-export const NON_PLAYING_RL_DATASET_SCHEMA_VERSION = 2 as const;
-export const NON_PLAYING_RL_DATASET_GENERATOR_VERSION = 3 as const;
+export const NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION = 3 as const;
+export const NON_PLAYING_RL_DATASET_SCHEMA_VERSION = 3 as const;
+export const NON_PLAYING_RL_DATASET_GENERATOR_VERSION = 4 as const;
 export const NON_PLAYING_RL_ROLLOUT_POLICY_TOPOLOGY = "candidate-x1-frozen-x4-v1" as const;
 export const NON_PLAYING_RL_GAME_COUNT_UNIT = "logical-seeds" as const;
 export const NON_PLAYING_RL_ROTATION_OFFSETS = [0, 1, 2, 3, 4] as const;
@@ -72,6 +72,11 @@ export const FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION =
 export const NON_PLAYING_RL_REWARD_TYPE = "non-playing-terminal-role-reward" as const;
 export const NON_PLAYING_RL_REWARD_VERSION = 3 as const;
 export const NON_PLAYING_RL_REWARD_ID = "non-playing-terminal-role-reward-v3" as const;
+export const NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_TYPE =
+  "raw-reward-minus-game-player-mean" as const;
+export const NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_VERSION = 1 as const;
+export const NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID =
+  "non-playing-terminal-role-reward-v3-minus-game-player-mean-v1" as const;
 export const NON_PLAYING_RL_ALL_PASS_RULE_ID = "all-pass-immediate-starter-plus1-others-minus1-v1" as const;
 export const NON_PLAYING_RL_SAMPLING_ALGORITHM = "masked-categorical" as const;
 export const DEFAULT_NON_PLAYING_RL_TEMPERATURE = 1.0 as const;
@@ -193,6 +198,8 @@ export interface NonPlayingBiddingRlSample {
   legalBidMask: readonly number[];
   selectedActionIndex: number;
   behaviorLogProbability: number;
+  rawTerminalReward: number;
+  gameMeanRawTerminalReward: number;
   terminalReward: number;
   outcome: NonPlayingBiddingRlOutcome;
 }
@@ -212,6 +219,8 @@ export interface NonPlayingAdjutantRlSample {
   legalAdjutantMask: readonly number[];
   selectedActionIndex: number;
   behaviorLogProbability: number;
+  rawTerminalReward: number;
+  gameMeanRawTerminalReward: number;
   terminalReward: number;
   outcome: NonPlayingBiddingRlOutcome;
 }
@@ -233,6 +242,8 @@ export interface NonPlayingExchangeRlSample {
   legalDiscardCardMask: readonly number[];
   selectedActionIndex: number;
   behaviorLogProbability: number;
+  rawTerminalReward: number;
+  gameMeanRawTerminalReward: number;
   terminalReward: number;
   outcome: NonPlayingBiddingRlOutcome;
 }
@@ -293,6 +304,14 @@ export interface NonPlayingRlDatasetManifest {
     version: typeof NON_PLAYING_RL_REWARD_VERSION;
     id: typeof NON_PLAYING_RL_REWARD_ID;
   };
+  terminalRewardTransform: {
+    type: typeof NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_TYPE;
+    version: typeof NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_VERSION;
+    id: typeof NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID;
+    sourceRewardId: typeof NON_PLAYING_RL_REWARD_ID;
+    baseline: "meanRawRewardAllPlayers";
+    formula: "relative_reward_i = raw_reward_i - mean(raw_reward_all_players)";
+  };
   allPassRule: {
     id: typeof NON_PLAYING_RL_ALL_PASS_RULE_ID;
     starterPayoff: 1;
@@ -349,7 +368,9 @@ export interface NonPlayingBiddingDiagnostics {
   declarationSuccessRate: number | null;
   allPassImmediateEndCount: number;
   candidateRoleDistribution: Record<NonPlayingBiddingRlRole, number>;
-  meanReward: number | null;
+  meanRawTerminalReward: number | null;
+  meanLearningTerminalReward: number | null;
+  terminalRewardTransformId: typeof NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID;
 }
 
 export interface NonPlayingRlPolicyArtifactManifest {
@@ -490,7 +511,8 @@ interface NonPlayingRlDiagnosticsAccumulator {
     declarationSuccessCount: number;
     allPassImmediateEndCount: number;
     candidateRoleDistribution: Record<NonPlayingBiddingRlRole, number>;
-    rewardSum: number;
+    rawRewardSum: number;
+    learningRewardSum: number;
     rewardCount: number;
   };
   frozenBiddingOpponentMix?: {
@@ -526,7 +548,8 @@ function createDiagnosticsAccumulator(
       declarationSuccessCount: 0,
       allPassImmediateEndCount: 0,
       candidateRoleDistribution: emptyRoleDistribution(),
-      rewardSum: 0,
+      rawRewardSum: 0,
+      learningRewardSum: 0,
       rewardCount: 0
     };
     accumulator.frozenBiddingOpponentMix = {
@@ -591,7 +614,8 @@ function recordBiddingDiagnosticSample(
   }
 
   accumulator.bidding.candidateBiddingDecisionCount += 1;
-  accumulator.bidding.rewardSum += sample.terminalReward;
+  accumulator.bidding.rawRewardSum += sample.rawTerminalReward;
+  accumulator.bidding.learningRewardSum += sample.terminalReward;
   accumulator.bidding.rewardCount += 1;
 
   const action = decodeBiddingAction(sample.selectedActionIndex, sample.actingPlayerId);
@@ -649,7 +673,9 @@ function finalizeDiagnostics(
             ),
             allPassImmediateEndCount: bidding.allPassImmediateEndCount,
             candidateRoleDistribution: bidding.candidateRoleDistribution,
-            meanReward: safeMean(bidding.rewardSum, bidding.rewardCount)
+            meanRawTerminalReward: safeMean(bidding.rawRewardSum, bidding.rewardCount),
+            meanLearningTerminalReward: safeMean(bidding.learningRewardSum, bidding.rewardCount),
+            terminalRewardTransformId: NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID
           }
         })
   };
@@ -743,6 +769,17 @@ function createAllPassRuleMetadata(): NonPlayingRlDatasetManifest["allPassRule"]
     id: NON_PLAYING_RL_ALL_PASS_RULE_ID,
     starterPayoff: 1,
     otherPayoff: -1
+  };
+}
+
+function createTerminalRewardTransformMetadata(): NonPlayingRlDatasetManifest["terminalRewardTransform"] {
+  return {
+    type: NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_TYPE,
+    version: NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_VERSION,
+    id: NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID,
+    sourceRewardId: NON_PLAYING_RL_REWARD_ID,
+    baseline: "meanRawRewardAllPlayers",
+    formula: "relative_reward_i = raw_reward_i - mean(raw_reward_all_players)"
   };
 }
 
@@ -1348,6 +1385,11 @@ export function completeNonPlayingBiddingRlSamples(
     }
 
     const outcome = createBiddingRlOutcome(record.result, decision.playerId);
+    const reward = calculateNonPlayingLearningTerminalReward(
+      record.result,
+      decision.playerId,
+      record.playerIds
+    );
     const sample: NonPlayingBiddingRlSample = {
       sampleType: NON_PLAYING_RL_DATASET_SAMPLE_TYPE,
       schemaVersion: NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION,
@@ -1363,7 +1405,9 @@ export function completeNonPlayingBiddingRlSamples(
       legalBidMask: [...draft.legalBidMask],
       selectedActionIndex: draft.selectedActionIndex,
       behaviorLogProbability: draft.behaviorLogProbability,
-      terminalReward: calculateNonPlayingTerminalRoleReward(outcome),
+      rawTerminalReward: reward.rawTerminalReward,
+      gameMeanRawTerminalReward: reward.gameMeanRawTerminalReward,
+      terminalReward: reward.terminalReward,
       outcome
     };
 
@@ -1411,6 +1455,11 @@ export function completeNonPlayingAdjutantRlSamples(
     }
 
     const outcome = createBiddingRlOutcome(record.result, decision.playerId);
+    const reward = calculateNonPlayingLearningTerminalReward(
+      record.result,
+      decision.playerId,
+      record.playerIds
+    );
     const sample: NonPlayingAdjutantRlSample = {
       sampleType: NON_PLAYING_ADJUTANT_RL_DATASET_SAMPLE_TYPE,
       schemaVersion: NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION,
@@ -1426,7 +1475,9 @@ export function completeNonPlayingAdjutantRlSamples(
       legalAdjutantMask: [...draft.legalAdjutantMask],
       selectedActionIndex: draft.selectedActionIndex,
       behaviorLogProbability: draft.behaviorLogProbability,
-      terminalReward: calculateNonPlayingTerminalRoleReward(outcome),
+      rawTerminalReward: reward.rawTerminalReward,
+      gameMeanRawTerminalReward: reward.gameMeanRawTerminalReward,
+      terminalReward: reward.terminalReward,
       outcome
     };
 
@@ -1468,6 +1519,11 @@ export function completeNonPlayingExchangeRlSamples(
     }
 
     const outcome = createBiddingRlOutcome(record.result, decision.playerId);
+    const reward = calculateNonPlayingLearningTerminalReward(
+      record.result,
+      decision.playerId,
+      record.playerIds
+    );
     for (let exchangeStepIndex = 0; exchangeStepIndex < 3; exchangeStepIndex += 1) {
       const draft = drafts[draftIndex];
       draftIndex += 1;
@@ -1502,7 +1558,9 @@ export function completeNonPlayingExchangeRlSamples(
         legalDiscardCardMask: [...draft.legalDiscardCardMask],
         selectedActionIndex: draft.selectedActionIndex,
         behaviorLogProbability: draft.behaviorLogProbability,
-        terminalReward: calculateNonPlayingTerminalRoleReward(outcome),
+        rawTerminalReward: reward.rawTerminalReward,
+        gameMeanRawTerminalReward: reward.gameMeanRawTerminalReward,
+        terminalReward: reward.terminalReward,
         outcome
       };
 
@@ -1540,6 +1598,32 @@ export function calculateNonPlayingTerminalRoleReward(
     case "napoleon-adjutant":
       return napoleonWon ? 3 * d : -5;
   }
+}
+
+export function calculateNonPlayingLearningTerminalReward(
+  result: GameResult,
+  actingPlayerId: PlayerId,
+  playerIds: readonly PlayerId[]
+): {
+  rawTerminalReward: number;
+  gameMeanRawTerminalReward: number;
+  terminalReward: number;
+} {
+  expectLength("playerIds", playerIds, PLAYER_COUNT);
+  if (!playerIds.includes(actingPlayerId)) {
+    throw new Error(`actingPlayerId ${actingPlayerId} is not present in playerIds.`);
+  }
+
+  const rawRewards = playerIds.map((playerId) =>
+    calculateNonPlayingTerminalRoleReward(createBiddingRlOutcome(result, playerId))
+  );
+  const rawTerminalReward = rawRewards[playerIds.indexOf(actingPlayerId)];
+  const gameMeanRawTerminalReward = sum(rawRewards) / PLAYER_COUNT;
+  return {
+    rawTerminalReward,
+    gameMeanRawTerminalReward,
+    terminalReward: rawTerminalReward - gameMeanRawTerminalReward
+  };
 }
 
 export function calculateNonPlayingBiddingLogProbability(options: {
@@ -1770,8 +1854,9 @@ export function validateNonPlayingBiddingRlSample(
     throw new Error("terminalReward must be finite.");
   }
   validateOutcome(sample.outcome);
-  if (sample.terminalReward !== calculateNonPlayingTerminalRoleReward(sample.outcome)) {
-    throw new Error("terminalReward must match reward version formula.");
+  validateTerminalRewardTransformFields(sample);
+  if (sample.rawTerminalReward !== calculateNonPlayingTerminalRoleReward(sample.outcome)) {
+    throw new Error("rawTerminalReward must match reward version formula.");
   }
 }
 
@@ -1826,8 +1911,9 @@ export function validateNonPlayingAdjutantRlSample(
     throw new Error("terminalReward must be finite.");
   }
   validateOutcome(sample.outcome);
-  if (sample.terminalReward !== calculateNonPlayingTerminalRoleReward(sample.outcome)) {
-    throw new Error("terminalReward must match reward version formula.");
+  validateTerminalRewardTransformFields(sample);
+  if (sample.rawTerminalReward !== calculateNonPlayingTerminalRoleReward(sample.outcome)) {
+    throw new Error("rawTerminalReward must match reward version formula.");
   }
 }
 
@@ -1888,8 +1974,9 @@ export function validateNonPlayingExchangeRlSample(
     throw new Error("terminalReward must be finite.");
   }
   validateOutcome(sample.outcome);
-  if (sample.terminalReward !== calculateNonPlayingTerminalRoleReward(sample.outcome)) {
-    throw new Error("terminalReward must match reward version formula.");
+  validateTerminalRewardTransformFields(sample);
+  if (sample.rawTerminalReward !== calculateNonPlayingTerminalRoleReward(sample.outcome)) {
+    throw new Error("rawTerminalReward must match reward version formula.");
   }
 }
 
@@ -1968,6 +2055,7 @@ export function validateNonPlayingRlDatasetManifest(
   ) {
     throw new Error("Non-playing RL manifest reward metadata mismatch.");
   }
+  validateTerminalRewardTransformMetadata(manifest);
   validateAllPassRuleMetadata(manifest);
   if (
     manifest.nonLearningAgents.choosingAdjutant?.type !== "rule-based" ||
@@ -2137,7 +2225,42 @@ function validateCommonNonPlayingRlPolicyMetadata(manifest: NonPlayingRlDatasetM
   ) {
     throw new Error("Non-playing RL manifest reward metadata mismatch.");
   }
+  validateTerminalRewardTransformMetadata(manifest);
   validateAllPassRuleMetadata(manifest);
+}
+
+function validateTerminalRewardTransformFields(sample: {
+  rawTerminalReward: number;
+  gameMeanRawTerminalReward: number;
+  terminalReward: number;
+}): void {
+  if (!Number.isFinite(sample.rawTerminalReward)) {
+    throw new Error("rawTerminalReward must be finite.");
+  }
+  if (!Number.isFinite(sample.gameMeanRawTerminalReward)) {
+    throw new Error("gameMeanRawTerminalReward must be finite.");
+  }
+  if (
+    Math.abs(
+      sample.terminalReward - (sample.rawTerminalReward - sample.gameMeanRawTerminalReward)
+    ) > 1e-9
+  ) {
+    throw new Error("terminalReward must equal rawTerminalReward - gameMeanRawTerminalReward.");
+  }
+}
+
+function validateTerminalRewardTransformMetadata(manifest: NonPlayingRlDatasetManifest): void {
+  const transform = manifest.terminalRewardTransform;
+  if (
+    transform.type !== NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_TYPE ||
+    transform.version !== NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_VERSION ||
+    transform.id !== NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID ||
+    transform.sourceRewardId !== NON_PLAYING_RL_REWARD_ID ||
+    transform.baseline !== "meanRawRewardAllPlayers" ||
+    transform.formula !== "relative_reward_i = raw_reward_i - mean(raw_reward_all_players)"
+  ) {
+    throw new Error("Non-playing RL manifest terminalRewardTransform metadata mismatch.");
+  }
 }
 
 function validateAllPassRuleMetadata(manifest: NonPlayingRlDatasetManifest): void {
@@ -2856,6 +2979,7 @@ function createNonPlayingRlDatasetManifest(input: {
       version: NON_PLAYING_RL_REWARD_VERSION,
       id: NON_PLAYING_RL_REWARD_ID
     },
+    terminalRewardTransform: createTerminalRewardTransformMetadata(),
     allPassRule: createAllPassRuleMetadata(),
     nonLearningAgents: {
       bidding: createFrozenBiddingOpponentMixMetadata(),
@@ -2925,6 +3049,7 @@ function createNonPlayingAdjutantRlDatasetManifest(input: {
       version: NON_PLAYING_RL_REWARD_VERSION,
       id: NON_PLAYING_RL_REWARD_ID
     },
+    terminalRewardTransform: createTerminalRewardTransformMetadata(),
     allPassRule: createAllPassRuleMetadata(),
     nonLearningAgents: {
       bidding: {
@@ -2998,6 +3123,7 @@ function createNonPlayingExchangeRlDatasetManifest(input: {
       version: NON_PLAYING_RL_REWARD_VERSION,
       id: NON_PLAYING_RL_REWARD_ID
     },
+    terminalRewardTransform: createTerminalRewardTransformMetadata(),
     allPassRule: createAllPassRuleMetadata(),
     nonLearningAgents: {
       bidding: {

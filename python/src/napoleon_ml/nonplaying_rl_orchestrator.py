@@ -50,13 +50,18 @@ DEFAULT_TEMPERATURE = 1.0
 DEFAULT_INFERENCE_DEVICE: Literal["cpu", "auto", "cuda"] = "cpu"
 DEFAULT_INFERENCE_MAX_BATCH_SIZE = 256
 DEFAULT_SEED = 202
-ITERATIVE_RUN_CONFIG_SCHEMA_VERSION = 5
+ITERATIVE_RUN_CONFIG_SCHEMA_VERSION = 6
 NONPLAYING_ROLLOUT_POLICY_TOPOLOGY = "candidate-x1-frozen-x4-v1"
 NONPLAYING_GAME_COUNT_UNIT = "logical-seeds"
 NONPLAYING_ROTATION_OFFSETS = [0, 1, 2, 3, 4]
 NONPLAYING_REWARD_TYPE = "non-playing-terminal-role-reward"
 NONPLAYING_REWARD_VERSION = 3
 NONPLAYING_REWARD_ID = "non-playing-terminal-role-reward-v3"
+NONPLAYING_TERMINAL_REWARD_TRANSFORM_TYPE = "raw-reward-minus-game-player-mean"
+NONPLAYING_TERMINAL_REWARD_TRANSFORM_VERSION = 1
+NONPLAYING_TERMINAL_REWARD_TRANSFORM_ID = (
+    "non-playing-terminal-role-reward-v3-minus-game-player-mean-v1"
+)
 NONPLAYING_ALL_PASS_RULE_ID = "all-pass-immediate-starter-plus1-others-minus1-v1"
 FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION = (
     "per-seat-seeded-conservative-passive-50-50-v1"
@@ -155,6 +160,7 @@ class NonPlayingRlRunConfig:
                 "version": NONPLAYING_REWARD_VERSION,
                 "id": NONPLAYING_REWARD_ID,
             },
+            "terminalRewardTransform": _terminal_reward_transform_metadata(),
             "allPassRule": {
                 "id": NONPLAYING_ALL_PASS_RULE_ID,
                 "starterPayoff": 1,
@@ -270,6 +276,7 @@ class NonPlayingIterativeRlRunConfig:
                 "version": NONPLAYING_REWARD_VERSION,
                 "id": NONPLAYING_REWARD_ID,
             },
+            "terminalRewardTransform": _terminal_reward_transform_metadata(),
             "allPassRule": {
                 "id": NONPLAYING_ALL_PASS_RULE_ID,
                 "starterPayoff": 1,
@@ -610,6 +617,7 @@ def _run_iterative_iteration(
             "version": NONPLAYING_REWARD_VERSION,
             "id": NONPLAYING_REWARD_ID,
         },
+        "terminalRewardTransform": _terminal_reward_transform_metadata(),
         "allPassRule": {
             "id": NONPLAYING_ALL_PASS_RULE_ID,
             "starterPayoff": 1,
@@ -1176,6 +1184,9 @@ def _validate_nonplaying_rollout_manifest(
         or reward.get("id") != NONPLAYING_REWARD_ID
     ):
         raise NonPlayingRlOrchestratorError("rollout manifest reward metadata mismatch.")
+    _validate_terminal_reward_transform(
+        manifest.get("terminalRewardTransform"), "manifest.terminalRewardTransform"
+    )
     all_pass_rule = _require_dict(manifest.get("allPassRule"), "manifest.allPassRule")
     if (
         all_pass_rule.get("id") != NONPLAYING_ALL_PASS_RULE_ID
@@ -1228,6 +1239,23 @@ def _validate_frozen_bidding_opponent_mix(
     passive_count = _required_int(mix.get("passiveSeatCount"))
     if conservative_count + passive_count != expected_assignment_count:
         raise NonPlayingRlOrchestratorError("rollout frozen bidding mix counts mismatch.")
+
+
+def _terminal_reward_transform_metadata() -> dict[str, object]:
+    return {
+        "type": NONPLAYING_TERMINAL_REWARD_TRANSFORM_TYPE,
+        "version": NONPLAYING_TERMINAL_REWARD_TRANSFORM_VERSION,
+        "id": NONPLAYING_TERMINAL_REWARD_TRANSFORM_ID,
+        "sourceRewardId": NONPLAYING_REWARD_ID,
+        "baseline": "meanRawRewardAllPlayers",
+        "formula": "relative_reward_i = raw_reward_i - mean(raw_reward_all_players)",
+    }
+
+
+def _validate_terminal_reward_transform(value: object, path: str) -> None:
+    transform = _require_dict(value, path)
+    if transform != _terminal_reward_transform_metadata():
+        raise NonPlayingRlOrchestratorError(f"{path} metadata mismatch.")
 
 
 def _update_latest_links(config: NonPlayingIterativeRlRunConfig, iteration: int) -> None:
@@ -1373,6 +1401,7 @@ def _validate_iterative_resume_config(
         "rolloutPolicyTopology",
         "rotationOffsets",
         "reward",
+        "terminalRewardTransform",
         "allPassRule",
         "biddingFrozenOpponentMixRuleVersion",
         "biddingFrozenOpponentPolicyIds",
