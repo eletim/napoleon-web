@@ -12,26 +12,43 @@ import { PlayerSeat } from "./PlayerSeat";
 import type { TablePlayer } from "./tableTypes";
 
 describe("PlayerSeat", () => {
-  it("does not expose internal player ids in the visible seat UI", () => {
+  it("shows only the opponent name, roles, and captured point cards", () => {
     const html = renderToStaticMarkup(
-      <PlayerSeat player={createPlayer()} state={createState()} />
+      <PlayerSeat
+        player={createPlayer([pointCard("spades", "A")])}
+        state={createState({
+          contract: {
+            napoleonPlayerId: "player-1",
+            trumpSuit: "spades",
+            targetPointCards: 13
+          },
+          adjutant: { calledCardId: "spades-A", revealedPlayerId: "player-1" }
+        })}
+      />
     );
 
     expect(html).not.toContain("player-1");
-    expect(html).toContain("aria-label=\"左側AIの手札は残り10枚\"");
-    expect(html).toContain("aria-label=\"左側AIの獲得得点札は0枚\"");
+    expect(html).not.toContain("手札");
+    expect(html).not.toContain("compact-hand");
+    expect(html).not.toContain("small-card-back");
+    expect(html).not.toContain("latest-bid-declaration");
+    expect(html).toContain("<h2>左側AI</h2>");
+    expect(html).toContain("aria-label=\"ナポレオン\"");
+    expect(html).toContain("aria-label=\"副官\"");
+    expect(html).toContain("aria-label=\"左側AIの獲得得点札は1枚\"");
+    expect(html).toContain("A♠");
   });
 
-  it("keeps the mobile in-progress opponent panels in far-side then side order", () => {
+  it("places mobile opponent seats around the center table", () => {
     const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
     const match = styles.match(
-      /\.app-shell-game-in-progress \.table-grid \{[\s\S]*?grid-template-areas:\n([\s\S]*?)grid-template-rows:/
+      /\.app-shell-game-in-progress \.table-grid \{[\s\S]*?grid-template-areas:\n([\s\S]*?)grid-template-columns:/
     );
 
-    expect(match?.[1]).toContain('"top-left top-right"\n      "left right"\n      "center center";');
+    expect(match?.[1]).toContain('". top-left top-right ."\n      "left center center right";');
   });
 
-  it("reserves ten captured point card slots for opponent panels", () => {
+  it("does not reserve fixed captured point card slots for empty seats", () => {
     const emptyHtml = renderToStaticMarkup(
       <PlayerSeat player={createPlayer()} state={createState()} />
     );
@@ -45,9 +62,9 @@ describe("PlayerSeat", () => {
     );
 
     expect(emptyHtml).toContain("なし");
-    expect(countOccurrences(emptyHtml, "class=\"point-card-empty-slot\"")).toBe(10);
+    expect(countOccurrences(emptyHtml, "class=\"point-card-empty-slot\"")).toBe(0);
     expect(countOccurrences(capturedHtml, "class=\"mini-card ")).toBe(3);
-    expect(countOccurrences(capturedHtml, "class=\"point-card-empty-slot\"")).toBe(7);
+    expect(countOccurrences(capturedHtml, "class=\"point-card-empty-slot\"")).toBe(0);
   });
 
   it("keeps captured point cards visible beyond the fixed ten-slot viewport", () => {
@@ -73,32 +90,24 @@ describe("PlayerSeat", () => {
     expect(countOccurrences(html, "class=\"point-card-empty-slot\"")).toBe(0);
   });
 
-  it("defines a five by two mobile captured point card grid without resizing panels", () => {
+  it("removes mobile in-progress opponent panel chrome", () => {
     const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
-    const gridMatch = styles.match(
-      /\.app-shell-game-in-progress \.captured-compact \.compact-points \{[\s\S]*?grid-template-columns: ([^;]+);[\s\S]*?grid-template-rows: ([^;]+);[\s\S]*?overflow-x: ([^;]+);/
+    const seatMatch = styles.match(
+      /\.app-shell-game-in-progress \.player-seat \{([\s\S]*?)\n  \}/
     );
-    const heightMatch = styles.match(
-      /\.app-shell-game-in-progress \.table-grid \{[\s\S]*?--opponent-seat-height: ([^;]+);/
-    );
-
-    expect(gridMatch?.[1]).toBe("repeat(5, calc((100% - 4px) / 5))");
-    expect(gridMatch?.[2]).toBe("repeat(2, 13px)");
-    expect(gridMatch?.[3]).toBe("auto");
-    expect(heightMatch?.[1]).toBe("74px");
-  });
-
-  it("keeps mobile bidding badges tall enough inside fixed opponent panels", () => {
-    const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
-    const biddingRowsMatch = styles.match(
-      /\.app-shell-phase-bidding\.app-shell-game-in-progress \.player-seat \{[\s\S]*?grid-template-rows: ([^;]+);/
-    );
-    const biddingSlotMatch = styles.match(
-      /\.app-shell-phase-bidding\.app-shell-game-in-progress \.seat-bid-slot \{[\s\S]*?min-height: ([^;]+);/
+    const capturedBlocks = Array.from(
+      styles.matchAll(/\.app-shell-game-in-progress \.captured-compact \{([\s\S]*?)\n  \}/g),
+      (match) => match[1]
     );
 
-    expect(biddingRowsMatch?.[1]).toBe("14px 10px 13px 26px");
-    expect(biddingSlotMatch?.[1]).toBe("13px");
+    expect(seatMatch?.[1]).toContain("background: transparent;");
+    expect(seatMatch?.[1]).toContain("border: 0;");
+    expect(seatMatch?.[1]).toContain("box-shadow: none;");
+    expect(seatMatch?.[1]).toContain("min-height: 0;");
+    expect(capturedBlocks.some((block) => block.includes("grid-template-columns: 1fr;"))).toBe(
+      true
+    );
+    expect(capturedBlocks.every((block) => block.includes("min-height: 0;"))).toBe(true);
   });
 });
 
@@ -127,7 +136,7 @@ function countOccurrences(value: string, pattern: string): number {
   return value.split(pattern).length - 1;
 }
 
-function createState(): PublicGameState {
+function createState(overrides: Partial<PublicGameState> = {}): PublicGameState {
   return {
     self: {
       id: "player-0",
@@ -161,6 +170,7 @@ function createState(): PublicGameState {
     trickNumber: 1,
     isTrickComplete: false,
     isGameOver: false,
-    legalActions: []
+    legalActions: [],
+    ...overrides
   };
 }
