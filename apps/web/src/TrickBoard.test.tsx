@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { PublicPlayedCard, PublicRank, PublicSuit } from "@napoleon/protocol";
@@ -87,7 +88,7 @@ describe("TrickBoard", () => {
       />
     );
 
-    expect(html).toContain("♠ 13");
+    expect(html).toContain("♠13");
     expect(html).toContain("副官 ♠A");
     expect(html).toContain("trick-mobile-status-summary");
     expect(html).toContain("trick-count-summary");
@@ -126,12 +127,27 @@ describe("TrickBoard", () => {
       />
     );
 
-    expect(redHtml).toContain('class="trick-contract-summary red-text">♥ 13');
+    expect(redHtml).toContain('class="trick-contract-summary red-text">♥13');
     expect(redHtml).toContain('副官 <span class="red-text">♦J</span>');
-    expect(blackHtml).toContain('class="trick-contract-summary">♠ 13');
+    expect(blackHtml).toContain('class="trick-contract-summary">♠13');
     expect(blackHtml).toContain("副官 ♣J");
-    expect(blackHtml).not.toContain('class="trick-contract-summary red-text">♠ 13');
+    expect(blackHtml).not.toContain('class="trick-contract-summary red-text">♠13');
     expect(blackHtml).not.toContain('<span class="red-text">♣J</span>');
+  });
+
+  it("simplifies the landscape mobile center summary styling", () => {
+    const styles = readFileSync("src/styles.css", "utf8");
+    const landscapeBlock = getMediaBlock(
+      styles,
+      "@media (max-width: 960px) and (max-height: 560px) and (orientation: landscape)"
+    );
+
+    expect(landscapeBlock).toContain(".app-shell-game-active .trick-count-summary");
+    expect(landscapeBlock).toContain("display: none;");
+    expect(landscapeBlock).toContain(".app-shell-game-active .trick-message");
+    expect(landscapeBlock).toContain("background: transparent;");
+    expect(landscapeBlock).toContain("border: 0;");
+    expect(landscapeBlock).toContain("font-size: 1.08rem;");
   });
 });
 
@@ -165,4 +181,16 @@ function played(playerId: string, suit: PublicSuit, rank: PublicRank): PublicPla
       rank
     }
   };
+}
+
+function getMediaBlock(styles: string, query: string): string {
+  const start = styles.indexOf(query);
+
+  if (start === -1) {
+    throw new Error(`Media query not found: ${query}`);
+  }
+
+  const nextMedia = styles.indexOf("@media", start + query.length);
+
+  return styles.slice(start, nextMedia === -1 ? undefined : nextMedia);
 }

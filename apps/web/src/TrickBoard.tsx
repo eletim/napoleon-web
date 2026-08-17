@@ -141,7 +141,7 @@ function formatContractSummary(contract: PublicGameState["contract"] | undefined
     return "-";
   }
 
-  return `${suitSymbols[contract.trumpSuit]} ${contract.targetPointCards}`;
+  return `${suitSymbols[contract.trumpSuit]}${contract.targetPointCards}`;
 }
 
 function formatAdjutantCardSummary(adjutant: PublicGameState["adjutant"] | undefined): string {
