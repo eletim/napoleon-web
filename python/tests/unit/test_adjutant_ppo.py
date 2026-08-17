@@ -113,20 +113,34 @@ def test_adjutant_ppo_train_checkpoint_and_export_smoke(tmp_path: Path) -> None:
     )
 
     assert report.sample_count == 4
+    assert report.requested_training_device == "cpu"
+    assert report.resolved_training_device == "cpu"
     model, checkpoint = load_adjutant_ppo_checkpoint(output)
     assert isinstance(model, AdjutantActorCriticModel)
     assert checkpoint["algorithm"] == ADJUTANT_PPO_ALGORITHM
     assert checkpoint["model_architecture"] == ADJUTANT_ACTOR_CRITIC_MODEL_ARCHITECTURE
+    training_config = checkpoint["training_config"]
+    assert isinstance(training_config, dict)
+    assert training_config["trainingDevice"] == "cpu"
+    report_dict = report.to_dict()
+    assert report_dict["trainingDevice"] == {
+        "requestedDevice": "cpu",
+        "resolvedDevice": "cpu",
+        "cudaDeviceName": None,
+    }
     reward = checkpoint["reward"]
     fixed_playing_policy = checkpoint["fixed_playing_policy"]
+    terminal_reward_transform = checkpoint["terminal_reward_transform"]
     assert isinstance(reward, dict)
     assert isinstance(fixed_playing_policy, dict)
+    assert isinstance(terminal_reward_transform, dict)
     assert reward["id"] == NON_PLAYING_RL_REWARD_ID
-    assert checkpoint["terminal_reward_transform"]["id"] == (
-        NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID
-    )
+    assert terminal_reward_transform["id"] == NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID
     assert checkpoint["parent_actor_checkpoint_sha256"] == _sha256(parent)
     assert fixed_playing_policy["onnxSha256"] == "0" * 64
+    model_state = checkpoint["model_state"]
+    assert isinstance(model_state, dict)
+    assert {tensor.device.type for tensor in model_state.values()} == {"cpu"}
 
     onnx = tmp_path / "adjutant.onnx"
     metadata = tmp_path / "adjutant.json"

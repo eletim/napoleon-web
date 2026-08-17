@@ -118,10 +118,21 @@ uv run --project python --extra dev napoleon-run-non-playing-rl \
   --epochs 4 \
   --batch-size 128 \
   --learning-rate 1e-4 \
+  --training-device auto \
   --evaluation-interval 10 \
   --evaluation-games 100 \
   --seed 202
 ```
+
+`--training-device cpu` keeps PyTorch Actor/Critic PPO updates on CPU.
+`--training-device auto` uses CUDA for PyTorch training when
+`torch.cuda.is_available()` is true and falls back to CPU otherwise.
+`--training-device cuda` requires CUDA and fails before training if unavailable.
+This is independent from `--inference-device`, which controls rollout and
+evaluation ONNX Runtime inference. Phase train reports, checkpoints'
+`training_config`, iteration summaries, and run summaries record the requested
+and resolved training device. PPO checkpoints save CPU tensors, so a checkpoint
+trained with CUDA can still be loaded on CPU and exported to ONNX.
 
 Resume uses the stored `config.json`; the command fails closed if explicitly
 provided resume settings, policy topology, game-count semantics, or policy
@@ -132,6 +143,36 @@ runs are rejected by schema version and must not be resumed with this topology:
 uv run --project python --extra dev napoleon-run-non-playing-rl \
   --output-dir ~/napoleon_runs/non-playing-ppo-v1 \
   --resume
+```
+
+Changing only `--training-device` on resume is allowed because it is an
+execution backend, not a training semantic. For a short CPU/CUDA timing
+comparison, run the same small configuration twice and compare each phase
+`train.resolvedTrainingDevice`, `train.optimizerStepCount`, and the stage timing
+printed to the console:
+
+```bash
+uv run --project python --extra dev napoleon-run-non-playing-rl \
+  --output-dir /tmp/napoleon-nonplaying-cpu \
+  --iterations 1 \
+  --games-per-iteration 20 \
+  --evaluation-games 5 \
+  --evaluation-interval 1 \
+  --epochs 1 \
+  --batch-size 128 \
+  --training-device cpu \
+  --overwrite
+
+uv run --project python --extra dev napoleon-run-non-playing-rl \
+  --output-dir /tmp/napoleon-nonplaying-cuda \
+  --iterations 1 \
+  --games-per-iteration 20 \
+  --evaluation-games 5 \
+  --evaluation-interval 1 \
+  --epochs 1 \
+  --batch-size 128 \
+  --training-device cuda \
+  --overwrite
 ```
 
 Outputs are written under `iterations/iter-000000/`, `iter-000001/`, and so on,

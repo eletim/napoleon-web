@@ -29,6 +29,12 @@ from napoleon_ml.dataset.tensors import (
     BIDDING_MODEL_INPUT_SCHEMA_VERSION,
 )
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
+from napoleon_ml.policy.device import (
+    RequestedTorchDevice,
+    ResolvedTorchDevice,
+    cpu_state_dict,
+    resolve_torch_device,
+)
 
 from .model import (
     BiddingActorCriticModel,
@@ -165,6 +171,7 @@ class BiddingPpoTrainSettings:
     advantage_normalization: str = DEFAULT_ADVANTAGE_NORMALIZATION
     advantage_normalization_epsilon: float = DEFAULT_ADVANTAGE_NORMALIZATION_EPSILON
     optimizer: str = "AdamW"
+    training_device: RequestedTorchDevice = "cpu"
     parent_actor_checkpoint: str | None = None
     parent_checkpoint: str | None = None
 
@@ -182,6 +189,7 @@ class BiddingPpoTrainSettings:
                 epsilon=self.advantage_normalization_epsilon,
             ),
             "optimizer": self.optimizer,
+            "trainingDevice": self.training_device,
             "algorithm": BIDDING_PPO_ALGORITHM,
             "parentActorCheckpoint": self.parent_actor_checkpoint,
             "parentCheckpoint": self.parent_checkpoint,
@@ -207,6 +215,9 @@ class BiddingPpoTrainReport:
     clipped_fraction: float
     forced_sample_count: int
     output_checkpoint_path: Path
+    requested_training_device: str
+    resolved_training_device: str
+    cuda_device_name: str | None
 
     def to_dict(self) -> dict[str, object]:
         advantage_statistics = self.advantage_statistics.to_dict()
@@ -240,6 +251,14 @@ class BiddingPpoTrainReport:
             "clippedFraction": self.clipped_fraction,
             "forcedSampleCount": self.forced_sample_count,
             "outputCheckpointPath": str(self.output_checkpoint_path),
+            "trainingDevice": {
+                "requestedDevice": self.requested_training_device,
+                "resolvedDevice": self.resolved_training_device,
+                "cudaDeviceName": self.cuda_device_name,
+            },
+            "requestedTrainingDevice": self.requested_training_device,
+            "resolvedTrainingDevice": self.resolved_training_device,
+            "cudaDeviceName": self.cuda_device_name,
         }
 
 
@@ -556,6 +575,7 @@ def _prepare_actor_advantages(
     model: BiddingActorCriticModel,
     dataloader: DataLoader[BiddingPpoBatch],
     *,
+    device: ResolvedTorchDevice,
     normalization: str,
     epsilon: float,
 ) -> tuple[Tensor, BiddingAdvantageStatistics]:
@@ -564,6 +584,7 @@ def _prepare_actor_advantages(
     sample_indices: list[Tensor] = []
     with torch.no_grad():
         for batch in dataloader:
+            batch = _bidding_ppo_batch_to_device(batch, device)
             value_prediction = model.value(batch.model_input)
             raw_advantages.append(batch.terminal_reward - value_prediction)
             sample_indices.append(batch.sample_index)
@@ -574,6 +595,7 @@ def _prepare_actor_advantages(
     raw_by_iteration_order = torch.empty(
         sum(int(chunk.shape[0]) for chunk in raw_advantages),
         dtype=torch.float32,
+        device=device.torch_device,
     )
     for indices, values in zip(sample_indices, raw_advantages, strict=True):
         raw_by_iteration_order[indices] = values
@@ -616,6 +638,10 @@ def train_bidding_ppo(
     if settings.entropy_coefficient < 0.0:
         raise ValueError("entropy_coefficient must be non-negative.")
     _validate_advantage_normalization_settings(settings)
+    training_device = resolve_torch_device(
+        settings.training_device,
+        flag_name="--training-device",
+    )
     torch.manual_seed(settings.seed)
     model = create_seeded_bidding_actor_critic_model(model_config, seed=settings.seed)
     parent_sha256: str | None = None
@@ -635,6 +661,7 @@ def train_bidding_ppo(
             model,
             settings.parent_actor_checkpoint,
         )
+    model.to(training_device.torch_device)
 
     dataloader = create_non_playing_bidding_rl_dataloader(
         dataset_directory,
@@ -644,6 +671,7 @@ def train_bidding_ppo(
     actor_advantage_by_sample, advantage_statistics = _prepare_actor_advantages(
         model,
         dataloader,
+        device=training_device,
         normalization=settings.advantage_normalization,
         epsilon=settings.advantage_normalization_epsilon,
     )
@@ -653,6 +681,7 @@ def train_bidding_ppo(
     for _epoch in range(settings.epochs):
         model.train()
         for batch in dataloader:
+            batch = _bidding_ppo_batch_to_device(batch, training_device)
             optimizer.zero_grad(set_to_none=True)
             logits = model(batch.model_input)
             values = model.value(batch.model_input)
@@ -692,6 +721,7 @@ def train_bidding_ppo(
             epsilon=settings.advantage_normalization_epsilon,
         ),
         advantage_statistics=advantage_statistics,
+        device=training_device,
     )
 
 
@@ -777,7 +807,7 @@ def save_bidding_ppo_checkpoint(
         "checkpoint_schema_version": BIDDING_PPO_CHECKPOINT_SCHEMA_VERSION,
         "model_architecture": BIDDING_ACTOR_CRITIC_MODEL_ARCHITECTURE,
         "algorithm": BIDDING_PPO_ALGORITHM,
-        "model_state": model.state_dict(),
+        "model_state": cpu_state_dict(model),
         "model_config": model.config.to_dict(),
         "training_config": settings.to_dict(),
         "dataset_schema_version": manifest.dataset_schema_version,
@@ -904,6 +934,7 @@ class _LossTotals:
         *,
         advantage_normalization: dict[str, object],
         advantage_statistics: BiddingAdvantageStatistics,
+        device: ResolvedTorchDevice,
     ) -> BiddingPpoTrainReport:
         return BiddingPpoTrainReport(
             sample_count=self.sample_count,
@@ -929,6 +960,9 @@ class _LossTotals:
             clipped_fraction=self.clipped_sample_count / self.sample_count,
             forced_sample_count=self.forced_sample_count,
             output_checkpoint_path=output,
+            requested_training_device=device.requested,
+            resolved_training_device=device.resolved,
+            cuda_device_name=device.cuda_device_name,
         )
 
     @property
@@ -1040,6 +1074,33 @@ def _collate_bidding_ppo_batch(samples: list[NonPlayingBiddingRlSample]) -> Bidd
         step=torch.tensor([sample.step for sample in samples], dtype=torch.int64),
         acting_player_index=torch.tensor(
             [sample.acting_player_index for sample in samples], dtype=torch.int64
+        ),
+    )
+
+
+def _bidding_ppo_batch_to_device(
+    batch: BiddingPpoBatch,
+    device: ResolvedTorchDevice,
+) -> BiddingPpoBatch:
+    torch_device = device.torch_device
+    return BiddingPpoBatch(
+        sample_index=batch.sample_index.to(device=torch_device, dtype=torch.int64),
+        model_input=batch.model_input.to(device=torch_device, dtype=torch.float32),
+        legal_bid_mask=batch.legal_bid_mask.to(device=torch_device, dtype=torch.bool),
+        selected_action_index=batch.selected_action_index.to(
+            device=torch_device,
+            dtype=torch.int64,
+        ),
+        behavior_log_probability=batch.behavior_log_probability.to(
+            device=torch_device,
+            dtype=torch.float32,
+        ),
+        terminal_reward=batch.terminal_reward.to(device=torch_device, dtype=torch.float32),
+        seed=batch.seed.to(device=torch_device, dtype=torch.int64),
+        step=batch.step.to(device=torch_device, dtype=torch.int64),
+        acting_player_index=batch.acting_player_index.to(
+            device=torch_device,
+            dtype=torch.int64,
         ),
     )
 

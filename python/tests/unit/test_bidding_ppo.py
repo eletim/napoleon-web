@@ -195,6 +195,8 @@ def test_bidding_ppo_train_checkpoint_and_export_smoke(tmp_path: Path) -> None:
     )
 
     assert report.sample_count == 4
+    assert report.requested_training_device == "cpu"
+    assert report.resolved_training_device == "cpu"
     model, checkpoint = load_bidding_ppo_checkpoint(output)
     assert isinstance(model, BiddingActorCriticModel)
     assert checkpoint["algorithm"] == BIDDING_PPO_ALGORITHM
@@ -205,11 +207,18 @@ def test_bidding_ppo_train_checkpoint_and_export_smoke(tmp_path: Path) -> None:
     )
     training_config = checkpoint["training_config"]
     assert isinstance(training_config, dict)
+    assert training_config["trainingDevice"] == "cpu"
     assert training_config["entropyCoefficient"] == 0.01
     assert training_config["advantageNormalization"] == advantage_normalization_metadata(
         ADVANTAGE_NORMALIZATION_DATASET
     )
     report_dict = report.to_dict()
+    assert report_dict["trainingDevice"] == {
+        "requestedDevice": "cpu",
+        "resolvedDevice": "cpu",
+        "cudaDeviceName": None,
+    }
+    assert report_dict["resolvedTrainingDevice"] == "cpu"
     assert report_dict["advantageNormalization"] == advantage_normalization_metadata(
         ADVANTAGE_NORMALIZATION_DATASET
     )
@@ -233,6 +242,9 @@ def test_bidding_ppo_train_checkpoint_and_export_smoke(tmp_path: Path) -> None:
     assert terminal_reward_transform["id"] == NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID
     assert checkpoint["parent_actor_checkpoint_sha256"] == _sha256(parent)
     assert fixed_playing_policy["onnxSha256"] == "0" * 64
+    model_state = checkpoint["model_state"]
+    assert isinstance(model_state, dict)
+    assert {tensor.device.type for tensor in model_state.values()} == {"cpu"}
 
     onnx = tmp_path / "bidding.onnx"
     metadata = tmp_path / "bidding.json"
@@ -278,6 +290,8 @@ def test_bidding_ppo_train_and_export_cli_smoke(tmp_path: Path) -> None:
             "0.01",
             "--advantage-normalization",
             "dataset",
+            "--training-device",
+            "cpu",
             "--json",
         ]
     ) == 0
@@ -307,6 +321,28 @@ def test_bidding_ppo_train_and_export_cli_smoke(tmp_path: Path) -> None:
     assert compatibility_metadata["biddingAdvantageNormalization"] == (
         advantage_normalization_metadata(ADVANTAGE_NORMALIZATION_DATASET)
     )
+
+
+def test_bidding_ppo_cuda_training_device_fails_fast_when_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    dataset = _write_rl_dataset(tmp_path / "dataset")
+
+    with pytest.raises(ValueError, match="--training-device cuda"):
+        train_bidding_ppo(
+            dataset_directory=dataset,
+            output_checkpoint_path=tmp_path / "bidding-ppo.pt",
+            settings=BiddingPpoTrainSettings(
+                seed=123,
+                epochs=1,
+                batch_size=2,
+                learning_rate=1e-3,
+                training_device="cuda",
+            ),
+            model_config=BiddingMlpConfig(hidden_dim=8, hidden_layers=1, dropout=0.0),
+        )
 
 
 def test_bidding_ppo_dataset_advantage_normalization_handles_zero_std(tmp_path: Path) -> None:

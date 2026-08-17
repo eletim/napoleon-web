@@ -26,6 +26,12 @@ from napoleon_ml.dataset.tensors import (
     EXCHANGE_MODEL_INPUT_SCHEMA_VERSION,
 )
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
+from napoleon_ml.policy.device import (
+    RequestedTorchDevice,
+    ResolvedTorchDevice,
+    cpu_state_dict,
+    resolve_torch_device,
+)
 
 from .model import (
     ExchangeActorCriticModel,
@@ -114,6 +120,7 @@ class ExchangePpoTrainSettings:
     ppo_clip_epsilon: float = DEFAULT_PPO_CLIP_EPSILON
     value_loss_coefficient: float = DEFAULT_VALUE_LOSS_COEFFICIENT
     optimizer: str = "AdamW"
+    training_device: RequestedTorchDevice = "cpu"
     parent_actor_checkpoint: str | None = None
     parent_checkpoint: str | None = None
 
@@ -126,6 +133,7 @@ class ExchangePpoTrainSettings:
             "ppoClipEpsilon": self.ppo_clip_epsilon,
             "valueLossCoefficient": self.value_loss_coefficient,
             "optimizer": self.optimizer,
+            "trainingDevice": self.training_device,
             "algorithm": EXCHANGE_PPO_ALGORITHM,
             "parentActorCheckpoint": self.parent_actor_checkpoint,
             "parentCheckpoint": self.parent_checkpoint,
@@ -144,6 +152,9 @@ class ExchangePpoTrainReport:
     clipped_fraction: float
     forced_sample_count: int
     output_checkpoint_path: Path
+    requested_training_device: str
+    resolved_training_device: str
+    cuda_device_name: str | None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -157,6 +168,14 @@ class ExchangePpoTrainReport:
             "clippedFraction": self.clipped_fraction,
             "forcedSampleCount": self.forced_sample_count,
             "outputCheckpointPath": str(self.output_checkpoint_path),
+            "trainingDevice": {
+                "requestedDevice": self.requested_training_device,
+                "resolvedDevice": self.resolved_training_device,
+                "cudaDeviceName": self.cuda_device_name,
+            },
+            "requestedTrainingDevice": self.requested_training_device,
+            "resolvedTrainingDevice": self.resolved_training_device,
+            "cudaDeviceName": self.cuda_device_name,
         }
 
 
@@ -382,6 +401,10 @@ def train_exchange_ppo(
     model_config: ExchangeMlpConfig,
 ) -> ExchangePpoTrainReport:
     manifest = load_non_playing_exchange_rl_manifest(dataset_directory)
+    training_device = resolve_torch_device(
+        settings.training_device,
+        flag_name="--training-device",
+    )
     torch.manual_seed(settings.seed)
     model = create_seeded_exchange_actor_critic_model(model_config, seed=settings.seed)
     parent_sha256: str | None = None
@@ -396,6 +419,7 @@ def train_exchange_ppo(
             model,
             settings.parent_actor_checkpoint,
         )
+    model.to(training_device.torch_device)
 
     dataloader = create_non_playing_exchange_rl_dataloader(
         dataset_directory,
@@ -408,6 +432,7 @@ def train_exchange_ppo(
     for _epoch in range(settings.epochs):
         model.train()
         for batch in dataloader:
+            batch = _exchange_ppo_batch_to_device(batch, training_device)
             optimizer.zero_grad(set_to_none=True)
             logits = model(batch.model_input)
             values = model.value(batch.model_input)
@@ -438,7 +463,7 @@ def train_exchange_ppo(
         parent_actor_checkpoint_sha256=parent_sha256,
         parent_checkpoint_sha256=parent_checkpoint_sha256,
     )
-    return totals.to_report(output)
+    return totals.to_report(output, device=training_device)
 
 
 def initialize_model_from_checkpoint(
@@ -510,7 +535,7 @@ def save_exchange_ppo_checkpoint(
         "checkpoint_schema_version": EXCHANGE_PPO_CHECKPOINT_SCHEMA_VERSION,
         "model_architecture": EXCHANGE_ACTOR_CRITIC_MODEL_ARCHITECTURE,
         "algorithm": EXCHANGE_PPO_ALGORITHM,
-        "model_state": model.state_dict(),
+        "model_state": cpu_state_dict(model),
         "model_config": model.config.to_dict(),
         "training_config": settings.to_dict(),
         "dataset_schema_version": manifest.dataset_schema_version,
@@ -606,7 +631,12 @@ class _LossTotals:
             batch.legal_discard_card_mask.to(dtype=torch.int64).sum(dim=1).eq(1).sum().item()
         )
 
-    def to_report(self, output: Path) -> ExchangePpoTrainReport:
+    def to_report(
+        self,
+        output: Path,
+        *,
+        device: ResolvedTorchDevice,
+    ) -> ExchangePpoTrainReport:
         return ExchangePpoTrainReport(
             sample_count=self.sample_count,
             optimizer_step_count=self.optimizer_step_count,
@@ -618,6 +648,9 @@ class _LossTotals:
             clipped_fraction=self.clipped_sample_count / self.sample_count,
             forced_sample_count=self.forced_sample_count,
             output_checkpoint_path=output,
+            requested_training_device=device.requested,
+            resolved_training_device=device.resolved,
+            cuda_device_name=device.cuda_device_name,
         )
 
 
@@ -682,6 +715,35 @@ def _collate_exchange_ppo_batch(samples: list[NonPlayingExchangeRlSample]) -> Ex
         step=torch.tensor([sample.step for sample in samples], dtype=torch.int64),
         acting_player_index=torch.tensor(
             [sample.acting_player_index for sample in samples], dtype=torch.int64
+        ),
+    )
+
+
+def _exchange_ppo_batch_to_device(
+    batch: ExchangePpoBatch,
+    device: ResolvedTorchDevice,
+) -> ExchangePpoBatch:
+    torch_device = device.torch_device
+    return ExchangePpoBatch(
+        model_input=batch.model_input.to(device=torch_device, dtype=torch.float32),
+        legal_discard_card_mask=batch.legal_discard_card_mask.to(
+            device=torch_device,
+            dtype=torch.bool,
+        ),
+        selected_action_index=batch.selected_action_index.to(
+            device=torch_device,
+            dtype=torch.int64,
+        ),
+        behavior_log_probability=batch.behavior_log_probability.to(
+            device=torch_device,
+            dtype=torch.float32,
+        ),
+        terminal_reward=batch.terminal_reward.to(device=torch_device, dtype=torch.float32),
+        seed=batch.seed.to(device=torch_device, dtype=torch.int64),
+        step=batch.step.to(device=torch_device, dtype=torch.int64),
+        acting_player_index=batch.acting_player_index.to(
+            device=torch_device,
+            dtype=torch.int64,
         ),
     )
 

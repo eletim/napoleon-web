@@ -16,6 +16,7 @@ from napoleon_ml.bidding.ppo import (
     BiddingPpoTrainSettings,
     train_bidding_ppo,
 )
+from napoleon_ml.policy.device import SUPPORTED_TORCH_DEVICES
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -29,6 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hidden-layers", type=int, default=2)
     parser.add_argument("--dropout", type=float, default=0.0)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--training-device", choices=SUPPORTED_TORCH_DEVICES, default="cpu")
     parser.add_argument("--ppo-clip-epsilon", type=float, default=0.2)
     parser.add_argument("--value-loss-coefficient", type=float, default=0.5)
     parser.add_argument("--entropy-coefficient", type=float, default=0.0)
@@ -74,6 +76,7 @@ def _run(args: argparse.Namespace) -> int:
         value_loss_coefficient=args.value_loss_coefficient,
         entropy_coefficient=args.entropy_coefficient,
         advantage_normalization=args.advantage_normalization,
+        training_device=args.training_device,
         parent_actor_checkpoint=(
             str(args.parent_actor_checkpoint) if args.parent_actor_checkpoint is not None else None
         ),
@@ -98,6 +101,7 @@ def _run(args: argparse.Namespace) -> int:
         print(f"mean_total_loss: {report.mean_total_loss:.6f}")
         print(f"mean_reward: {report.mean_reward:.6f}")
         print(f"clipped_fraction: {report.clipped_fraction:.6f}")
+        print(f"resolved_training_device: {report.resolved_training_device}")
 
     return 0
 

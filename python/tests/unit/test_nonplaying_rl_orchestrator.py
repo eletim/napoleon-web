@@ -130,6 +130,7 @@ def test_nonplaying_rl_pipeline_smoke_writes_summary(
             games=1,
             evaluation_games=1,
             games_per_shard=1,
+            training_device="auto",
             playing_policy_onnx=playing_onnx,
             playing_policy_metadata=playing_metadata,
         )
@@ -137,6 +138,7 @@ def test_nonplaying_rl_pipeline_smoke_writes_summary(
 
     assert (output_dir / "run-summary.json").is_file()
     written = json.loads((output_dir / "run-summary.json").read_text(encoding="utf-8"))
+    assert written["settings"]["trainingDevice"] == "auto"
     assert written["evaluation"]["fallbackCount"] == 0
     assert written["evaluation"]["illegalActionCount"] == 0
     assert written["artifactPaths"]["bidding"]["onnxPath"].endswith("bidding/policy.onnx")
@@ -402,6 +404,7 @@ def test_iterative_nonplaying_rl_resumes_and_chains_checkpoints(
 
     assert resumed_summary["completedIterationCount"] == 3
     stored_config = json.loads((output_dir / "config.json").read_text(encoding="utf-8"))
+    assert stored_config["trainingDevice"] == "cpu"
     assert stored_config["biddingEntropyCoefficient"] == 0.01
     assert stored_config["biddingAdvantageNormalization"] == (
         advantage_normalization_metadata(DEFAULT_BIDDING_ADVANTAGE_NORMALIZATION)
@@ -641,6 +644,31 @@ def test_iterative_resume_rejects_explicit_bidding_entropy_mismatch(
         )
 
 
+def test_iterative_resume_allows_training_device_mismatch(tmp_path: Path) -> None:
+    playing_onnx = tmp_path / "playing.onnx"
+    playing_metadata = tmp_path / "playing.json"
+    playing_onnx.write_bytes(b"playing-onnx")
+    playing_metadata.write_text("{}\n", encoding="utf-8")
+    stored_config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        training_device="cpu",
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    ).file_dict()
+    requested_config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        training_device="auto",
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    ).file_dict()
+
+    _validate_iterative_resume_config(
+        stored_config,
+        requested_config,
+        provided_config_keys={"trainingDevice"},
+    )
+
+
 def test_iterative_resume_rejects_bidding_advantage_normalization_mismatch(
     tmp_path: Path,
 ) -> None:
@@ -687,6 +715,8 @@ def test_iterative_cli_honors_explicit_one_shot_default_values() -> None:
         "0.01",
         "--bidding-advantage-normalization",
         "dataset",
+        "--training-device",
+        "auto",
     ]
     args = build_parser().parse_args(argv)
     config = _iterative_config_from_args(
@@ -700,6 +730,7 @@ def test_iterative_cli_honors_explicit_one_shot_default_values() -> None:
     assert config.learning_rate == 1e-3
     assert config.bidding_entropy_coefficient == 0.01
     assert config.bidding_advantage_normalization == "dataset"
+    assert config.training_device == "auto"
 
 
 def test_iterative_cli_uses_iterative_defaults_when_values_are_omitted() -> None:

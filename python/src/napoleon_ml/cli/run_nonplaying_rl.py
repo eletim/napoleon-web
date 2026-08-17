@@ -36,6 +36,7 @@ from napoleon_ml.nonplaying_rl_orchestrator import (
     DEFAULT_PPO_CLIP_EPSILON,
     DEFAULT_SEED,
     DEFAULT_TEMPERATURE,
+    DEFAULT_TRAINING_DEVICE,
     DEFAULT_VALUE_LOSS_COEFFICIENT,
     SUPPORTED_INFERENCE_DEVICES,
     NonPlayingIterativeRlRunConfig,
@@ -44,6 +45,7 @@ from napoleon_ml.nonplaying_rl_orchestrator import (
     run_iterative_nonplaying_rl_pipeline,
     run_nonplaying_rl_pipeline,
 )
+from napoleon_ml.policy.device import SUPPORTED_TORCH_DEVICES, RequestedTorchDevice
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -97,6 +99,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--inference-device",
         choices=SUPPORTED_INFERENCE_DEVICES,
         default=DEFAULT_INFERENCE_DEVICE,
+    )
+    parser.add_argument(
+        "--training-device",
+        choices=SUPPORTED_TORCH_DEVICES,
+        default=DEFAULT_TRAINING_DEVICE,
     )
     parser.add_argument(
         "--inference-max-batch-size",
@@ -174,6 +181,7 @@ def _config_from_args(args: argparse.Namespace) -> NonPlayingRlRunConfig:
         seed=args.seed,
         temperature=args.temperature,
         inference_device=cast(Literal["cpu", "auto", "cuda"], args.inference_device),
+        training_device=cast(RequestedTorchDevice, args.training_device),
         inference_max_batch_size=args.inference_max_batch_size,
         playing_policy_onnx=args.playing_policy_onnx,
         playing_policy_metadata=args.playing_policy_metadata,
@@ -226,6 +234,7 @@ def _iterative_config_from_args(
         seed=args.seed,
         temperature=args.temperature,
         inference_device=cast(Literal["cpu", "auto", "cuda"], args.inference_device),
+        training_device=cast(RequestedTorchDevice, args.training_device),
         inference_max_batch_size=args.inference_max_batch_size,
         playing_policy_onnx=args.playing_policy_onnx,
         playing_policy_metadata=args.playing_policy_metadata,
@@ -259,6 +268,7 @@ def _provided_iterative_config_keys(argv: Sequence[str] | None) -> list[str]:
         "--seed": "seed",
         "--temperature": "temperature",
         "--inference-device": "inferenceDevice",
+        "--training-device": "trainingDevice",
         "--inference-max-batch-size": "inferenceMaxBatchSize",
         "--playing-policy-onnx": "playingPolicyOnnx",
         "--playing-policy-metadata": "playingPolicyMetadata",
