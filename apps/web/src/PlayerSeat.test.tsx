@@ -128,6 +128,18 @@ describe("PlayerSeat", () => {
 
   it("keeps mobile opponent seats close to the trick card band", () => {
     const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
+    const inProgressSeatMatch = styles.match(
+      /\.app-shell-game-in-progress \.player-seat \{([\s\S]*?)\n  \}/
+    );
+    const tableGridMatch = styles.match(
+      /\.app-shell-game-in-progress \.table-grid \{([\s\S]*?)\n  \}/
+    );
+    const leftInsetMatch = styles.match(
+      /\.app-shell-game-in-progress \.seat-top-left,\n  \.app-shell-game-in-progress \.seat-left \{([\s\S]*?)\n  \}/
+    );
+    const rightInsetMatch = styles.match(
+      /\.app-shell-game-in-progress \.seat-top-right \{([\s\S]*?)\n  \}/
+    );
     const sideSeatMatch = styles.match(
       /\.app-shell-game-in-progress \.seat-left,\n  \.app-shell-game-in-progress \.seat-right \{([\s\S]*?)\n  \}/
     );
@@ -135,6 +147,11 @@ describe("PlayerSeat", () => {
       /\.app-shell-game-in-progress \.table-center \{([\s\S]*?)\n  \}/
     );
 
+    expect(tableGridMatch?.[1]).toContain("minmax(64px, 0.72fr)");
+    expect(inProgressSeatMatch?.[1]).toContain("justify-self: center;");
+    expect(inProgressSeatMatch?.[1]).toContain("width: min(64px, 100%);");
+    expect(leftInsetMatch?.[1]).toContain("justify-self: end;");
+    expect(rightInsetMatch?.[1]).toContain("justify-self: start;");
     expect(sideSeatMatch?.[1]).toContain("align-self: start;");
     expect(sideSeatMatch?.[1]).toContain("margin-top: 96px;");
     expect(tableCenterMatch?.[1]).toContain("align-content: start;");
