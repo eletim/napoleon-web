@@ -130,6 +130,7 @@ def test_nonplaying_rl_pipeline_smoke_writes_summary(
             games=1,
             evaluation_games=1,
             games_per_shard=1,
+            bidding_hidden_dims=(16, 12),
             training_device="auto",
             playing_policy_onnx=playing_onnx,
             playing_policy_metadata=playing_metadata,
@@ -139,6 +140,7 @@ def test_nonplaying_rl_pipeline_smoke_writes_summary(
     assert (output_dir / "run-summary.json").is_file()
     written = json.loads((output_dir / "run-summary.json").read_text(encoding="utf-8"))
     assert written["settings"]["trainingDevice"] == "auto"
+    assert written["settings"]["biddingHiddenDims"] == [16, 12]
     assert written["evaluation"]["fallbackCount"] == 0
     assert written["evaluation"]["illegalActionCount"] == 0
     assert written["artifactPaths"]["bidding"]["onnxPath"].endswith("bidding/policy.onnx")
@@ -644,6 +646,60 @@ def test_iterative_resume_rejects_explicit_bidding_entropy_mismatch(
         )
 
 
+def test_iterative_resume_rejects_explicit_bidding_hidden_dims_mismatch(
+    tmp_path: Path,
+) -> None:
+    playing_onnx = tmp_path / "playing.onnx"
+    playing_metadata = tmp_path / "playing.json"
+    playing_onnx.write_bytes(b"playing-onnx")
+    playing_metadata.write_text("{}\n", encoding="utf-8")
+    stored_config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        bidding_hidden_dims=(512, 256, 256),
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    ).file_dict()
+    requested_config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        bidding_hidden_dims=(128, 128),
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    ).file_dict()
+
+    with pytest.raises(NonPlayingRlOrchestratorError, match="biddingHiddenDims"):
+        _validate_iterative_resume_config(
+            stored_config,
+            requested_config,
+            provided_config_keys={"biddingHiddenDims"},
+        )
+
+
+def test_iterative_resume_loads_stored_bidding_hidden_dims_when_omitted(
+    tmp_path: Path,
+) -> None:
+    playing_onnx = tmp_path / "playing.onnx"
+    playing_metadata = tmp_path / "playing.json"
+    playing_onnx.write_bytes(b"playing-onnx")
+    playing_metadata.write_text("{}\n", encoding="utf-8")
+    stored_config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        bidding_hidden_dims=(512, 256, 256),
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    ).file_dict()
+    requested_config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    ).file_dict()
+
+    _validate_iterative_resume_config(
+        stored_config,
+        requested_config,
+        provided_config_keys=set(),
+    )
+
+
 def test_iterative_resume_allows_training_device_mismatch(tmp_path: Path) -> None:
     playing_onnx = tmp_path / "playing.onnx"
     playing_metadata = tmp_path / "playing.json"
@@ -713,6 +769,8 @@ def test_iterative_cli_honors_explicit_one_shot_default_values() -> None:
         "1e-3",
         "--bidding-entropy-coefficient",
         "0.01",
+        "--bidding-hidden-dims",
+        "512,256,256",
         "--bidding-advantage-normalization",
         "dataset",
         "--training-device",
@@ -729,8 +787,10 @@ def test_iterative_cli_honors_explicit_one_shot_default_values() -> None:
     assert config.batch_size == 32
     assert config.learning_rate == 1e-3
     assert config.bidding_entropy_coefficient == 0.01
+    assert config.resolved_bidding_hidden_dims == (512, 256, 256)
     assert config.bidding_advantage_normalization == "dataset"
     assert config.training_device == "auto"
+    assert "biddingHiddenDims" in _provided_iterative_config_keys(argv)
 
 
 def test_iterative_cli_uses_iterative_defaults_when_values_are_omitted() -> None:

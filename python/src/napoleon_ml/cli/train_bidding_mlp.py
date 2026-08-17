@@ -22,6 +22,7 @@ from napoleon_ml.cli._bidding_common import (
     print_bidding_report,
     split_config_from_args,
 )
+from napoleon_ml.cli._policy_common import parse_hidden_dims
 from napoleon_ml.dataset.pytorch import BiddingTorchSample, create_bidding_dataloader
 from napoleon_ml.dataset.split import DatasetSplit
 
@@ -34,6 +35,7 @@ class TrainSettings:
     learning_rate: float
     hidden_dim: int
     hidden_layers: int
+    hidden_dims: list[int]
     dropout: float
     train_ratio: int
     validation_ratio: int
@@ -51,6 +53,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--hidden-dim", type=int, default=128)
     parser.add_argument("--hidden-layers", type=int, default=2)
+    parser.add_argument(
+        "--bidding-hidden-dims",
+        "--hidden-dims",
+        dest="hidden_dims",
+        help=(
+            "Comma-separated bidding hidden widths. "
+            "When set, this overrides --hidden-dim/--hidden-layers for bidding."
+        ),
+    )
     parser.add_argument("--dropout", type=float, default=0.0)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--no-integrity-check", action="store_true")
@@ -77,13 +88,25 @@ def _run(args: argparse.Namespace) -> int:
         raise ValueError(f"learning-rate must be positive, got {args.learning_rate}.")
 
     split_config = split_config_from_args(args)
+    hidden_dims = (
+        parse_hidden_dims(args.hidden_dims, label="bidding-hidden-dims")
+        if args.hidden_dims is not None
+        else None
+    )
+    resolved_model_config = BiddingMlpConfig(
+        hidden_dim=args.hidden_dim,
+        hidden_layers=args.hidden_layers,
+        hidden_dims=hidden_dims,
+        dropout=args.dropout,
+    )
     settings = TrainSettings(
         seed=args.seed,
         epochs=args.epochs,
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
-        hidden_dim=args.hidden_dim,
-        hidden_layers=args.hidden_layers,
+        hidden_dim=resolved_model_config.hidden_dim,
+        hidden_layers=resolved_model_config.hidden_layers,
+        hidden_dims=list(resolved_model_config.hidden_widths),
         dropout=args.dropout,
         train_ratio=split_config.train,
         validation_ratio=split_config.validation,
@@ -93,11 +116,7 @@ def _run(args: argparse.Namespace) -> int:
 
     configure_reproducibility(settings.seed)
     manifest = load_checked_manifest(args.dataset_directory, command_label="train-bidding")
-    model_config = BiddingMlpConfig(
-        hidden_dim=settings.hidden_dim,
-        hidden_layers=settings.hidden_layers,
-        dropout=settings.dropout,
-    )
+    model_config = resolved_model_config
     model = create_seeded_bidding_model(model_config, seed=settings.seed)
     optimizer = optim.AdamW(model.parameters(), lr=settings.learning_rate)
 

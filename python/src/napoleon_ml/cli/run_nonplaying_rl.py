@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Literal, cast
 
 from napoleon_ml.bidding.ppo import SUPPORTED_ADVANTAGE_NORMALIZATIONS
+from napoleon_ml.cli._policy_common import parse_hidden_dims
 from napoleon_ml.nonplaying_rl_orchestrator import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_BIDDING_ADVANTAGE_NORMALIZATION,
@@ -76,6 +77,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--learning-rate", type=float, default=DEFAULT_LEARNING_RATE)
     parser.add_argument("--hidden-dim", type=int, default=DEFAULT_HIDDEN_DIM)
     parser.add_argument("--hidden-layers", type=int, default=DEFAULT_HIDDEN_LAYERS)
+    parser.add_argument(
+        "--bidding-hidden-dims",
+        help=(
+            "Comma-separated bidding Actor/Critic hidden widths. "
+            "When set, only bidding overrides --hidden-dim/--hidden-layers."
+        ),
+    )
     parser.add_argument("--dropout", type=float, default=0.0)
     parser.add_argument("--ppo-clip-epsilon", type=float, default=DEFAULT_PPO_CLIP_EPSILON)
     parser.add_argument(
@@ -173,6 +181,7 @@ def _config_from_args(args: argparse.Namespace) -> NonPlayingRlRunConfig:
         learning_rate=args.learning_rate,
         hidden_dim=args.hidden_dim,
         hidden_layers=args.hidden_layers,
+        bidding_hidden_dims=_bidding_hidden_dims_from_args(args),
         dropout=args.dropout,
         ppo_clip_epsilon=args.ppo_clip_epsilon,
         value_loss_coefficient=args.value_loss_coefficient,
@@ -226,6 +235,7 @@ def _iterative_config_from_args(
         learning_rate=learning_rate,
         hidden_dim=args.hidden_dim,
         hidden_layers=args.hidden_layers,
+        bidding_hidden_dims=_bidding_hidden_dims_from_args(args),
         dropout=args.dropout,
         ppo_clip_epsilon=args.ppo_clip_epsilon,
         value_loss_coefficient=args.value_loss_coefficient,
@@ -260,6 +270,7 @@ def _provided_iterative_config_keys(argv: Sequence[str] | None) -> list[str]:
         "--learning-rate": "learningRate",
         "--hidden-dim": "hiddenDim",
         "--hidden-layers": "hiddenLayers",
+        "--bidding-hidden-dims": "biddingHiddenDims",
         "--dropout": "dropout",
         "--ppo-clip-epsilon": "ppoClipEpsilon",
         "--value-loss-coefficient": "valueLossCoefficient",
@@ -275,6 +286,12 @@ def _provided_iterative_config_keys(argv: Sequence[str] | None) -> list[str]:
         "--playing-policy-artifact-id": "playingPolicyArtifactId",
     }
     return sorted({key for option, key in option_to_key.items() if option in names})
+
+
+def _bidding_hidden_dims_from_args(args: argparse.Namespace) -> tuple[int, ...] | None:
+    if args.bidding_hidden_dims is None:
+        return None
+    return parse_hidden_dims(args.bidding_hidden_dims, label="bidding-hidden-dims")
 
 
 def _compact_summary(summary: dict[str, object]) -> dict[str, object]:

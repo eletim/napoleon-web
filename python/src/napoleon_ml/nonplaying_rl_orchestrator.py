@@ -66,7 +66,7 @@ DEFAULT_INFERENCE_DEVICE: Literal["cpu", "auto", "cuda"] = "cpu"
 DEFAULT_TRAINING_DEVICE: RequestedTorchDevice = "cpu"
 DEFAULT_INFERENCE_MAX_BATCH_SIZE = 256
 DEFAULT_SEED = 202
-ITERATIVE_RUN_CONFIG_SCHEMA_VERSION = 9
+ITERATIVE_RUN_CONFIG_SCHEMA_VERSION = 10
 NONPLAYING_ROLLOUT_POLICY_TOPOLOGY = "candidate-x1-frozen-x4-v1"
 NONPLAYING_GAME_COUNT_UNIT = "logical-seeds"
 NONPLAYING_ROTATION_OFFSETS = [0, 1, 2, 3, 4]
@@ -114,6 +114,7 @@ class NonPlayingRlRunConfig:
     learning_rate: float = DEFAULT_LEARNING_RATE
     hidden_dim: int = DEFAULT_HIDDEN_DIM
     hidden_layers: int = DEFAULT_HIDDEN_LAYERS
+    bidding_hidden_dims: tuple[int, ...] | None = None
     dropout: float = DEFAULT_DROPOUT
     ppo_clip_epsilon: float = DEFAULT_PPO_CLIP_EPSILON
     value_loss_coefficient: float = DEFAULT_VALUE_LOSS_COEFFICIENT
@@ -141,6 +142,7 @@ class NonPlayingRlRunConfig:
             learning_rate=self.learning_rate,
             hidden_dim=self.hidden_dim,
             hidden_layers=self.hidden_layers,
+            bidding_hidden_dims=self.bidding_hidden_dims,
             dropout=self.dropout,
             ppo_clip_epsilon=self.ppo_clip_epsilon,
             value_loss_coefficient=self.value_loss_coefficient,
@@ -172,6 +174,7 @@ class NonPlayingRlRunConfig:
             "learningRate": self.learning_rate,
             "hiddenDim": self.hidden_dim,
             "hiddenLayers": self.hidden_layers,
+            "biddingHiddenDims": list(self.resolved_bidding_hidden_dims),
             "dropout": self.dropout,
             "ppoClipEpsilon": self.ppo_clip_epsilon,
             "valueLossCoefficient": self.value_loss_coefficient,
@@ -200,6 +203,12 @@ class NonPlayingRlRunConfig:
             "playingPolicyArtifactId": self.playing_policy_artifact_id,
         }
 
+    @property
+    def resolved_bidding_hidden_dims(self) -> tuple[int, ...]:
+        if self.bidding_hidden_dims is not None:
+            return self.bidding_hidden_dims
+        return (self.hidden_dim,) * self.hidden_layers
+
 
 @dataclass(frozen=True)
 class NonPlayingIterativeRlRunConfig:
@@ -214,6 +223,7 @@ class NonPlayingIterativeRlRunConfig:
     learning_rate: float = DEFAULT_ITERATIVE_LEARNING_RATE
     hidden_dim: int = DEFAULT_HIDDEN_DIM
     hidden_layers: int = DEFAULT_HIDDEN_LAYERS
+    bidding_hidden_dims: tuple[int, ...] | None = None
     dropout: float = DEFAULT_DROPOUT
     ppo_clip_epsilon: float = DEFAULT_PPO_CLIP_EPSILON
     value_loss_coefficient: float = DEFAULT_VALUE_LOSS_COEFFICIENT
@@ -243,6 +253,7 @@ class NonPlayingIterativeRlRunConfig:
             learning_rate=self.learning_rate,
             hidden_dim=self.hidden_dim,
             hidden_layers=self.hidden_layers,
+            bidding_hidden_dims=self.bidding_hidden_dims,
             dropout=self.dropout,
             ppo_clip_epsilon=self.ppo_clip_epsilon,
             value_loss_coefficient=self.value_loss_coefficient,
@@ -277,6 +288,7 @@ class NonPlayingIterativeRlRunConfig:
             learning_rate=self.learning_rate,
             hidden_dim=self.hidden_dim,
             hidden_layers=self.hidden_layers,
+            bidding_hidden_dims=self.bidding_hidden_dims,
             dropout=self.dropout,
             ppo_clip_epsilon=self.ppo_clip_epsilon,
             value_loss_coefficient=self.value_loss_coefficient,
@@ -331,6 +343,7 @@ class NonPlayingIterativeRlRunConfig:
             "learningRate": self.learning_rate,
             "hiddenDim": self.hidden_dim,
             "hiddenLayers": self.hidden_layers,
+            "biddingHiddenDims": list(self.resolved_bidding_hidden_dims),
             "dropout": self.dropout,
             "ppoClipEpsilon": self.ppo_clip_epsilon,
             "valueLossCoefficient": self.value_loss_coefficient,
@@ -349,6 +362,12 @@ class NonPlayingIterativeRlRunConfig:
             "playingPolicyMetadataSha256": _sha256_file(self.playing_policy_metadata),
             "playingPolicyArtifactId": self.playing_policy_artifact_id,
         }
+
+    @property
+    def resolved_bidding_hidden_dims(self) -> tuple[int, ...]:
+        if self.bidding_hidden_dims is not None:
+            return self.bidding_hidden_dims
+        return (self.hidden_dim,) * self.hidden_layers
 
 
 def run_nonplaying_rl_pipeline(config: NonPlayingRlRunConfig) -> dict[str, object]:
@@ -763,6 +782,9 @@ def _run_phase(
             seed=training_seed,
             hidden_dim=config.hidden_dim,
             hidden_layers=config.hidden_layers,
+            bidding_hidden_dims=(
+                config.resolved_bidding_hidden_dims if phase == "bidding" else None
+            ),
             dropout=config.dropout,
         ),
     )
@@ -888,6 +910,7 @@ def _train_phase(
             model_config=BiddingMlpConfig(
                 hidden_dim=config.hidden_dim,
                 hidden_layers=config.hidden_layers,
+                hidden_dims=config.resolved_bidding_hidden_dims,
                 dropout=config.dropout,
             ),
         ).to_dict()
@@ -1056,6 +1079,9 @@ def _export_iterative_bootstrap(
         seed=config.seed + phase_offset * PHASE_SEED_STRIDE + 1,
         hidden_dim=config.hidden_dim,
         hidden_layers=config.hidden_layers,
+        bidding_hidden_dims=(
+            config.resolved_bidding_hidden_dims if phase == "bidding" else None
+        ),
         dropout=config.dropout,
     )
 
@@ -1519,6 +1545,10 @@ def _iterative_config_from_file_dict(
         learning_rate=_required_float(data["learningRate"]),
         hidden_dim=_required_int(data["hiddenDim"]),
         hidden_layers=_required_int(data["hiddenLayers"]),
+        bidding_hidden_dims=_required_int_tuple(
+            data.get("biddingHiddenDims"),
+            "biddingHiddenDims",
+        ),
         dropout=_required_float(data["dropout"]),
         ppo_clip_epsilon=_required_float(data["ppoClipEpsilon"]),
         value_loss_coefficient=_required_float(data["valueLossCoefficient"]),
@@ -1562,6 +1592,7 @@ def _validate_config(config: NonPlayingRlRunConfig) -> None:
     _validate_positive_int(config.batch_size, "batch-size")
     _validate_positive_int(config.hidden_dim, "hidden-dim")
     _validate_positive_int(config.hidden_layers, "hidden-layers")
+    _validate_hidden_dims(config.resolved_bidding_hidden_dims, "bidding-hidden-dims")
     _validate_positive_int(config.inference_max_batch_size, "inference-max-batch-size")
     _validate_positive_float(config.learning_rate, "learning-rate")
     _validate_positive_float(config.ppo_clip_epsilon, "ppo-clip-epsilon")
@@ -1598,6 +1629,7 @@ def _validate_iterative_config(config: NonPlayingIterativeRlRunConfig) -> None:
     _validate_positive_int(config.batch_size, "batch-size")
     _validate_positive_int(config.hidden_dim, "hidden-dim")
     _validate_positive_int(config.hidden_layers, "hidden-layers")
+    _validate_hidden_dims(config.resolved_bidding_hidden_dims, "bidding-hidden-dims")
     _validate_positive_int(config.inference_max_batch_size, "inference-max-batch-size")
     _validate_positive_float(config.learning_rate, "learning-rate")
     _validate_positive_float(config.ppo_clip_epsilon, "ppo-clip-epsilon")
@@ -1800,13 +1832,28 @@ def _required_float(value: object) -> float:
     return float(value)
 
 
+def _required_int_tuple(value: object, label: str) -> tuple[int, ...] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list | tuple) or len(value) == 0:
+        raise NonPlayingRlOrchestratorError(f"{label} must be a non-empty list.")
+    values: list[int] = []
+    for index, item in enumerate(value):
+        if isinstance(item, bool) or not isinstance(item, int):
+            raise NonPlayingRlOrchestratorError(
+                f"{label}[{index}] must be a positive integer."
+            )
+        values.append(item)
+    return tuple(values)
+
+
 def _required_training_device(value: object) -> RequestedTorchDevice:
     if value not in SUPPORTED_TORCH_DEVICES:
         raise NonPlayingRlOrchestratorError(
             "training-device must be one of "
             f"{', '.join(SUPPORTED_TORCH_DEVICES)}, got {value!r}."
         )
-    return cast(RequestedTorchDevice, value)
+    return value
 
 
 def _validate_training_device(value: object) -> None:
@@ -1822,6 +1869,13 @@ def _validate_training_device(value: object) -> None:
 def _validate_positive_int(value: int, label: str) -> None:
     if isinstance(value, bool) or value <= 0:
         raise NonPlayingRlOrchestratorError(f"{label} must be a positive integer.")
+
+
+def _validate_hidden_dims(value: tuple[int, ...], label: str) -> None:
+    if len(value) == 0:
+        raise NonPlayingRlOrchestratorError(f"{label} must contain at least one width.")
+    for width in value:
+        _validate_positive_int(width, label)
 
 
 def _validate_positive_float(value: float, label: str) -> None:
