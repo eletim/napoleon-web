@@ -1682,6 +1682,7 @@ input:focus-visible {
   .app-shell-game-in-progress .seat-top-left,
   .app-shell-game-in-progress .seat-top-right {
     align-self: start;
+    margin-top: 20px;
   }
 
   .app-shell-game-in-progress .seat-right {
@@ -1691,7 +1692,7 @@ input:focus-visible {
   .app-shell-game-in-progress .seat-left,
   .app-shell-game-in-progress .seat-right {
     align-self: start;
-    margin-top: 96px;
+    margin-top: 62px;
   }
 
   .app-shell-game-in-progress .current-player {
