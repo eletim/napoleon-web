@@ -2132,9 +2132,25 @@ input:focus-visible {
     flex: 0 0 auto;
   }
 
+  .app-shell-game-in-progress .self-panel {
+    background: rgb(248 250 252 / 84%);
+    border: 1px solid rgb(255 255 255 / 54%);
+    box-shadow: none;
+    padding: 6px 8px 8px;
+  }
+
+  .app-shell-game-in-progress .self-panel.current-player {
+    border-color: rgb(250 204 21 / 42%);
+    box-shadow: 0 0 0 2px rgb(250 204 21 / 16%);
+  }
+
   .self-points-row {
     margin-bottom: 6px;
     padding-top: 6px;
+  }
+
+  .app-shell-game-in-progress .self-points-row {
+    border-top-color: rgb(148 163 184 / 24%);
   }
 
   .hand-sort-button {

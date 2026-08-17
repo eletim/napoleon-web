@@ -183,6 +183,30 @@ describe("SelfHandPanel", () => {
     expect(match?.[2]).toBe("repeat(2, 58px)");
   });
 
+  it("lightens the mobile in-progress self panel without changing the fixed hand grid", () => {
+    const styles = readFileSync("src/styles.css", "utf8");
+    const panelMatch = styles.match(
+      /\.app-shell-game-in-progress \.self-panel \{([\s\S]*?)\n  \}/
+    );
+    const currentPanelMatch = styles.match(
+      /\.app-shell-game-in-progress \.self-panel\.current-player \{([\s\S]*?)\n  \}/
+    );
+    const pointsMatch = styles.match(
+      /\.app-shell-game-in-progress \.self-points-row \{([\s\S]*?)\n  \}/
+    );
+    const handMatch = styles.match(
+      /\.app-shell-game-in-progress \.hand \{[\s\S]*?grid-template-columns: ([^;]+);[\s\S]*?grid-template-rows: ([^;]+);/
+    );
+
+    expect(panelMatch?.[1]).toContain("background: rgb(248 250 252 / 84%);");
+    expect(panelMatch?.[1]).toContain("border: 1px solid rgb(255 255 255 / 54%);");
+    expect(panelMatch?.[1]).toContain("box-shadow: none;");
+    expect(currentPanelMatch?.[1]).toContain("box-shadow: 0 0 0 2px rgb(250 204 21 / 16%);");
+    expect(pointsMatch?.[1]).toContain("border-top-color: rgb(148 163 184 / 24%);");
+    expect(handMatch?.[1]).toBe("repeat(5, minmax(0, 1fr))");
+    expect(handMatch?.[2]).toBe("repeat(2, 58px)");
+  });
+
   it("toggles riipai from one sort control without sending a card action", () => {
     const hand = [
       standardCard("clubs", "2"),
