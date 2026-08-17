@@ -166,10 +166,77 @@ def test_bidding_ppo_entropy_coefficient_reduces_minimized_loss() -> None:
     )
 
 
+def test_bidding_actor_critic_accepts_variable_hidden_dims_and_stays_separated() -> None:
+    config = BiddingMlpConfig(hidden_dims=(512, 256, 256), dropout=0.0)
+    model = BiddingActorCriticModel(config)
+
+    actor_linears = [
+        module for module in model.actor.network if isinstance(module, torch.nn.Linear)
+    ]
+    critic_linears = [
+        module for module in model.critic if isinstance(module, torch.nn.Linear)
+    ]
+
+    assert config.hidden_widths == (512, 256, 256)
+    assert config.hidden_dim == 512
+    assert config.hidden_layers == 3
+    assert [(layer.in_features, layer.out_features) for layer in actor_linears] == [
+        (BIDDING_MODEL_INPUT_FEATURE_COUNT, 512),
+        (512, 256),
+        (256, 256),
+        (256, BIDDING_ACTION_COUNT),
+    ]
+    assert [(layer.in_features, layer.out_features) for layer in critic_linears] == [
+        (BIDDING_MODEL_INPUT_FEATURE_COUNT, 512),
+        (512, 256),
+        (256, 256),
+        (256, 1),
+    ]
+    assert {parameter.data_ptr() for parameter in model.actor.parameters()}.isdisjoint(
+        {parameter.data_ptr() for parameter in model.critic.parameters()}
+    )
+
+
+def test_bidding_config_loads_legacy_and_roundtrips_hidden_dims() -> None:
+    legacy = BiddingMlpConfig.from_dict(
+        {
+            "input_dim": BIDDING_MODEL_INPUT_FEATURE_COUNT,
+            "hidden_dim": 8,
+            "hidden_layers": 2,
+            "dropout": 0.0,
+        }
+    )
+    assert legacy.hidden_widths == (8, 8)
+    assert legacy.to_dict()["hidden_dims"] == [8, 8]
+
+    config = BiddingMlpConfig.from_dict(
+        {
+            "input_dim": BIDDING_MODEL_INPUT_FEATURE_COUNT,
+            "hidden_dim": 512,
+            "hidden_layers": 3,
+            "hidden_dims": [512, 256, 256],
+            "dropout": 0.0,
+        }
+    )
+    assert config.hidden_widths == (512, 256, 256)
+    assert config.to_dict()["hidden_dims"] == [512, 256, 256]
+
+    with pytest.raises(ValueError, match="hidden_layers"):
+        BiddingMlpConfig.from_dict(
+            {
+                "input_dim": BIDDING_MODEL_INPUT_FEATURE_COUNT,
+                "hidden_dim": 512,
+                "hidden_layers": 2,
+                "hidden_dims": [512, 256, 256],
+                "dropout": 0.0,
+            }
+        )
+
+
 def test_bidding_ppo_train_checkpoint_and_export_smoke(tmp_path: Path) -> None:
     dataset = _write_rl_dataset(tmp_path / "dataset")
     parent = tmp_path / "parent.pt"
-    config = BiddingMlpConfig(hidden_dim=8, hidden_layers=1, dropout=0.0)
+    config = BiddingMlpConfig(hidden_dims=(8, 6), dropout=0.0)
     parent_model = BiddingMlpModel(config)
     torch.save(
         {
@@ -202,6 +269,9 @@ def test_bidding_ppo_train_checkpoint_and_export_smoke(tmp_path: Path) -> None:
     assert checkpoint["algorithm"] == BIDDING_PPO_ALGORITHM
     assert checkpoint["model_architecture"] == BIDDING_ACTOR_CRITIC_MODEL_ARCHITECTURE
     assert checkpoint["entropy_coefficient"] == 0.01
+    model_config = checkpoint["model_config"]
+    assert isinstance(model_config, dict)
+    assert model_config["hidden_dims"] == [8, 6]
     assert checkpoint["advantage_normalization"] == advantage_normalization_metadata(
         ADVANTAGE_NORMALIZATION_DATASET
     )
@@ -259,6 +329,7 @@ def test_bidding_ppo_train_checkpoint_and_export_smoke(tmp_path: Path) -> None:
     assert metadata_json["artifactType"] == "napoleon-bidding-policy-onnx"
     assert metadata_json["policyType"] == "bidding"
     assert metadata_json["outputLogitCount"] == BIDDING_ACTION_COUNT
+    assert metadata_json["modelConfig"]["hidden_dims"] == [8, 6]
     compatibility_metadata = metadata_json["checkpointCompatibilityMetadata"]
     assert isinstance(compatibility_metadata, dict)
     assert compatibility_metadata["biddingEntropyCoefficient"] == 0.01
@@ -286,6 +357,8 @@ def test_bidding_ppo_train_and_export_cli_smoke(tmp_path: Path) -> None:
             "8",
             "--hidden-layers",
             "1",
+            "--bidding-hidden-dims",
+            "8,6",
             "--entropy-coefficient",
             "0.01",
             "--advantage-normalization",
@@ -312,6 +385,7 @@ def test_bidding_ppo_train_and_export_cli_smoke(tmp_path: Path) -> None:
 
     metadata_json = json.loads(metadata.read_text(encoding="utf-8"))
     assert metadata_json["policyType"] == "bidding"
+    assert metadata_json["modelConfig"]["hidden_dims"] == [8, 6]
     compatibility_metadata = metadata_json["checkpointCompatibilityMetadata"]
     assert isinstance(compatibility_metadata, dict)
     assert compatibility_metadata["sampleType"] == (
@@ -343,6 +417,34 @@ def test_bidding_ppo_cuda_training_device_fails_fast_when_unavailable(
             ),
             model_config=BiddingMlpConfig(hidden_dim=8, hidden_layers=1, dropout=0.0),
         )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available")
+def test_bidding_ppo_cuda_training_optimizer_step_and_cpu_reload(tmp_path: Path) -> None:
+    dataset = _write_rl_dataset(tmp_path / "dataset")
+    output = tmp_path / "bidding-ppo-cuda.pt"
+    report = train_bidding_ppo(
+        dataset_directory=dataset,
+        output_checkpoint_path=output,
+        settings=BiddingPpoTrainSettings(
+            seed=123,
+            epochs=1,
+            batch_size=2,
+            learning_rate=1e-3,
+            training_device="cuda",
+        ),
+        model_config=BiddingMlpConfig(hidden_dims=(16, 12, 12), dropout=0.0),
+    )
+
+    assert report.optimizer_step_count > 0
+    assert report.requested_training_device == "cuda"
+    assert report.resolved_training_device == "cuda"
+    loaded, checkpoint = load_bidding_ppo_checkpoint(output)
+    assert isinstance(loaded, BiddingActorCriticModel)
+    assert next(loaded.parameters()).device.type == "cpu"
+    cuda_model_config = checkpoint["model_config"]
+    assert isinstance(cuda_model_config, dict)
+    assert cuda_model_config["hidden_dims"] == [16, 12, 12]
 
 
 def test_bidding_ppo_dataset_advantage_normalization_handles_zero_std(tmp_path: Path) -> None:
@@ -395,6 +497,38 @@ def test_bidding_ppo_parent_checkpoint_rejects_advantage_normalization_mismatch(
             expected_advantage_normalization=advantage_normalization_metadata(
                 ADVANTAGE_NORMALIZATION_DATASET
             ),
+        )
+
+
+def test_bidding_ppo_parent_checkpoint_rejects_hidden_dims_mismatch(
+    tmp_path: Path,
+) -> None:
+    dataset = _write_rl_dataset(tmp_path / "dataset")
+    parent = tmp_path / "parent.pt"
+    train_bidding_ppo(
+        dataset_directory=dataset,
+        output_checkpoint_path=parent,
+        settings=BiddingPpoTrainSettings(
+            seed=123,
+            epochs=1,
+            batch_size=2,
+            learning_rate=1e-3,
+        ),
+        model_config=BiddingMlpConfig(hidden_dims=(8, 6), dropout=0.0),
+    )
+
+    with pytest.raises(BiddingPpoCompatibilityError, match="model_config must match"):
+        train_bidding_ppo(
+            dataset_directory=dataset,
+            output_checkpoint_path=tmp_path / "child.pt",
+            settings=BiddingPpoTrainSettings(
+                seed=124,
+                epochs=1,
+                batch_size=2,
+                learning_rate=1e-3,
+                parent_checkpoint=str(parent),
+            ),
+            model_config=BiddingMlpConfig(hidden_dims=(8, 6, 6), dropout=0.0),
         )
 
 

@@ -559,6 +559,7 @@ def export_seeded_nonplaying_bootstrap_policy_to_onnx(
     seed: int,
     hidden_dim: int = 128,
     hidden_layers: int = 2,
+    bidding_hidden_dims: tuple[int, ...] | None = None,
     dropout: float = 0.0,
 ) -> dict[str, object]:
     """Export a seeded untrained non-playing policy for first rollout generation.
@@ -577,6 +578,7 @@ def export_seeded_nonplaying_bootstrap_policy_to_onnx(
         seed=seed,
         hidden_dim=hidden_dim,
         hidden_layers=hidden_layers,
+        bidding_hidden_dims=bidding_hidden_dims,
         dropout=dropout,
     )
     _validate_checkpoint_metadata_for_export(spec, checkpoint, model=model)
@@ -770,12 +772,14 @@ def _create_bootstrap_model_and_checkpoint(
     seed: int,
     hidden_dim: int,
     hidden_layers: int,
+    bidding_hidden_dims: tuple[int, ...] | None,
     dropout: float,
 ) -> tuple[nn.Module, dict[str, object]]:
     if policy_type == "bidding":
         bidding_config = BiddingMlpConfig(
             hidden_dim=hidden_dim,
             hidden_layers=hidden_layers,
+            hidden_dims=bidding_hidden_dims,
             dropout=dropout,
         )
         model: nn.Module = create_seeded_bidding_actor_critic_model(bidding_config, seed=seed)

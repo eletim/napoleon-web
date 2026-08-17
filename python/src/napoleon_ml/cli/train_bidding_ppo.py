@@ -16,6 +16,7 @@ from napoleon_ml.bidding.ppo import (
     BiddingPpoTrainSettings,
     train_bidding_ppo,
 )
+from napoleon_ml.cli._policy_common import parse_hidden_dims
 from napoleon_ml.policy.device import SUPPORTED_TORCH_DEVICES
 
 
@@ -28,6 +29,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--hidden-dim", type=int, default=128)
     parser.add_argument("--hidden-layers", type=int, default=2)
+    parser.add_argument(
+        "--bidding-hidden-dims",
+        "--hidden-dims",
+        dest="hidden_dims",
+        help=(
+            "Comma-separated bidding Actor/Critic hidden widths. "
+            "When set, this overrides --hidden-dim/--hidden-layers for bidding."
+        ),
+    )
     parser.add_argument("--dropout", type=float, default=0.0)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--training-device", choices=SUPPORTED_TORCH_DEVICES, default="cpu")
@@ -81,9 +91,15 @@ def _run(args: argparse.Namespace) -> int:
             str(args.parent_actor_checkpoint) if args.parent_actor_checkpoint is not None else None
         ),
     )
+    hidden_dims = (
+        parse_hidden_dims(args.hidden_dims, label="bidding-hidden-dims")
+        if args.hidden_dims is not None
+        else None
+    )
     model_config = BiddingMlpConfig(
         hidden_dim=args.hidden_dim,
         hidden_layers=args.hidden_layers,
+        hidden_dims=hidden_dims,
         dropout=args.dropout,
     )
     report = train_bidding_ppo(
