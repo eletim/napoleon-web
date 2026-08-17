@@ -140,6 +140,9 @@ describe("PlayerSeat", () => {
     const rightInsetMatch = styles.match(
       /\.app-shell-game-in-progress \.seat-top-right \{([\s\S]*?)\n  \}/
     );
+    const farSeatMatch = styles.match(
+      /\.app-shell-game-in-progress \.seat-top-left,\n  \.app-shell-game-in-progress \.seat-top-right \{([\s\S]*?)\n  \}/
+    );
     const sideSeatMatch = styles.match(
       /\.app-shell-game-in-progress \.seat-left,\n  \.app-shell-game-in-progress \.seat-right \{([\s\S]*?)\n  \}/
     );
@@ -152,8 +155,9 @@ describe("PlayerSeat", () => {
     expect(inProgressSeatMatch?.[1]).toContain("width: min(64px, 100%);");
     expect(leftInsetMatch?.[1]).toContain("justify-self: end;");
     expect(rightInsetMatch?.[1]).toContain("justify-self: start;");
+    expect(farSeatMatch?.[1]).toContain("margin-top: 20px;");
     expect(sideSeatMatch?.[1]).toContain("align-self: start;");
-    expect(sideSeatMatch?.[1]).toContain("margin-top: 96px;");
+    expect(sideSeatMatch?.[1]).toContain("margin-top: 62px;");
     expect(tableCenterMatch?.[1]).toContain("align-content: start;");
   });
 });
