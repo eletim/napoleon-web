@@ -62,14 +62,7 @@ export function createGameStatusDisplay(
       };
     case "playing":
       return {
-        primary: [
-          {
-            label: `T${state.trickNumber}`,
-            ariaLabel: `第${state.trickNumber}トリック。現在の手番は${formatPlayerLabel(state.currentPlayerId, players)}です。`,
-            tone: "phase"
-          },
-          ...createContractSummaryChips(state, players)
-        ],
+        primary: createContractSummaryChips(state, players),
         secondary: createAdjutantChip(state, players)
       };
     case "finished":

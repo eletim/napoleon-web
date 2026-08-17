@@ -396,7 +396,9 @@ export function App() {
                     : "table-center"
                 }
               >
-                <GameStatus display={gameStatusDisplay} />
+                {session?.state.phase === "bidding" ? (
+                  <GameStatus display={gameStatusDisplay} />
+                ) : null}
 
                 {session?.state.phase === "bidding" ? (
                   <BiddingPanel
