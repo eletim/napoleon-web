@@ -1631,7 +1631,7 @@ input:focus-visible {
   .app-shell-game-in-progress .table-grid {
     gap: 2px 4px;
     grid-template-areas:
-      ". top-left top-right ."
+      "top-left center center top-right"
       "left center center right";
     grid-template-columns:
       minmax(44px, 0.46fr)
@@ -1667,6 +1667,17 @@ input:focus-visible {
     min-height: 0;
     padding: 1px;
     text-align: center;
+  }
+
+  .app-shell-game-in-progress .seat-top-left,
+  .app-shell-game-in-progress .seat-top-right {
+    align-self: start;
+  }
+
+  .app-shell-game-in-progress .seat-left,
+  .app-shell-game-in-progress .seat-right {
+    align-self: start;
+    margin-top: 96px;
   }
 
   .app-shell-game-in-progress .current-player {
@@ -1819,11 +1830,14 @@ input:focus-visible {
   .app-shell-game-in-progress .captured-compact .compact-points {
     display: flex;
     gap: 2px;
+    max-width: 100%;
     min-height: 0;
+    min-width: 0;
     overflow-x: auto;
     overflow-y: hidden;
     padding-bottom: 0;
     touch-action: pan-x;
+    width: 100%;
   }
 
   .app-shell-game-in-progress .captured-compact .point-cards-empty-label {
@@ -1863,6 +1877,10 @@ input:focus-visible {
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
+  }
+
+  .app-shell-game-in-progress .table-center {
+    align-content: start;
   }
 
   .app-shell-game-in-progress .table-center-trick .game-status {
