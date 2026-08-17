@@ -15,6 +15,16 @@ from .constants import (
 
 PlayingObservationVariant = str
 
+__all__ = [
+    "COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT",
+    "PUBLIC_PLAYING_OBSERVATION_VARIANT",
+    "PlayingObservationVariant",
+    "model_input_feature_count_for_variant",
+    "normalize_playing_observation_variant",
+    "playing_encoder_schema_version_for_variant",
+    "playing_model_input_schema_version_for_variant",
+]
+
 
 def normalize_playing_observation_variant(value: object | None) -> str:
     if value is None:

@@ -32,6 +32,15 @@ class DuplicateDiscardAgent implements Agent {
       };
     }
 
+    if (observation.view.phase === "bidding" && observation.view.bidding?.highestBid === null) {
+      return {
+        type: "bid",
+        playerId: observation.playerId,
+        suit: "spades",
+        targetPointCards: 13
+      };
+    }
+
     const passAction = observation.legalActions.find((action) => action.type === "pass");
     const fallback = observation.legalActions[0];
 
@@ -58,6 +67,10 @@ describe("runAutomatedGame", () => {
     expect(record.seed).toBe(12345);
     expect(record.playerIds).toEqual(["player-0", "player-1", "player-2", "player-3", "player-4"]);
     expect(record.decisions.length).toBeGreaterThan(0);
+    expect(record.result.resultType).toBe("standard");
+    if (record.result.resultType !== "standard") {
+      throw new Error("Expected a standard game result.");
+    }
     expect(record.result.winner).toMatch(/^(napoleon-team|alliance)$/);
   });
 

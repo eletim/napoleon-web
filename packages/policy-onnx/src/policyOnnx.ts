@@ -148,6 +148,15 @@ export class NonPlayingPolicyOnnxModel {
     };
   }
 
+  async selectExchangeCard(input: SelectLegalExchangeInput): Promise<NonPlayingPolicyOnnxSingleSelection> {
+    this.assertPolicyType("exchange");
+    const logits = await this.predictLogits(input.modelInput);
+    return {
+      selectedIndex: selectLegalExchangeCard(logits, input.legalDiscardMask),
+      logits
+    };
+  }
+
   async selectAdjutant(input: SelectLegalAdjutantInput): Promise<NonPlayingPolicyOnnxSingleSelection> {
     this.assertPolicyType("adjutant");
     const logits = await this.predictLogits(input.modelInput);
@@ -452,6 +461,17 @@ export function selectLegalAdjutantCard(
     logitsLabel: "adjutant logits",
     maskLabel: "legalAdjutantMask",
     emptyMessage: "legalAdjutantMask must contain at least one legal card."
+  });
+}
+
+export function selectLegalExchangeCard(
+  logits: Float32Array | readonly number[],
+  legalDiscardMask: ArrayLike<number | boolean>
+): number {
+  return selectLegalIndex(logits, legalDiscardMask, CARD_COUNT, {
+    logitsLabel: "exchange logits",
+    maskLabel: "legalDiscardMask",
+    emptyMessage: "legalDiscardMask must contain at least one legal card."
   });
 }
 

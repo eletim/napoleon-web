@@ -30,6 +30,25 @@ napoleon::AgentResult first_result_for_request(const napoleon::AgentRequest& req
   return result;
 }
 
+napoleon::AgentResult setup_result_for_playing_request_test(const napoleon::AgentRequest& request) {
+  napoleon::AgentResult result;
+  result.request_id = request.request_id;
+  if (request.phase == napoleon::Phase::Bidding) {
+    const auto bid_it = std::find_if(
+        request.legal_actions.begin(),
+        request.legal_actions.end(),
+        [](const napoleon::Action& action) {
+          return action.type == napoleon::Action::Type::Bid;
+        });
+    if (bid_it != request.legal_actions.end()) {
+      result.action = *bid_it;
+      return result;
+    }
+  }
+  result.action = request.legal_actions.front();
+  return result;
+}
+
 std::vector<napoleon::FinishedGame> drive_external_first_legal(
     napoleon::SimulationRuntime& runtime,
     std::size_t expected_finished_count) {
@@ -106,7 +125,7 @@ std::vector<napoleon::AgentRequest> collect_playing_requests(
     for (const napoleon::AgentRequest& request : requests) {
       assert(request.phase != napoleon::Phase::Playing);
       assert(!request.legal_actions.empty());
-      setup_results.push_back(first_result_for_request(request));
+      setup_results.push_back(setup_result_for_playing_request_test(request));
     }
     runtime.submit_agent_results(setup_results);
   }
@@ -152,11 +171,17 @@ int main() {
     napoleon::apply_action(first, pass);
   }
 
-  assert(first.phase == napoleon::Phase::ChoosingAdjutant);
-  assert(first.contract.has_value());
-  assert(first.contract->napoleon_player_index == 0);
-  assert(first.contract->trump_suit == napoleon::Suit::Spades);
-  assert(first.contract->target_point_cards == 12);
+  assert(first.phase == napoleon::Phase::Finished);
+  assert(first.is_game_over);
+  assert(!first.contract.has_value());
+  assert(!first.trump_suit.has_value());
+  assert(first.result.has_value());
+  assert(first.result->result_type == "all-pass");
+  assert(first.result->starter_player_index == 0);
+  assert(first.result->payoffs[0] == 1);
+  for (int player_index = 1; player_index < 5; ++player_index) {
+    assert(first.result->payoffs[static_cast<std::size_t>(player_index)] == -1);
+  }
 
   const napoleon::AgentIdentity current = napoleon::current_policy_agent("current");
   const napoleon::AgentIdentity rule = napoleon::rule_based_agent("rule");
@@ -226,7 +251,13 @@ int main() {
   int selected_rule_actions = 0;
   for (std::uint32_t game_seed : {424242u, 424243u, 424244u, 424245u}) {
     napoleon::GameState rule_game = napoleon::create_initial_game(game_seed);
-    for (int player_index = 0; player_index < 5; ++player_index) {
+    napoleon::Action opening_bid;
+    opening_bid.type = napoleon::Action::Type::Bid;
+    opening_bid.player_index = 0;
+    opening_bid.suit = napoleon::Suit::Spades;
+    opening_bid.target_point_cards = 13;
+    napoleon::apply_action(rule_game, opening_bid);
+    for (int player_index = 1; player_index < 5; ++player_index) {
       napoleon::Action pass;
       pass.type = napoleon::Action::Type::Pass;
       pass.player_index = player_index;
@@ -312,21 +343,21 @@ int main() {
     assert(!initial_requests[index].snapshot_json.empty());
   }
 
-  std::vector<napoleon::AgentResult> reversed_passes;
+  std::vector<napoleon::AgentResult> reversed_bids;
   for (auto it = initial_requests.rbegin(); it != initial_requests.rend(); ++it) {
-    const auto pass_it = std::find_if(
+    const auto bid_it = std::find_if(
         it->legal_actions.begin(),
         it->legal_actions.end(),
         [](const napoleon::Action& action) {
-          return action.type == napoleon::Action::Type::Pass;
+          return action.type == napoleon::Action::Type::Bid;
         });
-    assert(pass_it != it->legal_actions.end());
+    assert(bid_it != it->legal_actions.end());
     napoleon::AgentResult result;
     result.request_id = it->request_id;
-    result.action = *pass_it;
-    reversed_passes.push_back(result);
+    result.action = *bid_it;
+    reversed_bids.push_back(result);
   }
-  waiting_runtime.submit_agent_results(reversed_passes);
+  waiting_runtime.submit_agent_results(reversed_bids);
   waiting_runtime.advance_runnable_games();
   const std::vector<napoleon::AgentRequest> adjutant_requests =
       waiting_runtime.collect_agent_requests();
@@ -361,7 +392,13 @@ int main() {
 
   napoleon::AgentRequest compact_request = playing_requests.front();
   napoleon::GameState compact_state = napoleon::create_initial_game(2024);
-  for (int player_index = 0; player_index < 5; ++player_index) {
+  napoleon::Action compact_opening_bid;
+  compact_opening_bid.type = napoleon::Action::Type::Bid;
+  compact_opening_bid.player_index = 0;
+  compact_opening_bid.suit = napoleon::Suit::Spades;
+  compact_opening_bid.target_point_cards = 13;
+  napoleon::apply_action(compact_state, compact_opening_bid);
+  for (int player_index = 1; player_index < 5; ++player_index) {
     napoleon::Action pass;
     pass.type = napoleon::Action::Type::Pass;
     pass.player_index = player_index;
@@ -385,10 +422,25 @@ int main() {
       compact_state.current_player_index,
       napoleon::observation::PlayingObservationVariant::CompleteInfoCompact,
       compact_request);
+  compact_request.legal_actions =
+      napoleon::get_legal_actions(compact_state, compact_state.current_player_index);
   assert(compact_request.playing_model_input.size() ==
          napoleon::observation::kCompleteInfoPlayingModelInputFeatureCount);
   assert(compact_request.legal_play_mask.size() == napoleon::observation::kCardCount);
   assert(std::accumulate(compact_request.legal_play_mask.begin(), compact_request.legal_play_mask.end(), 0) > 0);
+
+  napoleon::AgentRequest batch_request = compact_request;
+  napoleon::onnx_policy::attach_playing_model_input(
+      compact_state,
+      compact_state.current_player_index,
+      batch_request);
+  batch_request.legal_actions =
+      napoleon::get_legal_actions(compact_state, compact_state.current_player_index);
+
+  playing_requests.assign(5, batch_request);
+  for (std::size_t index = 0; index < playing_requests.size(); ++index) {
+    playing_requests[index].request_id = 1000 + static_cast<std::uint64_t>(index);
+  }
 
   std::array<float, napoleon::onnx_policy::kPolicyLogitCount> logits{};
   logits.fill(0.0F);

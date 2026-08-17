@@ -48,11 +48,15 @@ napoleon-diagnose-policy-onnx-parity = "napoleon_ml.cli.diagnose_policy_onnx_par
 napoleon-migrate-policy-architecture = "napoleon_ml.cli.migrate_policy_architecture:main"
 napoleon-run-playing-rl = "napoleon_ml.cli.run_playing_rl:main"
 napoleon-train-bidding-mlp = "napoleon_ml.cli.train_bidding_mlp:main"
+napoleon-train-bidding-ppo = "napoleon_ml.cli.train_bidding_ppo:main"
 napoleon-evaluate-bidding-mlp = "napoleon_ml.cli.evaluate_bidding_mlp:main"
 napoleon-train-adjutant-mlp = "napoleon_ml.cli.train_adjutant_mlp:main"
+napoleon-train-adjutant-ppo = "napoleon_ml.cli.train_adjutant_ppo:main"
 napoleon-evaluate-adjutant-mlp = "napoleon_ml.cli.evaluate_adjutant_mlp:main"
 napoleon-train-exchange-mlp = "napoleon_ml.cli.train_exchange_mlp:main"
+napoleon-train-exchange-ppo = "napoleon_ml.cli.train_exchange_ppo:main"
 napoleon-evaluate-exchange-mlp = "napoleon_ml.cli.evaluate_exchange_mlp:main"
+napoleon-run-non-playing-rl = "napoleon_ml.cli.run_nonplaying_rl:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

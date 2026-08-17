@@ -441,6 +441,7 @@ function completedGame(args: {
   return {
     schemaVersion: 1,
     status: "completed",
+    resultType: "standard",
     gameIndex: args.gameIndex,
     seed: args.seed,
     rotationOffset: args.rotationOffset,
@@ -468,6 +469,7 @@ function completedGame(args: {
     winner,
     contractSucceeded: winner === "napoleon-team",
     result: {
+      resultType: "standard",
       winner,
       napoleonTeamPointCards: args.napoleonTeamPointCards,
       alliancePointCards: args.alliancePointCards,

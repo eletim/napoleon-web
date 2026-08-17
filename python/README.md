@@ -68,6 +68,119 @@ For ONNX export and ONNX Runtime parity checks:
 python -m pip install -e "./python[export]"
 ```
 
+## One-command non-playing RL smoke
+
+The non-playing pipeline can generate short rollout datasets, train PPO
+policies, export ONNX artifacts, and run a fixed-seed full-policy evaluation
+with the repository's frozen playing policy:
+
+```bash
+uv run --project python --extra dev napoleon-run-non-playing-rl \
+  --output-dir /tmp/napoleon-non-playing-smoke \
+  --games 2 \
+  --evaluation-games 1 \
+  --epochs 1 \
+  --batch-size 8 \
+  --hidden-dim 16 \
+  --hidden-layers 1 \
+  --seed 202
+```
+
+The command writes phase artifacts under `bidding/`, `adjutant/`, and
+`exchange/`, plus `evaluation.json` and `run-summary.json`. It refuses to use
+a non-empty output directory unless `--overwrite` is provided.
+
+## Iterative non-playing PPO
+
+Pass `--iterations` to run the long-form non-playing PPO loop. Each iteration
+rolls out with one candidate seat and four frozen seats, trains the existing
+phase PPO trainers, exports ONNX artifacts, and periodically runs a full-policy
+evaluation against the frozen `ppo-separated-v1000` playing policy. The
+candidate seat rotates over offsets `[0, 1, 2, 3, 4]`; therefore
+`--games-per-iteration` is a logical seed count and each phase runs
+`games-per-iteration * 5` actual games. In bidding rollouts, the candidate is
+one learned seat and the four frozen bidding opponents are selected per game
+seat from a seeded deterministic 50:50 rule-based/conservative baseline mix. The
+manifest records the mix rule, policy ids, per-seat assignments, and aggregate
+seat counts. Adjutant and exchange rollouts keep the existing conservative
+frozen bidding baseline, and all playing seats remain frozen to
+`ppo-separated-v1000`. Non-playing PPO rollouts keep raw Reward v3 for normal
+games. All-pass immediate-end games are null games for non-playing RL, with all
+five raw terminal rewards set to `0`, then the same relative transform trains on
+`terminalReward = rawTerminalReward - gameMeanRawTerminalReward` so each game's
+five learning rewards sum to zero.
+
+```bash
+uv run --project python --extra dev napoleon-run-non-playing-rl \
+  --output-dir ~/napoleon_runs/non-playing-ppo-v1 \
+  --iterations 100 \
+  --games-per-iteration 200 \
+  --epochs 4 \
+  --batch-size 128 \
+  --learning-rate 1e-4 \
+  --training-device auto \
+  --evaluation-interval 10 \
+  --evaluation-games 100 \
+  --seed 202
+```
+
+`--training-device cpu` keeps PyTorch Actor/Critic PPO updates on CPU.
+`--training-device auto` uses CUDA for PyTorch training when
+`torch.cuda.is_available()` is true and falls back to CPU otherwise.
+`--training-device cuda` requires CUDA and fails before training if unavailable.
+This is independent from `--inference-device`, which controls rollout and
+evaluation ONNX Runtime inference. Phase train reports, checkpoints'
+`training_config`, iteration summaries, and run summaries record the requested
+and resolved training device. PPO checkpoints save CPU tensors, so a checkpoint
+trained with CUDA can still be loaded on CPU and exported to ONNX.
+
+Resume uses the stored `config.json`; the command fails closed if explicitly
+provided resume settings, policy topology, game-count semantics, or policy
+artifact hashes do not match the original run. Older self-play-x5 non-playing
+runs are rejected by schema version and must not be resumed with this topology:
+
+```bash
+uv run --project python --extra dev napoleon-run-non-playing-rl \
+  --output-dir ~/napoleon_runs/non-playing-ppo-v1 \
+  --resume
+```
+
+Changing only `--training-device` on resume is allowed because it is an
+execution backend, not a training semantic. For a short CPU/CUDA timing
+comparison, run the same small configuration twice and compare each phase
+`train.resolvedTrainingDevice`, `train.optimizerStepCount`, and the stage timing
+printed to the console:
+
+```bash
+uv run --project python --extra dev napoleon-run-non-playing-rl \
+  --output-dir /tmp/napoleon-nonplaying-cpu \
+  --iterations 1 \
+  --games-per-iteration 20 \
+  --evaluation-games 5 \
+  --evaluation-interval 1 \
+  --epochs 1 \
+  --batch-size 128 \
+  --training-device cpu \
+  --overwrite
+
+uv run --project python --extra dev napoleon-run-non-playing-rl \
+  --output-dir /tmp/napoleon-nonplaying-cuda \
+  --iterations 1 \
+  --games-per-iteration 20 \
+  --evaluation-games 5 \
+  --evaluation-interval 1 \
+  --epochs 1 \
+  --batch-size 128 \
+  --training-device cuda \
+  --overwrite
+```
+
+Outputs are written under `iterations/iter-000000/`, `iter-000001/`, and so on,
+with phase `dataset/`, `output-checkpoint.pt`, `policy.onnx`, `policy.json`, and
+`iteration.json` files. `latest/` points at the latest completed phase
+artifacts, while `run-summary.json` and `run-summary.jsonl` summarize progress,
+evaluation fallback counts, and illegal action counts.
+
 ## Generating a dataset
 
 Datasets are produced by the TypeScript CLI, from the repository root:

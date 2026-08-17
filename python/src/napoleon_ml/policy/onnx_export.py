@@ -135,7 +135,7 @@ class _PolicyCriticExportModel(torch.nn.Module):
 
     def forward(self, model_input: torch.Tensor) -> torch.Tensor:
         _logits, value = self.model.forward_actor_critic(model_input)
-        return cast(torch.Tensor, value)
+        return value
 
 
 def export_policy_checkpoint_to_onnx(
@@ -705,7 +705,7 @@ def _check_critic_onnx_runtime_parity(
     onnx_path: Path,
 ) -> _CriticOnnxParityResult:
     try:
-        import onnxruntime as ort  # type: ignore[import-untyped]
+        import onnxruntime as ort
     except ImportError as error:
         raise PolicyCheckpointCompatibilityError(
             "onnxruntime is required for policy critic ONNX parity checks."

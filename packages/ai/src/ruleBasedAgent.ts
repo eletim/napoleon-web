@@ -44,10 +44,54 @@ export class RuleBasedAgent implements Agent {
   }
 }
 
+export class ConservativeBiddingAgent implements Agent {
+  private readonly delegate: RuleBasedAgent;
+
+  constructor(rng: () => number = Math.random) {
+    this.delegate = new RuleBasedAgent(rng);
+  }
+
+  async selectAction(observation: PlayerObservation): Promise<GameAction> {
+    if (observation.view.phase === "bidding") {
+      return selectConservativeBiddingAction(observation);
+    }
+
+    return this.delegate.selectAction(observation);
+  }
+}
+
+export class PassiveBiddingAgent implements Agent {
+  private readonly delegate: RuleBasedAgent;
+
+  constructor(rng: () => number = Math.random) {
+    this.delegate = new RuleBasedAgent(rng);
+  }
+
+  async selectAction(observation: PlayerObservation): Promise<GameAction> {
+    if (observation.view.phase === "bidding") {
+      return selectPassiveBiddingAction(observation);
+    }
+
+    return this.delegate.selectAction(observation);
+  }
+}
+
 export function getBidLimitForScore(score: number): number | null {
   return score < 200
     ? null
     : Math.min(maxAiBidTargetPointCards, minAiBidTargetPointCards + Math.floor((score - 200) / 30));
+}
+
+export function getConservativeBidLimitForScore(score: number): number | null {
+  return score < 280
+    ? null
+    : Math.min(19, minAiBidTargetPointCards + Math.floor((score - 280) / 55));
+}
+
+export function getPassiveBidLimitForScore(score: number): number | null {
+  return score < 330
+    ? null
+    : Math.min(19, minAiBidTargetPointCards + Math.floor((score - 330) / 75));
 }
 
 export function evaluateHandForTrump(hand: readonly Card[], trumpSuit: Suit): number {
@@ -72,6 +116,66 @@ function selectBiddingAction(observation: PlayerObservation): GameAction {
   const neededTarget = currentTarget === null ? minAiBidTargetPointCards : currentTarget + 1;
 
   if (neededTarget > bidLimit) {
+    return passOrThrow(passAction, observation.playerId);
+  }
+
+  const bidAction = observation.legalActions.find(
+    (action) =>
+      action.type === "bid" &&
+      action.suit === bestSuit &&
+      action.targetPointCards === neededTarget
+  );
+
+  return bidAction ?? passOrThrow(passAction, observation.playerId);
+}
+
+function selectConservativeBiddingAction(observation: PlayerObservation): GameAction {
+  const selfHand = getSelfHand(observation.view, observation.playerId);
+  const bestSuit = selectBestTrumpSuit(selfHand);
+  const handScore = evaluateHandForTrump(selfHand, bestSuit);
+  const bidLimit = getConservativeBidLimitForScore(handScore);
+  const passAction = observation.legalActions.find((action) => action.type === "pass");
+
+  if (bidLimit === null) {
+    return passOrThrow(passAction, observation.playerId);
+  }
+
+  const currentTarget = observation.view.bidding?.highestBid?.targetPointCards ?? null;
+  const neededTarget = currentTarget === null ? minAiBidTargetPointCards : currentTarget + 1;
+  const raisePremium = currentTarget === null ? 0 : 35 + Math.max(0, currentTarget - 13) * 20;
+  const effectiveBidLimit = getConservativeBidLimitForScore(handScore - raisePremium);
+
+  if (effectiveBidLimit === null || neededTarget > Math.min(bidLimit, effectiveBidLimit)) {
+    return passOrThrow(passAction, observation.playerId);
+  }
+
+  const bidAction = observation.legalActions.find(
+    (action) =>
+      action.type === "bid" &&
+      action.suit === bestSuit &&
+      action.targetPointCards === neededTarget
+  );
+
+  return bidAction ?? passOrThrow(passAction, observation.playerId);
+}
+
+function selectPassiveBiddingAction(observation: PlayerObservation): GameAction {
+  const selfHand = getSelfHand(observation.view, observation.playerId);
+  const bestSuit = selectBestTrumpSuit(selfHand);
+  const handScore = evaluateHandForTrump(selfHand, bestSuit);
+  const bidLimit = getPassiveBidLimitForScore(handScore);
+  const passAction = observation.legalActions.find((action) => action.type === "pass");
+
+  if (bidLimit === null) {
+    return passOrThrow(passAction, observation.playerId);
+  }
+
+  const currentTarget = observation.view.bidding?.highestBid?.targetPointCards ?? null;
+  const neededTarget = currentTarget === null ? minAiBidTargetPointCards : currentTarget + 1;
+  const raisePremium = currentTarget === null ? 0 : 60 + Math.max(0, currentTarget - 13) * 35;
+  const effectiveBidLimit = getPassiveBidLimitForScore(handScore - raisePremium);
+
+  if (effectiveBidLimit === null || neededTarget > Math.min(bidLimit, effectiveBidLimit)) {
     return passOrThrow(passAction, observation.playerId);
   }
 

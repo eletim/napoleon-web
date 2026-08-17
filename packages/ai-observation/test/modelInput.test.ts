@@ -12,6 +12,7 @@ import {
   COMPLETE_INFO_PLAYING_MODEL_INPUT_LAYOUT,
   EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
   EXCHANGE_MODEL_INPUT_LAYOUT,
+  EXCHANGE_ENCODER_SCHEMA_VERSION,
   FLAT_OBSERVATION_FEATURE_COUNT,
   FLAT_OBSERVATION_LAYOUT,
   MAX_BIDDING_TARGET_POINT_CARDS,
@@ -52,7 +53,7 @@ const pythonValidSampleModelInputSha256 =
 const pythonBiddingSampleModelInputSha256 =
   "e4f86e8b9dd5661301e701c71ad6fc167123acedb8e118192e8ccfe6bc6df877";
 const pythonExchangeSampleModelInputSha256 =
-  "f48558692dbd4bf825b0130e9940db4271c2f9653057e5f2186cb36d6d551233";
+  "ac24fe512fe3d620f39b97dc8cb648f844930c2e79d296c556d2224da4dd7a2a";
 const pythonAdjutantSampleModelInputSha256 =
   "2f0c47b5a113059ed7d06a9966db1ee553163104215981928d6111917d603d52";
 const pythonNonplayingModelInputSamples = JSON.parse(
@@ -375,16 +376,19 @@ describe("encodeExchangeModelInput", () => {
     expect(EXCHANGE_MODEL_INPUT_LAYOUT).toEqual([
       { name: "trumpSuitOneHot", start: 0, stop: 4, shape: [4], dtype: "float32" },
       { name: "selfHandMask", start: 4, stop: 57, shape: [53], dtype: "float32" },
-      { name: "legalDiscardCardMask", start: 57, stop: 110, shape: [53], dtype: "float32" },
-      { name: "calledAdjutantCardMask", start: 110, stop: 163, shape: [53], dtype: "float32" },
-      { name: "contractTargetPointCardsOneHot", start: 163, stop: 171, shape: [8], dtype: "float32" },
-      { name: "handCountByPlayer", start: 171, stop: 176, shape: [5], dtype: "float32" },
-      { name: "specialCardIndicesOneHot", start: 176, stop: 388, shape: [4, 53], dtype: "float32" },
-      { name: "biddingHistoryActionMask", start: 388, stop: 505, shape: [117], dtype: "float32" },
-      { name: "biddingHistoryActionTypeIndicesOneHot", start: 505, stop: 739, shape: [117, 2], dtype: "float32" },
-      { name: "biddingHistoryPlayerIndicesOneHot", start: 739, stop: 1324, shape: [117, 5], dtype: "float32" },
-      { name: "biddingHistorySuitIndicesOneHot", start: 1324, stop: 1792, shape: [117, 4], dtype: "float32" },
-      { name: "biddingHistoryTargetPointCardsOneHot", start: 1792, stop: 2611, shape: [117, 7], dtype: "float32" }
+      { name: "partialDiscardMask", start: 57, stop: 110, shape: [53], dtype: "float32" },
+      { name: "legalDiscardCardMask", start: 110, stop: 163, shape: [53], dtype: "float32" },
+      { name: "calledAdjutantCardMask", start: 163, stop: 216, shape: [53], dtype: "float32" },
+      { name: "exchangeStepIndexOneHot", start: 216, stop: 219, shape: [3], dtype: "float32" },
+      { name: "remainingDiscardCountOneHot", start: 219, stop: 223, shape: [4], dtype: "float32" },
+      { name: "contractTargetPointCardsOneHot", start: 223, stop: 231, shape: [8], dtype: "float32" },
+      { name: "handCountByPlayer", start: 231, stop: 236, shape: [5], dtype: "float32" },
+      { name: "specialCardIndicesOneHot", start: 236, stop: 448, shape: [4, 53], dtype: "float32" },
+      { name: "biddingHistoryActionMask", start: 448, stop: 565, shape: [117], dtype: "float32" },
+      { name: "biddingHistoryActionTypeIndicesOneHot", start: 565, stop: 799, shape: [117, 2], dtype: "float32" },
+      { name: "biddingHistoryPlayerIndicesOneHot", start: 799, stop: 1384, shape: [117, 5], dtype: "float32" },
+      { name: "biddingHistorySuitIndicesOneHot", start: 1384, stop: 1852, shape: [117, 4], dtype: "float32" },
+      { name: "biddingHistoryTargetPointCardsOneHot", start: 1852, stop: 2671, shape: [117, 7], dtype: "float32" }
     ]);
   });
 
@@ -619,7 +623,16 @@ function createBiddingFixture(): BiddingTrainingSample {
 }
 
 function createExchangeFixture(): ExchangeTrainingSample {
-  return structuredClone(pythonNonplayingModelInputSamples.exchange);
+  const sample = structuredClone(pythonNonplayingModelInputSamples.exchange);
+  sample.schemaVersion = EXCHANGE_ENCODER_SCHEMA_VERSION;
+  sample.observation = {
+    ...sample.observation,
+    schemaVersion: EXCHANGE_ENCODER_SCHEMA_VERSION,
+    partialDiscardMask: createMask([]),
+    exchangeStepIndex: 0,
+    remainingDiscardCount: 3
+  };
+  return sample;
 }
 
 function createAdjutantFixture(): AdjutantTrainingSample {

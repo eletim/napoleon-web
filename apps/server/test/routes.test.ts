@@ -33,6 +33,7 @@ import type {
   SendActionResponse
 } from "@napoleon/protocol";
 import {
+  FULL_POLICY_ONNX_AGENT_ID,
   PLAYING_POLICY_ONNX_AGENT_IDS,
   PLAYING_POLICY_ONNX_AGENT_ID,
   RULE_BASED_AGENT_ID,
@@ -309,6 +310,44 @@ describe("server API", () => {
       {
         id: PLAYING_POLICY_ONNX_AGENT_IDS[1],
         displayName: "RL v901",
+        isAvailable: true
+      }
+    ]);
+  });
+
+  it("lists configured full-policy AI agents with their display names", async () => {
+    await app.close();
+    app = await buildApp({
+      agentRegistry: createAgentRegistry({
+        fullPolicyOnnxAgents: [
+          {
+            id: FULL_POLICY_ONNX_AGENT_ID,
+            displayName: "Full policy v1",
+            playing: { onnxPath: "/tmp/playing.onnx", metadataPath: "/tmp/playing.json" },
+            bidding: { onnxPath: "/tmp/bidding.onnx", metadataPath: "/tmp/bidding.json" },
+            adjutant: { onnxPath: "/tmp/adjutant.onnx", metadataPath: "/tmp/adjutant.json" },
+            exchange: { onnxPath: "/tmp/exchange.onnx", metadataPath: "/tmp/exchange.json" }
+          }
+        ]
+      })
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/agents"
+    });
+    const body = response.json<GetAgentsResponse>();
+
+    expect(response.statusCode).toBe(200);
+    expect(body.agents).toEqual([
+      {
+        id: RULE_BASED_AGENT_ID,
+        displayName: "Rule-based AI",
+        isAvailable: true
+      },
+      {
+        id: FULL_POLICY_ONNX_AGENT_ID,
+        displayName: "Full policy v1",
         isAvailable: true
       }
     ]);
@@ -1524,7 +1563,7 @@ describe("server API", () => {
     expect(body.state.result).toBeNull();
   });
 
-  it("creates the special spades-12 contract when everyone passes", async () => {
+  it("finishes immediately when everyone passes", async () => {
     const created = await createGame();
     const record = games.get(created.gameId);
 
@@ -1554,21 +1593,27 @@ describe("server API", () => {
     const body = response.json<SendActionResponse>();
 
     expect(response.statusCode).toBe(200);
-    expect(body.state.phase).toBe("choosing-adjutant");
-    expect(body.state.contract).toEqual({
-      napoleonPlayerId: "player-0",
-      trumpSuit: "spades",
-      targetPointCards: 12
-    });
+    expect(body.state.phase).toBe("finished");
+    expect(body.state.isGameOver).toBe(true);
+    expect(body.state.contract).toBeNull();
     expect(body.state.currentPlayerId).toBe("player-0");
-    expect(body.state.trumpSuit).toBe("spades");
+    expect(body.state.trumpSuit).toBeNull();
     expect(body.state.exchange).toBeNull();
     expect(body.state.adjutant).toBeNull();
-    expect(body.state.adjutantChoice).toEqual({
-      napoleonPlayerId: "player-0",
-      jokerAllowed: true
-    });
+    expect(body.state.adjutantChoice).toBeNull();
+    expect(body.state.legalActions).toEqual([]);
     expect(body.state.self.hand).toHaveLength(10);
+    expect(body.state.result).toEqual({
+      resultType: "all-pass",
+      starterPlayerId: "player-0",
+      payoffs: [
+        { playerId: "player-0", payoff: 1 },
+        { playerId: "player-1", payoff: -1 },
+        { playerId: "player-2", payoff: -1 },
+        { playerId: "player-3", payoff: -1 },
+        { playerId: "player-4", payoff: -1 }
+      ]
+    });
   });
 
   it("finalizes a normal AI winning bid and advances play until the human turn", async () => {
@@ -2434,6 +2479,7 @@ describe("server API", () => {
     expect(body.state.phase).toBe("finished");
     expect(body.state.isGameOver).toBe(true);
     expect(body.state.result).toEqual({
+      resultType: "standard",
       winner: "napoleon-team",
       napoleonTeamPointCards: 20,
       alliancePointCards: 0,
@@ -3116,9 +3162,16 @@ function createAllPassExchangeState(): GameState {
 }
 
 function createAllPassAdjutantChoiceState(): GameState {
-  return Array.from({ length: 5 }).reduce<GameState>(
+  const bidState = applyAction(createInitialGame({ rng: () => 0 }), {
+    type: "bid",
+    playerId: "player-0",
+    suit: "spades",
+    targetPointCards: 13
+  });
+
+  return Array.from({ length: 4 }).reduce<GameState>(
     (state) => applyAction(state, { type: "pass", playerId: state.currentPlayerId }),
-    createInitialGame({ rng: () => 0 })
+    bidState
   );
 }
 

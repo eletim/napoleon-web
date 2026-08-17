@@ -24,6 +24,7 @@ import {
   loadNonPlayingPolicyOnnxModel,
   loadPolicyOnnxModel,
   loadRepoManagedPlayingPolicyBenchmark,
+  runBiddingPolicyBenchmark,
   runFullPolicyVsRuleBasedEvaluation,
   runPlayingPolicyRosterEvaluation,
   runStandardPlayingPolicyBenchmarks,
@@ -35,6 +36,7 @@ import type {
   NonPlayingPolicyOnnxMetadata,
   NonPlayingPolicyOnnxModel,
   NonPlayingPolicyType,
+  PolicyCriticValueModel,
   PolicyOnnxModel,
   SelectLegalPlayInput
 } from "../src/index.js";
@@ -359,6 +361,67 @@ describe("runPlayingPolicyRosterEvaluation", () => {
   });
 });
 
+describe("runBiddingPolicyBenchmark", () => {
+  it("compares RuleBased, Critic-EV, and PPO bidding on the same fixed seed", async () => {
+    const playingPolicy = await createIncreasingLogitPolicy();
+    const ppoBiddingPolicy = await createNonPlayingPolicy("bidding");
+    const result = await runBiddingPolicyBenchmark({
+      playingPolicy,
+      ppoBiddingPolicy,
+      criticEvBiddingCritic: new ConstantCritic(0),
+      startSeed: 1500,
+      gameCount: 1,
+      rotationOffsets: [0],
+      playerIds
+    });
+
+    expect(result.schemaVersion).toBe(1);
+    expect(result.configuration).toMatchObject({
+      startSeed: 1500,
+      endSeed: 1500,
+      gameCount: 1,
+      rotationOffsets: [0],
+      playerIds
+    });
+    expect(result.candidates.map((candidate) => candidate.kind)).toEqual([
+      "rule-based",
+      "critic-ev",
+      "ppo"
+    ]);
+
+    for (const candidate of result.candidates) {
+      expect(candidate.run.games).toHaveLength(1);
+      expect(candidate.run.completedCount).toBe(1);
+      expect(candidate.illegalActionCount).toBe(0);
+      expect(candidate.bidding.decisionCount).toBeGreaterThan(0);
+      expect(candidate.bidding.passCount + candidate.bidding.bidCount)
+        .toBe(candidate.bidding.decisionCount);
+      expect(candidate.bidding.passRate).not.toBeNull();
+      expect(Object.keys(candidate.bidding.targetPointCards)).toEqual([
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19"
+      ]);
+      expect(Object.keys(candidate.bidding.suits)).toEqual([
+        "spades",
+        "hearts",
+        "diamonds",
+        "clubs"
+      ]);
+      expect(candidate.contracts.completedGameCount).toBe(1);
+      expect(candidate.contracts.declarationSuccessRate).not.toBeNull();
+      expect(candidate.roleRewards.reduce((sum, role) => sum + role.sampleCount, 0)).toBe(1);
+    }
+
+    const ppo = result.candidates.find((candidate) => candidate.kind === "ppo");
+    expect(ppo?.biddingOnnxDecisionCount).toBe(ppo?.bidding.decisionCount);
+  });
+});
+
 describe("runStandardPlayingPolicyBenchmarks", () => {
   it("runs the standard minimum benchmark suite with the same seed set", async () => {
     const candidate = await createIncreasingLogitPolicy();
@@ -394,7 +457,7 @@ describe("runFullPolicyVsRuleBasedEvaluation", () => {
     } = await createFullPolicyFixture();
     const biddingSpy = vi.spyOn(biddingPolicy, "selectBidding");
     const adjutantSpy = vi.spyOn(adjutantPolicy, "selectAdjutant");
-    const exchangeSpy = vi.spyOn(exchangePolicy, "selectExchange");
+    const exchangeSpy = vi.spyOn(exchangePolicy, "selectExchangeCard");
     const playingSpy = vi.spyOn(playingPolicy, "selectLegalPlay");
     const options = {
       playingPolicy,
@@ -504,6 +567,13 @@ describe("runFullPolicyVsRuleBasedEvaluation", () => {
       expect(first.diagnostics.policyAgentDecisionCounts.adjutantOnnxCallCount).toBeGreaterThan(0);
       expect(first.diagnostics.policyAgentDecisionCounts.exchangeOnnxCallCount).toBeGreaterThan(0);
       expect(first.diagnostics.policyAgentDecisionCounts.playingOnnxCallCount).toBeGreaterThan(0);
+      expect(first.diagnostics.adjutantSelection.decisionCount).toBe(
+        first.diagnostics.policyAgentDecisionCounts.adjutantOnnxCallCount
+      );
+      expect(Object.values(first.diagnostics.adjutantSelection.cardIds).reduce(
+        (sum, count) => sum + count,
+        0
+      )).toBe(first.diagnostics.adjutantSelection.decisionCount);
 
       expect(second.run).toEqual(first.run);
       expect(second.comparison).toEqual(first.comparison);
@@ -530,6 +600,25 @@ describe("runFullPolicyVsRuleBasedEvaluation", () => {
       gameCount: 1,
       playerIds
     })).rejects.toThrow(/biddingPolicy policy type mismatch/);
+  });
+
+  it("rejects non-sequential exchange artifacts before running full-policy games", async () => {
+    const playingPolicy = await createIncreasingLogitPolicy();
+    const biddingPolicy = await createNonPlayingPolicy("bidding");
+    const adjutantPolicy = await createNonPlayingPolicy("adjutant");
+    const exchangePolicy = await createNonPlayingPolicy("exchange", {
+      decisionMode: "top3-set-v1"
+    });
+
+    await expect(runFullPolicyVsRuleBasedEvaluation({
+      playingPolicy,
+      biddingPolicy,
+      adjutantPolicy,
+      exchangePolicy,
+      startSeed: 1100,
+      gameCount: 1,
+      playerIds
+    })).rejects.toThrow(/exchangePolicy decision mode mismatch/);
   });
 });
 
@@ -741,7 +830,8 @@ async function createFullPolicyFixture(): Promise<{
 }
 
 async function createNonPlayingPolicy(
-  policyType: NonPlayingPolicyType
+  policyType: NonPlayingPolicyType,
+  metadataOverrides: Partial<NonPlayingPolicyOnnxMetadata> = {}
 ): Promise<NonPlayingPolicyOnnxModel> {
   const spec = nonPlayingSpec(policyType);
   const logits = new Float32Array(spec.outputCount);
@@ -759,9 +849,26 @@ async function createNonPlayingPolicy(
       outputCount: spec.outputCount
     })
   );
-  await writeFile(metadataPath, JSON.stringify(createNonPlayingMetadata(policyType)) + "\n", "utf8");
+  await writeFile(
+    metadataPath,
+    JSON.stringify({
+      ...createNonPlayingMetadata(policyType),
+      ...metadataOverrides
+    }) + "\n",
+    "utf8"
+  );
 
   return loadNonPlayingPolicyOnnxModel({ onnxPath, metadataPath });
+}
+
+class ConstantCritic implements PolicyCriticValueModel {
+  constructor(private readonly value: number) {}
+
+  async predictValuesBatch(
+    modelInputs: readonly (Float32Array | readonly number[])[]
+  ): Promise<readonly number[]> {
+    return modelInputs.map(() => this.value);
+  }
 }
 
 function createMetadata() {
@@ -806,8 +913,8 @@ function createNonPlayingMetadata(policyType: NonPlayingPolicyType): NonPlayingP
     policyType,
     checkpointSchemaVersion: 1,
     datasetSchemaVersion: MULTIPHASE_DATASET_SCHEMA_VERSION,
-    encoderSchemaVersion: 1,
-    modelInputSchemaVersion: 1,
+    encoderSchemaVersion: spec.encoderSchemaVersion,
+    modelInputSchemaVersion: spec.modelInputSchemaVersion,
     modelInputFeatureCount: spec.inputFeatureCount,
     outputLogitCount: spec.outputCount,
     actionCount: spec.outputCount,
@@ -850,6 +957,7 @@ function createNonPlayingMetadata(policyType: NonPlayingPolicyType): NonPlayingP
 
   if (policyType === "exchange") {
     metadata.discardCount = 3;
+    metadata.decisionMode = "sequential-card-v1";
   }
 
   return metadata;
@@ -859,25 +967,33 @@ function nonPlayingSpec(policyType: NonPlayingPolicyType): {
   artifactType: string;
   inputFeatureCount: number;
   outputCount: number;
+  encoderSchemaVersion: number;
+  modelInputSchemaVersion: number;
 } {
   if (policyType === "bidding") {
     return {
       artifactType: "napoleon-bidding-policy-onnx",
       inputFeatureCount: BIDDING_MODEL_INPUT_FEATURE_COUNT,
-      outputCount: BIDDING_ACTION_COUNT
+      outputCount: BIDDING_ACTION_COUNT,
+      encoderSchemaVersion: 1,
+      modelInputSchemaVersion: 1
     };
   }
   if (policyType === "exchange") {
     return {
       artifactType: "napoleon-exchange-policy-onnx",
       inputFeatureCount: EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
-      outputCount: CARD_COUNT
+      outputCount: CARD_COUNT,
+      encoderSchemaVersion: 2,
+      modelInputSchemaVersion: 2
     };
   }
   return {
     artifactType: "napoleon-adjutant-policy-onnx",
     inputFeatureCount: ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
-    outputCount: CARD_COUNT
+    outputCount: CARD_COUNT,
+    encoderSchemaVersion: 1,
+    modelInputSchemaVersion: 1
   };
 }
 

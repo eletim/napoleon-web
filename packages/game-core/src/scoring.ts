@@ -1,12 +1,12 @@
 import { isPointCard } from "./cards.js";
 import { GameRuleError } from "./errors.js";
-import type { GameResult, GameState, PlayerId } from "./types.js";
+import type { GameResult, GameState, PlayerId, PlayerPayoff, StandardGameResult } from "./types.js";
 
 const expectedCompletedTrickCount = 10;
 const expectedResolvedBuriedCardCount = 3;
 const expectedPointCardCount = 20;
 
-export function calculateGameResult(state: GameState): GameResult {
+export function calculateGameResult(state: GameState): StandardGameResult {
   if (state.contract === null || state.adjutant === null) {
     throw new GameRuleError("INVALID_RESULT_STATE", "A contract and adjutant state are required.");
   }
@@ -66,6 +66,7 @@ export function calculateGameResult(state: GameState): GameResult {
   }
 
   return {
+    resultType: "standard",
     winner:
       napoleonTeamPointCards >= state.contract.targetPointCards
         ? "napoleon-team"
@@ -75,5 +76,21 @@ export function calculateGameResult(state: GameState): GameResult {
     targetPointCards: state.contract.targetPointCards,
     napoleonPlayerId: state.contract.napoleonPlayerId,
     adjutantPlayerId: state.adjutant.playerId
+  };
+}
+
+export function createAllPassGameResult(
+  playerIds: readonly PlayerId[],
+  starterPlayerId: PlayerId
+): GameResult {
+  const payoffs: PlayerPayoff[] = playerIds.map((playerId) => ({
+    playerId,
+    payoff: playerId === starterPlayerId ? 1 : -1
+  }));
+
+  return {
+    resultType: "all-pass",
+    starterPlayerId,
+    payoffs
   };
 }

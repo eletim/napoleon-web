@@ -760,7 +760,17 @@ void submit_dataset_policy_requests(
 
     napoleon::AgentResult result;
     result.request_id = request.request_id;
-    result.action = request.legal_actions.front();
+    if (request.phase == napoleon::Phase::Bidding) {
+      const auto bid_it = std::find_if(
+          request.legal_actions.begin(),
+          request.legal_actions.end(),
+          [](const Action& action) {
+            return action.type == Action::Type::Bid;
+          });
+      result.action = bid_it == request.legal_actions.end() ? request.legal_actions.front() : *bid_it;
+    } else {
+      result.action = request.legal_actions.front();
+    }
     results.push_back(result);
   }
 

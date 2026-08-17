@@ -1769,6 +1769,9 @@ async function createPlayingSelfPlaySample(
 }
 
 function createOutcome(record: AutomatedGameRecord, actingPlayerId: PlayerId): PlayingSelfPlayOutcome {
+  if (record.result.resultType !== "standard") {
+    throw new Error("Playing self-play samples require a standard completed game result.");
+  }
   const actingPlayerTeam = getPlayerTeam(actingPlayerId, record.result);
 
   return {
@@ -1780,6 +1783,10 @@ function createOutcome(record: AutomatedGameRecord, actingPlayerId: PlayerId): P
 }
 
 function getPlayerTeam(playerId: PlayerId, result: AutomatedGameRecord["result"]): WinningTeam {
+  if (result.resultType !== "standard") {
+    throw new Error("Playing self-play team lookup requires a standard game result.");
+  }
+
   if (
     playerId === result.napoleonPlayerId ||
     (result.adjutantPlayerId !== null && playerId === result.adjutantPlayerId)
@@ -1791,6 +1798,10 @@ function getPlayerTeam(playerId: PlayerId, result: AutomatedGameRecord["result"]
 }
 
 function getPlayerRole(playerId: PlayerId, result: AutomatedGameRecord["result"]): PlayingSelfPlayRole {
+  if (result.resultType !== "standard") {
+    throw new Error("Playing self-play role lookup requires a standard game result.");
+  }
+
   if (playerId === result.napoleonPlayerId) {
     return result.adjutantPlayerId === null ? "napoleon-solo" : "napoleon";
   }

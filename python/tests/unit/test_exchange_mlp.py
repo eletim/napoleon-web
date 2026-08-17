@@ -66,20 +66,23 @@ def _mask(indices: list[int], *, length: int = CARD_COUNT) -> list[int]:
 def _exchange_sample(*, seed: int, step: int, target_indices: list[int]) -> dict[str, Any]:
     self_hand = _mask(list(range(13)))
     observation = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "relativePlayerIds": ["player-0", "player-1", "player-2", "player-3", "player-4"],
         "contractTargetPointCards": 12,
         "trumpSuitOneHot": [1, 0, 0, 0],
         "calledAdjutantCardMask": _mask([20]),
         "selfHandMask": self_hand,
+        "partialDiscardMask": _mask([]),
         "legalDiscardCardMask": list(self_hand),
+        "exchangeStepIndex": 0,
+        "remainingDiscardCount": 3,
         "handCountByPlayer": [13, 10, 10, 10, 10],
         "specialCardIndices": {"oruma": 0, "yoromeki": 15, "seiJack": 29, "uraJack": 16},
         "biddingHistory": _empty_bidding_history(),
     }
     return {
         "sampleType": "exchange-training-sample",
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "seed": seed,
         "step": step,
         "actingPlayerId": "player-0",
@@ -108,7 +111,7 @@ def _write_dataset(directory: Path, *, seeds: tuple[int, ...]) -> None:
     manifest = {
         "datasetSchemaVersion": 2,
         "generatorVersion": 2,
-        "encoderSchemaVersion": 1,
+        "encoderSchemaVersion": 2,
         "format": "jsonl",
         "sampleType": "exchange-training-sample",
         "agent": {"type": "rule-based", "version": 1},

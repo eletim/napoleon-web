@@ -91,7 +91,7 @@ async function inspectSeed(seed: number, agent: CriticEvBiddingAgent): Promise<v
     console.log(`biddingTurn=${turn} playerId=${observation.playerId}`);
     console.table(evaluations.map((evaluation) => ({
       action: formatAction(evaluation.action),
-      contract: formatContract(evaluation.contract),
+      contract: evaluation.contract === null ? "all-pass" : formatContract(evaluation.contract),
       role: evaluation.role,
       calledAdjutantCardId: evaluation.calledAdjutantCardId,
       criticValue: formatNumber(evaluation.criticValue),

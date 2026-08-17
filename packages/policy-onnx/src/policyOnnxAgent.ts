@@ -19,11 +19,13 @@ import {
   getCardId,
   validateEncodedExchangeAction
 } from "@napoleon/ai-observation";
+import type { EncodedExchangeObservation } from "@napoleon/ai-observation";
 import { PolicyOnnxCompatibilityError } from "./errors.js";
 import {
   COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT,
   getNonPlayingPolicyOnnxSpec
 } from "./policySpecs.js";
+import { EXCHANGE_DECISION_MODE_SEQUENTIAL_CARD } from "./constants.js";
 import type { NonPlayingPolicyOnnxModel, PolicyOnnxModel } from "./policyOnnx.js";
 import type { NonPlayingPolicyType } from "./types.js";
 
@@ -209,6 +211,10 @@ export class PolicyOnnxAgent implements Agent {
     observation: PlayerObservation,
     exchangePolicy: NonPlayingPolicyOnnxModel
   ): Promise<GameAction> {
+    if (exchangePolicy.metadata.decisionMode === EXCHANGE_DECISION_MODE_SEQUENTIAL_CARD) {
+      return this.selectSequentialExchangeAction(observation, exchangePolicy);
+    }
+
     const { modelInput, legalDiscardCardMask } = createPolicyOnnxExchangeInput(
       observation,
       this.playerIds ?? undefined
@@ -230,6 +236,57 @@ export class PolicyOnnxAgent implements Agent {
         )
       },
       legalDiscardCardMask
+    );
+
+    return selectedAction;
+  }
+
+  private async selectSequentialExchangeAction(
+    observation: PlayerObservation,
+    exchangePolicy: NonPlayingPolicyOnnxModel
+  ): Promise<GameAction> {
+    const selectedCardIndices: number[] = [];
+
+    for (let exchangeStepIndex = 0; exchangeStepIndex < 3; exchangeStepIndex += 1) {
+      const { modelInput, legalDiscardCardMask } = createPolicyOnnxSequentialExchangeInput(
+        observation,
+        selectedCardIndices,
+        this.playerIds ?? undefined
+      );
+      const selection = await exchangePolicy.selectExchangeCard({
+        modelInput,
+        legalDiscardMask: legalDiscardCardMask
+      });
+
+      if (legalDiscardCardMask[selection.selectedIndex] !== 1) {
+        throw new PolicyOnnxCompatibilityError(
+          `ONNX sequential exchange policy selected illegal card index ${selection.selectedIndex}.`
+        );
+      }
+      selectedCardIndices.push(selection.selectedIndex);
+      if (exchangeStepIndex > 0) {
+        this.incrementOnnxCallCount("exchange");
+      }
+    }
+
+    const selectedCardIds = selectedCardIndices.map((index) => getCardId(index));
+    const selectedAction: GameAction = {
+      type: "discard-cards",
+      playerId: observation.playerId,
+      cardIds: selectedCardIds
+    };
+    const initialInput = createPolicyOnnxSequentialExchangeInput(
+      observation,
+      [],
+      this.playerIds ?? undefined
+    );
+    validateEncodedExchangeAction(
+      {
+        discardTargetMask: initialInput.legalDiscardCardMask.map((_, index) =>
+          selectedCardIndices.includes(index) ? 1 : 0
+        )
+      },
+      initialInput.legalDiscardCardMask
     );
 
     return selectedAction;
@@ -326,6 +383,63 @@ export function createPolicyOnnxExchangeInput(
   );
 
   return createExchangeModelInput(encodedObservation);
+}
+
+export function createPolicyOnnxSequentialExchangeInput(
+  observation: PlayerObservation,
+  selectedCardIndices: readonly number[],
+  playerIds?: readonly PlayerId[]
+): PolicyOnnxExchangeInput {
+  if (selectedCardIndices.length > 2) {
+    throw new PolicyOnnxCompatibilityError("selectedCardIndices must contain at most 2 partial exchange cards.");
+  }
+  const { absolutePlayerIds, biddingHistory } = createNonPlayingObservationContext(
+    observation,
+    playerIds
+  );
+  const encodedObservation = encodeExchangeObservation(
+    observation,
+    absolutePlayerIds,
+    biddingHistory
+  );
+  const steppedObservation = createSequentialExchangeObservation(
+    encodedObservation,
+    selectedCardIndices
+  );
+
+  return createExchangeModelInput(steppedObservation);
+}
+
+function createSequentialExchangeObservation(
+  observation: EncodedExchangeObservation,
+  selectedCardIndices: readonly number[]
+): EncodedExchangeObservation {
+  const seen = new Set<number>();
+  const partialDiscardMask = Array(observation.selfHandMask.length).fill(0);
+  const legalDiscardCardMask = observation.selfHandMask.map((value) => value);
+
+  for (const index of selectedCardIndices) {
+    if (!Number.isSafeInteger(index) || index < 0 || index >= observation.selfHandMask.length) {
+      throw new PolicyOnnxCompatibilityError(`partial exchange card index is invalid: ${index}.`);
+    }
+    if (seen.has(index)) {
+      throw new PolicyOnnxCompatibilityError(`partial exchange card index is duplicated: ${index}.`);
+    }
+    if (observation.selfHandMask[index] !== 1) {
+      throw new PolicyOnnxCompatibilityError(`partial exchange card index is not in hand: ${index}.`);
+    }
+    seen.add(index);
+    partialDiscardMask[index] = 1;
+    legalDiscardCardMask[index] = 0;
+  }
+
+  return {
+    ...observation,
+    partialDiscardMask,
+    legalDiscardCardMask,
+    exchangeStepIndex: selectedCardIndices.length,
+    remainingDiscardCount: 3 - selectedCardIndices.length
+  };
 }
 
 export function createPolicyOnnxPlayInput(
