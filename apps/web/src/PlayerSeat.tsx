@@ -1,4 +1,5 @@
 import type { PublicGameState } from "@napoleon/protocol";
+import { BiddingDeclarationBadge } from "./BiddingDeclarationBadge";
 import { PointCards } from "./PointCards";
 import type { TablePlayer } from "./tableTypes";
 
@@ -8,6 +9,7 @@ interface PlayerSeatProps {
 }
 
 export function PlayerSeat({ player, state }: PlayerSeatProps) {
+  const isBidding = state?.phase === "bidding";
   const isCurrent = state?.currentPlayerId === player.id;
   const isNapoleon = state?.contract?.napoleonPlayerId === player.id;
   const isAdjutant = state?.adjutant?.revealedPlayerId === player.id;
@@ -28,30 +30,39 @@ export function PlayerSeat({ player, state }: PlayerSeatProps) {
         </div>
       </div>
 
-      {hasRole ? (
-        <div className="role-badges">
-          {isNapoleon ? (
-            <span aria-label="ナポレオン" className="role-badge napoleon-badge" role="img">
-              N
-            </span>
+      {isBidding ? (
+        <BiddingDeclarationBadge
+          playerLabel={player.label}
+          declaration={player.biddingDeclaration}
+        />
+      ) : (
+        <>
+          {hasRole ? (
+            <div className="role-badges">
+              {isNapoleon ? (
+                <span aria-label="ナポレオン" className="role-badge napoleon-badge" role="img">
+                  N
+                </span>
+              ) : null}
+              {isAdjutant ? (
+                <span aria-label="副官" className="role-badge adjutant-badge" role="img">
+                  A
+                </span>
+              ) : null}
+            </div>
           ) : null}
-          {isAdjutant ? (
-            <span aria-label="副官" className="role-badge adjutant-badge" role="img">
-              A
-            </span>
-          ) : null}
-        </div>
-      ) : null}
 
-      <div
-        className="captured-compact"
-        aria-label={`${player.label}の獲得得点札は${player.capturedPointCards.length}枚`}
-      >
-        <span aria-hidden="true">★{player.capturedPointCards.length}</span>
-        <div className="inline-cards compact-points">
-          <PointCards cards={player.capturedPointCards} />
-        </div>
-      </div>
+          <div
+            className="captured-compact"
+            aria-label={`${player.label}の獲得得点札は${player.capturedPointCards.length}枚`}
+          >
+            <span aria-hidden="true">★{player.capturedPointCards.length}</span>
+            <div className="inline-cards compact-points">
+              <PointCards cards={player.capturedPointCards} />
+            </div>
+          </div>
+        </>
+      )}
     </article>
   );
 }

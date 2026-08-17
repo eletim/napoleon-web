@@ -29,11 +29,11 @@ export function BiddingDeclarationBadge({
     >
       {declaration.type === "bid" ? (
         <strong className="latest-bid-value">
-          <span className="latest-bid-suit">{suitSymbols[declaration.suit]}</span>
           <span className="latest-bid-target">{declaration.targetPointCards}</span>
+          <span className="latest-bid-suit">{suitSymbols[declaration.suit]}</span>
         </strong>
       ) : (
-        <strong>{declaration.label}</strong>
+        <strong>{declaration.type === "pass" ? "Pass" : "—"}</strong>
       )}
     </div>
   );

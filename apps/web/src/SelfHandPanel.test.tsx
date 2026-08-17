@@ -7,6 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { PublicCard, PublicGameState, PublicRank, PublicSuit } from "@napoleon/protocol";
 import { SelfHandPanel } from "./SelfHandPanel";
+import type { TablePlayer } from "./tableTypes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -105,6 +106,67 @@ describe("SelfHandPanel", () => {
     expect(html).not.toContain("残り2枚");
     expect(html).toContain("aria-label=\"自分の手札\"");
     expect(html).toContain("aria-label=\"自分の獲得得点札は0枚\"");
+  });
+
+  it("switches self seat details between bidding and playing phases", () => {
+    const hand = [standardCard("clubs", "2")];
+    const biddingState = {
+      ...createState(hand),
+      phase: "bidding" as const,
+      contract: {
+        napoleonPlayerId: "player-0",
+        trumpSuit: "spades" as const,
+        targetPointCards: 13
+      }
+    };
+    const selfPlayer = createSelfPlayer({
+      biddingDeclaration: {
+        type: "bid",
+        label: "♣ 13",
+        suit: "clubs",
+        targetPointCards: 13,
+        color: "black"
+      }
+    });
+
+    const biddingHtml = renderToStaticMarkup(
+      <SelfHandPanel
+        canExchange={false}
+        isBusy={false}
+        legalCardIds={new Set()}
+        onToggleWinningCardHighlight={vi.fn()}
+        onPlay={vi.fn()}
+        selectedDiscardCardIds={[]}
+        self={biddingState.self}
+        selfPlayer={selfPlayer}
+        state={biddingState}
+        winningCardHighlightEnabled={true}
+      />
+    );
+    const playingHtml = renderToStaticMarkup(
+      <SelfHandPanel
+        canExchange={false}
+        isBusy={false}
+        legalCardIds={new Set(["clubs-2"])}
+        onToggleWinningCardHighlight={vi.fn()}
+        onPlay={vi.fn()}
+        selectedDiscardCardIds={[]}
+        self={createState(hand).self}
+        selfPlayer={selfPlayer}
+        state={createState(hand)}
+        winningCardHighlightEnabled={true}
+      />
+    );
+
+    expect(biddingHtml).toContain("latest-bid-declaration");
+    expect(biddingHtml).toContain("13");
+    expect(biddingHtml).toContain("♣");
+    expect(biddingHtml).not.toContain("aria-label=\"ナポレオン\"");
+    expect(biddingHtml).not.toContain("aria-label=\"自分の獲得得点札は");
+
+    expect(playingHtml).not.toContain("latest-bid-declaration");
+    expect(playingHtml).toContain("aria-label=\"ナポレオン\"");
+    expect(playingHtml).toContain("aria-label=\"自分の獲得得点札は0枚\"");
   });
 
   it("reserves ten hand slots without changing existing card controls", () => {
@@ -372,6 +434,19 @@ function createState(hand: readonly PublicCard[]): PublicGameState {
     isTrickComplete: false,
     isGameOver: false,
     legalActions: [{ type: "play-card", cardId: "spades-2" }]
+  };
+}
+
+function createSelfPlayer(overrides: Partial<TablePlayer> = {}): TablePlayer {
+  return {
+    id: "player-0",
+    label: "自分",
+    seat: "self",
+    handCount: 1,
+    capturedPointCards: [],
+    isSelf: true,
+    biddingDeclaration: undefined,
+    ...overrides
   };
 }
 

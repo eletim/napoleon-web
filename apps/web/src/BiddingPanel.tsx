@@ -107,7 +107,7 @@ export function BiddingPanel({
         <strong>{formatHighestBid(bidding?.highestBid ?? null, formatPlayerLabel)}</strong>
       </div>
 
-      <div className="bid-control-group" aria-label="あなたの入札">
+      <div className="bid-control-group bid-suit-control" aria-label="あなたの入札">
         <div className="bid-suit-buttons">
           {biddingSuitOptions.map((suit) => {
             const isSelected = selection?.suit === suit;
@@ -136,7 +136,7 @@ export function BiddingPanel({
         </div>
       </div>
 
-      <div className="bid-control-group">
+      <div className="bid-control-group bid-target-control">
         <span className="control-label visually-hidden">宣言枚数</span>
         <div className="bid-stepper">
           <button

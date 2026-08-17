@@ -2554,6 +2554,10 @@ input:focus-visible {
     font-size: 0.6rem;
   }
 
+  .app-shell-game-in-progress .player-seat .captured-compact > span {
+    color: rgb(255 255 255 / 92%);
+  }
+
   .app-shell-game-in-progress .captured-compact .compact-points {
     display: flex;
     gap: 2px;
@@ -2598,6 +2602,99 @@ input:focus-visible {
 
   .app-shell-game-in-progress .table-center-trick .game-status {
     display: none;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-active .table-center {
+    align-content: start;
+    justify-items: center;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-active .bidding-panel {
+    box-sizing: border-box;
+    gap: 4px 6px;
+    grid-template-areas:
+      "header highest highest"
+      "suits stepper submit";
+    grid-template-columns: minmax(86px, 0.7fr) minmax(116px, 0.95fr) minmax(128px, 1fr);
+    max-width: 420px;
+    padding: 6px;
+    width: min(100%, 420px);
+  }
+
+  .app-shell-phase-bidding.app-shell-game-active .bidding-panel-header {
+    gap: 6px;
+    grid-area: header;
+    min-width: 0;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-active .bidding-panel-header h2 {
+    font-size: 0.86rem;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-active .bidding-pass-count {
+    gap: 4px;
+    min-width: 42px;
+    padding: 3px 6px;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-active .bidding-pass-count strong {
+    font-size: 0.96rem;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-active .highest-bid-card {
+    grid-area: highest;
+    padding: 4px 6px;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-active .highest-bid-card strong {
+    font-size: 0.9rem;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-active .bid-suit-control {
+    grid-area: suits;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-active .bid-target-control {
+    grid-area: stepper;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-active .bid-control-group,
+  .app-shell-phase-bidding.app-shell-game-active .bid-suit-buttons,
+  .app-shell-phase-bidding.app-shell-game-active .bid-stepper,
+  .app-shell-phase-bidding.app-shell-game-active .bid-submit-row {
+    gap: 4px;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-active .bid-suit-button {
+    min-height: 26px;
+    padding: 2px;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-active .bid-suit-button span {
+    font-size: 1rem;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-active .bid-stepper {
+    grid-template-columns: 36px minmax(0, 1fr) 36px;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-active .stepper-button,
+  .app-shell-phase-bidding.app-shell-game-active .bid-target-output {
+    font-size: 0.96rem;
+    min-height: 28px;
+  }
+
+  .app-shell-phase-bidding.app-shell-game-active .bid-submit-row {
+    grid-area: submit;
+    grid-template-columns: minmax(0, 1fr) minmax(64px, 0.45fr);
+  }
+
+  .app-shell-phase-bidding.app-shell-game-active .bid-submit-button,
+  .app-shell-phase-bidding.app-shell-game-active .pass-button {
+    min-height: 28px;
+    padding-left: 8px;
+    padding-right: 8px;
+    white-space: nowrap;
   }
 
   .app-shell-game-active .trick-board {
