@@ -69,6 +69,59 @@ describe("PlayerSeat", () => {
     expect(countOccurrences(capturedHtml, "class=\"point-card-empty-slot\"")).toBe(0);
   });
 
+  it("shows only the player name and bidding declaration during bidding", () => {
+    const html = renderToStaticMarkup(
+      <PlayerSeat
+        player={createPlayer([pointCard("spades", "A")], {
+          biddingDeclaration: {
+            type: "bid",
+            label: "♥ 13",
+            suit: "hearts",
+            targetPointCards: 13,
+            color: "red"
+          }
+        })}
+        state={createState({
+          phase: "bidding",
+          contract: {
+            napoleonPlayerId: "player-1",
+            trumpSuit: "spades",
+            targetPointCards: 13
+          },
+          adjutant: { calledCardId: "spades-A", revealedPlayerId: "player-1" }
+        })}
+      />
+    );
+
+    expect(html).toContain("<h2>左側AI</h2>");
+    expect(html).toContain("13");
+    expect(html).toContain("♥");
+    expect(html).toContain("latest-bid-declaration");
+    expect(html).not.toContain("aria-label=\"ナポレオン\"");
+    expect(html).not.toContain("aria-label=\"副官\"");
+    expect(html).not.toContain("獲得得点札");
+    expect(html).not.toContain("A♠");
+  });
+
+  it("uses compact pass and pending labels for bidding seats", () => {
+    const passHtml = renderToStaticMarkup(
+      <PlayerSeat
+        player={createPlayer([], { biddingDeclaration: { type: "pass", label: "パス" } })}
+        state={createState({ phase: "bidding" })}
+      />
+    );
+    const pendingHtml = renderToStaticMarkup(
+      <PlayerSeat
+        player={createPlayer([], { biddingDeclaration: { type: "none", label: "未宣言" } })}
+        state={createState({ phase: "bidding" })}
+      />
+    );
+
+    expect(passHtml).toContain(">Pass</strong>");
+    expect(pendingHtml).toContain(">—</strong>");
+    expect(pendingHtml).not.toContain(">未宣言</strong>");
+  });
+
   it("keeps captured point cards visible beyond the fixed ten-slot viewport", () => {
     const capturedCards = [
       pointCard("spades", "A"),
@@ -184,6 +237,17 @@ describe("PlayerSeat", () => {
     expect(landscapeBlock).toContain('"top-left message top-right"');
     expect(landscapeBlock).toContain('"left self right";');
     expect(landscapeBlock).toContain("width: min(82px, 100%);");
+    expect(landscapeBlock).toContain(
+      ".app-shell-phase-bidding.app-shell-game-active .bidding-panel"
+    );
+    expect(landscapeBlock).toContain('"header highest highest"');
+    expect(landscapeBlock).toContain('"suits stepper submit";');
+    expect(landscapeBlock).toContain("grid-template-columns: minmax(86px, 0.7fr)");
+    expect(landscapeBlock).toContain("width: min(100%, 420px);");
+    expect(landscapeBlock).toContain(
+      ".app-shell-game-in-progress .player-seat .captured-compact > span"
+    );
+    expect(landscapeBlock).toContain("color: rgb(255 255 255 / 92%);");
   });
 });
 
@@ -199,7 +263,10 @@ function getMediaBlock(styles: string, query: string): string {
   return styles.slice(start, nextMedia === -1 ? undefined : nextMedia);
 }
 
-function createPlayer(capturedPointCards: readonly PublicStandardCard[] = []): TablePlayer {
+function createPlayer(
+  capturedPointCards: readonly PublicStandardCard[] = [],
+  overrides: Partial<Pick<TablePlayer, "biddingDeclaration">> = {}
+): TablePlayer {
   return {
     id: "player-1",
     label: "左側AI",
@@ -207,7 +274,8 @@ function createPlayer(capturedPointCards: readonly PublicStandardCard[] = []): T
     handCount: 10,
     capturedPointCards,
     isSelf: false,
-    biddingDeclaration: undefined
+    biddingDeclaration: undefined,
+    ...overrides
   };
 }
 
