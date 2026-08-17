@@ -1,5 +1,4 @@
 import type { PublicGameState } from "@napoleon/protocol";
-import { BiddingDeclarationBadge } from "./BiddingDeclarationBadge";
 import { PointCards } from "./PointCards";
 import type { TablePlayer } from "./tableTypes";
 
@@ -12,6 +11,7 @@ export function PlayerSeat({ player, state }: PlayerSeatProps) {
   const isCurrent = state?.currentPlayerId === player.id;
   const isNapoleon = state?.contract?.napoleonPlayerId === player.id;
   const isAdjutant = state?.adjutant?.revealedPlayerId === player.id;
+  const hasRole = isNapoleon || isAdjutant;
   const seatClassName = [
     "player-seat",
     `seat-${player.seat}`,
@@ -26,33 +26,22 @@ export function PlayerSeat({ player, state }: PlayerSeatProps) {
         <div className="seat-title">
           <h2>{player.label}</h2>
         </div>
-        <div className="compact-hand" aria-label={`${player.label}の手札は残り${player.handCount}枚`}>
-          <span className="small-card-back" aria-hidden="true" />
-          <strong>{player.handCount}</strong>
+      </div>
+
+      {hasRole ? (
+        <div className="role-badges">
+          {isNapoleon ? (
+            <span aria-label="ナポレオン" className="role-badge napoleon-badge" role="img">
+              N
+            </span>
+          ) : null}
+          {isAdjutant ? (
+            <span aria-label="副官" className="role-badge adjutant-badge" role="img">
+              A
+            </span>
+          ) : null}
         </div>
-      </div>
-
-      <div className="role-badges">
-        {isCurrent ? (
-          <span aria-label="現在の手番" className="turn-dot" role="img">
-            ▶
-          </span>
-        ) : null}
-        {isNapoleon ? (
-          <span aria-label="ナポレオン" className="role-badge napoleon-badge" role="img">
-            N
-          </span>
-        ) : null}
-        {isAdjutant ? (
-          <span aria-label="副官" className="role-badge adjutant-badge" role="img">
-            A
-          </span>
-        ) : null}
-      </div>
-
-      <div className="seat-bid-slot">
-        <BiddingDeclarationBadge playerLabel={player.label} declaration={player.biddingDeclaration} />
-      </div>
+      ) : null}
 
       <div
         className="captured-compact"
@@ -60,7 +49,7 @@ export function PlayerSeat({ player, state }: PlayerSeatProps) {
       >
         <span aria-hidden="true">★{player.capturedPointCards.length}</span>
         <div className="inline-cards compact-points">
-          <PointCards cards={player.capturedPointCards} fixedSlotCount={10} />
+          <PointCards cards={player.capturedPointCards} />
         </div>
       </div>
     </article>
