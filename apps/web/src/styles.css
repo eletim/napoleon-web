@@ -1634,10 +1634,10 @@ input:focus-visible {
       "top-left center center top-right"
       "left center center right";
     grid-template-columns:
-      minmax(44px, 0.46fr)
+      minmax(64px, 0.72fr)
       minmax(92px, 1fr)
       minmax(92px, 1fr)
-      minmax(44px, 0.46fr);
+      minmax(64px, 0.72fr);
     grid-template-rows: max-content minmax(0, 1fr);
   }
 
@@ -1663,15 +1663,29 @@ input:focus-visible {
     box-shadow: none;
     color: #ffffff;
     gap: 2px;
-    justify-self: stretch;
+    justify-self: center;
     min-height: 0;
     padding: 1px;
     text-align: center;
+    width: min(64px, 100%);
+  }
+
+  .app-shell-game-in-progress .seat-top-left,
+  .app-shell-game-in-progress .seat-left {
+    justify-self: end;
+  }
+
+  .app-shell-game-in-progress .seat-top-right {
+    justify-self: start;
   }
 
   .app-shell-game-in-progress .seat-top-left,
   .app-shell-game-in-progress .seat-top-right {
     align-self: start;
+  }
+
+  .app-shell-game-in-progress .seat-right {
+    justify-self: start;
   }
 
   .app-shell-game-in-progress .seat-left,
@@ -2175,10 +2189,10 @@ input:focus-visible {
 
   .app-shell-game-in-progress .table-grid {
     grid-template-columns:
-      minmax(40px, 0.44fr)
+      minmax(60px, 0.7fr)
       minmax(88px, 1fr)
       minmax(88px, 1fr)
-      minmax(40px, 0.44fr);
+      minmax(60px, 0.7fr);
   }
 
   .app-shell-game-in-progress .player-seat {
