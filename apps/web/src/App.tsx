@@ -378,6 +378,11 @@ export function App() {
             </section>
           ) : null}
 
+          <section className="mobile-landscape-guide" aria-label="横向きプレイ案内">
+            <strong>横向きでプレイしてください</strong>
+            <span>スマートフォンを横にすると、5人卓と手札を見やすく表示します。</span>
+          </section>
+
           <section className="table" aria-label="ゲームテーブル">
             <div className="table-grid">
               {aiPlayers.map((player) => (

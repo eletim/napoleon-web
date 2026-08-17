@@ -160,7 +160,44 @@ describe("PlayerSeat", () => {
     expect(sideSeatMatch?.[1]).toContain("margin-top: 62px;");
     expect(tableCenterMatch?.[1]).toContain("align-content: start;");
   });
+
+  it("defines a dedicated mobile landscape table layout and a portrait orientation guide", () => {
+    const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
+    const appSource = readFileSync(fileURLToPath(new URL("./App.tsx", import.meta.url)), "utf8");
+    const portraitBlock = getMediaBlock(
+      styles,
+      "@media (max-width: 560px) and (orientation: portrait)"
+    );
+    const landscapeBlock = getMediaBlock(
+      styles,
+      "@media (max-width: 960px) and (max-height: 560px) and (orientation: landscape)"
+    );
+
+    expect(appSource).toContain("mobile-landscape-guide");
+    expect(appSource).toContain("横向きでプレイしてください");
+    expect(portraitBlock).toContain(".app-shell-game-in-progress .mobile-landscape-guide");
+    expect(portraitBlock).toContain("display: grid;");
+    expect(portraitBlock).toContain(".app-shell-game-in-progress .table");
+    expect(portraitBlock).toContain("display: none;");
+    expect(landscapeBlock).toContain("grid-template-rows: minmax(0, 1fr) auto auto;");
+    expect(landscapeBlock).toContain("grid-row: 1;");
+    expect(landscapeBlock).toContain('"top-left message top-right"');
+    expect(landscapeBlock).toContain('"left self right";');
+    expect(landscapeBlock).toContain("width: min(82px, 100%);");
+  });
 });
+
+function getMediaBlock(styles: string, query: string): string {
+  const start = styles.indexOf(query);
+
+  if (start === -1) {
+    throw new Error(`Media query not found: ${query}`);
+  }
+
+  const nextMedia = styles.indexOf("@media", start + query.length);
+
+  return styles.slice(start, nextMedia === -1 ? undefined : nextMedia);
+}
 
 function createPlayer(capturedPointCards: readonly PublicStandardCard[] = []): TablePlayer {
   return {

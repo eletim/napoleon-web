@@ -207,6 +207,19 @@ describe("SelfHandPanel", () => {
     expect(handMatch?.[2]).toBe("repeat(2, 58px)");
   });
 
+  it("keeps the landscape mobile hand as a compact five by two grid", () => {
+    const styles = readFileSync("src/styles.css", "utf8");
+    const landscapeBlock = getMediaBlock(
+      styles,
+      "@media (max-width: 960px) and (max-height: 560px) and (orientation: landscape)"
+    );
+
+    expect(landscapeBlock).toContain("display: grid;");
+    expect(landscapeBlock).toContain("grid-template-columns: repeat(5, minmax(0, 1fr));");
+    expect(landscapeBlock).toContain("grid-template-rows: repeat(2, 34px);");
+    expect(landscapeBlock).toContain("height: 34px;");
+  });
+
   it("toggles riipai from one sort control without sending a card action", () => {
     const hand = [
       standardCard("clubs", "2"),
@@ -310,6 +323,18 @@ function standardCard(suit: PublicSuit, rank: PublicRank): PublicCard {
     suit,
     rank
   };
+}
+
+function getMediaBlock(styles: string, query: string): string {
+  const start = styles.indexOf(query);
+
+  if (start === -1) {
+    throw new Error(`Media query not found: ${query}`);
+  }
+
+  const nextMedia = styles.indexOf("@media", start + query.length);
+
+  return styles.slice(start, nextMedia === -1 ? undefined : nextMedia);
 }
 
 function createState(hand: readonly PublicCard[]): PublicGameState {
