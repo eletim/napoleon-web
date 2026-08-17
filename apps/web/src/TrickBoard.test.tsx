@@ -66,7 +66,7 @@ describe("TrickBoard", () => {
     expect(html).toContain("played-card-collecting");
   });
 
-  it("renders a mobile center summary for the contract and adjutant card", () => {
+  it("renders only contract and adjutant details in the center summary", () => {
     const html = renderToStaticMarkup(
       <TrickBoard
         adjutant={{ calledCardId: "spades-A", revealedPlayerId: "player-2" }}
@@ -90,8 +90,9 @@ describe("TrickBoard", () => {
 
     expect(html).toContain("♠13");
     expect(html).toContain("副官 ♠A");
-    expect(html).toContain("trick-mobile-status-summary");
-    expect(html).toContain("trick-count-summary");
+    expect(html).toContain("trick-status-summary");
+    expect(html).not.toContain("4 / 5");
+    expect(html).not.toContain("trick-count-summary");
     expect(html).not.toContain("副官 ♠A・");
   });
 
@@ -135,18 +136,19 @@ describe("TrickBoard", () => {
     expect(blackHtml).not.toContain('<span class="red-text">♣J</span>');
   });
 
-  it("simplifies the landscape mobile center summary styling", () => {
+  it("uses shared simple center summary styling across desktop and mobile", () => {
     const styles = readFileSync("src/styles.css", "utf8");
     const landscapeBlock = getMediaBlock(
       styles,
       "@media (max-width: 960px) and (max-height: 560px) and (orientation: landscape)"
     );
 
-    expect(landscapeBlock).toContain(".app-shell-game-active .trick-count-summary");
-    expect(landscapeBlock).toContain("display: none;");
-    expect(landscapeBlock).toContain(".app-shell-game-active .trick-message");
-    expect(landscapeBlock).toContain("background: transparent;");
-    expect(landscapeBlock).toContain("border: 0;");
+    expect(styles).not.toContain("trick-count-summary");
+    expect(styles).not.toContain("trick-mobile-status-summary");
+    expect(styles).toContain(".trick-status-summary");
+    expect(styles).toContain("background: transparent;");
+    expect(styles).toContain("border: 0;");
+    expect(landscapeBlock).toContain(".app-shell-game-active .trick-status-summary");
     expect(landscapeBlock).toContain("font-size: 1.08rem;");
   });
 });
