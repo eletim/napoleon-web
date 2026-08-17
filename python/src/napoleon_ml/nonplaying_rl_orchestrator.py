@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from pathlib import Path
 from typing import Literal, TypeVar, cast
@@ -33,6 +33,12 @@ from napoleon_ml.nonplaying_onnx_export import (
     export_bidding_rl_checkpoint_to_onnx,
     export_exchange_rl_checkpoint_to_onnx,
     export_seeded_nonplaying_bootstrap_policy_to_onnx,
+)
+from napoleon_ml.policy.device import (
+    SUPPORTED_TORCH_DEVICES,
+    RequestedTorchDevice,
+    TorchDeviceResolutionError,
+    resolve_torch_device,
 )
 
 DEFAULT_GAMES = 20
@@ -57,6 +63,7 @@ DEFAULT_BIDDING_ENTROPY_COEFFICIENT = 0.0
 DEFAULT_BIDDING_ADVANTAGE_NORMALIZATION = DEFAULT_ADVANTAGE_NORMALIZATION
 DEFAULT_TEMPERATURE = 1.0
 DEFAULT_INFERENCE_DEVICE: Literal["cpu", "auto", "cuda"] = "cpu"
+DEFAULT_TRAINING_DEVICE: RequestedTorchDevice = "cpu"
 DEFAULT_INFERENCE_MAX_BATCH_SIZE = 256
 DEFAULT_SEED = 202
 ITERATIVE_RUN_CONFIG_SCHEMA_VERSION = 9
@@ -115,6 +122,7 @@ class NonPlayingRlRunConfig:
     seed: int = DEFAULT_SEED
     temperature: float = DEFAULT_TEMPERATURE
     inference_device: Literal["cpu", "auto", "cuda"] = DEFAULT_INFERENCE_DEVICE
+    training_device: RequestedTorchDevice = DEFAULT_TRAINING_DEVICE
     inference_max_batch_size: int = DEFAULT_INFERENCE_MAX_BATCH_SIZE
     playing_policy_onnx: Path = DEFAULT_PLAYING_POLICY_ONNX
     playing_policy_metadata: Path = DEFAULT_PLAYING_POLICY_METADATA
@@ -141,6 +149,7 @@ class NonPlayingRlRunConfig:
             seed=self.seed,
             temperature=self.temperature,
             inference_device=self.inference_device,
+            training_device=self.training_device,
             inference_max_batch_size=self.inference_max_batch_size,
             playing_policy_onnx=_resolve_repo_path(self.playing_policy_onnx),
             playing_policy_metadata=_resolve_repo_path(self.playing_policy_metadata),
@@ -184,6 +193,7 @@ class NonPlayingRlRunConfig:
                 "otherPayoff": 0,
             },
             "inferenceDevice": self.inference_device,
+            "trainingDevice": self.training_device,
             "inferenceMaxBatchSize": self.inference_max_batch_size,
             "playingPolicyOnnx": str(self.playing_policy_onnx),
             "playingPolicyMetadata": str(self.playing_policy_metadata),
@@ -212,6 +222,7 @@ class NonPlayingIterativeRlRunConfig:
     seed: int = DEFAULT_SEED
     temperature: float = DEFAULT_TEMPERATURE
     inference_device: Literal["cpu", "auto", "cuda"] = DEFAULT_INFERENCE_DEVICE
+    training_device: RequestedTorchDevice = DEFAULT_TRAINING_DEVICE
     inference_max_batch_size: int = DEFAULT_INFERENCE_MAX_BATCH_SIZE
     playing_policy_onnx: Path = DEFAULT_PLAYING_POLICY_ONNX
     playing_policy_metadata: Path = DEFAULT_PLAYING_POLICY_METADATA
@@ -240,6 +251,7 @@ class NonPlayingIterativeRlRunConfig:
             seed=self.seed,
             temperature=self.temperature,
             inference_device=self.inference_device,
+            training_device=self.training_device,
             inference_max_batch_size=self.inference_max_batch_size,
             playing_policy_onnx=_resolve_repo_path(self.playing_policy_onnx),
             playing_policy_metadata=_resolve_repo_path(self.playing_policy_metadata),
@@ -273,6 +285,7 @@ class NonPlayingIterativeRlRunConfig:
             seed=self.seed,
             temperature=self.temperature,
             inference_device=self.inference_device,
+            training_device=self.training_device,
             inference_max_batch_size=self.inference_max_batch_size,
             playing_policy_onnx=self.playing_policy_onnx,
             playing_policy_metadata=self.playing_policy_metadata,
@@ -328,6 +341,7 @@ class NonPlayingIterativeRlRunConfig:
             "seed": self.seed,
             "temperature": self.temperature,
             "inferenceDevice": self.inference_device,
+            "trainingDevice": self.training_device,
             "inferenceMaxBatchSize": self.inference_max_batch_size,
             "playingPolicyOnnx": str(self.playing_policy_onnx),
             "playingPolicyOnnxSha256": _sha256_file(self.playing_policy_onnx),
@@ -397,16 +411,19 @@ def run_iterative_nonplaying_rl_pipeline(
     config_path = config.output_dir / "config.json"
 
     if resume:
+        requested_training_device = config.training_device
         stored_config = _load_json_object(config_path)
         _validate_iterative_resume_config(
             stored_config,
             file_config,
-            provided_config_keys=set(provided_config_keys),
+            provided_config_keys=set(provided_config_keys) - {"trainingDevice"},
         )
         config = _iterative_config_from_file_dict(
             stored_config,
             build_typescript=config.build_typescript,
         )
+        if "trainingDevice" in provided_config_keys:
+            config = replace(config, training_device=requested_training_device)
         file_config = stored_config
         _validate_iterative_config(config)
     else:
@@ -864,6 +881,7 @@ def _train_phase(
                 value_loss_coefficient=config.value_loss_coefficient,
                 entropy_coefficient=config.bidding_entropy_coefficient,
                 advantage_normalization=config.bidding_advantage_normalization,
+                training_device=config.training_device,
                 parent_actor_checkpoint=None,
                 parent_checkpoint=str(parent_checkpoint) if parent_checkpoint is not None else None,
             ),
@@ -884,6 +902,7 @@ def _train_phase(
                 learning_rate=config.learning_rate,
                 ppo_clip_epsilon=config.ppo_clip_epsilon,
                 value_loss_coefficient=config.value_loss_coefficient,
+                training_device=config.training_device,
                 parent_actor_checkpoint=None,
                 parent_checkpoint=str(parent_checkpoint) if parent_checkpoint is not None else None,
             ),
@@ -903,6 +922,7 @@ def _train_phase(
             learning_rate=config.learning_rate,
             ppo_clip_epsilon=config.ppo_clip_epsilon,
             value_loss_coefficient=config.value_loss_coefficient,
+            training_device=config.training_device,
             parent_actor_checkpoint=None,
             parent_checkpoint=str(parent_checkpoint) if parent_checkpoint is not None else None,
         ),
@@ -1472,7 +1492,8 @@ def _validate_iterative_resume_config(
         "playingPolicyMetadataSha256",
         "playingPolicyArtifactId",
     }
-    for key in always_check | provided_config_keys:
+    semantic_provided_config_keys = provided_config_keys - {"trainingDevice"}
+    for key in always_check | semantic_provided_config_keys:
         requested_value = requested_config.get(key)
         stored_value = stored_config.get(key)
         if stored_value != requested_value:
@@ -1510,6 +1531,9 @@ def _iterative_config_from_file_dict(
         inference_device=cast(
             Literal["cpu", "auto", "cuda"],
             _required_str(data["inferenceDevice"]),
+        ),
+        training_device=_required_training_device(
+            data.get("trainingDevice", DEFAULT_TRAINING_DEVICE)
         ),
         inference_max_batch_size=_required_int(data["inferenceMaxBatchSize"]),
         playing_policy_onnx=Path(_required_str(data["playingPolicyOnnx"])),
@@ -1559,6 +1583,7 @@ def _validate_config(config: NonPlayingRlRunConfig) -> None:
         raise NonPlayingRlOrchestratorError(
             f"inference-device must be one of {', '.join(SUPPORTED_INFERENCE_DEVICES)}."
         )
+    _validate_training_device(config.training_device)
     _ensure_file(config.playing_policy_onnx, "playing policy ONNX")
     _ensure_file(config.playing_policy_metadata, "playing policy metadata")
 
@@ -1594,6 +1619,7 @@ def _validate_iterative_config(config: NonPlayingIterativeRlRunConfig) -> None:
         raise NonPlayingRlOrchestratorError(
             f"inference-device must be one of {', '.join(SUPPORTED_INFERENCE_DEVICES)}."
         )
+    _validate_training_device(config.training_device)
     if config.playing_policy_artifact_id != DEFAULT_PLAYING_POLICY_ARTIFACT_ID:
         raise NonPlayingRlOrchestratorError(
             "iterative non-playing RL currently requires frozen playing policy "
@@ -1772,6 +1798,25 @@ def _required_float(value: object) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise NonPlayingRlOrchestratorError("required number is missing.")
     return float(value)
+
+
+def _required_training_device(value: object) -> RequestedTorchDevice:
+    if value not in SUPPORTED_TORCH_DEVICES:
+        raise NonPlayingRlOrchestratorError(
+            "training-device must be one of "
+            f"{', '.join(SUPPORTED_TORCH_DEVICES)}, got {value!r}."
+        )
+    return cast(RequestedTorchDevice, value)
+
+
+def _validate_training_device(value: object) -> None:
+    requested = _required_training_device(value)
+    if requested != "cuda":
+        return
+    try:
+        resolve_torch_device(requested, flag_name="--training-device")
+    except TorchDeviceResolutionError as error:
+        raise NonPlayingRlOrchestratorError(str(error)) from error
 
 
 def _validate_positive_int(value: int, label: str) -> None:
