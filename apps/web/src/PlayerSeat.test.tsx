@@ -45,7 +45,9 @@ describe("PlayerSeat", () => {
       /\.app-shell-game-in-progress \.table-grid \{[\s\S]*?grid-template-areas:\n([\s\S]*?)grid-template-columns:/
     );
 
-    expect(match?.[1]).toContain('". top-left top-right ."\n      "left center center right";');
+    expect(match?.[1]).toContain(
+      '"top-left center center top-right"\n      "left center center right";'
+    );
   });
 
   it("does not reserve fixed captured point card slots for empty seats", () => {
@@ -108,6 +110,34 @@ describe("PlayerSeat", () => {
       true
     );
     expect(capturedBlocks.every((block) => block.includes("min-height: 0;"))).toBe(true);
+  });
+
+  it("clips mobile captured point cards inside the opponent seat width", () => {
+    const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
+    const compactPointsBlocks = Array.from(
+      styles.matchAll(
+        /\.app-shell-game-in-progress \.captured-compact \.compact-points \{([\s\S]*?)\n  \}/g
+      ),
+      (match) => match[1]
+    );
+
+    expect(compactPointsBlocks.some((block) => block.includes("max-width: 100%;"))).toBe(true);
+    expect(compactPointsBlocks.some((block) => block.includes("min-width: 0;"))).toBe(true);
+    expect(compactPointsBlocks.some((block) => block.includes("width: 100%;"))).toBe(true);
+  });
+
+  it("keeps mobile opponent seats close to the trick card band", () => {
+    const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
+    const sideSeatMatch = styles.match(
+      /\.app-shell-game-in-progress \.seat-left,\n  \.app-shell-game-in-progress \.seat-right \{([\s\S]*?)\n  \}/
+    );
+    const tableCenterMatch = styles.match(
+      /\.app-shell-game-in-progress \.table-center \{([\s\S]*?)\n  \}/
+    );
+
+    expect(sideSeatMatch?.[1]).toContain("align-self: start;");
+    expect(sideSeatMatch?.[1]).toContain("margin-top: 96px;");
+    expect(tableCenterMatch?.[1]).toContain("align-content: start;");
   });
 });
 
