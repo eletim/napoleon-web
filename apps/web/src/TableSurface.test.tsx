@@ -124,6 +124,7 @@ describe("TableSurface", () => {
     );
 
     expect(html).toContain("table-surface-bidding");
+    expect(countOccurrences(html, "class=\"table-seat-guide\"")).toBe(5);
     expect(countOccurrences(html, "class=\"table-bid-token")).toBe(5);
     expect(html).toContain("左側AIの競り宣言");
     expect(html).toContain("♠");
@@ -202,6 +203,19 @@ describe("TableSurface", () => {
     expect(appSource).toContain("disabled={isInteractionLocked}");
     expect(styles).toContain(".table-side-actions .next-trick-button");
     expect(styles).toContain("white-space: nowrap;");
+  });
+
+  it("groups each player as a visual seat unit and hides unused trick slots while bidding", () => {
+    const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
+
+    expect(getCssRule(styles, ".table-seat-guide")).toContain("translate(var(--guide-x)");
+    expect(getCssRule(styles, ".table-player-left")).toContain("--guide-rotation: -22deg;");
+    expect(getCssRule(styles, ".table-player-self")).toContain("--guide-w:");
+    expect(getCssRule(styles, ".table-player-self")).toContain("--role-y: 112px;");
+    expect(getCssRule(styles, ".point-river-slot", 1)).toContain("rgb(255 255 255 / 9%)");
+    expect(getCssRule(styles, ".table-surface-bidding .table-trick-zone")).toContain(
+      "display: none;"
+    );
   });
 });
 
