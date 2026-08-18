@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { PublicPlayedCard, PublicRank, PublicSuit } from "@napoleon/protocol";
@@ -65,7 +66,7 @@ describe("TrickBoard", () => {
     expect(html).toContain("played-card-collecting");
   });
 
-  it("renders a mobile center summary for the contract and adjutant card", () => {
+  it("renders only contract and adjutant details in the center summary", () => {
     const html = renderToStaticMarkup(
       <TrickBoard
         adjutant={{ calledCardId: "spades-A", revealedPlayerId: "player-2" }}
@@ -87,10 +88,11 @@ describe("TrickBoard", () => {
       />
     );
 
-    expect(html).toContain("♠ 13");
+    expect(html).toContain("♠13");
     expect(html).toContain("副官 ♠A");
-    expect(html).toContain("trick-mobile-status-summary");
-    expect(html).toContain("trick-count-summary");
+    expect(html).toContain("trick-status-summary");
+    expect(html).not.toContain("4 / 5");
+    expect(html).not.toContain("trick-count-summary");
     expect(html).not.toContain("副官 ♠A・");
   });
 
@@ -126,12 +128,32 @@ describe("TrickBoard", () => {
       />
     );
 
-    expect(redHtml).toContain('class="trick-contract-summary red-text">♥ 13');
+    expect(redHtml).toContain('class="trick-contract-summary red-text">♥13');
     expect(redHtml).toContain('副官 <span class="red-text">♦J</span>');
-    expect(blackHtml).toContain('class="trick-contract-summary">♠ 13');
+    expect(blackHtml).toContain('class="trick-contract-summary">♠13');
     expect(blackHtml).toContain("副官 ♣J");
-    expect(blackHtml).not.toContain('class="trick-contract-summary red-text">♠ 13');
+    expect(blackHtml).not.toContain('class="trick-contract-summary red-text">♠13');
     expect(blackHtml).not.toContain('<span class="red-text">♣J</span>');
+  });
+
+  it("uses shared simple center summary styling across desktop and mobile", () => {
+    const styles = readFileSync("src/styles.css", "utf8");
+    const landscapeBlock = getLastMediaBlock(
+      styles,
+      "@media (max-width: 960px) and (max-height: 560px) and (orientation: landscape)"
+    );
+
+    expect(styles).not.toContain("trick-count-summary");
+    expect(styles).not.toContain("trick-mobile-status-summary");
+    expect(styles).toContain(".trick-status-summary");
+    expect(styles).toContain("background: transparent;");
+    expect(styles).toContain("border: 0;");
+    expect(landscapeBlock).toContain(".app-shell-game-in-progress .trick-board");
+    expect(landscapeBlock).toContain('". top-left top-right ."');
+    expect(landscapeBlock).toContain('"left message message right"');
+    expect(landscapeBlock).toContain('". self self ."');
+    expect(landscapeBlock).toContain(".app-shell-game-in-progress .trick-status-summary");
+    expect(landscapeBlock).toContain("font-size: 1.08rem;");
   });
 });
 
@@ -165,4 +187,34 @@ function played(playerId: string, suit: PublicSuit, rank: PublicRank): PublicPla
       rank
     }
   };
+}
+
+function getMediaBlock(styles: string, query: string): string {
+  const start = styles.indexOf(query);
+
+  if (start === -1) {
+    throw new Error(`Media query not found: ${query}`);
+  }
+
+  const nextMedia = styles.indexOf("@media", start + query.length);
+
+  return styles.slice(start, nextMedia === -1 ? undefined : nextMedia);
+}
+
+function getLastMediaBlock(styles: string, query: string): string {
+  const firstBlock = getMediaBlock(styles, query);
+  let block = firstBlock;
+  let searchStart = styles.indexOf(query) + query.length;
+
+  while (true) {
+    const nextStart = styles.indexOf(query, searchStart);
+
+    if (nextStart === -1) {
+      return block;
+    }
+
+    const nextMedia = styles.indexOf("@media", nextStart + query.length);
+    block = styles.slice(nextStart, nextMedia === -1 ? undefined : nextMedia);
+    searchStart = nextStart + query.length;
+  }
 }

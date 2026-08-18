@@ -59,8 +59,7 @@ export function TrickBoard({
         className="trick-message"
         aria-label={createTrickSummaryAriaLabel(currentTrick.length, contract, adjutant)}
       >
-        <strong className="trick-count-summary">{currentTrick.length} / 5</strong>
-        <span className="trick-mobile-status-summary" aria-hidden="true">
+        <span className="trick-status-summary" aria-hidden="true">
           <strong className={createContractSummaryClassName(contract)}>
             {formatContractSummary(contract)}
           </strong>
@@ -141,7 +140,7 @@ function formatContractSummary(contract: PublicGameState["contract"] | undefined
     return "-";
   }
 
-  return `${suitSymbols[contract.trumpSuit]} ${contract.targetPointCards}`;
+  return `${suitSymbols[contract.trumpSuit]}${contract.targetPointCards}`;
 }
 
 function formatAdjutantCardSummary(adjutant: PublicGameState["adjutant"] | undefined): string {

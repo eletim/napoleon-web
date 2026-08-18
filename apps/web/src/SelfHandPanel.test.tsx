@@ -7,6 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { PublicCard, PublicGameState, PublicRank, PublicSuit } from "@napoleon/protocol";
 import { SelfHandPanel } from "./SelfHandPanel";
+import type { TablePlayer } from "./tableTypes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -107,6 +108,67 @@ describe("SelfHandPanel", () => {
     expect(html).toContain("aria-label=\"自分の獲得得点札は0枚\"");
   });
 
+  it("switches self seat details between bidding and playing phases", () => {
+    const hand = [standardCard("clubs", "2")];
+    const biddingState = {
+      ...createState(hand),
+      phase: "bidding" as const,
+      contract: {
+        napoleonPlayerId: "player-0",
+        trumpSuit: "spades" as const,
+        targetPointCards: 13
+      }
+    };
+    const selfPlayer = createSelfPlayer({
+      biddingDeclaration: {
+        type: "bid",
+        label: "♣ 13",
+        suit: "clubs",
+        targetPointCards: 13,
+        color: "black"
+      }
+    });
+
+    const biddingHtml = renderToStaticMarkup(
+      <SelfHandPanel
+        canExchange={false}
+        isBusy={false}
+        legalCardIds={new Set()}
+        onToggleWinningCardHighlight={vi.fn()}
+        onPlay={vi.fn()}
+        selectedDiscardCardIds={[]}
+        self={biddingState.self}
+        selfPlayer={selfPlayer}
+        state={biddingState}
+        winningCardHighlightEnabled={true}
+      />
+    );
+    const playingHtml = renderToStaticMarkup(
+      <SelfHandPanel
+        canExchange={false}
+        isBusy={false}
+        legalCardIds={new Set(["clubs-2"])}
+        onToggleWinningCardHighlight={vi.fn()}
+        onPlay={vi.fn()}
+        selectedDiscardCardIds={[]}
+        self={createState(hand).self}
+        selfPlayer={selfPlayer}
+        state={createState(hand)}
+        winningCardHighlightEnabled={true}
+      />
+    );
+
+    expect(biddingHtml).toContain("latest-bid-declaration");
+    expect(biddingHtml).toContain("13");
+    expect(biddingHtml).toContain("♣");
+    expect(biddingHtml).not.toContain("aria-label=\"ナポレオン\"");
+    expect(biddingHtml).not.toContain("aria-label=\"自分の獲得得点札は");
+
+    expect(playingHtml).not.toContain("latest-bid-declaration");
+    expect(playingHtml).toContain("aria-label=\"ナポレオン\"");
+    expect(playingHtml).toContain("aria-label=\"自分の獲得得点札は0枚\"");
+  });
+
   it("reserves ten hand slots without changing existing card controls", () => {
     const hand = [
       standardCard("spades", "A"),
@@ -175,12 +237,37 @@ describe("SelfHandPanel", () => {
 
   it("defines a five by two mobile hand grid", () => {
     const styles = readFileSync("src/styles.css", "utf8");
-    const match = styles.match(
-      /\.app-shell-game-in-progress \.hand \{[\s\S]*?grid-template-columns: ([^;]+);[\s\S]*?grid-template-rows: ([^;]+);/
+    const landscapeBlock = getLastMediaBlock(
+      styles,
+      "@media (max-width: 960px) and (max-height: 560px) and (orientation: landscape)"
     );
 
-    expect(match?.[1]).toBe("repeat(5, minmax(0, 1fr))");
-    expect(match?.[2]).toBe("repeat(2, 58px)");
+    expect(landscapeBlock).toContain("grid-template-columns: repeat(5, minmax(0, 56px));");
+    expect(landscapeBlock).toContain("grid-template-rows: repeat(2, 38px);");
+  });
+
+  it("keeps the in-progress self panel compact without changing the fixed hand grid", () => {
+    const styles = readFileSync("src/styles.css", "utf8");
+
+    expect(styles).toContain("background: rgb(248 250 252 / 92%);");
+    expect(styles).toContain("border: 1px solid rgb(255 255 255 / 70%);");
+    expect(styles).toContain("box-shadow: 0 6px 16px rgb(15 23 42 / 12%);");
+    expect(styles).toContain("border-color: rgb(250 204 21 / 70%);");
+    expect(styles).toContain("border-top-color: rgb(148 163 184 / 28%);");
+    expect(styles).toContain("grid-template-columns: repeat(10, minmax(0, 68px));");
+  });
+
+  it("keeps the landscape mobile hand as a compact five by two grid", () => {
+    const styles = readFileSync("src/styles.css", "utf8");
+    const landscapeBlock = getMediaBlock(
+      styles,
+      "@media (max-width: 960px) and (max-height: 560px) and (orientation: landscape)"
+    );
+
+    expect(landscapeBlock).toContain("display: grid;");
+    expect(landscapeBlock).toContain("grid-template-columns: repeat(5, minmax(0, 1fr));");
+    expect(landscapeBlock).toContain("grid-template-rows: repeat(2, 34px);");
+    expect(landscapeBlock).toContain("height: 34px;");
   });
 
   it("toggles riipai from one sort control without sending a card action", () => {
@@ -288,6 +375,18 @@ function standardCard(suit: PublicSuit, rank: PublicRank): PublicCard {
   };
 }
 
+function getMediaBlock(styles: string, query: string): string {
+  const start = styles.indexOf(query);
+
+  if (start === -1) {
+    throw new Error(`Media query not found: ${query}`);
+  }
+
+  const nextMedia = styles.indexOf("@media", start + query.length);
+
+  return styles.slice(start, nextMedia === -1 ? undefined : nextMedia);
+}
+
 function createState(hand: readonly PublicCard[]): PublicGameState {
   return {
     self: {
@@ -323,6 +422,19 @@ function createState(hand: readonly PublicCard[]): PublicGameState {
     isTrickComplete: false,
     isGameOver: false,
     legalActions: [{ type: "play-card", cardId: "spades-2" }]
+  };
+}
+
+function createSelfPlayer(overrides: Partial<TablePlayer> = {}): TablePlayer {
+  return {
+    id: "player-0",
+    label: "自分",
+    seat: "self",
+    handCount: 1,
+    capturedPointCards: [],
+    isSelf: true,
+    biddingDeclaration: undefined,
+    ...overrides
   };
 }
 
@@ -391,4 +503,22 @@ function getCardButton(container: Element, ariaLabel: string): HTMLButtonElement
 
 function countOccurrences(value: string, pattern: string): number {
   return value.split(pattern).length - 1;
+}
+
+function getLastMediaBlock(styles: string, query: string): string {
+  const firstBlock = getMediaBlock(styles, query);
+  let block = firstBlock;
+  let searchStart = styles.indexOf(query) + query.length;
+
+  while (true) {
+    const nextStart = styles.indexOf(query, searchStart);
+
+    if (nextStart === -1) {
+      return block;
+    }
+
+    const nextMedia = styles.indexOf("@media", nextStart + query.length);
+    block = styles.slice(nextStart, nextMedia === -1 ? undefined : nextMedia);
+    searchStart = nextStart + query.length;
+  }
 }
