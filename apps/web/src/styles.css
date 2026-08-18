@@ -2604,6 +2604,11 @@ input:focus-visible {
   white-space: normal;
 }
 
+.table-side-actions .next-trick-button {
+  justify-self: stretch;
+  white-space: nowrap;
+}
+
 .table-player-zone {
   align-items: center;
   display: flex;
@@ -3088,6 +3093,12 @@ input:focus-visible {
     font-size: 0.68rem;
     min-height: 24px;
     padding: 0 4px;
+  }
+
+  .table-side-actions .next-trick-button {
+    font-size: 0.62rem;
+    min-height: 26px;
+    padding: 0 5px;
   }
 
   .table-player-zone {

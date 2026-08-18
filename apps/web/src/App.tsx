@@ -387,18 +387,17 @@ export function App() {
                     />
                   ) : null}
 
-                {session?.state.phase === "playing" ? (
+                {session?.state.phase === "playing" &&
+                session.state.isTrickComplete &&
+                !session.state.isGameOver ? (
                   <button
+                    aria-label="次のトリックへ進む"
                     className="secondary-button next-trick-button"
-                    disabled={
-                      !session.state.isTrickComplete ||
-                      session.state.isGameOver ||
-                      isInteractionLocked
-                    }
+                    disabled={isInteractionLocked}
                     onClick={handleNextTrick}
                     type="button"
                   >
-                    次のトリック
+                    次へ
                   </button>
                 ) : null}
 
