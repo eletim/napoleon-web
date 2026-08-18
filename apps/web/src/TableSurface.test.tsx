@@ -144,6 +144,26 @@ describe("TableSurface", () => {
     expect(html).toContain("card-black");
   });
 
+  it("keeps pentagon seat placement separate from stable card orientations", () => {
+    const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
+
+    expect(styles).not.toContain("--axis-angle");
+    expect(styles).toContain("rotate(var(--zone-rotation))");
+    expect(getCssRule(styles, ".table-hand-zone")).toContain(
+      "--zone-rotation: var(--hand-rotation);"
+    );
+    expect(getCssRule(styles, ".table-trick-zone")).toContain(
+      "--zone-rotation: var(--trick-rotation);"
+    );
+    expect(getCssRule(styles, ".table-river-zone", 1)).toContain(
+      "--zone-rotation: var(--river-rotation);"
+    );
+    expect(getCssRule(styles, ".table-player-left")).toContain("--hand-rotation: 90deg;");
+    expect(getCssRule(styles, ".table-player-right")).toContain("--hand-rotation: -90deg;");
+    expect(getCssRule(styles, ".table-player-top-left")).not.toContain("--hand-rotation:");
+    expect(getCssRule(styles, ".table-player-top-right")).not.toContain("--hand-rotation:");
+  });
+
   it("keeps permanent and contextual controls in the left side action rail", () => {
     const html = renderTable(
       createState({ opponentHandCounts: [10, 10, 10, 10] }),
@@ -302,4 +322,21 @@ function standardCard(suit: PublicSuit, rank: PublicRank): PublicStandardCard {
 
 function countOccurrences(value: string, needle: string): number {
   return value.split(needle).length - 1;
+}
+
+function getCssRule(styles: string, selector: string, occurrence = 0): string {
+  let start = -1;
+  let searchFrom = 0;
+
+  for (let index = 0; index <= occurrence; index += 1) {
+    start = styles.indexOf(`${selector} {`, searchFrom);
+    expect(start).toBeGreaterThanOrEqual(0);
+    searchFrom = start + selector.length;
+  }
+
+  expect(start).toBeGreaterThanOrEqual(0);
+  const end = styles.indexOf("\n}", start);
+  expect(end).toBeGreaterThan(start);
+
+  return styles.slice(start, end);
 }

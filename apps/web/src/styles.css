@@ -2610,13 +2610,15 @@ input:focus-visible {
 }
 
 .table-player-zone {
-  --axis-angle: 0deg;
+  --hand-rotation: 0deg;
   --name-x: 0px;
   --name-y: 0px;
   --hand-x: 0px;
   --hand-y: 0px;
+  --trick-rotation: var(--hand-rotation);
   --trick-x: 0px;
   --trick-y: 0px;
+  --river-rotation: var(--hand-rotation);
   --river-x: 0px;
   --river-y: 0px;
   --role-x: 0px;
@@ -2632,63 +2634,60 @@ input:focus-visible {
 }
 
 .table-player-left {
-  --axis-angle: -24deg;
+  --hand-rotation: 90deg;
   --name-x: -430px;
   --name-y: 148px;
-  --hand-x: -304px;
-  --hand-y: 95px;
-  --trick-x: -202px;
-  --trick-y: 54px;
-  --river-x: -88px;
-  --river-y: 14px;
-  --role-x: -42px;
-  --role-y: -2px;
+  --hand-x: -326px;
+  --hand-y: 112px;
+  --trick-x: -244px;
+  --trick-y: 78px;
+  --river-x: -154px;
+  --river-y: 34px;
+  --role-x: -62px;
+  --role-y: -4px;
 }
 
 .table-player-top-left {
-  --axis-angle: 58deg;
-  --name-x: -208px;
-  --name-y: -410px;
-  --hand-x: -146px;
-  --hand-y: -310px;
-  --trick-x: -98px;
+  --name-x: -252px;
+  --name-y: -390px;
+  --hand-x: -202px;
+  --hand-y: -302px;
+  --trick-x: -158px;
   --trick-y: -220px;
-  --river-x: -42px;
-  --river-y: -94px;
-  --role-x: -18px;
-  --role-y: -38px;
+  --river-x: -108px;
+  --river-y: -100px;
+  --role-x: -24px;
+  --role-y: -42px;
 }
 
 .table-player-top-right {
-  --axis-angle: -58deg;
-  --name-x: 208px;
-  --name-y: -410px;
-  --hand-x: 146px;
-  --hand-y: -310px;
-  --trick-x: 98px;
+  --name-x: 252px;
+  --name-y: -390px;
+  --hand-x: 202px;
+  --hand-y: -302px;
+  --trick-x: 158px;
   --trick-y: -220px;
-  --river-x: 42px;
-  --river-y: -94px;
-  --role-x: 18px;
-  --role-y: -38px;
+  --river-x: 108px;
+  --river-y: -100px;
+  --role-x: 24px;
+  --role-y: -42px;
 }
 
 .table-player-right {
-  --axis-angle: 24deg;
+  --hand-rotation: -90deg;
   --name-x: 430px;
   --name-y: 148px;
-  --hand-x: 304px;
-  --hand-y: 95px;
-  --trick-x: 202px;
-  --trick-y: 54px;
-  --river-x: 88px;
-  --river-y: 14px;
-  --role-x: 42px;
-  --role-y: -2px;
+  --hand-x: 326px;
+  --hand-y: 112px;
+  --trick-x: 244px;
+  --trick-y: 78px;
+  --river-x: 154px;
+  --river-y: 34px;
+  --role-x: 62px;
+  --role-y: -4px;
 }
 
 .table-player-self {
-  --axis-angle: 0deg;
   --name-x: 0px;
   --name-y: 388px;
   --hand-x: 0px;
@@ -2741,13 +2740,14 @@ input:focus-visible {
   min-width: 0;
   position: absolute;
   top: 0;
-  transform: translate(-50%, -50%) translate(var(--zone-x), var(--zone-y)) rotate(var(--axis-angle));
+  transform: translate(-50%, -50%) translate(var(--zone-x), var(--zone-y)) rotate(var(--zone-rotation));
   transform-origin: center;
 }
 
 .table-hand-zone {
   --zone-x: var(--hand-x);
   --zone-y: var(--hand-y);
+  --zone-rotation: var(--hand-rotation);
 
   min-height: 50px;
   z-index: 2;
@@ -2756,6 +2756,7 @@ input:focus-visible {
 .table-trick-zone {
   --zone-x: var(--trick-x);
   --zone-y: var(--trick-y);
+  --zone-rotation: var(--trick-rotation);
 
   min-height: 82px;
   min-width: 66px;
@@ -2765,9 +2766,14 @@ input:focus-visible {
 .table-river-zone {
   --zone-x: var(--river-x);
   --zone-y: var(--river-y);
+  --zone-rotation: var(--river-rotation);
 
   min-height: 92px;
   z-index: 1;
+}
+
+.table-surface-bidding .table-river-zone {
+  --zone-rotation: 0deg;
 }
 
 .table-player-left .table-hand-zone,
@@ -3173,63 +3179,60 @@ input:focus-visible {
   }
 
   .table-player-left {
-    --axis-angle: -23deg;
-    --name-x: -292px;
-    --name-y: 42px;
-    --hand-x: -196px;
-    --hand-y: 8px;
-    --trick-x: -118px;
-    --trick-y: -12px;
-    --river-x: -46px;
-    --river-y: -28px;
-    --role-x: -18px;
-    --role-y: -34px;
+    --hand-rotation: 90deg;
+    --name-x: -300px;
+    --name-y: 52px;
+    --hand-x: -250px;
+    --hand-y: 34px;
+    --trick-x: -208px;
+    --trick-y: 20px;
+    --river-x: -164px;
+    --river-y: 2px;
+    --role-x: -72px;
+    --role-y: -24px;
   }
 
   .table-player-top-left {
-    --axis-angle: 56deg;
-    --name-x: -118px;
-    --name-y: -154px;
-    --hand-x: -76px;
+    --name-x: -154px;
+    --name-y: -144px;
+    --hand-x: -116px;
     --hand-y: -108px;
-    --trick-x: -50px;
-    --trick-y: -70px;
-    --river-x: -22px;
-    --river-y: -28px;
-    --role-x: -8px;
+    --trick-x: -98px;
+    --trick-y: -72px;
+    --river-x: -82px;
+    --river-y: -42px;
+    --role-x: -26px;
     --role-y: -18px;
   }
 
   .table-player-top-right {
-    --axis-angle: -56deg;
-    --name-x: 118px;
-    --name-y: -154px;
-    --hand-x: 76px;
+    --name-x: 154px;
+    --name-y: -144px;
+    --hand-x: 116px;
     --hand-y: -108px;
-    --trick-x: 50px;
-    --trick-y: -70px;
-    --river-x: 22px;
-    --river-y: -28px;
-    --role-x: 8px;
+    --trick-x: 98px;
+    --trick-y: -72px;
+    --river-x: 82px;
+    --river-y: -42px;
+    --role-x: 26px;
     --role-y: -18px;
   }
 
   .table-player-right {
-    --axis-angle: 23deg;
-    --name-x: 292px;
-    --name-y: 42px;
-    --hand-x: 196px;
-    --hand-y: 8px;
-    --trick-x: 118px;
-    --trick-y: -12px;
-    --river-x: 46px;
-    --river-y: -28px;
-    --role-x: 18px;
-    --role-y: -34px;
+    --hand-rotation: -90deg;
+    --name-x: 300px;
+    --name-y: 52px;
+    --hand-x: 250px;
+    --hand-y: 34px;
+    --trick-x: 208px;
+    --trick-y: 20px;
+    --river-x: 164px;
+    --river-y: 2px;
+    --role-x: 72px;
+    --role-y: -24px;
   }
 
   .table-player-self {
-    --axis-angle: 0deg;
     --name-x: 0px;
     --name-y: 160px;
     --hand-x: 0px;
