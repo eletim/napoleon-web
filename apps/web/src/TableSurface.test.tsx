@@ -107,6 +107,29 @@ describe("TableSurface", () => {
     expect(hudHtml).not.toContain("N");
     expect(hudHtml).not.toContain("A");
   });
+
+  it("uses table seat lanes for bidding declarations", () => {
+    const html = renderTable(
+      createState({
+        biddingHistory: [
+          { type: "bid", playerId: "player-1", suit: "spades", targetPointCards: 14 },
+          { type: "pass", playerId: "player-2" },
+          { type: "bid", playerId: "player-4", suit: "hearts", targetPointCards: 15 }
+        ],
+        opponentHandCounts: [10, 10, 10, 10],
+        phase: "bidding"
+      })
+    );
+
+    expect(html).toContain("table-surface-bidding");
+    expect(countOccurrences(html, "class=\"table-bid-token")).toBe(5);
+    expect(html).toContain("左側AIの競り宣言");
+    expect(html).toContain("♠");
+    expect(html).toContain(">14</strong>");
+    expect(html).toContain(">Pass</strong>");
+    expect(html).toContain("table-bid-token-red");
+    expect(html).toContain(">?</strong>");
+  });
 });
 
 function renderTable(state: PublicGameState): string {
@@ -134,12 +157,14 @@ function createState({
   currentTrick = [],
   adjutantCardId = "spades-A",
   adjutantRevealedPlayerId = null,
+  biddingHistory = [],
   contractSuit = "spades",
   phase = "playing",
   opponentHandCounts
 }: {
   adjutantCardId?: string;
   adjutantRevealedPlayerId?: string | null;
+  biddingHistory?: NonNullable<PublicGameState["bidding"]>["history"];
   capturedPointCards?: Partial<Record<string, readonly PublicStandardCard[]>>;
   contractSuit?: PublicSuit;
   currentTrick?: readonly PublicPlayedCard[];
@@ -188,9 +213,10 @@ function createState({
       phase === "bidding"
         ? {
             starterPlayerId: "player-0",
-            highestBid: null,
+            highestBid:
+              [...biddingHistory].reverse().find((entry) => entry.type === "bid") ?? null,
             consecutivePassCount: 0,
-            history: []
+            history: biddingHistory
           }
         : null,
     exchange: null,
