@@ -64,6 +64,25 @@ describe("TableSurface", () => {
     expect(html).toContain("左側AIの獲得ポイント札 2枚");
     expect(html).toContain("自分の獲得ポイント札 1枚");
   });
+
+  it("renders role markers as compact table objects", () => {
+    const unknownHtml = renderTable(
+      createState({ opponentHandCounts: [10, 10, 10, 10], phase: "bidding" })
+    );
+    const confirmedHtml = renderTable(
+      createState({
+        adjutantRevealedPlayerId: "player-2",
+        opponentHandCounts: [9, 9, 9, 9]
+      })
+    );
+
+    expect(countOccurrences(unknownHtml, "class=\"table-role-marker")).toBe(5);
+    expect(countOccurrences(unknownHtml, "の役職?")).toBe(5);
+    expect(confirmedHtml).toContain("左側AIの役職N");
+    expect(confirmedHtml).toContain("奥左AIの役職A");
+    expect(confirmedHtml).toContain("table-role-marker-napoleon");
+    expect(confirmedHtml).toContain("table-role-marker-adjutant");
+  });
 });
 
 function renderTable(state: PublicGameState): string {
@@ -89,10 +108,14 @@ function renderTable(state: PublicGameState): string {
 function createState({
   capturedPointCards = {},
   currentTrick = [],
+  adjutantRevealedPlayerId = null,
+  phase = "playing",
   opponentHandCounts
 }: {
+  adjutantRevealedPlayerId?: string | null;
   capturedPointCards?: Partial<Record<string, readonly PublicStandardCard[]>>;
   currentTrick?: readonly PublicPlayedCard[];
+  phase?: PublicGameState["phase"];
   opponentHandCounts: readonly [number, number, number, number];
 }): PublicGameState {
   return {
@@ -111,23 +134,34 @@ function createState({
       handCount,
       capturedPointCards: capturedPointCards[`player-${index + 1}`] ?? []
     })),
-    phase: "playing",
+    phase,
     trumpSuit: "spades",
-    contract: {
-      napoleonPlayerId: "player-1",
-      trumpSuit: "spades",
-      targetPointCards: 13
-    },
+    contract:
+      phase === "bidding"
+        ? null
+        : {
+            napoleonPlayerId: "player-1",
+            trumpSuit: "spades",
+            targetPointCards: 13
+          },
     specialCards: {
       orumaCardId: "spades-A",
       yoromekiCardId: "hearts-Q",
       seiJackCardId: "spades-J",
       uraJackCardId: "clubs-J"
     },
-    adjutant: { calledCardId: "spades-A", revealedPlayerId: null },
+    adjutant: phase === "bidding" ? null : { calledCardId: "spades-A", revealedPlayerId: adjutantRevealedPlayerId },
     latestEvent: null,
     result: null,
-    bidding: null,
+    bidding:
+      phase === "bidding"
+        ? {
+            starterPlayerId: "player-0",
+            highestBid: null,
+            consecutivePassCount: 0,
+            history: []
+          }
+        : null,
     exchange: null,
     adjutantChoice: null,
     currentPlayerId: "player-0",
