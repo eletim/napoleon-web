@@ -11,10 +11,7 @@ import type {
 } from "@napoleon/protocol";
 import { AutomatedSimulationViewer } from "./AutomatedSimulationViewer";
 import { BiddingPanel } from "./BiddingPanel";
-import { GameStatus } from "./GameStatus";
-import { PlayerSeat } from "./PlayerSeat";
-import { SelfHandPanel } from "./SelfHandPanel";
-import { TrickBoard } from "./TrickBoard";
+import { TableSurface } from "./TableSurface";
 import {
   createAdjutantCardId,
   createAdjutantSelectionLabel,
@@ -28,12 +25,7 @@ import {
 } from "./adjutantSelection";
 import { createGame, getAgents, nextTrick, sendAction } from "./api";
 import { suitSymbols } from "./cardSymbols";
-import {
-  createGameStatusDisplay,
-  createMessage,
-  formatPlayerLabel,
-  formatWinningTeam
-} from "./displayText";
+import { createMessage, formatPlayerLabel, formatWinningTeam } from "./displayText";
 import { createTablePlayers } from "./tablePlayers";
 import { useTrickAnimation } from "./useTrickAnimation";
 import "./styles.css";
@@ -98,14 +90,8 @@ export function App() {
     session?.state.phase === "choosing-adjutant" &&
     session.state.adjutantChoice?.napoleonPlayerId === session.playerId;
 
-  const self = session?.state.self;
   const tablePlayers = useMemo(() => createTablePlayers(session?.state), [session?.state]);
   const aiPlayers = tablePlayers.filter((player) => !player.isSelf);
-  const selfPlayer = tablePlayers.find((player) => player.isSelf);
-  const gameStatusDisplay = useMemo(
-    () => createGameStatusDisplay(session?.state, tablePlayers),
-    [session?.state, tablePlayers]
-  );
   const adjutantShortcutOptions = useMemo(
     () => createAdjutantShortcutOptions(session?.state.specialCards),
     [session?.state.specialCards]
@@ -384,49 +370,23 @@ export function App() {
           </section>
 
           <section className="table" aria-label="ゲームテーブル">
-            <div className="table-grid">
-              {aiPlayers.map((player) => (
-                <PlayerSeat key={player.seat} player={player} state={session?.state} />
-              ))}
+            <TableSurface
+              actionPanel={
+                <div className="action-area">
+                  {session?.state.phase === "bidding" ? (
+                    <BiddingPanel
+                      bidding={session.state.bidding}
+                      canPass={canPass}
+                      currentPlayerId={session.state.currentPlayerId}
+                      formatPlayerLabel={(playerId) => formatPlayerLabel(playerId, tablePlayers)}
+                      isBusy={isInteractionLocked}
+                      legalBidActions={legalBidActions}
+                      onBid={(action) => void handleSendAction(action)}
+                      onPass={() => void handleSendAction({ type: "pass" })}
+                      selfPlayerId={session.playerId}
+                    />
+                  ) : null}
 
-              <div
-                className={
-                  session !== undefined && session.state.phase !== "bidding"
-                    ? "table-center table-center-trick"
-                    : "table-center"
-                }
-              >
-                {session?.state.phase === "bidding" ? (
-                  <GameStatus display={gameStatusDisplay} />
-                ) : null}
-
-                {session?.state.phase === "bidding" ? (
-                  <BiddingPanel
-                    bidding={session.state.bidding}
-                    canPass={canPass}
-                    currentPlayerId={session.state.currentPlayerId}
-                    formatPlayerLabel={(playerId) => formatPlayerLabel(playerId, tablePlayers)}
-                    isBusy={isInteractionLocked}
-                    legalBidActions={legalBidActions}
-                    onBid={(action) => void handleSendAction(action)}
-                    onPass={() => void handleSendAction({ type: "pass" })}
-                    selfPlayerId={session.playerId}
-                  />
-                ) : (
-                  <TrickBoard
-                    adjutant={session?.state.adjutant}
-                    collectingWinnerId={trickAnimation.collectingWinnerId}
-                    contract={session?.state.contract}
-                    currentTrick={trickAnimation.displayedTrick}
-                    highlightWinningCard={winningCardHighlightEnabled}
-                    isResultEmphasisActive={trickAnimation.isResultEmphasisActive}
-                    players={tablePlayers}
-                    trickNumber={session?.state.trickNumber}
-                    trumpSuit={session?.state.trumpSuit}
-                  />
-                )}
-              </div>
-              <div className="action-area">
                 {session?.state.phase === "playing" ? (
                   <button
                     className="secondary-button next-trick-button"
@@ -610,23 +570,25 @@ export function App() {
                     </div>
                   </section>
                 ) : null}
-              </div>
-
-              <SelfHandPanel
-                canExchange={canExchange}
-                isBusy={isInteractionLocked}
-                legalCardIds={legalCardIds}
-                onToggleWinningCardHighlight={() =>
-                  setWinningCardHighlightEnabled((current) => !current)
-                }
-                onPlay={handlePlay}
-                selectedDiscardCardIds={selectedDiscardCardIds}
-                self={self}
-                selfPlayer={selfPlayer}
-                state={session?.state}
-                winningCardHighlightEnabled={winningCardHighlightEnabled}
-              />
-            </div>
+                </div>
+              }
+              canExchange={canExchange}
+              collectingWinnerId={trickAnimation.collectingWinnerId}
+              currentTrick={trickAnimation.displayedTrick}
+              highlightWinningCard={winningCardHighlightEnabled}
+              isBusy={isInteractionLocked}
+              isResultEmphasisActive={trickAnimation.isResultEmphasisActive}
+              legalCardIds={legalCardIds}
+              onToggleWinningCardHighlight={() =>
+                setWinningCardHighlightEnabled((current) => !current)
+              }
+              onPlay={handlePlay}
+              players={tablePlayers}
+              selectedDiscardCardIds={selectedDiscardCardIds}
+              state={session?.state}
+              trickNumber={session?.state.trickNumber}
+              trumpSuit={session?.state.trumpSuit}
+            />
           </section>
         </>
       ) : (
