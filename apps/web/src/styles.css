@@ -1146,15 +1146,19 @@ input:focus-visible {
   align-items: center;
   background: #ffffff;
   border: 2px solid #cbd5e1;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgb(15 23 42 / 14%);
+  border-radius: 9px;
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 72%),
+    0 4px 8px rgb(15 23 42 / 16%);
   cursor: pointer;
   display: grid;
   font-weight: 900;
   height: 96px;
   justify-items: center;
   line-height: 1;
+  overflow: hidden;
   padding: 8px;
+  position: relative;
   width: 68px;
 }
 
@@ -1175,7 +1179,7 @@ input:focus-visible {
 }
 
 .card-blocked {
-  background: #f1f5f9;
+  background: #ffffff;
 }
 
 .card-selected {
@@ -1218,7 +1222,7 @@ input:focus-visible {
 }
 
 .card-suit {
-  font-size: 1.7rem;
+  font-size: 2rem;
 }
 
 .simulation-viewer {
@@ -2720,6 +2724,10 @@ input:focus-visible {
 .table-self-hand .card {
   height: 88px;
   width: 100%;
+}
+
+.table-self-hand .card:disabled {
+  opacity: 0.78;
 }
 
 .opponent-card-backs {

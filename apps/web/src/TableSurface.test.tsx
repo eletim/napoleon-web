@@ -130,6 +130,17 @@ describe("TableSurface", () => {
     expect(html).toContain("table-bid-token-red");
     expect(html).toContain(">?</strong>");
   });
+
+  it("renders self hand cards with playing-card face structure", () => {
+    const html = renderTable(createState({ opponentHandCounts: [10, 10, 10, 10] }));
+
+    expect(html).toContain("class=\"card-corner card-corner-top\">A♠");
+    expect(html).toContain("class=\"card-suit card-center-mark\">♠");
+    expect(html).toContain("class=\"card-corner card-corner-bottom\">A♠");
+    expect(html).toContain("class=\"card-corner card-corner-top\">K♥");
+    expect(html).toContain("card-red");
+    expect(html).toContain("card-black");
+  });
 });
 
 function renderTable(state: PublicGameState): string {
