@@ -39,14 +39,14 @@ describe("PlayerSeat", () => {
     expect(html).toContain("A♠");
   });
 
-  it("places mobile opponent seats around the center table", () => {
+  it("uses the shared in-progress table layout for opponent seats", () => {
     const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
-    const match = styles.match(
-      /\.app-shell-game-in-progress \.table-grid \{[\s\S]*?grid-template-areas:\n([\s\S]*?)grid-template-columns:/
-    );
 
-    expect(match?.[1]).toContain(
-      '"top-left center center top-right"\n      "left center center right";'
+    expect(styles).toContain(
+      'grid-template-areas:\n    ". top-left top-right ."\n    "left center center right"\n    "action action action action"\n    "self self self self";'
+    );
+    expect(styles).toContain(
+      "grid-template-columns:\n    minmax(116px, 0.62fr)\n    minmax(230px, 1.2fr)\n    minmax(230px, 1.2fr)\n    minmax(116px, 0.62fr);"
     );
   });
 
@@ -145,24 +145,14 @@ describe("PlayerSeat", () => {
     expect(countOccurrences(html, "class=\"point-card-empty-slot\"")).toBe(0);
   });
 
-  it("removes mobile in-progress opponent panel chrome", () => {
+  it("keeps in-progress opponent seats visible as table seats", () => {
     const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
-    const seatMatch = styles.match(
-      /\.app-shell-game-in-progress \.player-seat \{([\s\S]*?)\n  \}/
-    );
-    const capturedBlocks = Array.from(
-      styles.matchAll(/\.app-shell-game-in-progress \.captured-compact \{([\s\S]*?)\n  \}/g),
-      (match) => match[1]
-    );
 
-    expect(seatMatch?.[1]).toContain("background: transparent;");
-    expect(seatMatch?.[1]).toContain("border: 0;");
-    expect(seatMatch?.[1]).toContain("box-shadow: none;");
-    expect(seatMatch?.[1]).toContain("min-height: 0;");
-    expect(capturedBlocks.some((block) => block.includes("grid-template-columns: 1fr;"))).toBe(
-      true
-    );
-    expect(capturedBlocks.every((block) => block.includes("min-height: 0;"))).toBe(true);
+    expect(styles).toContain("background: rgb(248 250 252 / 92%);");
+    expect(styles).toContain("border: 1px solid rgb(255 255 255 / 70%);");
+    expect(styles).toContain("box-shadow: 0 6px 16px rgb(15 23 42 / 12%);");
+    expect(styles).toContain("min-height: 66px;");
+    expect(styles).toContain("width: auto;");
   });
 
   it("clips mobile captured point cards inside the opponent seat width", () => {
@@ -179,49 +169,28 @@ describe("PlayerSeat", () => {
     expect(compactPointsBlocks.some((block) => block.includes("width: 100%;"))).toBe(true);
   });
 
-  it("keeps mobile opponent seats close to the trick card band", () => {
+  it("keeps in-progress opponent seats close to the common center board", () => {
     const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
-    const inProgressSeatMatch = styles.match(
-      /\.app-shell-game-in-progress \.player-seat \{([\s\S]*?)\n  \}/
-    );
-    const tableGridMatch = styles.match(
-      /\.app-shell-game-in-progress \.table-grid \{([\s\S]*?)\n  \}/
-    );
-    const leftInsetMatch = styles.match(
-      /\.app-shell-game-in-progress \.seat-top-left,\n  \.app-shell-game-in-progress \.seat-left \{([\s\S]*?)\n  \}/
-    );
-    const rightInsetMatch = styles.match(
-      /\.app-shell-game-in-progress \.seat-top-right \{([\s\S]*?)\n  \}/
-    );
-    const farSeatMatch = styles.match(
-      /\.app-shell-game-in-progress \.seat-top-left,\n  \.app-shell-game-in-progress \.seat-top-right \{([\s\S]*?)\n  \}/
-    );
-    const sideSeatMatch = styles.match(
-      /\.app-shell-game-in-progress \.seat-left,\n  \.app-shell-game-in-progress \.seat-right \{([\s\S]*?)\n  \}/
-    );
-    const tableCenterMatch = styles.match(
-      /\.app-shell-game-in-progress \.table-center \{([\s\S]*?)\n  \}/
-    );
 
-    expect(tableGridMatch?.[1]).toContain("minmax(64px, 0.72fr)");
-    expect(inProgressSeatMatch?.[1]).toContain("justify-self: center;");
-    expect(inProgressSeatMatch?.[1]).toContain("width: min(64px, 100%);");
-    expect(leftInsetMatch?.[1]).toContain("justify-self: end;");
-    expect(rightInsetMatch?.[1]).toContain("justify-self: start;");
-    expect(farSeatMatch?.[1]).toContain("margin-top: 20px;");
-    expect(sideSeatMatch?.[1]).toContain("align-self: start;");
-    expect(sideSeatMatch?.[1]).toContain("margin-top: 62px;");
-    expect(tableCenterMatch?.[1]).toContain("align-content: start;");
+    expect(styles).toContain("grid-template-rows: auto minmax(0, 1fr) auto auto;");
+    expect(styles).toContain("justify-self: stretch;");
+    expect(styles).toContain(
+      ".app-shell-game-in-progress .seat-top-left,\n.app-shell-game-in-progress .seat-top-right,\n.app-shell-game-in-progress .seat-left,\n.app-shell-game-in-progress .seat-right"
+    );
+    expect(styles).toContain("margin-top: 0;");
+    expect(styles).toContain("align-content: end;");
+    expect(styles).toContain("align-content: start;");
+    expect(styles).toContain("overflow: hidden;");
   });
 
-  it("defines a dedicated mobile landscape table layout and a portrait orientation guide", () => {
+  it("defines a mobile landscape density pass without replacing the shared table structure", () => {
     const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
     const appSource = readFileSync(fileURLToPath(new URL("./App.tsx", import.meta.url)), "utf8");
     const portraitBlock = getMediaBlock(
       styles,
       "@media (max-width: 560px) and (orientation: portrait)"
     );
-    const landscapeBlock = getMediaBlock(
+    const landscapeBlock = getLastMediaBlock(
       styles,
       "@media (max-width: 960px) and (max-height: 560px) and (orientation: landscape)"
     );
@@ -232,11 +201,13 @@ describe("PlayerSeat", () => {
     expect(portraitBlock).toContain("display: grid;");
     expect(portraitBlock).toContain(".app-shell-game-in-progress .table");
     expect(portraitBlock).toContain("display: none;");
-    expect(landscapeBlock).toContain("grid-template-rows: minmax(0, 1fr) auto auto;");
-    expect(landscapeBlock).toContain("grid-row: 1;");
-    expect(landscapeBlock).toContain('"top-left message top-right"');
-    expect(landscapeBlock).toContain('"left self right";');
-    expect(landscapeBlock).toContain("width: min(82px, 100%);");
+    expect(styles).toContain(
+      'grid-template-areas:\n    ". top-left top-right ."\n    "left center center right"\n    "action action action action"\n    "self self self self";'
+    );
+    expect(landscapeBlock).not.toContain('"top-left center center top-right"');
+    expect(landscapeBlock).toContain("minmax(86px, 0.74fr)");
+    expect(landscapeBlock).not.toContain('"top-left message top-right"');
+    expect(landscapeBlock).not.toContain('"left self right";');
     expect(landscapeBlock).toContain(
       ".app-shell-phase-bidding.app-shell-game-active .bidding-panel"
     );
@@ -244,10 +215,8 @@ describe("PlayerSeat", () => {
     expect(landscapeBlock).toContain('"suits stepper submit";');
     expect(landscapeBlock).toContain("grid-template-columns: minmax(86px, 0.7fr)");
     expect(landscapeBlock).toContain("width: min(100%, 420px);");
-    expect(landscapeBlock).toContain(
-      ".app-shell-game-in-progress .player-seat .captured-compact > span"
-    );
-    expect(landscapeBlock).toContain("color: rgb(255 255 255 / 92%);");
+    expect(landscapeBlock).toContain("grid-template-columns: repeat(5, minmax(0, 56px));");
+    expect(landscapeBlock).toContain("grid-template-rows: repeat(2, 38px);");
   });
 });
 
@@ -261,6 +230,24 @@ function getMediaBlock(styles: string, query: string): string {
   const nextMedia = styles.indexOf("@media", start + query.length);
 
   return styles.slice(start, nextMedia === -1 ? undefined : nextMedia);
+}
+
+function getLastMediaBlock(styles: string, query: string): string {
+  const firstBlock = getMediaBlock(styles, query);
+  let block = firstBlock;
+  let searchStart = styles.indexOf(query) + query.length;
+
+  while (true) {
+    const nextStart = styles.indexOf(query, searchStart);
+
+    if (nextStart === -1) {
+      return block;
+    }
+
+    const nextMedia = styles.indexOf("@media", nextStart + query.length);
+    block = styles.slice(nextStart, nextMedia === -1 ? undefined : nextMedia);
+    searchStart = nextStart + query.length;
+  }
 }
 
 function createPlayer(
