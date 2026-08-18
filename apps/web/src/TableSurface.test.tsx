@@ -83,6 +83,30 @@ describe("TableSurface", () => {
     expect(confirmedHtml).toContain("table-role-marker-napoleon");
     expect(confirmedHtml).toContain("table-role-marker-adjutant");
   });
+
+  it("keeps global contract details in the table HUD", () => {
+    const html = renderTable(
+      createState({
+        contractSuit: "hearts",
+        adjutantCardId: "diamonds-J",
+        adjutantRevealedPlayerId: "player-2",
+        opponentHandCounts: [9, 9, 9, 9]
+      })
+    );
+    const hudHtml = html.slice(
+      html.indexOf("class=\"table-hud\""),
+      html.indexOf("<aside", html.indexOf("class=\"table-hud\""))
+    );
+
+    expect(hudHtml).toContain("♥13");
+    expect(hudHtml).toContain("副官 ");
+    expect(hudHtml).toContain("♦J");
+    expect(hudHtml).toContain("red-text");
+    expect(hudHtml).not.toContain("左側AI");
+    expect(hudHtml).not.toContain("自分");
+    expect(hudHtml).not.toContain("N");
+    expect(hudHtml).not.toContain("A");
+  });
 });
 
 function renderTable(state: PublicGameState): string {
@@ -108,12 +132,16 @@ function renderTable(state: PublicGameState): string {
 function createState({
   capturedPointCards = {},
   currentTrick = [],
+  adjutantCardId = "spades-A",
   adjutantRevealedPlayerId = null,
+  contractSuit = "spades",
   phase = "playing",
   opponentHandCounts
 }: {
+  adjutantCardId?: string;
   adjutantRevealedPlayerId?: string | null;
   capturedPointCards?: Partial<Record<string, readonly PublicStandardCard[]>>;
+  contractSuit?: PublicSuit;
   currentTrick?: readonly PublicPlayedCard[];
   phase?: PublicGameState["phase"];
   opponentHandCounts: readonly [number, number, number, number];
@@ -141,7 +169,7 @@ function createState({
         ? null
         : {
             napoleonPlayerId: "player-1",
-            trumpSuit: "spades",
+            trumpSuit: contractSuit,
             targetPointCards: 13
           },
     specialCards: {
@@ -150,7 +178,10 @@ function createState({
       seiJackCardId: "spades-J",
       uraJackCardId: "clubs-J"
     },
-    adjutant: phase === "bidding" ? null : { calledCardId: "spades-A", revealedPlayerId: adjutantRevealedPlayerId },
+    adjutant:
+      phase === "bidding"
+        ? null
+        : { calledCardId: adjutantCardId, revealedPlayerId: adjutantRevealedPlayerId },
     latestEvent: null,
     result: null,
     bidding:
