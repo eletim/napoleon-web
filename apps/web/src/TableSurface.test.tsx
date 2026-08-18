@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type {
   PublicGameState,
+  PublicPlayedCard,
   PublicRank,
   PublicStandardCard,
   PublicSuit
@@ -18,6 +19,32 @@ describe("TableSurface", () => {
     expect(countOccurrences(afterPlayHtml, "class=\"card-back\"")).toBe(33);
     expect(initialHtml).toContain("左側AIの裏向き手札 10枚");
     expect(afterPlayHtml).toContain("左側AIの裏向き手札 9枚");
+  });
+
+  it("anchors current trick cards to the seat that played them", () => {
+    const html = renderTable(
+      createState({
+        currentTrick: [
+          playedCard("player-1", "spades", "A"),
+          playedCard("player-2", "hearts", "K"),
+          playedCard("player-3", "diamonds", "Q"),
+          playedCard("player-4", "clubs", "J"),
+          playedCard("player-0", "spades", "10")
+        ],
+        opponentHandCounts: [9, 9, 9, 9]
+      })
+    );
+
+    expect(html).toContain("table-card-from-left");
+    expect(html).toContain("table-card-from-top-left");
+    expect(html).toContain("table-card-from-top-right");
+    expect(html).toContain("table-card-from-right");
+    expect(html).toContain("table-card-from-self");
+    expect(html).toContain("左側AIがA♠を出しました");
+    expect(html).toContain("奥左AIがK♥を出しました");
+    expect(html).toContain("奥右AIがQ♦を出しました");
+    expect(html).toContain("右側AIがJ♣を出しました");
+    expect(html).toContain("自分が10♠を出しました");
   });
 });
 
@@ -42,8 +69,10 @@ function renderTable(state: PublicGameState): string {
 }
 
 function createState({
+  currentTrick = [],
   opponentHandCounts
 }: {
+  currentTrick?: readonly PublicPlayedCard[];
   opponentHandCounts: readonly [number, number, number, number];
 }): PublicGameState {
   return {
@@ -82,12 +111,19 @@ function createState({
     exchange: null,
     adjutantChoice: null,
     currentPlayerId: "player-0",
-    currentTrick: [],
+    currentTrick,
     completedTrickCount: 0,
     trickNumber: 1,
     isTrickComplete: false,
     isGameOver: false,
     legalActions: []
+  };
+}
+
+function playedCard(playerId: string, suit: PublicSuit, rank: PublicRank): PublicPlayedCard {
+  return {
+    playerId,
+    card: standardCard(suit, rank)
   };
 }
 
