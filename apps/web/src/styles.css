@@ -2468,8 +2468,8 @@ input:focus-visible {
 }
 
 .table-surface {
-  --table-card-w: 42px;
-  --table-card-h: 60px;
+  --table-card-w: 50px;
+  --table-card-h: 72px;
   --table-card-small-w: 24px;
   --table-card-small-h: 34px;
   background:
@@ -2490,22 +2490,22 @@ input:focus-visible {
   border-radius: 8px;
   color: #ffffff;
   display: grid;
-  gap: 3px;
+  gap: 5px;
   left: 12px;
-  min-width: 86px;
-  padding: 7px 9px;
+  min-width: 108px;
+  padding: 10px 12px;
   position: absolute;
   top: 12px;
   z-index: 8;
 }
 
 .table-hud strong {
-  font-size: 1rem;
+  font-size: 1.28rem;
   line-height: 1;
 }
 
 .table-hud span {
-  font-size: 0.75rem;
+  font-size: 0.92rem;
   font-weight: 850;
   white-space: nowrap;
 }
@@ -2518,7 +2518,7 @@ input:focus-visible {
   max-height: calc(100% - 104px);
   overflow-y: auto;
   position: absolute;
-  top: 92px;
+  top: 112px;
   width: min(220px, 22vw);
   z-index: 9;
 }
@@ -2610,53 +2610,95 @@ input:focus-visible {
 }
 
 .table-player-zone {
-  align-items: center;
-  display: flex;
-  gap: 8px;
+  --axis-angle: 0deg;
+  --name-x: 0px;
+  --name-y: 0px;
+  --hand-x: 0px;
+  --hand-y: 0px;
+  --trick-x: 0px;
+  --trick-y: 0px;
+  --river-x: 0px;
+  --river-y: 0px;
+  --role-x: 0px;
+  --role-y: 0px;
+
+  display: block;
+  height: 0;
+  left: 50%;
   position: absolute;
+  top: 50%;
+  width: 0;
   z-index: 3;
 }
 
-.table-player-top-left,
-.table-player-top-right {
-  flex-direction: column;
-  height: 250px;
-  top: 16px;
-  width: 300px;
+.table-player-left {
+  --axis-angle: -24deg;
+  --name-x: -430px;
+  --name-y: 148px;
+  --hand-x: -304px;
+  --hand-y: 95px;
+  --trick-x: -202px;
+  --trick-y: 54px;
+  --river-x: -88px;
+  --river-y: 14px;
+  --role-x: -42px;
+  --role-y: -2px;
 }
 
 .table-player-top-left {
-  left: calc(50% - 318px);
+  --axis-angle: 58deg;
+  --name-x: -208px;
+  --name-y: -410px;
+  --hand-x: -146px;
+  --hand-y: -310px;
+  --trick-x: -98px;
+  --trick-y: -220px;
+  --river-x: -42px;
+  --river-y: -94px;
+  --role-x: -18px;
+  --role-y: -38px;
 }
 
 .table-player-top-right {
-  right: calc(50% - 318px);
-}
-
-.table-player-left,
-.table-player-right {
-  height: 330px;
-  top: calc(50% - 166px);
-  width: 360px;
-}
-
-.table-player-left {
-  flex-direction: row;
-  left: 248px;
+  --axis-angle: -58deg;
+  --name-x: 208px;
+  --name-y: -410px;
+  --hand-x: 146px;
+  --hand-y: -310px;
+  --trick-x: 98px;
+  --trick-y: -220px;
+  --river-x: 42px;
+  --river-y: -94px;
+  --role-x: 18px;
+  --role-y: -38px;
 }
 
 .table-player-right {
-  flex-direction: row-reverse;
-  right: 26px;
+  --axis-angle: 24deg;
+  --name-x: 430px;
+  --name-y: 148px;
+  --hand-x: 304px;
+  --hand-y: 95px;
+  --trick-x: 202px;
+  --trick-y: 54px;
+  --river-x: 88px;
+  --river-y: 14px;
+  --role-x: 42px;
+  --role-y: -2px;
 }
 
 .table-player-self {
-  bottom: 10px;
-  flex-direction: column-reverse;
-  height: 244px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(820px, calc(100% - 300px));
+  --axis-angle: 0deg;
+  --name-x: 0px;
+  --name-y: 388px;
+  --hand-x: 0px;
+  --hand-y: 302px;
+  --trick-x: 0px;
+  --trick-y: 208px;
+  --river-x: 0px;
+  --river-y: 64px;
+  --role-x: 0px;
+  --role-y: 18px;
   z-index: 5;
 }
 
@@ -2675,8 +2717,11 @@ input:focus-visible {
   min-height: 28px;
   min-width: 72px;
   padding: 6px 10px;
+  position: absolute;
   text-align: center;
+  transform: translate(-50%, -50%) translate(var(--name-x), var(--name-y));
   white-space: nowrap;
+  z-index: 4;
 }
 
 .table-player-current .table-seat-name {
@@ -2691,31 +2736,52 @@ input:focus-visible {
   display: grid;
   flex: 0 0 auto;
   justify-items: center;
+  left: 0;
   min-height: 0;
   min-width: 0;
+  position: absolute;
+  top: 0;
+  transform: translate(-50%, -50%) translate(var(--zone-x), var(--zone-y)) rotate(var(--axis-angle));
+  transform-origin: center;
 }
 
 .table-hand-zone {
+  --zone-x: var(--hand-x);
+  --zone-y: var(--hand-y);
+
   min-height: 50px;
+  z-index: 2;
 }
 
 .table-trick-zone {
-  min-height: 70px;
-  min-width: 58px;
+  --zone-x: var(--trick-x);
+  --zone-y: var(--trick-y);
+
+  min-height: 82px;
+  min-width: 66px;
+  z-index: 3;
 }
 
 .table-river-zone {
+  --zone-x: var(--river-x);
+  --zone-y: var(--river-y);
+
   min-height: 92px;
+  z-index: 1;
 }
 
 .table-player-left .table-hand-zone,
 .table-player-right .table-hand-zone {
-  min-width: 88px;
+  min-width: 156px;
 }
 
 .table-player-left .table-river-zone,
 .table-player-right .table-river-zone {
-  min-width: 100px;
+  min-width: 132px;
+}
+
+.table-player-self .table-hand-zone {
+  width: min(820px, calc(100vw - 340px));
 }
 
 .table-self-hand {
@@ -2744,8 +2810,8 @@ input:focus-visible {
 
 .table-player-left .opponent-card-backs,
 .table-player-right .opponent-card-backs {
-  flex-direction: column;
-  max-height: 158px;
+  flex-direction: row;
+  max-height: none;
 }
 
 .card-back {
@@ -2769,8 +2835,8 @@ input:focus-visible {
 
 .table-player-left .card-back,
 .table-player-right .card-back {
-  margin-left: 0;
-  margin-top: -24px;
+  margin-left: -12px;
+  margin-top: 0;
 }
 
 .table-card,
@@ -2803,18 +2869,15 @@ input:focus-visible {
 
 .table-card-from-left {
   --played-card-enter-x: -52px;
-  transform: rotate(90deg);
 }
 
 .table-card-from-right {
   --played-card-enter-x: 52px;
-  transform: rotate(-90deg);
 }
 
 .table-card-from-top-left,
 .table-card-from-top-right {
   --played-card-enter-y: -54px;
-  transform: rotate(180deg);
 }
 
 .table-card-from-self {
@@ -2958,7 +3021,11 @@ input:focus-visible {
   font-weight: 950;
   height: 24px;
   justify-items: center;
+  left: 0;
   line-height: 1;
+  position: absolute;
+  top: 0;
+  transform: translate(-50%, -50%) translate(var(--role-x), var(--role-y));
   width: 24px;
 }
 
@@ -2995,8 +3062,8 @@ input:focus-visible {
 
 @media (max-width: 960px) and (max-height: 560px) and (orientation: landscape) {
   .table-surface {
-    --table-card-w: 30px;
-    --table-card-h: 42px;
+    --table-card-w: 34px;
+    --table-card-h: 48px;
     --table-card-small-w: 13px;
     --table-card-small-h: 18px;
     min-height: 0;
@@ -3005,17 +3072,17 @@ input:focus-visible {
   .table-hud {
     border-radius: 0 0 8px 0;
     left: 0;
-    min-width: 70px;
-    padding: 4px 6px;
+    min-width: 76px;
+    padding: 5px 7px;
     top: 0;
   }
 
   .table-hud strong {
-    font-size: 0.8rem;
+    font-size: 0.9rem;
   }
 
   .table-hud span {
-    font-size: 0.58rem;
+    font-size: 0.66rem;
   }
 
   .table-side-actions {
@@ -3102,43 +3169,77 @@ input:focus-visible {
   }
 
   .table-player-zone {
-    gap: 4px;
-  }
-
-  .table-player-top-left,
-  .table-player-top-right {
-    height: 128px;
-    top: 4px;
-    width: 178px;
-  }
-
-  .table-player-top-left {
-    left: calc(50% - 184px);
-  }
-
-  .table-player-top-right {
-    right: calc(50% - 184px);
-  }
-
-  .table-player-left,
-  .table-player-right {
-    height: 160px;
-    top: calc(50% - 86px);
-    width: 190px;
+    gap: 0;
   }
 
   .table-player-left {
-    left: 122px;
+    --axis-angle: -23deg;
+    --name-x: -292px;
+    --name-y: 42px;
+    --hand-x: -196px;
+    --hand-y: 8px;
+    --trick-x: -118px;
+    --trick-y: -12px;
+    --river-x: -46px;
+    --river-y: -28px;
+    --role-x: -18px;
+    --role-y: -34px;
+  }
+
+  .table-player-top-left {
+    --axis-angle: 56deg;
+    --name-x: -118px;
+    --name-y: -154px;
+    --hand-x: -76px;
+    --hand-y: -108px;
+    --trick-x: -50px;
+    --trick-y: -70px;
+    --river-x: -22px;
+    --river-y: -28px;
+    --role-x: -8px;
+    --role-y: -18px;
+  }
+
+  .table-player-top-right {
+    --axis-angle: -56deg;
+    --name-x: 118px;
+    --name-y: -154px;
+    --hand-x: 76px;
+    --hand-y: -108px;
+    --trick-x: 50px;
+    --trick-y: -70px;
+    --river-x: 22px;
+    --river-y: -28px;
+    --role-x: 8px;
+    --role-y: -18px;
   }
 
   .table-player-right {
-    right: 8px;
+    --axis-angle: 23deg;
+    --name-x: 292px;
+    --name-y: 42px;
+    --hand-x: 196px;
+    --hand-y: 8px;
+    --trick-x: 118px;
+    --trick-y: -12px;
+    --river-x: 46px;
+    --river-y: -28px;
+    --role-x: 18px;
+    --role-y: -34px;
   }
 
   .table-player-self {
-    bottom: 4px;
-    height: 98px;
-    width: min(420px, calc(100% - 172px));
+    --axis-angle: 0deg;
+    --name-x: 0px;
+    --name-y: 160px;
+    --hand-x: 0px;
+    --hand-y: 112px;
+    --trick-x: 0px;
+    --trick-y: 54px;
+    --river-x: 0px;
+    --river-y: -32px;
+    --role-x: 0px;
+    --role-y: -54px;
   }
 
   .table-seat-name {
@@ -3153,8 +3254,8 @@ input:focus-visible {
   }
 
   .table-trick-zone {
-    min-height: 44px;
-    min-width: 34px;
+    min-height: 52px;
+    min-width: 40px;
   }
 
   .table-river-zone {
@@ -3203,12 +3304,27 @@ input:focus-visible {
 
   .table-player-left .card-back,
   .table-player-right .card-back {
-    margin-top: -19px;
+    margin-left: -10px;
+    margin-top: 0;
   }
 
   .table-player-left .opponent-card-backs,
   .table-player-right .opponent-card-backs {
-    max-height: 84px;
+    max-height: none;
+  }
+
+  .table-player-left .table-hand-zone,
+  .table-player-right .table-hand-zone {
+    min-width: 84px;
+  }
+
+  .table-player-left .table-river-zone,
+  .table-player-right .table-river-zone {
+    min-width: 76px;
+  }
+
+  .table-player-self .table-hand-zone {
+    width: min(360px, calc(100vw - 240px));
   }
 
   .card-corner {
