@@ -165,6 +165,7 @@ function TableSeat({
 
   return (
     <section aria-label={player.label} className={seatClassName}>
+      <div className="table-seat-guide" aria-hidden="true" />
       <div className="table-seat-name">
         <span>{player.label}</span>
       </div>

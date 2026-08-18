@@ -2473,8 +2473,9 @@ input:focus-visible {
   --table-card-small-w: 24px;
   --table-card-small-h: 34px;
   background:
-    radial-gradient(ellipse at center, rgb(255 255 255 / 18%) 0 16%, transparent 17%),
-    radial-gradient(ellipse at center, rgb(15 23 42 / 14%) 0 42%, transparent 43%),
+    radial-gradient(ellipse at center, rgb(255 255 255 / 18%) 0 15%, transparent 16%),
+    radial-gradient(ellipse at center, rgb(245 158 11 / 10%) 0 29%, transparent 30%),
+    radial-gradient(ellipse at center, rgb(15 23 42 / 16%) 0 43%, transparent 44%),
     #2e6b52;
   border-radius: 8px;
   height: 100%;
@@ -2623,6 +2624,11 @@ input:focus-visible {
   --river-y: 0px;
   --role-x: 0px;
   --role-y: 0px;
+  --guide-h: 82px;
+  --guide-rotation: var(--hand-rotation);
+  --guide-w: 380px;
+  --guide-x: 0px;
+  --guide-y: 0px;
 
   display: block;
   height: 0;
@@ -2635,61 +2641,85 @@ input:focus-visible {
 
 .table-player-left {
   --hand-rotation: 90deg;
-  --name-x: -430px;
+  --guide-h: 72px;
+  --guide-rotation: -22deg;
+  --guide-w: 286px;
+  --guide-x: -212px;
+  --guide-y: 72px;
+  --name-x: -360px;
   --name-y: 148px;
-  --hand-x: -326px;
+  --hand-x: -286px;
   --hand-y: 112px;
-  --trick-x: -244px;
+  --trick-x: -214px;
   --trick-y: 78px;
-  --river-x: -154px;
+  --river-x: -126px;
   --river-y: 34px;
-  --role-x: -62px;
-  --role-y: -4px;
+  --role-x: -46px;
+  --role-y: 0px;
 }
 
 .table-player-top-left {
+  --guide-h: 76px;
+  --guide-rotation: 54deg;
+  --guide-w: 286px;
+  --guide-x: -176px;
+  --guide-y: -230px;
   --name-x: -252px;
-  --name-y: -390px;
+  --name-y: -340px;
   --hand-x: -202px;
-  --hand-y: -302px;
+  --hand-y: -278px;
   --trick-x: -158px;
-  --trick-y: -220px;
+  --trick-y: -204px;
   --river-x: -108px;
-  --river-y: -100px;
-  --role-x: -24px;
-  --role-y: -42px;
+  --river-y: -118px;
+  --role-x: -40px;
+  --role-y: -54px;
 }
 
 .table-player-top-right {
+  --guide-h: 76px;
+  --guide-rotation: -54deg;
+  --guide-w: 286px;
+  --guide-x: 176px;
+  --guide-y: -230px;
   --name-x: 252px;
-  --name-y: -390px;
+  --name-y: -340px;
   --hand-x: 202px;
-  --hand-y: -302px;
+  --hand-y: -278px;
   --trick-x: 158px;
-  --trick-y: -220px;
+  --trick-y: -204px;
   --river-x: 108px;
-  --river-y: -100px;
-  --role-x: 24px;
-  --role-y: -42px;
+  --river-y: -118px;
+  --role-x: 40px;
+  --role-y: -54px;
 }
 
 .table-player-right {
   --hand-rotation: -90deg;
-  --name-x: 430px;
+  --guide-h: 72px;
+  --guide-rotation: 22deg;
+  --guide-w: 286px;
+  --guide-x: 212px;
+  --guide-y: 72px;
+  --name-x: 360px;
   --name-y: 148px;
-  --hand-x: 326px;
+  --hand-x: 286px;
   --hand-y: 112px;
-  --trick-x: 244px;
+  --trick-x: 214px;
   --trick-y: 78px;
-  --river-x: 154px;
+  --river-x: 126px;
   --river-y: 34px;
-  --role-x: 62px;
-  --role-y: -4px;
+  --role-x: 46px;
+  --role-y: 0px;
 }
 
 .table-player-self {
+  --guide-h: 88px;
+  --guide-w: min(820px, calc(100vw - 340px));
+  --guide-x: 0px;
+  --guide-y: 198px;
   --name-x: 0px;
-  --name-y: 388px;
+  --name-y: 354px;
   --hand-x: 0px;
   --hand-y: 302px;
   --trick-x: 0px;
@@ -2697,8 +2727,25 @@ input:focus-visible {
   --river-x: 0px;
   --river-y: 64px;
   --role-x: 0px;
-  --role-y: 18px;
+  --role-y: 112px;
   z-index: 5;
+}
+
+.table-seat-guide {
+  background:
+    linear-gradient(90deg, rgb(250 204 21 / 7%), rgb(255 255 255 / 5%) 34% 74%, rgb(15 23 42 / 4%)),
+    rgb(255 255 255 / 3%);
+  border: 1px solid rgb(255 255 255 / 8%);
+  border-radius: 999px;
+  box-shadow: inset 0 0 18px rgb(15 23 42 / 10%);
+  height: var(--guide-h);
+  left: 0;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  transform: translate(-50%, -50%) translate(var(--guide-x), var(--guide-y)) rotate(var(--guide-rotation));
+  width: var(--guide-w);
+  z-index: 0;
 }
 
 .table-seat-name {
@@ -2776,6 +2823,10 @@ input:focus-visible {
   --zone-rotation: 0deg;
 }
 
+.table-surface-bidding .table-trick-zone {
+  display: none;
+}
+
 .table-player-left .table-hand-zone,
 .table-player-right .table-hand-zone {
   min-width: 156px;
@@ -2805,6 +2856,14 @@ input:focus-visible {
 
 .table-self-hand .card:disabled {
   opacity: 0.78;
+}
+
+.table-self-hand .card-joker .card-corner {
+  font-size: 0.5rem;
+}
+
+.table-self-hand .card-joker .card-center-mark {
+  font-size: 0.92rem;
 }
 
 .opponent-card-backs {
@@ -2862,8 +2921,8 @@ input:focus-visible {
 }
 
 .table-empty-card-slot {
-  background: rgb(255 255 255 / 8%);
-  border: 1px dashed rgb(255 255 255 / 34%);
+  background: rgb(255 255 255 / 5%);
+  border: 1px dashed rgb(255 255 255 / 22%);
   box-shadow: none;
 }
 
@@ -2960,12 +3019,12 @@ input:focus-visible {
 }
 
 .point-river-slot {
-  background: rgb(15 23 42 / 10%);
-  border: 1px solid rgb(255 255 255 / 14%);
+  background: rgb(255 255 255 / 9%);
+  border: 1px solid rgb(255 255 255 / 18%);
 }
 
 .point-river-slot-empty {
-  opacity: 0.48;
+  opacity: 0.62;
 }
 
 .table-bid-token {
@@ -3018,10 +3077,10 @@ input:focus-visible {
 
 .table-role-marker {
   align-items: center;
-  background: #f8fafc;
-  border: 1px solid rgb(15 23 42 / 18%);
+  background: rgb(15 23 42 / 74%);
+  border: 1px solid rgb(255 255 255 / 18%);
   border-radius: 50%;
-  color: #334155;
+  color: #ffffff;
   display: grid;
   font-size: 0.7rem;
   font-weight: 950;
@@ -3036,7 +3095,10 @@ input:focus-visible {
 }
 
 .table-role-marker-empty {
-  opacity: 0.42;
+  background: rgb(255 255 255 / 7%);
+  border-color: rgb(255 255 255 / 11%);
+  color: transparent;
+  opacity: 0.34;
 }
 
 .table-role-marker-napoleon {
@@ -3180,59 +3242,83 @@ input:focus-visible {
 
   .table-player-left {
     --hand-rotation: 90deg;
-    --name-x: -300px;
+    --guide-h: 54px;
+    --guide-rotation: -18deg;
+    --guide-w: 210px;
+    --guide-x: -168px;
+    --guide-y: 18px;
+    --name-x: -286px;
     --name-y: 52px;
-    --hand-x: -250px;
+    --hand-x: -230px;
     --hand-y: 34px;
-    --trick-x: -208px;
+    --trick-x: -194px;
     --trick-y: 20px;
-    --river-x: -164px;
+    --river-x: -150px;
     --river-y: 2px;
-    --role-x: -72px;
-    --role-y: -24px;
+    --role-x: -80px;
+    --role-y: -14px;
   }
 
   .table-player-top-left {
+    --guide-h: 58px;
+    --guide-rotation: 27deg;
+    --guide-w: 190px;
+    --guide-x: -102px;
+    --guide-y: -86px;
     --name-x: -154px;
     --name-y: -144px;
     --hand-x: -116px;
     --hand-y: -108px;
     --trick-x: -98px;
     --trick-y: -72px;
-    --river-x: -82px;
-    --river-y: -42px;
-    --role-x: -26px;
-    --role-y: -18px;
+    --river-x: -80px;
+    --river-y: -48px;
+    --role-x: -42px;
+    --role-y: -16px;
   }
 
   .table-player-top-right {
+    --guide-h: 58px;
+    --guide-rotation: -27deg;
+    --guide-w: 190px;
+    --guide-x: 102px;
+    --guide-y: -86px;
     --name-x: 154px;
     --name-y: -144px;
     --hand-x: 116px;
     --hand-y: -108px;
     --trick-x: 98px;
     --trick-y: -72px;
-    --river-x: 82px;
-    --river-y: -42px;
-    --role-x: 26px;
-    --role-y: -18px;
+    --river-x: 80px;
+    --river-y: -48px;
+    --role-x: 42px;
+    --role-y: -16px;
   }
 
   .table-player-right {
     --hand-rotation: -90deg;
-    --name-x: 300px;
+    --guide-h: 54px;
+    --guide-rotation: 18deg;
+    --guide-w: 210px;
+    --guide-x: 168px;
+    --guide-y: 18px;
+    --name-x: 286px;
     --name-y: 52px;
-    --hand-x: 250px;
+    --hand-x: 230px;
     --hand-y: 34px;
-    --trick-x: 208px;
+    --trick-x: 194px;
     --trick-y: 20px;
-    --river-x: 164px;
+    --river-x: 150px;
     --river-y: 2px;
-    --role-x: 72px;
-    --role-y: -24px;
+    --role-x: 80px;
+    --role-y: -14px;
   }
 
   .table-player-self {
+    --guide-h: 68px;
+    --guide-w: min(360px, calc(100vw - 240px));
+    --guide-x: 0px;
+    --guide-y: 80px;
     --name-x: 0px;
     --name-y: 160px;
     --hand-x: 0px;
@@ -3242,7 +3328,12 @@ input:focus-visible {
     --river-x: 0px;
     --river-y: -32px;
     --role-x: 0px;
-    --role-y: -54px;
+    --role-y: 22px;
+  }
+
+  .table-seat-guide {
+    border-color: rgb(255 255 255 / 10%);
+    box-shadow: inset 0 0 18px rgb(15 23 42 / 10%);
   }
 
   .table-seat-name {
@@ -3288,6 +3379,14 @@ input:focus-visible {
 
   .table-self-hand .card-joker {
     font-size: 0.48rem;
+  }
+
+  .table-self-hand .card-joker .card-corner {
+    font-size: 0.34rem;
+  }
+
+  .table-self-hand .card-joker .card-center-mark {
+    font-size: 0.54rem;
   }
 
   .table-self-hand .hand-card-empty-slot {
