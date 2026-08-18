@@ -2882,6 +2882,10 @@ input:focus-visible {
   border: 1px solid rgb(255 255 255 / 14%);
 }
 
+.point-river-slot-empty {
+  opacity: 0;
+}
+
 .table-bid-token {
   align-items: center;
   background: rgb(255 255 255 / 92%);
