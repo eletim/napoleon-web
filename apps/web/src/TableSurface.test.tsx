@@ -46,6 +46,24 @@ describe("TableSurface", () => {
     expect(html).toContain("右側AIがJ♣を出しました");
     expect(html).toContain("自分が10♠を出しました");
   });
+
+  it("reserves a fixed twenty-card point river for every player", () => {
+    const html = renderTable(
+      createState({
+        capturedPointCards: {
+          "player-1": [standardCard("spades", "A"), standardCard("hearts", "10")],
+          "player-0": [standardCard("clubs", "K")]
+        },
+        opponentHandCounts: [8, 8, 8, 8]
+      })
+    );
+
+    expect(countOccurrences(html, "class=\"point-river-grid\"")).toBe(5);
+    expect(countOccurrences(html, "point-river-slot-empty")).toBe(97);
+    expect(html).not.toContain("★");
+    expect(html).toContain("左側AIの獲得ポイント札 2枚");
+    expect(html).toContain("自分の獲得ポイント札 1枚");
+  });
 });
 
 function renderTable(state: PublicGameState): string {
@@ -69,9 +87,11 @@ function renderTable(state: PublicGameState): string {
 }
 
 function createState({
+  capturedPointCards = {},
   currentTrick = [],
   opponentHandCounts
 }: {
+  capturedPointCards?: Partial<Record<string, readonly PublicStandardCard[]>>;
   currentTrick?: readonly PublicPlayedCard[];
   opponentHandCounts: readonly [number, number, number, number];
 }): PublicGameState {
@@ -84,12 +104,12 @@ function createState({
         standardCard("hearts", "K"),
         standardCard("diamonds", "Q")
       ],
-      capturedPointCards: []
+      capturedPointCards: capturedPointCards["player-0"] ?? []
     },
     opponents: opponentHandCounts.map((handCount, index) => ({
       id: `player-${index + 1}`,
       handCount,
-      capturedPointCards: []
+      capturedPointCards: capturedPointCards[`player-${index + 1}`] ?? []
     })),
     phase: "playing",
     trumpSuit: "spades",

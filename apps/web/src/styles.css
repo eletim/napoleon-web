@@ -2883,7 +2883,7 @@ input:focus-visible {
 }
 
 .point-river-slot-empty {
-  opacity: 0;
+  opacity: 0.48;
 }
 
 .table-bid-token {
@@ -2984,8 +2984,8 @@ input:focus-visible {
   .table-surface {
     --table-card-w: 30px;
     --table-card-h: 42px;
-    --table-card-small-w: 16px;
-    --table-card-small-h: 22px;
+    --table-card-small-w: 13px;
+    --table-card-small-h: 18px;
     min-height: 0;
   }
 
