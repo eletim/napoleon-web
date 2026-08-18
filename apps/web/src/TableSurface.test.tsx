@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type {
@@ -141,12 +143,52 @@ describe("TableSurface", () => {
     expect(html).toContain("card-red");
     expect(html).toContain("card-black");
   });
+
+  it("keeps permanent and contextual controls in the left side action rail", () => {
+    const html = renderTable(
+      createState({ opponentHandCounts: [10, 10, 10, 10] }),
+      <div className="action-area">
+        <button
+          aria-label="次のトリックへ進む"
+          className="secondary-button next-trick-button"
+          type="button"
+        >
+          次へ
+        </button>
+      </div>
+    );
+    const asideStart = html.indexOf("class=\"table-side-actions\"");
+    const seatsStart = html.indexOf("class=\"table-player-zone\"");
+    const asideHtml = html.slice(asideStart, seatsStart);
+
+    expect(asideHtml).toContain("aria-label=\"操作\"");
+    expect(asideHtml).toContain("class=\"table-side-tools\"");
+    expect(asideHtml).toContain("理牌");
+    expect(asideHtml).toContain("勝札");
+    expect(asideHtml).toContain("next-trick-button");
+    expect(asideHtml).toContain("次のトリックへ進む");
+    expect(asideHtml.indexOf("table-side-tools")).toBeLessThan(
+      asideHtml.indexOf("next-trick-button")
+    );
+  });
+
+  it("only renders the next trick action when the completed trick needs clearing", () => {
+    const appSource = readFileSync(fileURLToPath(new URL("./App.tsx", import.meta.url)), "utf8");
+    const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
+
+    expect(appSource).toContain(
+      'session?.state.phase === "playing" &&\n                session.state.isTrickComplete &&\n                !session.state.isGameOver'
+    );
+    expect(appSource).toContain("disabled={isInteractionLocked}");
+    expect(styles).toContain(".table-side-actions .next-trick-button");
+    expect(styles).toContain("white-space: nowrap;");
+  });
 });
 
-function renderTable(state: PublicGameState): string {
+function renderTable(state: PublicGameState, actionPanel: React.ReactNode = null): string {
   return renderToStaticMarkup(
     <TableSurface
-      actionPanel={null}
+      actionPanel={actionPanel}
       canExchange={false}
       currentTrick={state.currentTrick}
       highlightWinningCard={true}
