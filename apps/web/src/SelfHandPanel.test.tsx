@@ -237,36 +237,24 @@ describe("SelfHandPanel", () => {
 
   it("defines a five by two mobile hand grid", () => {
     const styles = readFileSync("src/styles.css", "utf8");
-    const match = styles.match(
-      /\.app-shell-game-in-progress \.hand \{[\s\S]*?grid-template-columns: ([^;]+);[\s\S]*?grid-template-rows: ([^;]+);/
+    const landscapeBlock = getLastMediaBlock(
+      styles,
+      "@media (max-width: 960px) and (max-height: 560px) and (orientation: landscape)"
     );
 
-    expect(match?.[1]).toBe("repeat(5, minmax(0, 1fr))");
-    expect(match?.[2]).toBe("repeat(2, 58px)");
+    expect(landscapeBlock).toContain("grid-template-columns: repeat(5, minmax(0, 56px));");
+    expect(landscapeBlock).toContain("grid-template-rows: repeat(2, 38px);");
   });
 
-  it("lightens the mobile in-progress self panel without changing the fixed hand grid", () => {
+  it("keeps the in-progress self panel compact without changing the fixed hand grid", () => {
     const styles = readFileSync("src/styles.css", "utf8");
-    const panelMatch = styles.match(
-      /\.app-shell-game-in-progress \.self-panel \{([\s\S]*?)\n  \}/
-    );
-    const currentPanelMatch = styles.match(
-      /\.app-shell-game-in-progress \.self-panel\.current-player \{([\s\S]*?)\n  \}/
-    );
-    const pointsMatch = styles.match(
-      /\.app-shell-game-in-progress \.self-points-row \{([\s\S]*?)\n  \}/
-    );
-    const handMatch = styles.match(
-      /\.app-shell-game-in-progress \.hand \{[\s\S]*?grid-template-columns: ([^;]+);[\s\S]*?grid-template-rows: ([^;]+);/
-    );
 
-    expect(panelMatch?.[1]).toContain("background: rgb(248 250 252 / 84%);");
-    expect(panelMatch?.[1]).toContain("border: 1px solid rgb(255 255 255 / 54%);");
-    expect(panelMatch?.[1]).toContain("box-shadow: none;");
-    expect(currentPanelMatch?.[1]).toContain("box-shadow: 0 0 0 2px rgb(250 204 21 / 16%);");
-    expect(pointsMatch?.[1]).toContain("border-top-color: rgb(148 163 184 / 24%);");
-    expect(handMatch?.[1]).toBe("repeat(5, minmax(0, 1fr))");
-    expect(handMatch?.[2]).toBe("repeat(2, 58px)");
+    expect(styles).toContain("background: rgb(248 250 252 / 92%);");
+    expect(styles).toContain("border: 1px solid rgb(255 255 255 / 70%);");
+    expect(styles).toContain("box-shadow: 0 6px 16px rgb(15 23 42 / 12%);");
+    expect(styles).toContain("border-color: rgb(250 204 21 / 70%);");
+    expect(styles).toContain("border-top-color: rgb(148 163 184 / 28%);");
+    expect(styles).toContain("grid-template-columns: repeat(10, minmax(0, 68px));");
   });
 
   it("keeps the landscape mobile hand as a compact five by two grid", () => {
@@ -515,4 +503,22 @@ function getCardButton(container: Element, ariaLabel: string): HTMLButtonElement
 
 function countOccurrences(value: string, pattern: string): number {
   return value.split(pattern).length - 1;
+}
+
+function getLastMediaBlock(styles: string, query: string): string {
+  const firstBlock = getMediaBlock(styles, query);
+  let block = firstBlock;
+  let searchStart = styles.indexOf(query) + query.length;
+
+  while (true) {
+    const nextStart = styles.indexOf(query, searchStart);
+
+    if (nextStart === -1) {
+      return block;
+    }
+
+    const nextMedia = styles.indexOf("@media", nextStart + query.length);
+    block = styles.slice(nextStart, nextMedia === -1 ? undefined : nextMedia);
+    searchStart = nextStart + query.length;
+  }
 }

@@ -138,7 +138,7 @@ describe("TrickBoard", () => {
 
   it("uses shared simple center summary styling across desktop and mobile", () => {
     const styles = readFileSync("src/styles.css", "utf8");
-    const landscapeBlock = getMediaBlock(
+    const landscapeBlock = getLastMediaBlock(
       styles,
       "@media (max-width: 960px) and (max-height: 560px) and (orientation: landscape)"
     );
@@ -148,7 +148,11 @@ describe("TrickBoard", () => {
     expect(styles).toContain(".trick-status-summary");
     expect(styles).toContain("background: transparent;");
     expect(styles).toContain("border: 0;");
-    expect(landscapeBlock).toContain(".app-shell-game-active .trick-status-summary");
+    expect(landscapeBlock).toContain(".app-shell-game-in-progress .trick-board");
+    expect(landscapeBlock).toContain('". top-left top-right ."');
+    expect(landscapeBlock).toContain('"left message message right"');
+    expect(landscapeBlock).toContain('". self self ."');
+    expect(landscapeBlock).toContain(".app-shell-game-in-progress .trick-status-summary");
     expect(landscapeBlock).toContain("font-size: 1.08rem;");
   });
 });
@@ -195,4 +199,22 @@ function getMediaBlock(styles: string, query: string): string {
   const nextMedia = styles.indexOf("@media", start + query.length);
 
   return styles.slice(start, nextMedia === -1 ? undefined : nextMedia);
+}
+
+function getLastMediaBlock(styles: string, query: string): string {
+  const firstBlock = getMediaBlock(styles, query);
+  let block = firstBlock;
+  let searchStart = styles.indexOf(query) + query.length;
+
+  while (true) {
+    const nextStart = styles.indexOf(query, searchStart);
+
+    if (nextStart === -1) {
+      return block;
+    }
+
+    const nextMedia = styles.indexOf("@media", nextStart + query.length);
+    block = styles.slice(nextStart, nextMedia === -1 ? undefined : nextMedia);
+    searchStart = nextStart + query.length;
+  }
 }
