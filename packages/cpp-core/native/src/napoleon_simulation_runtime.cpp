@@ -15,6 +15,17 @@ bool is_cpu_agent(const AgentIdentity& agent) {
   return agent.type == AgentType::RuleBased;
 }
 
+AgentIdentity resolve_agent(
+    const SimulationRuntimeConfig& config,
+    const GameState& state,
+    int player_index,
+    const RosterAssignment& roster) {
+  if (config.resolve_agent_identity) {
+    return config.resolve_agent_identity(state, player_index, roster);
+  }
+  return roster.agents[static_cast<std::size_t>(player_index)];
+}
+
 std::vector<Action> runtime_legal_actions(const GameState& state, int player_index) {
   std::vector<Action> actions = get_legal_actions(state, player_index);
   if (!actions.empty() || state.phase != Phase::Exchanging ||
@@ -46,8 +57,11 @@ Action select_cpu_action(
     const GameState& state,
     int player_index,
     std::uint32_t decision_seed) {
-  if (agent.type == AgentType::RuleBased && state.phase == Phase::Playing &&
-      !state.is_trick_complete) {
+  if (agent.type == AgentType::RuleBased &&
+      ((state.phase == Phase::Bidding) ||
+       (state.phase == Phase::ChoosingAdjutant) ||
+       (state.phase == Phase::Exchanging) ||
+       (state.phase == Phase::Playing && !state.is_trick_complete))) {
     SeededRandom rng(decision_seed);
     return select_agent_action(agent, state, player_index, rng);
   }
@@ -182,7 +196,7 @@ std::size_t SimulationRuntime::advance_runnable_games(std::size_t max_transition
       }
 
       const int player_index = game.state.current_player_index;
-      const AgentIdentity& agent = game.roster.agents[static_cast<std::size_t>(player_index)];
+      const AgentIdentity agent = resolve_agent(config_, game.state, player_index, game.roster);
       if (!is_cpu_agent(agent)) {
         if (game.pending_request_id.has_value()) {
           throw std::runtime_error("runnable game already has a pending request");
@@ -192,8 +206,10 @@ std::size_t SimulationRuntime::advance_runnable_games(std::size_t max_transition
         request.request_id = next_request_id_++;
         request.game_id = game.game_id;
         request.game_index = game.game_index;
+        request.seed = game.seed;
         request.sequence = next_request_sequence_++;
-        request.game_decision_count = game.agent_decision_count + 1;
+        request.game_decision_count =
+            game.internal_transition_count + game.agent_decision_count + 1;
         request.player_index = player_index;
         request.agent = agent;
         request.phase = game.state.phase;

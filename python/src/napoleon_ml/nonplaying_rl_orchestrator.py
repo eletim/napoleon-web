@@ -93,6 +93,7 @@ DEFAULT_PLAYING_POLICY_METADATA = Path(
     "benchmarks/playing-policies/ppo-separated-v1000/policy.json"
 )
 SUPPORTED_INFERENCE_DEVICES = ("cpu", "auto", "cuda")
+SUPPORTED_SIMULATION_BACKENDS = ("typescript", "cpp")
 
 PhaseName = Literal["bidding", "adjutant", "exchange"]
 PHASES: tuple[PhaseName, ...] = ("bidding", "adjutant", "exchange")
@@ -125,6 +126,7 @@ class NonPlayingRlRunConfig:
     inference_device: Literal["cpu", "auto", "cuda"] = DEFAULT_INFERENCE_DEVICE
     training_device: RequestedTorchDevice = DEFAULT_TRAINING_DEVICE
     inference_max_batch_size: int = DEFAULT_INFERENCE_MAX_BATCH_SIZE
+    simulation_backend: Literal["typescript", "cpp"] = "typescript"
     playing_policy_onnx: Path = DEFAULT_PLAYING_POLICY_ONNX
     playing_policy_metadata: Path = DEFAULT_PLAYING_POLICY_METADATA
     playing_policy_artifact_id: str = DEFAULT_PLAYING_POLICY_ARTIFACT_ID
@@ -153,6 +155,7 @@ class NonPlayingRlRunConfig:
             inference_device=self.inference_device,
             training_device=self.training_device,
             inference_max_batch_size=self.inference_max_batch_size,
+            simulation_backend=self.simulation_backend,
             playing_policy_onnx=_resolve_repo_path(self.playing_policy_onnx),
             playing_policy_metadata=_resolve_repo_path(self.playing_policy_metadata),
             playing_policy_artifact_id=self.playing_policy_artifact_id,
@@ -198,6 +201,7 @@ class NonPlayingRlRunConfig:
             "inferenceDevice": self.inference_device,
             "trainingDevice": self.training_device,
             "inferenceMaxBatchSize": self.inference_max_batch_size,
+            "simulationBackend": self.simulation_backend,
             "playingPolicyOnnx": str(self.playing_policy_onnx),
             "playingPolicyMetadata": str(self.playing_policy_metadata),
             "playingPolicyArtifactId": self.playing_policy_artifact_id,
@@ -234,6 +238,7 @@ class NonPlayingIterativeRlRunConfig:
     inference_device: Literal["cpu", "auto", "cuda"] = DEFAULT_INFERENCE_DEVICE
     training_device: RequestedTorchDevice = DEFAULT_TRAINING_DEVICE
     inference_max_batch_size: int = DEFAULT_INFERENCE_MAX_BATCH_SIZE
+    simulation_backend: Literal["typescript", "cpp"] = "typescript"
     playing_policy_onnx: Path = DEFAULT_PLAYING_POLICY_ONNX
     playing_policy_metadata: Path = DEFAULT_PLAYING_POLICY_METADATA
     playing_policy_artifact_id: str = DEFAULT_PLAYING_POLICY_ARTIFACT_ID
@@ -264,6 +269,7 @@ class NonPlayingIterativeRlRunConfig:
             inference_device=self.inference_device,
             training_device=self.training_device,
             inference_max_batch_size=self.inference_max_batch_size,
+            simulation_backend=self.simulation_backend,
             playing_policy_onnx=_resolve_repo_path(self.playing_policy_onnx),
             playing_policy_metadata=_resolve_repo_path(self.playing_policy_metadata),
             playing_policy_artifact_id=self.playing_policy_artifact_id,
@@ -299,6 +305,7 @@ class NonPlayingIterativeRlRunConfig:
             inference_device=self.inference_device,
             training_device=self.training_device,
             inference_max_batch_size=self.inference_max_batch_size,
+            simulation_backend=self.simulation_backend,
             playing_policy_onnx=self.playing_policy_onnx,
             playing_policy_metadata=self.playing_policy_metadata,
             playing_policy_artifact_id=self.playing_policy_artifact_id,
@@ -356,6 +363,7 @@ class NonPlayingIterativeRlRunConfig:
             "inferenceDevice": self.inference_device,
             "trainingDevice": self.training_device,
             "inferenceMaxBatchSize": self.inference_max_batch_size,
+            "simulationBackend": self.simulation_backend,
             "playingPolicyOnnx": str(self.playing_policy_onnx),
             "playingPolicyOnnxSha256": _sha256_file(self.playing_policy_onnx),
             "playingPolicyMetadata": str(self.playing_policy_metadata),
@@ -376,6 +384,8 @@ def run_nonplaying_rl_pipeline(config: NonPlayingRlRunConfig) -> dict[str, objec
     _prepare_output_dir(config)
     if config.build_typescript:
         _stage("typescript-build", _build_typescript_helpers)
+    if config.simulation_backend == "cpp":
+        _stage("cpp-build", _build_cpp_helpers)
 
     started = time.monotonic()
     summary: dict[str, object] = {
@@ -451,6 +461,8 @@ def run_iterative_nonplaying_rl_pipeline(
 
     if config.build_typescript:
         _stage("typescript-build", _build_typescript_helpers)
+    if config.simulation_backend == "cpp":
+        _stage("cpp-build", _build_cpp_helpers)
 
     started = time.monotonic()
     bootstrap_artifacts = _ensure_bootstrap_artifacts(config)
@@ -842,6 +854,54 @@ def _run_nonplaying_rollout(
     artifact_id: str | None = None,
     progress_prefix: str | None = None,
 ) -> dict[str, object]:
+    if config.simulation_backend == "cpp" and phase == "bidding":
+        cpp_binary = _cpp_build_dir() / "napoleon_nonplaying_bidding_dataset_cli"
+        summary = _run_node_json(
+            [
+                str(cpp_binary),
+                "--output",
+                str(dataset_dir),
+                "--bidding-onnx",
+                str(policy_onnx),
+                "--bidding-metadata",
+                str(policy_metadata),
+                "--bidding-artifact-id",
+                artifact_id if artifact_id is not None else f"{phase}-bootstrap-seed-{start_seed}",
+                "--playing-onnx",
+                str(config.playing_policy_onnx),
+                "--playing-metadata",
+                str(config.playing_policy_metadata),
+                "--playing-artifact-id",
+                config.playing_policy_artifact_id,
+                "--start-seed",
+                str(start_seed),
+                "--game-count",
+                str(config.games),
+                "--games-per-shard",
+                str(config.effective_games_per_shard),
+                "--temperature",
+                repr(config.temperature),
+                "--inference-device",
+                config.inference_device,
+                "--inference-max-batch-size",
+                str(config.inference_max_batch_size),
+                "--sampling-seed",
+                str(start_seed),
+                "--policy-backend",
+                "onnx",
+            ],
+            cwd=_repo_root(),
+        )
+        _patch_cpp_bidding_manifest(
+            config,
+            dataset_dir=dataset_dir,
+            policy_onnx=policy_onnx,
+            policy_metadata=policy_metadata,
+            start_seed=start_seed,
+            artifact_id=artifact_id if artifact_id is not None else f"{phase}-bootstrap-seed-{start_seed}",
+        )
+        return summary
+
     return _run_node_json(
         [
             "node",
@@ -880,6 +940,157 @@ def _run_nonplaying_rollout(
         ],
         cwd=_repo_root(),
     )
+
+
+def _patch_cpp_bidding_manifest(
+    config: NonPlayingRlRunConfig,
+    *,
+    dataset_dir: Path,
+    policy_onnx: Path,
+    policy_metadata: Path,
+    start_seed: int,
+    artifact_id: str,
+) -> None:
+    manifest_path = dataset_dir / "manifest.json"
+    manifest = _load_json_object(manifest_path)
+    behavior = cast(dict[str, object], manifest.get("behaviorPolicy", {}))
+    behavior.update(
+        {
+            "type": "bidding-onnx",
+            "artifactId": artifact_id,
+            "onnxPath": str(policy_onnx),
+            "metadataPath": str(policy_metadata),
+            "onnxFileName": policy_onnx.name,
+            "metadataFileName": policy_metadata.name,
+            "onnxSha256": _sha256_file(policy_onnx),
+            "metadataSha256": _sha256_file(policy_metadata),
+            "requestedInferenceDevice": config.inference_device,
+            "metadata": _load_json_object(policy_metadata),
+        }
+    )
+    fixed = cast(dict[str, object], manifest.get("fixedPlayingPolicy", {}))
+    fixed.update(
+        {
+            "type": "playing-onnx",
+            "artifactId": config.playing_policy_artifact_id,
+            "onnxPath": str(config.playing_policy_onnx),
+            "metadataPath": str(config.playing_policy_metadata),
+            "onnxFileName": config.playing_policy_onnx.name,
+            "metadataFileName": config.playing_policy_metadata.name,
+            "onnxSha256": _sha256_file(config.playing_policy_onnx),
+            "metadataSha256": _sha256_file(config.playing_policy_metadata),
+            "metadata": _load_json_object(config.playing_policy_metadata),
+        }
+    )
+    assignments = _frozen_bidding_assignments(start_seed, config.games)
+    rule_count = sum(
+        1
+        for item in assignments
+        if cast(dict[str, object], item["policy"])["type"] == "rule-based-bidding"
+    )
+    conservative_count = len(assignments) - rule_count
+    non_learning_agents = cast(dict[str, object], manifest.get("nonLearningAgents", {}))
+    non_learning_agents.update(
+        {
+            "bidding": {
+                "type": "mixed-frozen-bidding",
+                "mixingRuleVersion": FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION,
+                "selectionUnit": "game-seat",
+                "ruleBasedWeight": 0.5,
+                "conservativeWeight": 0.5,
+                "policies": {
+                    "ruleBased": {
+                        "type": "rule-based-bidding",
+                        "id": RULE_BASED_BIDDING_BASELINE_ID,
+                        "version": 1,
+                    },
+                    "conservative": {
+                        "type": "conservative-bidding",
+                        "id": CONSERVATIVE_BIDDING_BASELINE_ID,
+                    },
+                },
+            },
+            "playing": fixed,
+        }
+    )
+    manifest.update(
+        {
+            "startSeed": start_seed,
+            "endSeed": start_seed + config.games - 1,
+            "gameCount": config.games,
+            "gameCountUnit": NONPLAYING_GAME_COUNT_UNIT,
+            "logicalSeedCount": config.games,
+            "actualGameCount": config.games * len(NONPLAYING_ROTATION_OFFSETS),
+            "rolloutPolicyTopology": NONPLAYING_ROLLOUT_POLICY_TOPOLOGY,
+            "rotationOffsets": NONPLAYING_ROTATION_OFFSETS,
+            "behaviorPolicy": behavior,
+            "fixedPlayingPolicy": fixed,
+            "nonLearningAgents": non_learning_agents,
+            "diagnostics": {
+                **cast(dict[str, object], manifest.get("diagnostics", {})),
+                "candidateSeatCount": 1,
+                "frozenSeatCount": 4,
+                "candidateRotationSeatCount": len(NONPLAYING_ROTATION_OFFSETS),
+                "actualGameCount": config.games * len(NONPLAYING_ROTATION_OFFSETS),
+                "logicalSeedCount": config.games,
+                "rotationOffsets": NONPLAYING_ROTATION_OFFSETS,
+                "frozenBiddingOpponentMix": {
+                    "type": "mixed-frozen-bidding",
+                    "mixingRuleVersion": FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION,
+                    "selectionUnit": "game-seat",
+                    "ruleBasedWeight": 0.5,
+                    "conservativeWeight": 0.5,
+                    "policies": {
+                        "ruleBased": {
+                            "type": "rule-based-bidding",
+                            "id": RULE_BASED_BIDDING_BASELINE_ID,
+                            "version": 1,
+                        },
+                        "conservative": {
+                            "type": "conservative-bidding",
+                            "id": CONSERVATIVE_BIDDING_BASELINE_ID,
+                        },
+                    },
+                    "ruleBasedSeatCount": rule_count,
+                    "conservativeSeatCount": conservative_count,
+                    "seatAssignments": assignments,
+                },
+            },
+        }
+    )
+    _atomic_write_json(manifest_path, manifest)
+
+
+def _frozen_bidding_assignments(start_seed: int, game_count: int) -> list[dict[str, object]]:
+    assignments: list[dict[str, object]] = []
+    for offset in range(game_count):
+        seed = start_seed + offset
+        for candidate_seat in NONPLAYING_ROTATION_OFFSETS:
+            for player_index in range(5):
+                if player_index == candidate_seat:
+                    continue
+                policy = _frozen_bidding_policy(seed, candidate_seat, player_index)
+                assignments.append(
+                    {
+                        "seed": seed,
+                        "rotationOffset": candidate_seat,
+                        "candidateSeatIndex": candidate_seat,
+                        "playerIndex": player_index,
+                        "playerId": f"player-{player_index}",
+                        "policy": policy,
+                    }
+                )
+    return assignments
+
+
+def _frozen_bidding_policy(seed: int, candidate_seat: int, player_index: int) -> dict[str, object]:
+    digest = hashlib.sha256(
+        f"{FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION}:{seed}:{candidate_seat}:{player_index}".encode()
+    ).digest()
+    bucket = int.from_bytes(digest[:4], "big") % 2
+    if bucket == 0:
+        return {"type": "rule-based-bidding", "id": RULE_BASED_BIDDING_BASELINE_ID}
+    return {"type": "conservative-bidding", "id": CONSERVATIVE_BIDDING_BASELINE_ID}
 
 
 def _train_phase(
@@ -1517,11 +1728,14 @@ def _validate_iterative_resume_config(
         "playingPolicyOnnxSha256",
         "playingPolicyMetadataSha256",
         "playingPolicyArtifactId",
+        "simulationBackend",
     }
     semantic_provided_config_keys = provided_config_keys - {"trainingDevice"}
     for key in always_check | semantic_provided_config_keys:
         requested_value = requested_config.get(key)
         stored_value = stored_config.get(key)
+        if key == "simulationBackend" and stored_value is None:
+            stored_value = "typescript"
         if stored_value != requested_value:
             raise NonPlayingRlOrchestratorError(
                 f"resume config mismatch for {key}: {requested_value!r} != {stored_value!r}"
@@ -1566,6 +1780,10 @@ def _iterative_config_from_file_dict(
             data.get("trainingDevice", DEFAULT_TRAINING_DEVICE)
         ),
         inference_max_batch_size=_required_int(data["inferenceMaxBatchSize"]),
+        simulation_backend=cast(
+            Literal["typescript", "cpp"],
+            _required_str(data.get("simulationBackend", "typescript")),
+        ),
         playing_policy_onnx=Path(_required_str(data["playingPolicyOnnx"])),
         playing_policy_metadata=Path(_required_str(data["playingPolicyMetadata"])),
         playing_policy_artifact_id=_required_str(data["playingPolicyArtifactId"]),
@@ -1613,6 +1831,10 @@ def _validate_config(config: NonPlayingRlRunConfig) -> None:
     if config.inference_device not in SUPPORTED_INFERENCE_DEVICES:
         raise NonPlayingRlOrchestratorError(
             f"inference-device must be one of {', '.join(SUPPORTED_INFERENCE_DEVICES)}."
+        )
+    if config.simulation_backend not in SUPPORTED_SIMULATION_BACKENDS:
+        raise NonPlayingRlOrchestratorError(
+            f"simulation-backend must be one of {', '.join(SUPPORTED_SIMULATION_BACKENDS)}."
         )
     _validate_training_device(config.training_device)
     _ensure_file(config.playing_policy_onnx, "playing policy ONNX")
@@ -1694,6 +1916,67 @@ def _build_typescript_helpers() -> None:
         raise NonPlayingRlOrchestratorError(
             f"TypeScript helper build failed with exit {result.returncode}."
         )
+
+
+def _build_cpp_helpers() -> None:
+    build_dir = _cpp_build_dir()
+    cache_path = build_dir / "CMakeCache.txt"
+    needs_configure = True
+    if cache_path.exists():
+        try:
+            needs_configure = "NAPOLEON_ENABLE_ONNXRUNTIME:BOOL=ON" not in cache_path.read_text(
+                encoding="utf-8"
+            )
+        except OSError:
+            needs_configure = True
+    if needs_configure:
+        configure = subprocess.run(
+            [
+                "cmake",
+                "-S",
+                "packages/cpp-core/native",
+                "-B",
+                str(build_dir),
+                "-DNAPOLEON_ENABLE_ONNXRUNTIME=ON",
+            ],
+            cwd=_repo_root(),
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+        if configure.stdout:
+            print(configure.stdout, end="", flush=True)
+        if configure.stderr:
+            print(configure.stderr, end="", file=sys.stderr, flush=True)
+        if configure.returncode != 0:
+            raise NonPlayingRlOrchestratorError(
+                f"C++ helper configure failed with exit {configure.returncode}."
+            )
+    result = subprocess.run(
+        ["cmake", "--build", str(build_dir), "--target", "napoleon_nonplaying_bidding_dataset_cli"],
+        cwd=_repo_root(),
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    if result.stdout:
+        print(result.stdout, end="", flush=True)
+    if result.stderr:
+        print(result.stderr, end="", file=sys.stderr, flush=True)
+    if result.returncode != 0:
+        raise NonPlayingRlOrchestratorError(
+            f"C++ helper build failed with exit {result.returncode}."
+        )
+
+
+def _cpp_build_dir() -> Path:
+    value = os.environ.get("NAPOLEON_CPP_BUILD_DIR")
+    if value:
+        path = Path(value).expanduser()
+        return path if path.is_absolute() else _repo_root() / path
+    return _repo_root() / "packages/cpp-core/build"
 
 
 def _run_node_json(command: Sequence[str], *, cwd: Path) -> dict[str, object]:

@@ -349,7 +349,9 @@ int main() {
         it->legal_actions.begin(),
         it->legal_actions.end(),
         [](const napoleon::Action& action) {
-          return action.type == napoleon::Action::Type::Bid;
+          return action.type == napoleon::Action::Type::Bid &&
+                 action.suit == napoleon::Suit::Spades &&
+                 action.target_point_cards == 19;
         });
     assert(bid_it != it->legal_actions.end());
     napoleon::AgentResult result;
@@ -576,6 +578,53 @@ int main() {
   assert(forced_results.size() == 1);
   assert(forced_results.front().selected_card_index == forced_card_index);
   assert(forced_results.front().behavior_log_probability == 0.0);
+
+  napoleon::GameState bidding_state = napoleon::create_initial_game(202);
+  napoleon::AgentRequest bidding_request;
+  bidding_request.request_id = 2001;
+  bidding_request.sequence = 2001;
+  bidding_request.seed = 202;
+  bidding_request.player_index = bidding_state.current_player_index;
+  bidding_request.agent = current;
+  bidding_request.phase = napoleon::Phase::Bidding;
+  bidding_request.legal_actions =
+      napoleon::get_legal_actions(bidding_state, bidding_state.current_player_index);
+  napoleon::onnx_policy::attach_bidding_model_input(
+      bidding_state,
+      bidding_state.current_player_index,
+      bidding_request);
+  assert(bidding_request.bidding_model_input.size() ==
+         static_cast<std::size_t>(napoleon::observation::kBiddingModelInputFeatureCount));
+  assert(bidding_request.legal_bid_mask.size() ==
+         static_cast<std::size_t>(napoleon::observation::kBiddingActionCount));
+  assert(std::accumulate(
+             bidding_request.legal_bid_mask.begin(),
+             bidding_request.legal_bid_mask.end(),
+             0) == napoleon::observation::kBiddingActionCount);
+
+  std::array<float, napoleon::onnx_policy::kPolicyLogitCount> bidding_logits{};
+  bidding_logits.fill(0.0F);
+  bidding_logits[4] = 100000.0F;
+  napoleon::onnx_policy::BatchedPolicyExecutor bidding_executor(
+      napoleon::onnx_policy::BatchedPolicyConfig{8, 1.0, 2024});
+  bidding_executor.add_policy(
+      napoleon::onnx_policy::policy_key_from_agent(current),
+      std::make_unique<napoleon::onnx_policy::DeterministicPolicySession>(
+          bidding_logits,
+          napoleon::onnx_policy::ExecutionProvider::Cpu,
+          napoleon::observation::kBiddingModelInputFeatureCount,
+          napoleon::observation::kBiddingActionCount));
+  const std::vector<napoleon::onnx_policy::PolicyActionResult> bidding_results =
+      bidding_executor.run({bidding_request});
+  assert(bidding_results.size() == 1);
+  assert(bidding_results.front().result.selected_action_index == 4);
+  assert(bidding_results.front().result.action.type == napoleon::Action::Type::Bid);
+  assert(bidding_results.front().result.action.suit == napoleon::Suit::Clubs);
+  assert(bidding_results.front().result.action.target_point_cards == 13);
+  assert(bidding_request.legal_bid_mask[static_cast<std::size_t>(
+             bidding_results.front().result.selected_action_index)] == 1);
+  assert(std::isfinite(bidding_results.front().behavior_log_probability));
+  assert(bidding_results.front().behavior_log_probability <= 1e-12);
 
   bool rejected_non_playing = false;
   try {

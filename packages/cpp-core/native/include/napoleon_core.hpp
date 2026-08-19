@@ -103,6 +103,7 @@ struct BuriedCardsResolvedEvent {
 struct GameResult {
   std::string result_type = "standard";
   std::string winner;
+  std::optional<Suit> trump_suit;
   int napoleon_team_point_cards = 0;
   int alliance_point_cards = 0;
   int target_point_cards = 0;

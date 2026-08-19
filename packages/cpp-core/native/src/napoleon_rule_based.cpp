@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <optional>
 #include <stdexcept>
+#include <string>
 #include <unordered_set>
 #include <vector>
 
@@ -102,6 +104,10 @@ bool is_point_card(Card card) {
   const Rank rank = card_rank(card);
   return rank == Rank::Ten || rank == Rank::Jack || rank == Rank::Queen ||
          rank == Rank::King || rank == Rank::Ace;
+}
+
+bool is_standard_card(Card card) {
+  return !is_joker(card);
 }
 
 bool is_oruma(Card card) {
@@ -294,6 +300,270 @@ double evaluate_card_for_trump(Card card, Suit trump_suit) {
   return ai_rank_value(card_rank(card)) + (card_suit(card) == trump_suit ? 30 : 0);
 }
 
+double evaluate_hand_for_trump(const std::vector<Card>& hand, Suit trump_suit) {
+  double total = 0.0;
+  for (Card card : hand) {
+    total += evaluate_card_for_trump(card, trump_suit);
+  }
+  return total;
+}
+
+Suit select_best_trump_suit(const std::vector<Card>& hand) {
+  Suit best = Suit::Spades;
+  double best_score = evaluate_hand_for_trump(hand, best);
+  for (Suit suit : {Suit::Hearts, Suit::Diamonds, Suit::Clubs}) {
+    const double score = evaluate_hand_for_trump(hand, suit);
+    if (score > best_score) {
+      best = suit;
+      best_score = score;
+    }
+  }
+  return best;
+}
+
+std::optional<int> bid_limit_for_score(double score) {
+  if (score < 200.0) {
+    return std::nullopt;
+  }
+  return std::min(20, 13 + static_cast<int>(std::floor((score - 200.0) / 30.0)));
+}
+
+std::optional<int> conservative_bid_limit_for_score(double score) {
+  if (score < 280.0) {
+    return std::nullopt;
+  }
+  return std::min(19, 13 + static_cast<int>(std::floor((score - 280.0) / 55.0)));
+}
+
+Action pass_action(int player_index) {
+  Action action;
+  action.type = Action::Type::Pass;
+  action.player_index = player_index;
+  return action;
+}
+
+Action select_random(const std::vector<Action>& actions, SeededRandom& rng);
+
+Action select_bidding_action(
+    const GameState& state,
+    int player_index,
+    bool conservative) {
+  if (!state.bidding.has_value()) {
+    throw std::runtime_error("bidding state required");
+  }
+  const auto& hand = state.hands[static_cast<std::size_t>(player_index)];
+  const Suit best_suit = select_best_trump_suit(hand);
+  const double hand_score = evaluate_hand_for_trump(hand, best_suit);
+  const std::optional<int> bid_limit =
+      conservative ? conservative_bid_limit_for_score(hand_score) : bid_limit_for_score(hand_score);
+  if (!bid_limit.has_value()) {
+    return pass_action(player_index);
+  }
+
+  const std::optional<int> current_target =
+      state.bidding->highest_bid.has_value()
+          ? std::optional<int>{state.bidding->highest_bid->target_point_cards}
+          : std::nullopt;
+  const int needed_target = current_target.has_value() ? *current_target + 1 : 13;
+
+  if (conservative) {
+    const double raise_premium =
+        current_target.has_value() ? 35.0 + std::max(0, *current_target - 13) * 20.0 : 0.0;
+    const std::optional<int> effective =
+        conservative_bid_limit_for_score(hand_score - raise_premium);
+    if (!effective.has_value() || needed_target > std::min(*bid_limit, *effective)) {
+      return pass_action(player_index);
+    }
+  } else if (needed_target > *bid_limit) {
+    return pass_action(player_index);
+  }
+
+  for (const Action& action : get_legal_actions(state, player_index)) {
+    if (action.type == Action::Type::Bid && action.suit.has_value() &&
+        *action.suit == best_suit && action.target_point_cards == needed_target) {
+      return action;
+    }
+  }
+  return pass_action(player_index);
+}
+
+int count_standard_cards_of_suit(const std::vector<Card>& hand, Suit suit) {
+  return static_cast<int>(std::count_if(hand.begin(), hand.end(), [&](Card card) {
+    return is_standard_card(card) && card_suit(card) == suit;
+  }));
+}
+
+bool is_standard_adjutant_candidate(
+    Card card,
+    Suit trump_suit,
+    const std::unordered_set<std::uint8_t>& self_card_ids) {
+  if (!is_standard_card(card) || self_card_ids.count(card.id) != 0) {
+    return false;
+  }
+  if (is_yoromeki(card)) {
+    return false;
+  }
+  return is_oruma(card) || card.id == sei_jack(trump_suit).id ||
+         card.id == ura_jack(trump_suit).id || card_suit(card) == trump_suit;
+}
+
+double evaluate_adjutant_candidate(Card card, Suit trump_suit, int trump_count) {
+  if (is_oruma(card)) {
+    return 60.0;
+  }
+  if (card.id == sei_jack(trump_suit).id) {
+    return 55.0;
+  }
+  if (card.id == ura_jack(trump_suit).id) {
+    return 50.5 + trump_count;
+  }
+  if (!is_standard_card(card)) {
+    return 0.0;
+  }
+  return 30.0 + ai_rank_value(card_rank(card));
+}
+
+int adjutant_tie_priority(Card card, Suit trump_suit) {
+  if (is_oruma(card)) {
+    return 4;
+  }
+  if (card.id == sei_jack(trump_suit).id) {
+    return 3;
+  }
+  if (card.id == ura_jack(trump_suit).id) {
+    return 2;
+  }
+  return 1;
+}
+
+bool adjutant_less(Card left, Card right, Suit trump_suit) {
+  const int left_priority = adjutant_tie_priority(left, trump_suit);
+  const int right_priority = adjutant_tie_priority(right, trump_suit);
+  if (left_priority != right_priority) {
+    return left_priority > right_priority;
+  }
+  if (is_standard_card(left) && is_standard_card(right) && card_rank(left) != card_rank(right)) {
+    return ai_rank_value(card_rank(left)) > ai_rank_value(card_rank(right));
+  }
+  return card_id(left) < card_id(right);
+}
+
+Action select_adjutant_action(const GameState& state, int player_index, SeededRandom& rng) {
+  const std::vector<Action> legal_actions = get_legal_actions(state, player_index);
+  std::vector<Action> choose_actions;
+  for (const Action& action : legal_actions) {
+    if (action.type == Action::Type::ChooseAdjutant) {
+      choose_actions.push_back(action);
+    }
+  }
+  if (choose_actions.empty()) {
+    throw std::runtime_error("no legal adjutant actions");
+  }
+
+  const Suit trump_suit = get_trump_suit(state);
+  const auto& hand = state.hands[static_cast<std::size_t>(player_index)];
+  std::unordered_set<std::uint8_t> self_card_ids;
+  for (Card card : hand) {
+    self_card_ids.insert(card.id);
+  }
+  std::unordered_set<std::uint8_t> legal_ids;
+  for (const Action& action : choose_actions) {
+    legal_ids.insert(action.card.id);
+  }
+
+  const int trump_count = count_standard_cards_of_suit(hand, trump_suit);
+  double max_value = -std::numeric_limits<double>::infinity();
+  std::vector<Card> best_cards;
+  for (Card card : create_deck()) {
+    if (legal_ids.count(card.id) == 0 ||
+        !is_standard_adjutant_candidate(card, trump_suit, self_card_ids)) {
+      continue;
+    }
+    const double value = evaluate_adjutant_candidate(card, trump_suit, trump_count);
+    if (value > max_value + kEpsilon) {
+      max_value = value;
+      best_cards = {card};
+    } else if (std::fabs(value - max_value) < kEpsilon) {
+      best_cards.push_back(card);
+    }
+  }
+
+  if (best_cards.empty()) {
+    return select_random(choose_actions, rng);
+  }
+  std::sort(best_cards.begin(), best_cards.end(), [&](Card left, Card right) {
+    return adjutant_less(left, right, trump_suit);
+  });
+  const Card selected = best_cards.front();
+  auto found = std::find_if(choose_actions.begin(), choose_actions.end(), [&](const Action& action) {
+    return action.card.id == selected.id;
+  });
+  if (found == choose_actions.end()) {
+    throw std::runtime_error("selected adjutant action is not legal");
+  }
+  return *found;
+}
+
+void enumerate_discard_combinations(
+    const std::vector<Card>& hand,
+    int discard_count,
+    std::size_t start,
+    std::vector<Card>& current,
+    std::vector<std::vector<Card>>& out) {
+  if (static_cast<int>(current.size()) == discard_count) {
+    out.push_back(current);
+    return;
+  }
+  const std::size_t remaining =
+      static_cast<std::size_t>(discard_count - static_cast<int>(current.size()));
+  for (std::size_t index = start; index + remaining <= hand.size(); ++index) {
+    current.push_back(hand[index]);
+    enumerate_discard_combinations(hand, discard_count, index + 1, current, out);
+    current.pop_back();
+  }
+}
+
+Action select_discard_action(const GameState& state, int player_index, SeededRandom& rng) {
+  const Suit trump_suit = get_trump_suit(state);
+  const auto& hand = state.hands[static_cast<std::size_t>(player_index)];
+  std::vector<std::vector<Card>> combinations;
+  std::vector<Card> current;
+  enumerate_discard_combinations(hand, 3, 0, current, combinations);
+  if (combinations.empty()) {
+    throw std::runtime_error("no discard combinations are available");
+  }
+
+  double max_score = -std::numeric_limits<double>::infinity();
+  std::vector<std::vector<Card>> best;
+  for (const std::vector<Card>& discarded : combinations) {
+    std::unordered_set<std::uint8_t> discarded_ids;
+    for (Card card : discarded) {
+      discarded_ids.insert(card.id);
+    }
+    double kept_score = 0.0;
+    for (Card card : hand) {
+      if (discarded_ids.count(card.id) == 0) {
+        kept_score += evaluate_card_for_trump(card, trump_suit);
+      }
+    }
+    if (kept_score > max_score + kEpsilon) {
+      max_score = kept_score;
+      best = {discarded};
+    } else if (std::fabs(kept_score - max_score) < kEpsilon) {
+      best.push_back(discarded);
+    }
+  }
+
+  const int index = static_cast<int>(std::floor(rng.next() * best.size()));
+  const std::vector<Card>& selected =
+      best[static_cast<std::size_t>(std::min(index, static_cast<int>(best.size()) - 1))];
+  Action action;
+  action.type = Action::Type::DiscardCards;
+  action.player_index = player_index;
+  action.cards = selected;
+  return action;
+}
+
 double estimate_lead_win_probability(double card_score) {
   if (card_score < 10) {
     return 0.05;
@@ -466,8 +736,18 @@ Action select_rule_based_action(
     const GameState& state,
     int player_index,
     SeededRandom& rng) {
+  if (state.phase == Phase::Bidding) {
+    (void)rng;
+    return select_bidding_action(state, player_index, false);
+  }
+  if (state.phase == Phase::ChoosingAdjutant) {
+    return select_adjutant_action(state, player_index, rng);
+  }
+  if (state.phase == Phase::Exchanging) {
+    return select_discard_action(state, player_index, rng);
+  }
   if (state.phase != Phase::Playing || state.is_trick_complete || state.is_game_over) {
-    throw std::runtime_error("RuleBased C++ agent currently supports playing decisions only");
+    throw std::runtime_error("RuleBased C++ agent does not support this decision");
   }
 
   std::vector<Action> play_actions;
@@ -507,6 +787,10 @@ Action select_agent_action(
     SeededRandom& rng) {
   if (agent.type != AgentType::RuleBased) {
     throw std::runtime_error("only RuleBased CPU agent is available in this implementation");
+  }
+  if (state.phase == Phase::Bidding && agent.id == "conservative-bidding") {
+    (void)rng;
+    return select_bidding_action(state, player_index, true);
   }
   return select_rule_based_action(state, player_index, rng);
 }

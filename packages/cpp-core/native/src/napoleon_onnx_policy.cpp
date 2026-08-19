@@ -51,28 +51,30 @@ std::uint32_t sampling_seed_for_request(
 std::vector<float> request_model_input(
     const AgentRequest& request,
     std::size_t expected_feature_count) {
-  if (request.playing_model_input.size() != expected_feature_count) {
+  const std::vector<float>& source =
+      request.phase == Phase::Bidding ? request.bidding_model_input : request.playing_model_input;
+  if (source.size() != expected_feature_count) {
     throw std::runtime_error(
-        "playing_model_input feature count mismatch: expected " +
+        "policy model_input feature count mismatch: expected " +
         std::to_string(expected_feature_count) + ", got " +
-        std::to_string(request.playing_model_input.size()));
+        std::to_string(source.size()));
   }
-  std::vector<float> input = request.playing_model_input;
+  std::vector<float> input = source;
   for (float value : input) {
     if (!std::isfinite(value)) {
-      throw std::runtime_error("playing_model_input values must be finite");
+      throw std::runtime_error("policy model_input values must be finite");
     }
   }
   return input;
 }
 
-std::array<int, observation::kCardCount> request_legal_play_mask(const AgentRequest& request) {
-  if (request.legal_play_mask.size() != observation::kCardCount) {
-    throw std::runtime_error("legal_play_mask must contain 53 entries");
+std::vector<int> request_legal_mask(const AgentRequest& request, std::size_t expected_action_count) {
+  const std::vector<int>& source =
+      request.phase == Phase::Bidding ? request.legal_bid_mask : request.legal_play_mask;
+  if (source.size() != expected_action_count) {
+    throw std::runtime_error("legal policy mask size mismatch");
   }
-  std::array<int, observation::kCardCount> mask{};
-  std::copy(request.legal_play_mask.begin(), request.legal_play_mask.end(), mask.begin());
-  return mask;
+  return source;
 }
 
 bool is_legal_mask_value(int value) {
@@ -86,39 +88,42 @@ void validate_temperature(double temperature) {
 }
 
 struct MaskedDistribution {
-  std::vector<int> legal_card_indices;
+  std::vector<int> legal_action_indices;
   std::vector<double> probabilities;
   std::vector<double> log_probabilities;
 };
 
 MaskedDistribution create_masked_distribution(
-    const std::array<float, kPolicyLogitCount>& logits,
-    const std::array<int, observation::kCardCount>& legal_play_mask,
+    const std::vector<float>& logits,
+    const std::vector<int>& legal_mask,
     double temperature) {
   validate_temperature(temperature);
+  if (logits.size() != legal_mask.size()) {
+    throw std::runtime_error("policy logits and legal mask sizes must match");
+  }
 
   MaskedDistribution distribution;
   std::vector<double> scaled_logits;
-  for (int index = 0; index < kPolicyLogitCount; ++index) {
+  for (int index = 0; index < static_cast<int>(logits.size()); ++index) {
     const float logit = logits[static_cast<std::size_t>(index)];
     if (!std::isfinite(logit)) {
       throw std::runtime_error("policy logits must be finite");
     }
-    const int mask_value = legal_play_mask[static_cast<std::size_t>(index)];
+    const int mask_value = legal_mask[static_cast<std::size_t>(index)];
     if (mask_value != 0 && mask_value != 1) {
       throw std::runtime_error("legalPlayMask must contain only 0/1 values");
     }
     if (is_legal_mask_value(mask_value)) {
-      distribution.legal_card_indices.push_back(index);
+      distribution.legal_action_indices.push_back(index);
       scaled_logits.push_back(static_cast<double>(logit) / temperature);
     }
   }
 
-  if (distribution.legal_card_indices.empty()) {
-    throw std::runtime_error("legalPlayMask must contain at least one legal card");
+  if (distribution.legal_action_indices.empty()) {
+    throw std::runtime_error("legal policy mask must contain at least one action");
   }
 
-  if (distribution.legal_card_indices.size() == 1) {
+  if (distribution.legal_action_indices.size() == 1) {
     distribution.probabilities.push_back(1.0);
     distribution.log_probabilities.push_back(0.0);
     return distribution;
@@ -152,20 +157,20 @@ MaskedDistribution create_masked_distribution(
 }
 
 struct SampledAction {
-  int selected_card_index = -1;
+  int selected_action_index = -1;
   double log_probability = 0.0;
 };
 
 SampledAction sample_legal_action(
-    const std::array<float, kPolicyLogitCount>& logits,
-    const std::array<int, observation::kCardCount>& legal_play_mask,
+    const std::vector<float>& logits,
+    const std::vector<int>& legal_mask,
     double temperature,
     std::uint32_t seed) {
   const MaskedDistribution distribution =
-      create_masked_distribution(logits, legal_play_mask, temperature);
+      create_masked_distribution(logits, legal_mask, temperature);
 
-  if (distribution.legal_card_indices.size() == 1) {
-    return SampledAction{distribution.legal_card_indices.front(), 0.0};
+  if (distribution.legal_action_indices.size() == 1) {
+    return SampledAction{distribution.legal_action_indices.front(), 0.0};
   }
 
   SeededRandom rng(seed);
@@ -175,18 +180,18 @@ SampledAction sample_legal_action(
   }
 
   double cumulative_probability = 0.0;
-  for (std::size_t index = 0; index < distribution.legal_card_indices.size(); ++index) {
+  for (std::size_t index = 0; index < distribution.legal_action_indices.size(); ++index) {
     cumulative_probability += distribution.probabilities[index];
     if (random_value < cumulative_probability) {
       return SampledAction{
-          distribution.legal_card_indices[index],
+          distribution.legal_action_indices[index],
           distribution.log_probabilities[index]};
     }
   }
 
-  const std::size_t last_index = distribution.legal_card_indices.size() - 1;
+  const std::size_t last_index = distribution.legal_action_indices.size() - 1;
   return SampledAction{
-      distribution.legal_card_indices[last_index],
+      distribution.legal_action_indices[last_index],
       distribution.log_probabilities[last_index]};
 }
 
@@ -204,6 +209,32 @@ Action action_from_selected_card_index(const AgentRequest& request, int selected
     throw std::runtime_error("ONNX policy selected a card outside request legal actions");
   }
   return *action_it;
+}
+
+Action action_from_selected_action_index(const AgentRequest& request, int selected_action_index) {
+  if (request.phase == Phase::Bidding) {
+    const Action selected = observation::bidding_action_from_index(
+        selected_action_index,
+        request.player_index);
+    auto action_it = std::find_if(
+        request.legal_actions.begin(),
+        request.legal_actions.end(),
+        [&](const Action& action) {
+          if (action.type != selected.type || action.player_index != selected.player_index) {
+            return false;
+          }
+          if (selected.type == Action::Type::Pass) {
+            return true;
+          }
+          return action.type == Action::Type::Bid && action.suit == selected.suit &&
+                 action.target_point_cards == selected.target_point_cards;
+        });
+    if (action_it == request.legal_actions.end()) {
+      throw std::runtime_error("ONNX policy selected a bid outside request legal actions");
+    }
+    return *action_it;
+  }
+  return action_from_selected_card_index(request, selected_action_index);
 }
 
 void record_batch(PolicyBatchStats& stats, std::size_t batch_size, std::uint64_t elapsed_ns) {
@@ -242,6 +273,7 @@ class OnnxRuntimePolicySession final : public PolicySession {
         input_name_(config.input_name),
         output_name_(config.output_name),
         model_input_feature_count_(config.model_input_feature_count),
+        action_count_(config.action_count),
         provider_(config.inference_device == InferenceDevice::Cuda ? ExecutionProvider::Cuda
                                                                     : ExecutionProvider::Cpu) {
     if (config.onnx_path.empty()) {
@@ -263,7 +295,7 @@ class OnnxRuntimePolicySession final : public PolicySession {
     session_ = std::make_unique<Ort::Session>(env_, config.onnx_path.c_str(), options);
   }
 
-  std::vector<std::array<float, kPolicyLogitCount>> run_logits_batch(
+  std::vector<std::vector<float>> run_logits_batch(
       const std::vector<std::vector<float>>& inputs) override {
     if (inputs.empty()) {
       throw std::runtime_error("ONNX batch must contain at least one input");
@@ -304,16 +336,16 @@ class OnnxRuntimePolicySession final : public PolicySession {
     Ort::TensorTypeAndShapeInfo shape = outputs[0].GetTensorTypeAndShapeInfo();
     const std::vector<std::int64_t> dims = shape.GetShape();
     if (dims.size() != 2 || dims[0] != static_cast<std::int64_t>(inputs.size()) ||
-        dims[1] != kPolicyLogitCount) {
-      throw std::runtime_error("ONNX output shape must be [batch, 53]");
+        dims[1] != static_cast<std::int64_t>(action_count_)) {
+      throw std::runtime_error("ONNX output shape does not match configured action count");
     }
 
     const float* output_data = outputs[0].GetTensorData<float>();
-    std::vector<std::array<float, kPolicyLogitCount>> result(inputs.size());
+    std::vector<std::vector<float>> result(inputs.size(), std::vector<float>(action_count_));
     for (std::size_t row = 0; row < inputs.size(); ++row) {
       std::copy(
-          output_data + row * kPolicyLogitCount,
-          output_data + (row + 1) * kPolicyLogitCount,
+          output_data + row * action_count_,
+          output_data + (row + 1) * action_count_,
           result[row].begin());
     }
     return result;
@@ -326,6 +358,9 @@ class OnnxRuntimePolicySession final : public PolicySession {
   std::size_t model_input_feature_count() const override {
     return model_input_feature_count_;
   }
+  std::size_t action_count() const override {
+    return action_count_;
+  }
 
  private:
   Ort::Env env_;
@@ -333,6 +368,7 @@ class OnnxRuntimePolicySession final : public PolicySession {
   std::string input_name_;
   std::string output_name_;
   std::size_t model_input_feature_count_ = observation::kPlayingModelInputFeatureCount;
+  std::size_t action_count_ = kPolicyLogitCount;
   ExecutionProvider provider_ = ExecutionProvider::Cpu;
   std::unique_ptr<Ort::Session> session_;
 };
@@ -344,7 +380,7 @@ class OnnxRuntimePolicySession final : public PolicySession {
 struct BatchedPolicyExecutor::QueueItem {
   AgentRequest request;
   std::vector<float> model_input;
-  std::array<int, observation::kCardCount> legal_play_mask;
+  std::vector<int> legal_mask;
 };
 
 struct BatchedPolicyExecutor::PolicyState {
@@ -356,16 +392,21 @@ struct BatchedPolicyExecutor::PolicyState {
 DeterministicPolicySession::DeterministicPolicySession(
     std::array<float, kPolicyLogitCount> logits,
     ExecutionProvider provider,
-    std::size_t model_input_feature_count)
+    std::size_t model_input_feature_count,
+    std::size_t action_count)
     : logits_(logits),
       provider_(provider),
-      model_input_feature_count_(model_input_feature_count) {
+      model_input_feature_count_(model_input_feature_count),
+      action_count_(action_count) {
   if (model_input_feature_count_ == 0) {
     throw std::runtime_error("deterministic policy feature count must be positive");
   }
+  if (action_count_ == 0 || action_count_ > kPolicyLogitCount) {
+    throw std::runtime_error("deterministic policy action count is out of range");
+  }
 }
 
-std::vector<std::array<float, kPolicyLogitCount>> DeterministicPolicySession::run_logits_batch(
+std::vector<std::vector<float>> DeterministicPolicySession::run_logits_batch(
     const std::vector<std::vector<float>>& inputs) {
   if (inputs.empty()) {
     throw std::runtime_error("deterministic policy batch must contain at least one input");
@@ -376,11 +417,16 @@ std::vector<std::array<float, kPolicyLogitCount>> DeterministicPolicySession::ru
     }
   }
   session_run_count_ += 1;
-  return std::vector<std::array<float, kPolicyLogitCount>>(inputs.size(), logits_);
+  std::vector<float> logits(logits_.begin(), logits_.begin() + static_cast<std::ptrdiff_t>(action_count_));
+  return std::vector<std::vector<float>>(inputs.size(), logits);
 }
 
 std::size_t DeterministicPolicySession::model_input_feature_count() const {
   return model_input_feature_count_;
+}
+
+std::size_t DeterministicPolicySession::action_count() const {
+  return action_count_;
 }
 
 ExecutionProvider DeterministicPolicySession::execution_provider() const {
@@ -438,8 +484,8 @@ void BatchedPolicyExecutor::add_policy(PolicyKey key, std::unique_ptr<PolicySess
 }
 
 void BatchedPolicyExecutor::enqueue(const AgentRequest& request) {
-  if (request.phase != Phase::Playing) {
-    throw std::runtime_error("ONNX policy executor only supports active playing requests");
+  if (request.phase != Phase::Playing && request.phase != Phase::Bidding) {
+    throw std::runtime_error("ONNX policy executor only supports bidding or active playing requests");
   }
   if (request.legal_actions.empty()) {
     throw std::runtime_error("agent request has no legal actions");
@@ -456,7 +502,7 @@ void BatchedPolicyExecutor::enqueue(const AgentRequest& request) {
   item.request = request;
   item.model_input =
       request_model_input(request, policy_it->second->session->model_input_feature_count());
-  item.legal_play_mask = request_legal_play_mask(request);
+  item.legal_mask = request_legal_mask(request, policy_it->second->session->action_count());
   policy_it->second->queue.push_back(std::move(item));
 }
 
@@ -481,7 +527,7 @@ std::vector<PolicyActionResult> BatchedPolicyExecutor::flush() {
       }
 
       const auto started = std::chrono::steady_clock::now();
-      std::vector<std::array<float, kPolicyLogitCount>> logits =
+      std::vector<std::vector<float>> logits =
           policy.session->run_logits_batch(inputs);
       const auto ended = std::chrono::steady_clock::now();
       if (logits.size() != batch.size()) {
@@ -498,20 +544,22 @@ std::vector<PolicyActionResult> BatchedPolicyExecutor::flush() {
             sampling_seed_for_request(config_.sampling_seed, request, policy_id);
         const SampledAction sampled = sample_legal_action(
             logits[index],
-            batch[index].legal_play_mask,
+            batch[index].legal_mask,
             config_.temperature,
             seed);
-        Action action = action_from_selected_card_index(request, sampled.selected_card_index);
+        Action action = action_from_selected_action_index(request, sampled.selected_action_index);
         AgentResult result;
         result.request_id = request.request_id;
         result.action = action;
-        result.selected_card_index = sampled.selected_card_index;
+        result.selected_action_index = sampled.selected_action_index;
+        result.selected_card_index =
+            request.phase == Phase::Playing ? sampled.selected_action_index : -1;
         result.behavior_log_probability = sampled.log_probability;
         result.policy_key = policy_id;
         batch_results.push_back(PolicyActionResult{
             result,
             request.sequence,
-            sampled.selected_card_index,
+            request.phase == Phase::Playing ? sampled.selected_action_index : -1,
             sampled.log_probability,
             policy_id});
       }
@@ -599,6 +647,19 @@ void attach_playing_model_input(
       observation::create_playing_model_input(state, player_index, variant);
   request.playing_model_input = input.model_input;
   request.legal_play_mask.assign(input.legal_play_mask.begin(), input.legal_play_mask.end());
+}
+
+void attach_bidding_model_input(
+    const GameState& state,
+    int player_index,
+    AgentRequest& request) {
+  if (request.phase != Phase::Bidding) {
+    return;
+  }
+  const observation::BiddingModelInput input =
+      observation::create_bidding_model_input(state, player_index);
+  request.bidding_model_input.assign(input.model_input.begin(), input.model_input.end());
+  request.legal_bid_mask.assign(input.legal_bid_mask.begin(), input.legal_bid_mask.end());
 }
 
 std::string execution_provider_id(ExecutionProvider provider) {
