@@ -391,6 +391,7 @@ function RoleMarker({
       aria-label={`${player.label}の役職${markerText === "" ? "なし" : markerText}`}
       className={[
         "table-role-marker",
+        markerText === "?" ? "table-role-marker-unknown" : "",
         markerText === "" ? "table-role-marker-empty" : "",
         isNapoleon ? "table-role-marker-napoleon" : "",
         isAdjutant ? "table-role-marker-adjutant" : ""
