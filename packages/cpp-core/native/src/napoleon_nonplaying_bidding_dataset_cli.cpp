@@ -827,7 +827,6 @@ int main(int argc, char** argv) {
             .count();
     const double total_elapsed_seconds = total_elapsed_ms / 1000.0;
     const double accounted_top_level_ms =
-        ns_to_ms(profile.schedule_build_elapsed_ns) +
         ns_to_ms(profile.schedule_elapsed_ns) +
         ns_to_ms(runtime_metrics.advance_runnable_games_elapsed_ns) +
         ns_to_ms(runtime_metrics.collect_agent_requests_elapsed_ns) +
