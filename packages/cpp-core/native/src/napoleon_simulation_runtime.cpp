@@ -93,6 +93,18 @@ struct SimulationRuntime::RuntimeGame {
   bool finished_collected = false;
 };
 
+void SimulationRuntime::mark_finished(RuntimeGame& game) {
+  if (game.status == RuntimeGameStatus::Finished) {
+    return;
+  }
+  game.status = RuntimeGameStatus::Finished;
+  if (active_game_count_ == 0) {
+    throw std::runtime_error("active game count underflow");
+  }
+  active_game_count_ -= 1;
+  metrics_.finished_games += 1;
+}
+
 SimulationRuntime::SimulationRuntime(SimulationRuntimeConfig config)
     : config_(std::move(config)), started_at_(std::chrono::steady_clock::now()) {
   if (config_.max_concurrent_games == 0) {
@@ -103,11 +115,7 @@ SimulationRuntime::SimulationRuntime(SimulationRuntimeConfig config)
 SimulationRuntime::~SimulationRuntime() = default;
 
 std::vector<std::uint32_t> SimulationRuntime::add_games(std::size_t count) {
-  const std::size_t active_count = static_cast<std::size_t>(std::count_if(
-      games_.begin(), games_.end(), [](const RuntimeGame& game) {
-        return game.status != RuntimeGameStatus::Finished;
-      }));
-  if (active_count + count > config_.max_concurrent_games) {
+  if (active_game_count_ + count > config_.max_concurrent_games) {
     throw std::runtime_error("add_games exceeds max_concurrent_games");
   }
 
@@ -124,6 +132,8 @@ std::vector<std::uint32_t> SimulationRuntime::add_games(std::size_t count) {
     game.state = create_initial_game(seed);
     game.roster = sample_roster(config_.roster, config_.roster_seed, game_index);
     games_.push_back(std::move(game));
+    active_game_indices_.push_back(games_.size() - 1);
+    active_game_count_ += 1;
 
     game_ids.push_back(games_.back().game_id);
   }
@@ -134,11 +144,7 @@ std::vector<std::uint32_t> SimulationRuntime::add_games(std::size_t count) {
 
 std::vector<std::uint32_t> SimulationRuntime::add_scheduled_games(
     const std::vector<ScheduledGame>& schedule) {
-  const std::size_t active_count = static_cast<std::size_t>(std::count_if(
-      games_.begin(), games_.end(), [](const RuntimeGame& game) {
-        return game.status != RuntimeGameStatus::Finished;
-      }));
-  if (active_count + schedule.size() > config_.max_concurrent_games) {
+  if (active_game_count_ + schedule.size() > config_.max_concurrent_games) {
     throw std::runtime_error("add_scheduled_games exceeds max_concurrent_games");
   }
 
@@ -152,6 +158,8 @@ std::vector<std::uint32_t> SimulationRuntime::add_scheduled_games(
     game.state = create_initial_game(scheduled.seed);
     game.roster = scheduled.roster;
     games_.push_back(std::move(game));
+    active_game_indices_.push_back(games_.size() - 1);
+    active_game_count_ += 1;
 
     game_ids.push_back(games_.back().game_id);
   }
@@ -168,18 +176,20 @@ std::size_t SimulationRuntime::advance_runnable_games(std::size_t max_transition
   while (progressed && (max_transitions == 0 || transitions < max_transitions)) {
     progressed = false;
     metrics_.runnable_pass_count += 1;
+    bool finished_in_pass = false;
 
-    for (RuntimeGame& game : games_) {
+    for (const std::size_t game_index : active_game_indices_) {
       if (max_transitions != 0 && transitions >= max_transitions) {
         break;
       }
+      RuntimeGame& game = games_[game_index];
       if (game.status != RuntimeGameStatus::Runnable) {
         continue;
       }
 
       if (game.state.phase == Phase::Finished || game.state.is_game_over) {
-        game.status = RuntimeGameStatus::Finished;
-        metrics_.finished_games += 1;
+        mark_finished(game);
+        finished_in_pass = true;
         progressed = true;
         continue;
       }
@@ -235,13 +245,24 @@ std::size_t SimulationRuntime::advance_runnable_games(std::size_t max_transition
       const Action action = select_cpu_action(agent, game.state, player_index, decision_seed);
       apply_action(game.state, action);
       if (game.state.is_game_over) {
-        game.status = RuntimeGameStatus::Finished;
-        metrics_.finished_games += 1;
+        mark_finished(game);
+        finished_in_pass = true;
       }
       game.internal_transition_count += 1;
       metrics_.internal_transition_count += 1;
       transitions += 1;
       progressed = true;
+    }
+
+    if (finished_in_pass) {
+      active_game_indices_.erase(
+          std::remove_if(
+              active_game_indices_.begin(),
+              active_game_indices_.end(),
+              [&](std::size_t index) {
+                return games_[index].status == RuntimeGameStatus::Finished;
+              }),
+          active_game_indices_.end());
     }
   }
 
@@ -305,6 +326,7 @@ void SimulationRuntime::submit_agent_results(const std::vector<AgentResult>& res
     }
   }
 
+  bool finished_in_results = false;
   for (ValidatedResult& result : validated) {
     RuntimeGame& game = games_[result.game_index];
     game.state = std::move(result.next_state);
@@ -317,14 +339,25 @@ void SimulationRuntime::submit_agent_results(const std::vector<AgentResult>& res
             }),
         pending_requests_.end());
     if (game.state.is_game_over) {
-      game.status = RuntimeGameStatus::Finished;
-      metrics_.finished_games += 1;
+      mark_finished(game);
+      finished_in_results = true;
     } else {
       game.status = RuntimeGameStatus::Runnable;
     }
     game.pending_request_id = std::nullopt;
     game.agent_decision_count += 1;
     metrics_.submitted_agent_result_count += 1;
+  }
+
+  if (finished_in_results) {
+    active_game_indices_.erase(
+        std::remove_if(
+            active_game_indices_.begin(),
+            active_game_indices_.end(),
+            [&](std::size_t index) {
+              return games_[index].status == RuntimeGameStatus::Finished;
+            }),
+        active_game_indices_.end());
   }
 }
 
@@ -350,6 +383,10 @@ std::vector<FinishedGame> SimulationRuntime::collect_finished_games() {
     game.finished_collected = true;
   }
   return finished;
+}
+
+std::size_t SimulationRuntime::active_game_count() const {
+  return active_game_count_;
 }
 
 RuntimeMetrics SimulationRuntime::metrics() const {

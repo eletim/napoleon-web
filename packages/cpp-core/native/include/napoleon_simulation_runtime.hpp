@@ -112,16 +112,20 @@ class SimulationRuntime {
   void submit_agent_results(const std::vector<AgentResult>& results);
   std::vector<FinishedGame> collect_finished_games();
 
+  std::size_t active_game_count() const;
   RuntimeMetrics metrics() const;
   std::vector<RuntimeGameSnapshot> game_snapshots() const;
 
  private:
   struct RuntimeGame;
+  void mark_finished(RuntimeGame& game);
 
   SimulationRuntimeConfig config_;
   std::vector<RuntimeGame> games_;
+  std::vector<std::size_t> active_game_indices_;
   std::vector<AgentRequest> pending_requests_;
   RuntimeMetrics metrics_;
+  std::size_t active_game_count_ = 0;
   std::chrono::steady_clock::time_point started_at_;
   std::uint32_t next_game_id_ = 1;
   std::uint32_t next_game_index_ = 0;

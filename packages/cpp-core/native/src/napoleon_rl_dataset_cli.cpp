@@ -1249,13 +1249,7 @@ void generate_dataset(const CliOptions& options) {
     std::uint32_t next_game_to_write = 0;
 
     while (next_game_to_write < options.game_count) {
-      const std::vector<napoleon::RuntimeGameSnapshot> snapshots = runtime.game_snapshots();
-      const std::size_t active_count = static_cast<std::size_t>(std::count_if(
-          snapshots.begin(),
-          snapshots.end(),
-          [](const napoleon::RuntimeGameSnapshot& snapshot) {
-            return snapshot.status != napoleon::RuntimeGameStatus::Finished;
-          }));
+      const std::size_t active_count = runtime.active_game_count();
       const std::size_t open_slots =
           options.max_concurrent_games > active_count ? options.max_concurrent_games - active_count : 0;
       if (open_slots > 0 && next_game_to_add < options.game_count) {
