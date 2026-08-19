@@ -22,6 +22,8 @@ enum class RuntimeGameStatus : std::uint8_t {
 struct AgentRequest;
 using AgentRequestPayloadBuilder =
     std::function<void(const GameState& state, int player_index, AgentRequest& request)>;
+using AgentIdentityResolver =
+    std::function<AgentIdentity(const GameState& state, int player_index, const RosterAssignment& roster)>;
 
 struct SimulationRuntimeConfig {
   RosterSpec roster;
@@ -29,6 +31,7 @@ struct SimulationRuntimeConfig {
   std::uint32_t roster_seed = 0;
   std::size_t max_concurrent_games = 1024;
   AgentRequestPayloadBuilder build_agent_request_payload;
+  AgentIdentityResolver resolve_agent_identity;
 };
 
 struct RuntimeGameSnapshot {
@@ -51,6 +54,7 @@ struct AgentRequest {
   std::uint64_t request_id = 0;
   std::uint32_t game_id = 0;
   std::uint32_t game_index = 0;
+  std::uint32_t seed = 0;
   std::uint64_t sequence = 0;
   std::uint64_t game_decision_count = 0;
   int player_index = 0;
@@ -60,12 +64,15 @@ struct AgentRequest {
   std::string snapshot_json;
   std::vector<float> playing_model_input;
   std::vector<int> legal_play_mask;
+  std::vector<float> bidding_model_input;
+  std::vector<int> legal_bid_mask;
 };
 
 struct AgentResult {
   std::uint64_t request_id = 0;
   Action action;
   int selected_card_index = -1;
+  int selected_action_index = -1;
   double behavior_log_probability = 0.0;
   std::string policy_key;
 };

@@ -40,6 +40,7 @@ from napoleon_ml.nonplaying_rl_orchestrator import (
     DEFAULT_TRAINING_DEVICE,
     DEFAULT_VALUE_LOSS_COEFFICIENT,
     SUPPORTED_INFERENCE_DEVICES,
+    SUPPORTED_SIMULATION_BACKENDS,
     NonPlayingIterativeRlRunConfig,
     NonPlayingRlOrchestratorError,
     NonPlayingRlRunConfig,
@@ -118,6 +119,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=DEFAULT_INFERENCE_MAX_BATCH_SIZE,
     )
+    parser.add_argument(
+        "--simulation-backend",
+        choices=SUPPORTED_SIMULATION_BACKENDS,
+        default="typescript",
+    )
     parser.add_argument("--playing-policy-onnx", type=Path, default=DEFAULT_PLAYING_POLICY_ONNX)
     parser.add_argument(
         "--playing-policy-metadata",
@@ -192,6 +198,7 @@ def _config_from_args(args: argparse.Namespace) -> NonPlayingRlRunConfig:
         inference_device=cast(Literal["cpu", "auto", "cuda"], args.inference_device),
         training_device=cast(RequestedTorchDevice, args.training_device),
         inference_max_batch_size=args.inference_max_batch_size,
+        simulation_backend=cast(Literal["typescript", "cpp"], args.simulation_backend),
         playing_policy_onnx=args.playing_policy_onnx,
         playing_policy_metadata=args.playing_policy_metadata,
         playing_policy_artifact_id=args.playing_policy_artifact_id,
@@ -246,6 +253,7 @@ def _iterative_config_from_args(
         inference_device=cast(Literal["cpu", "auto", "cuda"], args.inference_device),
         training_device=cast(RequestedTorchDevice, args.training_device),
         inference_max_batch_size=args.inference_max_batch_size,
+        simulation_backend=cast(Literal["typescript", "cpp"], args.simulation_backend),
         playing_policy_onnx=args.playing_policy_onnx,
         playing_policy_metadata=args.playing_policy_metadata,
         playing_policy_artifact_id=args.playing_policy_artifact_id,
@@ -281,6 +289,7 @@ def _provided_iterative_config_keys(argv: Sequence[str] | None) -> list[str]:
         "--inference-device": "inferenceDevice",
         "--training-device": "trainingDevice",
         "--inference-max-batch-size": "inferenceMaxBatchSize",
+        "--simulation-backend": "simulationBackend",
         "--playing-policy-onnx": "playingPolicyOnnx",
         "--playing-policy-metadata": "playingPolicyMetadata",
         "--playing-policy-artifact-id": "playingPolicyArtifactId",

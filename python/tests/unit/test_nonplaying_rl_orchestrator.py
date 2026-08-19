@@ -28,6 +28,7 @@ from napoleon_ml.nonplaying_rl_orchestrator import (
     NonPlayingIterativeRlRunConfig,
     NonPlayingRlOrchestratorError,
     NonPlayingRlRunConfig,
+    _patch_cpp_bidding_manifest,
     _validate_iterative_resume_config,
     run_iterative_nonplaying_rl_pipeline,
     run_nonplaying_rl_pipeline,
@@ -157,6 +158,61 @@ def test_nonplaying_rl_pipeline_smoke_writes_summary(
         "exchange-train",
         "exchange-export",
     ]
+
+
+def test_cpp_bidding_manifest_patch_preserves_rule_based_phase_metadata(
+    tmp_path: Path,
+) -> None:
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    policy_onnx = tmp_path / "bidding.onnx"
+    policy_metadata = tmp_path / "bidding.json"
+    playing_onnx = tmp_path / "playing.onnx"
+    playing_metadata = tmp_path / "playing.json"
+    policy_onnx.write_bytes(b"bidding-onnx")
+    policy_metadata.write_text('{"policyType":"bidding"}\n', encoding="utf-8")
+    playing_onnx.write_bytes(b"playing-onnx")
+    playing_metadata.write_text('{"policyType":"playing"}\n', encoding="utf-8")
+    (dataset_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "behaviorPolicy": {},
+                "fixedPlayingPolicy": {},
+                "nonLearningAgents": {
+                    "bidding": {"type": "mixed-frozen-bidding"},
+                    "choosingAdjutant": {"type": "rule-based", "version": 1},
+                    "exchanging": {"type": "rule-based", "version": 1},
+                    "playing": {"type": "playing-onnx"},
+                },
+                "diagnostics": {},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    config = NonPlayingRlRunConfig(
+        output_dir=tmp_path / "run",
+        games=1,
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+        playing_policy_artifact_id="ppo-separated-v1000",
+    )
+
+    _patch_cpp_bidding_manifest(
+        config,
+        dataset_dir=dataset_dir,
+        policy_onnx=policy_onnx,
+        policy_metadata=policy_metadata,
+        start_seed=7,
+        artifact_id="candidate-bidding",
+    )
+
+    patched = json.loads((dataset_dir / "manifest.json").read_text(encoding="utf-8"))
+    non_learning = patched["nonLearningAgents"]
+    assert non_learning["choosingAdjutant"] == {"type": "rule-based", "version": 1}
+    assert non_learning["exchanging"] == {"type": "rule-based", "version": 1}
+    assert non_learning["bidding"]["type"] == "mixed-frozen-bidding"
+    assert non_learning["playing"]["artifactId"] == "ppo-separated-v1000"
 
 
 def test_iterative_nonplaying_rl_resumes_and_chains_checkpoints(
@@ -700,6 +756,33 @@ def test_iterative_resume_loads_stored_bidding_hidden_dims_when_omitted(
     )
 
 
+def test_iterative_resume_defaults_missing_simulation_backend_to_typescript(
+    tmp_path: Path,
+) -> None:
+    playing_onnx = tmp_path / "playing.onnx"
+    playing_metadata = tmp_path / "playing.json"
+    playing_onnx.write_bytes(b"playing-onnx")
+    playing_metadata.write_text("{}\n", encoding="utf-8")
+    stored_config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    ).file_dict()
+    stored_config.pop("simulationBackend")
+    requested_config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        simulation_backend="typescript",
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    ).file_dict()
+
+    _validate_iterative_resume_config(
+        stored_config,
+        requested_config,
+        provided_config_keys=set(),
+    )
+
+
 def test_iterative_resume_allows_training_device_mismatch(tmp_path: Path) -> None:
     playing_onnx = tmp_path / "playing.onnx"
     playing_metadata = tmp_path / "playing.json"
@@ -791,6 +874,27 @@ def test_iterative_cli_honors_explicit_one_shot_default_values() -> None:
     assert config.bidding_advantage_normalization == "dataset"
     assert config.training_device == "auto"
     assert "biddingHiddenDims" in _provided_iterative_config_keys(argv)
+
+
+def test_iterative_cli_accepts_cpp_simulation_backend() -> None:
+    argv = [
+        "--output-dir",
+        "/tmp/non-playing",
+        "--iterations",
+        "10",
+        "--simulation-backend",
+        "cpp",
+    ]
+    args = build_parser().parse_args(argv)
+    config = _iterative_config_from_args(
+        args,
+        provided_config_keys=_provided_iterative_config_keys(argv),
+    )
+
+    assert config.simulation_backend == "cpp"
+    assert config.file_dict()["simulationBackend"] == "cpp"
+    assert config.as_one_shot_config().simulation_backend == "cpp"
+    assert "simulationBackend" in _provided_iterative_config_keys(argv)
 
 
 def test_iterative_cli_uses_iterative_defaults_when_values_are_omitted() -> None:

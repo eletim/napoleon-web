@@ -40,6 +40,7 @@ struct PolicySessionConfig {
   std::string output_name = "logits";
   InferenceDevice inference_device = InferenceDevice::Cpu;
   std::size_t model_input_feature_count = observation::kPlayingModelInputFeatureCount;
+  std::size_t action_count = kPolicyLogitCount;
 };
 
 struct BatchedPolicyConfig {
@@ -78,9 +79,10 @@ struct PolicyActionResult {
 class PolicySession {
  public:
   virtual ~PolicySession() = default;
-  virtual std::vector<std::array<float, kPolicyLogitCount>> run_logits_batch(
+  virtual std::vector<std::vector<float>> run_logits_batch(
       const std::vector<std::vector<float>>& inputs) = 0;
   virtual std::size_t model_input_feature_count() const = 0;
+  virtual std::size_t action_count() const = 0;
   virtual ExecutionProvider execution_provider() const = 0;
 };
 
@@ -89,11 +91,13 @@ class DeterministicPolicySession final : public PolicySession {
   explicit DeterministicPolicySession(
       std::array<float, kPolicyLogitCount> logits = default_logits(),
       ExecutionProvider provider = ExecutionProvider::Cpu,
-      std::size_t model_input_feature_count = observation::kPlayingModelInputFeatureCount);
+      std::size_t model_input_feature_count = observation::kPlayingModelInputFeatureCount,
+      std::size_t action_count = kPolicyLogitCount);
 
-  std::vector<std::array<float, kPolicyLogitCount>> run_logits_batch(
+  std::vector<std::vector<float>> run_logits_batch(
       const std::vector<std::vector<float>>& inputs) override;
   std::size_t model_input_feature_count() const override;
+  std::size_t action_count() const override;
   ExecutionProvider execution_provider() const override;
   std::uint64_t session_run_count() const;
 
@@ -103,6 +107,7 @@ class DeterministicPolicySession final : public PolicySession {
   std::array<float, kPolicyLogitCount> logits_;
   ExecutionProvider provider_ = ExecutionProvider::Cpu;
   std::size_t model_input_feature_count_ = observation::kPlayingModelInputFeatureCount;
+  std::size_t action_count_ = kPolicyLogitCount;
   std::uint64_t session_run_count_ = 0;
 };
 
@@ -141,6 +146,10 @@ void attach_playing_model_input(
     const GameState& state,
     int player_index,
     observation::PlayingObservationVariant variant,
+    AgentRequest& request);
+void attach_bidding_model_input(
+    const GameState& state,
+    int player_index,
     AgentRequest& request);
 std::string execution_provider_id(ExecutionProvider provider);
 std::string inference_device_id(InferenceDevice device);

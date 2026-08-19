@@ -498,6 +498,7 @@ GameResult calculate_result(const GameState& state) {
   return GameResult{
       "standard",
       napoleon_points >= state.contract->target_point_cards ? "napoleon-team" : "alliance",
+      state.contract->trump_suit,
       napoleon_points,
       alliance_points,
       state.contract->target_point_cards,

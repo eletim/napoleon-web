@@ -15,11 +15,16 @@ import {
 } from "@napoleon/game-core";
 import { selectPlayAction } from "@napoleon/ai";
 import {
+  BIDDING_ENCODER_SCHEMA_VERSION,
+  BIDDING_MODEL_INPUT_FEATURE_COUNT,
+  BIDDING_MODEL_INPUT_SCHEMA_VERSION,
   MODEL_INPUT_FEATURE_COUNT,
   MODEL_INPUT_SCHEMA_VERSION,
+  createBiddingModelInput,
   createPlayingModelInput,
   createRelativePlayerOrder,
   encodeBiddingHistoryFromPublicActions,
+  encodeBiddingObservation,
   encodePlayingObservation
 } from "@napoleon/ai-observation";
 
@@ -52,6 +57,7 @@ interface CanonicalSnapshot {
   isTrickComplete: boolean;
   isGameOver: boolean;
   playingModelInput: CanonicalPlayingModelInput | null;
+  biddingModelInput: CanonicalBiddingModelInput | null;
 }
 
 interface CanonicalPlayingModelInput {
@@ -60,6 +66,16 @@ interface CanonicalPlayingModelInput {
   playerId: string;
   observation: ReturnType<typeof encodePlayingObservation>;
   legalPlayMask: readonly number[];
+  modelInput: readonly number[];
+}
+
+interface CanonicalBiddingModelInput {
+  encoderSchemaVersion: typeof BIDDING_ENCODER_SCHEMA_VERSION;
+  modelInputSchemaVersion: typeof BIDDING_MODEL_INPUT_SCHEMA_VERSION;
+  modelInputFeatureCount: typeof BIDDING_MODEL_INPUT_FEATURE_COUNT;
+  playerId: string;
+  relativePlayerIds: readonly string[];
+  legalBidMask: readonly number[];
   modelInput: readonly number[];
 }
 
@@ -150,7 +166,40 @@ function toCanonicalSnapshot(
     trickNumber: state.trickNumber,
     isTrickComplete: state.isTrickComplete,
     isGameOver: state.isGameOver,
-    playingModelInput: toCanonicalPlayingModelInput(state, publicActionHistory)
+    playingModelInput: toCanonicalPlayingModelInput(state, publicActionHistory),
+    biddingModelInput: toCanonicalBiddingModelInput(state, publicActionHistory)
+  };
+}
+
+function toCanonicalBiddingModelInput(
+  state: GameState,
+  publicActionHistory: readonly PublicBiddingActionRecord[]
+): CanonicalBiddingModelInput | null {
+  if (state.phase !== "bidding") {
+    return null;
+  }
+
+  const playerId = state.currentPlayerId;
+  const absolutePlayerIds = state.players.map((player) => player.id);
+  const observation = encodeBiddingObservation(
+    {
+      playerId,
+      view: createPlayerView(state, playerId),
+      legalActions: getLegalActions(state, playerId),
+      publicActionHistory
+    },
+    absolutePlayerIds
+  );
+  const modelInput = createBiddingModelInput(observation);
+
+  return {
+    encoderSchemaVersion: BIDDING_ENCODER_SCHEMA_VERSION,
+    modelInputSchemaVersion: BIDDING_MODEL_INPUT_SCHEMA_VERSION,
+    modelInputFeatureCount: BIDDING_MODEL_INPUT_FEATURE_COUNT,
+    playerId,
+    relativePlayerIds: observation.relativePlayerIds,
+    legalBidMask: modelInput.legalBidMask,
+    modelInput: Array.from(modelInput.modelInput)
   };
 }
 
