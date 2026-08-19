@@ -1,6 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { TableDesignMock, tableDesignMockLayout } from "./TableDesignMock";
+import {
+  TableDesignMock,
+  createRiverPlacements,
+  selfRiverWidth,
+  tableDesignMockLayout
+} from "./TableDesignMock";
 
 describe("TableDesignMock", () => {
   it("renders the issue 308 static table mock from fixed data", () => {
@@ -22,5 +27,24 @@ describe("TableDesignMock", () => {
       hand: { y: 1684 },
       trick: { y: 1138 }
     });
+    expect(tableDesignMockLayout.riverGrid).toMatchObject({ maxColumns: 5, maxRows: 4 });
+    expect(html).toContain("--mock-self-river-height:106px");
+  });
+
+  it("lays out the self river from the role-board self edge length", () => {
+    const d = selfRiverWidth(tableDesignMockLayout);
+    const oneCard = createRiverPlacements(1, tableDesignMockLayout);
+    const fiveCards = createRiverPlacements(5, tableDesignMockLayout);
+    const sixCards = createRiverPlacements(6, tableDesignMockLayout);
+
+    expect(oneCard).toHaveLength(1);
+    expect(oneCard[0]?.x).toBeCloseTo((d - tableDesignMockLayout.cardSizes.river.width) / 2);
+    expect(fiveCards).toHaveLength(5);
+    expect(fiveCards[0]?.x).toBeCloseTo(0);
+    expect(fiveCards[4]?.x).toBeCloseTo(d - tableDesignMockLayout.cardSizes.river.width);
+    expect(sixCards).toHaveLength(6);
+    expect(sixCards[5]?.y).toBe(
+      tableDesignMockLayout.cardSizes.river.height + tableDesignMockLayout.riverGrid.rowGap
+    );
   });
 });

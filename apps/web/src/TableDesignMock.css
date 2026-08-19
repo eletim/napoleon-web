@@ -75,7 +75,6 @@ html:has(.table-design-mock-page) {
 .mock-avatar,
 .mock-card-back-fan,
 .mock-self-hand,
-.mock-self-trick-stack,
 .mock-point-river,
 .mock-trick-card {
   left: var(--mock-x);
@@ -86,7 +85,6 @@ html:has(.table-design-mock-page) {
 .mock-avatar,
 .mock-card-back-fan,
 .mock-self-hand,
-.mock-self-trick-stack,
 .mock-point-river,
 .mock-trick-card {
   transform: translate(-50%, -50%) rotate(var(--mock-rotation, 0deg));
@@ -124,7 +122,8 @@ html:has(.table-design-mock-page) {
 }
 
 .mock-card-back-fan {
-  height: 126px;
+  height: 140px;
+  perspective: 340px;
   width: 182px;
 }
 
@@ -141,41 +140,45 @@ html:has(.table-design-mock-page) {
       #e8e8e8 8px 11px
     );
   border: 1px solid #d5d5d5;
-  box-shadow: 0 1px 0 rgb(0 0 0 / 40%);
+  border-bottom-color: #bdbdbd;
+  border-bottom-width: 4px;
+  box-shadow: 0 8px 2px rgb(0 0 0 / 34%);
+  clip-path: polygon(7% 0, 93% 0, 100% 100%, 0 100%);
   display: block;
-  height: 94px;
+  height: 112px;
   left: 50%;
   position: absolute;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: 54px;
+  transform-origin: 50% 100%;
+  width: 48px;
 }
 
 .mock-card-back:nth-child(1) {
-  transform: translate(-86px, -48px) rotate(-2deg);
+  transform: translate(-84px, -62px) rotate(-2deg) skewY(-6deg) scaleY(1.04);
 }
 
 .mock-card-back:nth-child(2) {
-  transform: translate(-28px, -50px) rotate(0deg);
+  transform: translate(-28px, -64px) rotate(0deg) skewY(-4deg) scaleY(1.05);
 }
 
 .mock-card-back:nth-child(3) {
-  transform: translate(30px, -48px) rotate(2deg);
+  transform: translate(28px, -62px) rotate(2deg) skewY(-2deg) scaleY(1.04);
 }
 
 .mock-card-back-fan-left .mock-card-back:nth-child(1),
 .mock-card-back-fan-right .mock-card-back:nth-child(1) {
-  transform: translate(-86px, -48px) rotate(-1deg);
+  transform: translate(-84px, -62px) rotate(-1deg) skewY(5deg) scaleY(1.06);
 }
 
 .mock-card-back-fan-left .mock-card-back:nth-child(2),
 .mock-card-back-fan-right .mock-card-back:nth-child(2) {
-  transform: translate(-29px, -50px) rotate(0deg);
+  transform: translate(-28px, -64px) rotate(0deg) skewY(3deg) scaleY(1.07);
 }
 
 .mock-card-back-fan-left .mock-card-back:nth-child(3),
 .mock-card-back-fan-right .mock-card-back:nth-child(3) {
-  transform: translate(28px, -48px) rotate(1deg);
+  transform: translate(28px, -62px) rotate(1deg) skewY(1deg) scaleY(1.06);
 }
 
 .mock-point-river {
@@ -187,8 +190,8 @@ html:has(.table-design-mock-page) {
 
 .mock-point-river-self {
   background: transparent;
-  height: 178px;
-  width: 222px;
+  height: var(--mock-self-river-height);
+  width: var(--mock-self-river-width);
 }
 
 .mock-playing-card {
@@ -223,15 +226,11 @@ html:has(.table-design-mock-page) {
 
 .mock-river-card {
   height: var(--mock-river-card-height);
-  left: calc(18px + (var(--mock-river-card-index) * 34px));
+  left: var(--mock-river-card-x);
   position: absolute;
-  top: 32px;
-  transform: rotate(calc((var(--mock-river-card-index) - 1) * 4deg));
+  top: var(--mock-river-card-y);
+  transform: rotate(var(--mock-river-card-rotation));
   width: var(--mock-river-card-width);
-}
-
-.mock-point-river-self .mock-river-card {
-  display: none;
 }
 
 .mock-point-river:not(.mock-point-river-self) .mock-river-card {
@@ -247,18 +246,6 @@ html:has(.table-design-mock-page) {
 .mock-self-hand-card {
   height: var(--mock-self-card-height);
   width: var(--mock-self-card-width);
-}
-
-.mock-self-trick-stack {
-  height: 174px;
-  width: 200px;
-}
-
-.mock-self-trick-card {
-  left: calc(var(--mock-card-stack-index) * 38px);
-  position: absolute;
-  top: calc(var(--mock-card-stack-index) * 2px);
-  transform: rotate(calc((var(--mock-card-stack-index) - 2) * -1deg));
 }
 
 .mock-card-corner {

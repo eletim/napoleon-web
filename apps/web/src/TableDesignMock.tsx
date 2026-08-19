@@ -46,6 +46,12 @@ interface TableDesignMockLayout {
     height: number;
     width: number;
   };
+  riverGrid: {
+    maxColumns: number;
+    maxRows: number;
+    rowGap: number;
+    selfSideWidthRatio: number;
+  };
   seats: readonly SeatLayout[];
 }
 
@@ -79,6 +85,12 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
     width: 260,
     height: 210
   },
+  riverGrid: {
+    maxColumns: 5,
+    maxRows: 4,
+    rowGap: 24,
+    selfSideWidthRatio: 0.62
+  },
   action: {
     x: 1120,
     y: 1376,
@@ -108,7 +120,7 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
       avatar: { x: 2112, y: 1074 },
       hand: { x: 1942, y: 1080, rotation: 55 },
       trick: { x: 1307, y: 1016, rotation: 14 },
-      river: { x: 1578, y: 1036, rotation: 15 }
+      river: { x: 1578, y: 1036, rotation: 12 }
     },
     {
       id: "self",
@@ -116,7 +128,7 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
       avatar: { x: 808, y: 1492 },
       hand: { x: 1118, y: 1684, rotation: 0 },
       trick: { x: 1122, y: 1138, rotation: 0 },
-      river: { x: 1120, y: 1078, rotation: 0 }
+      river: { x: 1120, y: 1110, rotation: 0 }
     },
     {
       id: "left",
@@ -124,7 +136,7 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
       avatar: { x: 136, y: 1070 },
       hand: { x: 308, y: 1086, rotation: -54 },
       trick: { x: 902, y: 934, rotation: -12 },
-      river: { x: 644, y: 1038, rotation: -15 }
+      river: { x: 644, y: 1038, rotation: -12 }
     }
   ]
 };
@@ -132,14 +144,6 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
 const selfCards: readonly MockCard[] = [
   { rank: "5", suit: "spades" },
   { rank: "7", suit: "spades" }
-];
-
-const selfTrickStack: readonly MockCard[] = [
-  { rank: "A", suit: "hearts" },
-  { rank: "10", suit: "spades" },
-  { rank: "J", suit: "clubs" },
-  { rank: "K", suit: "diamonds" },
-  { rank: "A", suit: "diamonds" }
 ];
 
 const trickCards: Record<string, MockCard> = {
@@ -207,6 +211,8 @@ export function TableDesignMock() {
           "--mock-river-width": `${layout.riverSize.width}px`,
           "--mock-river-card-height": `${layout.cardSizes.river.height}px`,
           "--mock-river-card-width": `${layout.cardSizes.river.width}px`,
+          "--mock-self-river-row-gap": `${layout.riverGrid.rowGap}px`,
+          "--mock-self-river-width": `${selfRiverWidth(layout)}px`,
           "--mock-self-card-height": `${layout.cardSizes.selfHand.height}px`,
           "--mock-self-card-width": `${layout.cardSizes.selfHand.width}px`,
           "--mock-trick-card-height": `${layout.cardSizes.trick.height}px`,
@@ -265,7 +271,7 @@ function SeatArtifacts({ seat }: { seat: SeatLayout }) {
       )}
 
       {seat.id === "self" ? (
-        <SelfTrickStack seat={seat} />
+        null
       ) : (
         <PlayingCard
           card={trickCards[seat.id]}
@@ -307,43 +313,28 @@ function CardBackFan({ seat }: { seat: SeatLayout }) {
   );
 }
 
-function SelfTrickStack({ seat }: { seat: SeatLayout }) {
-  return (
-    <div
-      aria-label="自分の現在トリック"
-      className="mock-self-trick-stack"
-      style={pointWithRotationStyle(seat.trick)}
-    >
-      {selfTrickStack.map((card, index) => (
-        <PlayingCard
-          card={card}
-          className="mock-trick-card mock-self-trick-card"
-          key={`${card.rank}-${card.suit}-${index}`}
-          style={{
-            "--mock-card-stack-index": index
-          } as CSSProperties}
-        />
-      ))}
-    </div>
-  );
-}
-
 function PointRiver({ seat }: { seat: SeatLayout }) {
   const cards = riverCards[seat.id] ?? [];
+  const layout = tableDesignMockLayout;
+  const riverPlacements =
+    seat.id === "self" ? createRiverPlacements(cards.length, layout) : [];
 
   return (
     <section
       aria-label={`${seat.label}のポイント札の河`}
       className={`mock-point-river mock-point-river-${seat.id}`}
-      style={pointWithRotationStyle(seat.river)}
+      style={riverStyle(seat, cards.length, layout)}
     >
-      {cards.map((card, index) => (
+      {cards.slice(0, layout.riverGrid.maxColumns * layout.riverGrid.maxRows).map((card, index) => (
         <PlayingCard
           card={card}
           className="mock-river-card"
           key={`${card.rank}-${card.suit}-${index}`}
           style={{
-            "--mock-river-card-index": index
+            "--mock-river-card-index": index,
+            "--mock-river-card-rotation": `${riverPlacements[index]?.rotation ?? (index - 1) * 4}deg`,
+            "--mock-river-card-x": `${riverPlacements[index]?.x ?? 18 + index * 34}px`,
+            "--mock-river-card-y": `${riverPlacements[index]?.y ?? 32}px`
           } as CSSProperties}
         />
       ))}
@@ -431,6 +422,76 @@ function faceGlyph(face: NonNullable<MockCard["face"]>): string {
     case "jack":
       return "♝";
   }
+}
+
+export function selfRiverWidth(layout: TableDesignMockLayout): number {
+  return layout.center.width * layout.riverGrid.selfSideWidthRatio;
+}
+
+export function createRiverPlacements(
+  cardCount: number,
+  layout: TableDesignMockLayout
+): Array<Point & { rotation: number }> {
+  const maxCards = layout.riverGrid.maxColumns * layout.riverGrid.maxRows;
+  const boundedCardCount = Math.min(cardCount, maxCards);
+  const placements: Array<Point & { rotation: number }> = [];
+  const d = selfRiverWidth(layout);
+  const cardWidth = layout.cardSizes.river.width;
+  const cardHeight = layout.cardSizes.river.height;
+  const rowPitch = cardHeight + layout.riverGrid.rowGap;
+
+  for (let row = 0; row < layout.riverGrid.maxRows; row += 1) {
+    const rowStart = row * layout.riverGrid.maxColumns;
+    const rowCount = Math.min(layout.riverGrid.maxColumns, boundedCardCount - rowStart);
+
+    if (rowCount <= 0) {
+      break;
+    }
+
+    const rowLength = d * (0.5 + 0.125 * (rowCount - 1));
+    const rowLeft = (d - rowLength) / 2;
+    const usableTravel = Math.max(rowLength - cardWidth, 0);
+
+    for (let column = 0; column < rowCount; column += 1) {
+      const x =
+        rowLeft +
+        (rowCount === 1 ? usableTravel / 2 : (usableTravel * column) / (rowCount - 1));
+
+      placements.push({
+        x,
+        y: row * rowPitch,
+        rotation: 0
+      });
+    }
+  }
+
+  return placements;
+}
+
+function selfRiverHeight(cardCount: number, layout: TableDesignMockLayout): number {
+  const maxCards = layout.riverGrid.maxColumns * layout.riverGrid.maxRows;
+  const boundedCardCount = Math.min(cardCount, maxCards);
+  const rows = Math.max(1, Math.ceil(boundedCardCount / layout.riverGrid.maxColumns));
+
+  return layout.cardSizes.river.height * rows + layout.riverGrid.rowGap * (rows - 1);
+}
+
+function riverStyle(
+  seat: SeatLayout,
+  cardCount: number,
+  layout: TableDesignMockLayout
+): CSSProperties {
+  const style = pointWithRotationStyle(seat.river);
+
+  if (seat.id !== "self") {
+    return style;
+  }
+
+  return {
+    ...style,
+    "--mock-self-river-height": `${selfRiverHeight(cardCount, layout)}px`,
+    "--mock-self-river-width": `${selfRiverWidth(layout)}px`
+  } as CSSProperties;
 }
 
 function pointStyle(point: Point): CSSProperties {
