@@ -18,6 +18,13 @@ namespace {
 
 constexpr double kDefaultTemperature = 1.0;
 
+std::uint64_t elapsed_ns(std::chrono::steady_clock::time_point started) {
+  return static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(
+          std::chrono::steady_clock::now() - started)
+          .count());
+}
+
 std::uint32_t mix_u32(std::uint32_t value) {
   value ^= value >> 16;
   value *= 0x7feb352du;
@@ -38,12 +45,14 @@ std::uint32_t stable_hash(const std::string& value) {
 
 std::uint32_t sampling_seed_for_request(
     std::uint32_t base_seed,
-    const AgentRequest& request,
+    std::uint32_t game_index,
+    std::uint64_t sequence,
+    int player_index,
     const std::string& key) {
   std::uint32_t value = base_seed;
-  value ^= mix_u32(request.game_index + 0x9e3779b9u);
-  value ^= mix_u32(static_cast<std::uint32_t>(request.sequence & 0xffffffffu));
-  value ^= mix_u32(static_cast<std::uint32_t>(request.player_index) + 0x85ebca6bu);
+  value ^= mix_u32(game_index + 0x9e3779b9u);
+  value ^= mix_u32(static_cast<std::uint32_t>(sequence & 0xffffffffu));
+  value ^= mix_u32(static_cast<std::uint32_t>(player_index) + 0x85ebca6bu);
   value ^= stable_hash(key);
   return mix_u32(value);
 }
@@ -195,30 +204,36 @@ SampledAction sample_legal_action(
       distribution.log_probabilities[last_index]};
 }
 
-Action action_from_selected_card_index(const AgentRequest& request, int selected_card_index) {
+Action action_from_selected_card_index(
+    const std::vector<Action>& legal_actions,
+    int selected_card_index) {
   const Card selected_card = observation::card_from_playing_model_index(selected_card_index);
   auto action_it = std::find_if(
-      request.legal_actions.begin(),
-      request.legal_actions.end(),
+      legal_actions.begin(),
+      legal_actions.end(),
       [&](const Action& action) {
         return action.type == Action::Type::PlayCard &&
                observation::playing_card_model_index(action.card) == selected_card_index &&
                action.card.id == selected_card.id;
       });
-  if (action_it == request.legal_actions.end()) {
+  if (action_it == legal_actions.end()) {
     throw std::runtime_error("ONNX policy selected a card outside request legal actions");
   }
   return *action_it;
 }
 
-Action action_from_selected_action_index(const AgentRequest& request, int selected_action_index) {
-  if (request.phase == Phase::Bidding) {
+Action action_from_selected_action_index(
+    Phase phase,
+    int player_index,
+    const std::vector<Action>& legal_actions,
+    int selected_action_index) {
+  if (phase == Phase::Bidding) {
     const Action selected = observation::bidding_action_from_index(
         selected_action_index,
-        request.player_index);
+        player_index);
     auto action_it = std::find_if(
-        request.legal_actions.begin(),
-        request.legal_actions.end(),
+        legal_actions.begin(),
+        legal_actions.end(),
         [&](const Action& action) {
           if (action.type != selected.type || action.player_index != selected.player_index) {
             return false;
@@ -229,22 +244,30 @@ Action action_from_selected_action_index(const AgentRequest& request, int select
           return action.type == Action::Type::Bid && action.suit == selected.suit &&
                  action.target_point_cards == selected.target_point_cards;
         });
-    if (action_it == request.legal_actions.end()) {
+    if (action_it == legal_actions.end()) {
       throw std::runtime_error("ONNX policy selected a bid outside request legal actions");
     }
     return *action_it;
   }
-  return action_from_selected_card_index(request, selected_action_index);
+  return action_from_selected_card_index(legal_actions, selected_action_index);
 }
 
-void record_batch(PolicyBatchStats& stats, std::size_t batch_size, std::uint64_t elapsed_ns) {
+void record_batch(
+    PolicyBatchStats& stats,
+    std::size_t batch_size,
+    std::uint64_t session_elapsed_ns,
+    std::uint64_t host_prepare_elapsed_ns,
+    std::uint64_t result_materialization_elapsed_ns) {
   stats.request_count += batch_size;
   stats.session_run_count += 1;
   stats.mean_batch_size =
       static_cast<double>(stats.request_count) / static_cast<double>(stats.session_run_count);
   stats.max_observed_batch_size = std::max(stats.max_observed_batch_size, batch_size);
   stats.batch_size_histogram[batch_size] += 1;
-  stats.inference_elapsed_ns += elapsed_ns;
+  stats.inference_elapsed_ns += session_elapsed_ns;
+  stats.host_prepare_elapsed_ns += host_prepare_elapsed_ns;
+  stats.session_run_elapsed_ns += session_elapsed_ns;
+  stats.result_materialization_elapsed_ns += result_materialization_elapsed_ns;
 }
 
 void merge_policy_stats(BatchedPolicyStats& aggregate, const PolicyBatchStats& stats) {
@@ -253,6 +276,9 @@ void merge_policy_stats(BatchedPolicyStats& aggregate, const PolicyBatchStats& s
   aggregate.max_observed_batch_size =
       std::max(aggregate.max_observed_batch_size, stats.max_observed_batch_size);
   aggregate.inference_elapsed_ns += stats.inference_elapsed_ns;
+  aggregate.host_prepare_elapsed_ns += stats.host_prepare_elapsed_ns;
+  aggregate.session_run_elapsed_ns += stats.session_run_elapsed_ns;
+  aggregate.result_materialization_elapsed_ns += stats.result_materialization_elapsed_ns;
   for (const auto& entry : stats.batch_size_histogram) {
     aggregate.batch_size_histogram[entry.first] += entry.second;
   }
@@ -378,7 +404,12 @@ class OnnxRuntimePolicySession final : public PolicySession {
 }  // namespace
 
 struct BatchedPolicyExecutor::QueueItem {
-  AgentRequest request;
+  std::uint64_t request_id = 0;
+  std::uint32_t game_index = 0;
+  std::uint64_t sequence = 0;
+  int player_index = 0;
+  Phase phase = Phase::Bidding;
+  std::vector<Action> legal_actions;
   std::vector<float> model_input;
   std::vector<int> legal_mask;
 };
@@ -484,6 +515,7 @@ void BatchedPolicyExecutor::add_policy(PolicyKey key, std::unique_ptr<PolicySess
 }
 
 void BatchedPolicyExecutor::enqueue(const AgentRequest& request) {
+  const auto started = std::chrono::steady_clock::now();
   if (request.phase != Phase::Playing && request.phase != Phase::Bidding) {
     throw std::runtime_error("ONNX policy executor only supports bidding or active playing requests");
   }
@@ -499,11 +531,18 @@ void BatchedPolicyExecutor::enqueue(const AgentRequest& request) {
   }
 
   QueueItem item;
-  item.request = request;
+  item.request_id = request.request_id;
+  item.game_index = request.game_index;
+  item.sequence = request.sequence;
+  item.player_index = request.player_index;
+  item.phase = request.phase;
+  item.legal_actions = request.legal_actions;
   item.model_input =
       request_model_input(request, policy_it->second->session->model_input_feature_count());
   item.legal_mask = request_legal_mask(request, policy_it->second->session->action_count());
   policy_it->second->queue.push_back(std::move(item));
+  const std::uint64_t prepare_elapsed = elapsed_ns(started);
+  policy_it->second->stats.host_prepare_elapsed_ns += prepare_elapsed;
 }
 
 std::vector<PolicyActionResult> BatchedPolicyExecutor::flush() {
@@ -516,6 +555,7 @@ std::vector<PolicyActionResult> BatchedPolicyExecutor::flush() {
     while (!policy.queue.empty()) {
       const std::size_t batch_size =
           std::min(config_.max_batch_size, static_cast<std::size_t>(policy.queue.size()));
+      const auto host_prepare_started = std::chrono::steady_clock::now();
       std::vector<QueueItem> batch;
       batch.reserve(batch_size);
       std::vector<std::vector<float>> inputs;
@@ -525,6 +565,7 @@ std::vector<PolicyActionResult> BatchedPolicyExecutor::flush() {
         batch.push_back(*queue_it);
         inputs.push_back(batch.back().model_input);
       }
+      const std::uint64_t host_prepare_elapsed = elapsed_ns(host_prepare_started);
 
       const auto started = std::chrono::steady_clock::now();
       std::vector<std::vector<float>> logits =
@@ -533,41 +574,52 @@ std::vector<PolicyActionResult> BatchedPolicyExecutor::flush() {
       if (logits.size() != batch.size()) {
         throw std::runtime_error("policy session returned a mismatched batch size");
       }
-      const std::uint64_t elapsed_ns = static_cast<std::uint64_t>(
+      const std::uint64_t session_elapsed = static_cast<std::uint64_t>(
           std::chrono::duration_cast<std::chrono::nanoseconds>(ended - started).count());
       std::vector<PolicyActionResult> batch_results;
       batch_results.reserve(batch.size());
 
+      const auto result_started = std::chrono::steady_clock::now();
       for (std::size_t index = 0; index < batch.size(); ++index) {
-        const AgentRequest& request = batch[index].request;
+        const QueueItem& item = batch[index];
         const std::uint32_t seed =
-            sampling_seed_for_request(config_.sampling_seed, request, policy_id);
+            sampling_seed_for_request(
+                config_.sampling_seed,
+                item.game_index,
+                item.sequence,
+                item.player_index,
+                policy_id);
         const SampledAction sampled = sample_legal_action(
             logits[index],
-            batch[index].legal_mask,
+            item.legal_mask,
             config_.temperature,
             seed);
-        Action action = action_from_selected_action_index(request, sampled.selected_action_index);
+        Action action = action_from_selected_action_index(
+            item.phase,
+            item.player_index,
+            item.legal_actions,
+            sampled.selected_action_index);
         AgentResult result;
-        result.request_id = request.request_id;
+        result.request_id = item.request_id;
         result.action = action;
         result.selected_action_index = sampled.selected_action_index;
         result.selected_card_index =
-            request.phase == Phase::Playing ? sampled.selected_action_index : -1;
+            item.phase == Phase::Playing ? sampled.selected_action_index : -1;
         result.behavior_log_probability = sampled.log_probability;
         result.policy_key = policy_id;
         batch_results.push_back(PolicyActionResult{
             result,
-            request.sequence,
-            request.phase == Phase::Playing ? sampled.selected_action_index : -1,
+            item.sequence,
+            item.phase == Phase::Playing ? sampled.selected_action_index : -1,
             sampled.log_probability,
             policy_id});
       }
+      const std::uint64_t result_elapsed = elapsed_ns(result_started);
 
       for (std::size_t index = 0; index < batch.size(); ++index) {
         policy.queue.pop_front();
       }
-      record_batch(policy.stats, batch.size(), elapsed_ns);
+      record_batch(policy.stats, batch.size(), session_elapsed, host_prepare_elapsed, result_elapsed);
       results.insert(
           results.end(),
           std::make_move_iterator(batch_results.begin()),

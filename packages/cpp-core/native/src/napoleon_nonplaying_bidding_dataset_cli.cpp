@@ -39,6 +39,17 @@ constexpr int kBiddingActionCount = napoleon::observation::kBiddingActionCount;
 constexpr int kBiddingFeatureCount = napoleon::observation::kBiddingModelInputFeatureCount;
 constexpr int kPlayingFeatureCount = napoleon::observation::kPlayingModelInputFeatureCount;
 
+std::uint64_t elapsed_ns(std::chrono::steady_clock::time_point started) {
+  return static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(
+          std::chrono::steady_clock::now() - started)
+          .count());
+}
+
+double ns_to_ms(std::uint64_t value) {
+  return static_cast<double>(value) / 1000000.0;
+}
+
 struct Sha256 {
   std::array<std::uint32_t, 8> state{
       0x6a09e667u, 0xbb67ae85u, 0x3c6ef372u, 0xa54ff53au,
@@ -195,6 +206,16 @@ struct Shard {
   std::uint64_t sample_count = 0;
   std::uint64_t byte_length = 0;
   std::string sha256;
+};
+
+struct RolloutProfile {
+  std::uint64_t schedule_build_elapsed_ns = 0;
+  std::uint64_t schedule_elapsed_ns = 0;
+  std::uint64_t request_index_elapsed_ns = 0;
+  std::uint64_t policy_executor_run_elapsed_ns = 0;
+  std::uint64_t draft_record_elapsed_ns = 0;
+  std::uint64_t finished_game_collection_elapsed_ns = 0;
+  std::uint64_t sample_draft_handling_elapsed_ns = 0;
 };
 
 void json_escape(std::ostream& out, const std::string& value) {
@@ -670,6 +691,8 @@ int main(int argc, char** argv) {
           return napoleon::rule_based_agent("rule-based");
         }});
 
+    RolloutProfile profile;
+    const auto schedule_build_started = std::chrono::steady_clock::now();
     std::vector<napoleon::ScheduledGame> schedule;
     schedule.reserve(options.game_count * kPlayerCount);
     for (std::uint32_t offset = 0; offset < options.game_count; ++offset) {
@@ -678,8 +701,10 @@ int main(int argc, char** argv) {
         schedule.push_back({seed, nonplaying_roster(seed, candidate_seat)});
       }
     }
+    profile.schedule_build_elapsed_ns += elapsed_ns(schedule_build_started);
 
     std::unordered_map<std::uint32_t, std::vector<Draft>> drafts_by_game;
+    drafts_by_game.reserve(schedule.size());
     std::map<std::uint32_t, std::vector<std::string>> samples_by_seed;
 
     const auto started = std::chrono::steady_clock::now();
@@ -691,24 +716,32 @@ int main(int argc, char** argv) {
       if (next_schedule < schedule.size() && active_games < options.max_concurrent_games) {
         const std::size_t open_slots = options.max_concurrent_games - active_games;
         const std::size_t batch_count = std::min(open_slots, schedule.size() - next_schedule);
+        const auto schedule_started = std::chrono::steady_clock::now();
         std::vector<napoleon::ScheduledGame> batch(
             schedule.begin() + static_cast<std::ptrdiff_t>(next_schedule),
             schedule.begin() + static_cast<std::ptrdiff_t>(next_schedule + batch_count));
         runtime.add_scheduled_games(batch);
+        profile.schedule_elapsed_ns += elapsed_ns(schedule_started);
         next_schedule += batch_count;
       }
       runtime.advance_runnable_games();
       const std::vector<napoleon::AgentRequest> requests = runtime.collect_agent_requests();
-      std::unordered_map<std::uint64_t, napoleon::AgentRequest> request_by_id;
+      const auto request_index_started = std::chrono::steady_clock::now();
+      std::unordered_map<std::uint64_t, const napoleon::AgentRequest*> request_by_id;
+      request_by_id.reserve(requests.size());
       for (const auto& request : requests) {
-        request_by_id.emplace(request.request_id, request);
+        request_by_id.emplace(request.request_id, &request);
       }
+      profile.request_index_elapsed_ns += elapsed_ns(request_index_started);
+      const auto policy_started = std::chrono::steady_clock::now();
       std::vector<napoleon::onnx_policy::PolicyActionResult> policy_results = executor.run(requests);
+      profile.policy_executor_run_elapsed_ns += elapsed_ns(policy_started);
       std::vector<napoleon::AgentResult> results;
       results.reserve(policy_results.size());
       for (const auto& policy_result : policy_results) {
-        const napoleon::AgentRequest& request = request_by_id.at(policy_result.result.request_id);
+        const napoleon::AgentRequest& request = *request_by_id.at(policy_result.result.request_id);
         if (request.phase == Phase::Bidding && request.agent.type == AgentType::CurrentPolicy) {
+          const auto draft_started = std::chrono::steady_clock::now();
           Draft draft;
           draft.seed = request.seed;
           draft.step = request.game_decision_count;
@@ -719,11 +752,16 @@ int main(int argc, char** argv) {
           draft.selected_action_index = policy_result.result.selected_action_index;
           draft.behavior_log_probability = policy_result.result.behavior_log_probability;
           drafts_by_game[request.game_id].push_back(std::move(draft));
+          profile.draft_record_elapsed_ns += elapsed_ns(draft_started);
         }
         results.push_back(policy_result.result);
       }
       runtime.submit_agent_results(results);
-      for (const FinishedGame& finished : runtime.collect_finished_games()) {
+      const auto finished_started = std::chrono::steady_clock::now();
+      const std::vector<FinishedGame> collected_finished = runtime.collect_finished_games();
+      profile.finished_game_collection_elapsed_ns += elapsed_ns(finished_started);
+      const auto sample_started = std::chrono::steady_clock::now();
+      for (const FinishedGame& finished : collected_finished) {
         auto& seed_samples = samples_by_seed[finished.seed];
         for (const Draft& draft : drafts_by_game[finished.game_id]) {
           std::ostringstream sample;
@@ -733,6 +771,7 @@ int main(int argc, char** argv) {
         drafts_by_game.erase(finished.game_id);
         ++finished_games;
       }
+      profile.sample_draft_handling_elapsed_ns += elapsed_ns(sample_started);
     }
 
     const auto serialization_started = std::chrono::steady_clock::now();
@@ -787,6 +826,18 @@ int main(int argc, char** argv) {
         std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(ended - started)
             .count();
     const double total_elapsed_seconds = total_elapsed_ms / 1000.0;
+    const double accounted_top_level_ms =
+        ns_to_ms(profile.schedule_build_elapsed_ns) +
+        ns_to_ms(profile.schedule_elapsed_ns) +
+        ns_to_ms(runtime_metrics.advance_runnable_games_elapsed_ns) +
+        ns_to_ms(runtime_metrics.collect_agent_requests_elapsed_ns) +
+        ns_to_ms(profile.request_index_elapsed_ns) +
+        ns_to_ms(profile.policy_executor_run_elapsed_ns) +
+        ns_to_ms(runtime_metrics.submit_agent_results_elapsed_ns) +
+        ns_to_ms(profile.finished_game_collection_elapsed_ns) +
+        ns_to_ms(profile.sample_draft_handling_elapsed_ns) +
+        serialization_elapsed_ms;
+    const double other_unaccounted_ms = total_elapsed_ms - accounted_top_level_ms;
 
     std::ofstream manifest(options.output_directory / "manifest.json");
     const std::string resolved_inference_device = options.inference_device == "cuda" ? "cuda" : "cpu";
@@ -881,6 +932,56 @@ int main(int argc, char** argv) {
              << (total_elapsed_seconds > 0.0 ? sample_count / total_elapsed_seconds : 0.0)
              << ",\"simulationCpuElapsedMs\":" << (runtime_metrics.cpu_elapsed_ns / 1000000.0)
              << ",\"inferenceElapsedMs\":" << (policy_stats.inference_elapsed_ns / 1000000.0)
+             << ",\"scheduleBuildElapsedMs\":" << ns_to_ms(profile.schedule_build_elapsed_ns)
+             << ",\"scheduleElapsedMs\":" << ns_to_ms(profile.schedule_elapsed_ns)
+             << ",\"addScheduledGamesElapsedMs\":"
+             << ns_to_ms(runtime_metrics.add_scheduled_games_elapsed_ns)
+             << ",\"advanceRunnableGamesElapsedMs\":"
+             << ns_to_ms(runtime_metrics.advance_runnable_games_elapsed_ns)
+             << ",\"ruleBasedActionElapsedMs\":"
+             << ns_to_ms(runtime_metrics.rule_based_action_elapsed_ns)
+             << ",\"observationGenerationElapsedMs\":"
+             << ns_to_ms(runtime_metrics.observation_generation_elapsed_ns)
+             << ",\"legalActionElapsedMs\":"
+             << ns_to_ms(runtime_metrics.legal_action_elapsed_ns)
+             << ",\"stateTransitionElapsedMs\":"
+             << ns_to_ms(runtime_metrics.state_transition_elapsed_ns)
+             << ",\"requestBuildElapsedMs\":"
+             << ns_to_ms(runtime_metrics.request_build_elapsed_ns)
+             << ",\"collectAgentRequestsElapsedMs\":"
+             << ns_to_ms(runtime_metrics.collect_agent_requests_elapsed_ns)
+             << ",\"requestSortElapsedMs\":"
+             << ns_to_ms(runtime_metrics.request_sort_elapsed_ns)
+             << ",\"requestIndexElapsedMs\":" << ns_to_ms(profile.request_index_elapsed_ns)
+             << ",\"policyExecutorRunElapsedMs\":"
+             << ns_to_ms(profile.policy_executor_run_elapsed_ns)
+             << ",\"policyHostPrepareElapsedMs\":"
+             << ns_to_ms(policy_stats.host_prepare_elapsed_ns)
+             << ",\"policySessionRunElapsedMs\":"
+             << ns_to_ms(policy_stats.session_run_elapsed_ns)
+             << ",\"policyResultMaterializationElapsedMs\":"
+             << ns_to_ms(policy_stats.result_materialization_elapsed_ns)
+             << ",\"submitAgentResultsElapsedMs\":"
+             << ns_to_ms(runtime_metrics.submit_agent_results_elapsed_ns)
+             << ",\"resultSortElapsedMs\":"
+             << ns_to_ms(runtime_metrics.result_sort_elapsed_ns)
+             << ",\"resultLookupElapsedMs\":"
+             << ns_to_ms(runtime_metrics.result_lookup_elapsed_ns)
+             << ",\"resultValidationElapsedMs\":"
+             << ns_to_ms(runtime_metrics.result_validation_elapsed_ns)
+             << ",\"resultCommitElapsedMs\":"
+             << ns_to_ms(runtime_metrics.result_commit_elapsed_ns)
+             << ",\"finishedGameCollectionElapsedMs\":"
+             << ns_to_ms(profile.finished_game_collection_elapsed_ns)
+             << ",\"runtimeCollectFinishedGamesElapsedMs\":"
+             << ns_to_ms(runtime_metrics.collect_finished_games_elapsed_ns)
+             << ",\"finishedMaterializationElapsedMs\":"
+             << ns_to_ms(runtime_metrics.finished_materialization_elapsed_ns)
+             << ",\"draftRecordElapsedMs\":" << ns_to_ms(profile.draft_record_elapsed_ns)
+             << ",\"sampleDraftHandlingElapsedMs\":"
+             << ns_to_ms(profile.sample_draft_handling_elapsed_ns)
+             << ",\"schedulerOtherElapsedMs\":" << other_unaccounted_ms
+             << ",\"otherUnaccountedElapsedMs\":" << other_unaccounted_ms
              << ",\"inferenceBatchCount\":" << policy_stats.session_run_count
              << ",\"inferenceRequestCount\":" << policy_stats.request_count
              << ",\"meanBatchSize\":" << policy_stats.mean_batch_size
@@ -911,6 +1012,56 @@ int main(int argc, char** argv) {
               << (total_elapsed_seconds > 0.0 ? sample_count / total_elapsed_seconds : 0.0)
               << ",\"simulationCpuElapsedMs\":" << (runtime_metrics.cpu_elapsed_ns / 1000000.0)
               << ",\"inferenceElapsedMs\":" << (policy_stats.inference_elapsed_ns / 1000000.0)
+              << ",\"scheduleBuildElapsedMs\":" << ns_to_ms(profile.schedule_build_elapsed_ns)
+              << ",\"scheduleElapsedMs\":" << ns_to_ms(profile.schedule_elapsed_ns)
+              << ",\"addScheduledGamesElapsedMs\":"
+              << ns_to_ms(runtime_metrics.add_scheduled_games_elapsed_ns)
+              << ",\"advanceRunnableGamesElapsedMs\":"
+              << ns_to_ms(runtime_metrics.advance_runnable_games_elapsed_ns)
+              << ",\"ruleBasedActionElapsedMs\":"
+              << ns_to_ms(runtime_metrics.rule_based_action_elapsed_ns)
+              << ",\"observationGenerationElapsedMs\":"
+              << ns_to_ms(runtime_metrics.observation_generation_elapsed_ns)
+              << ",\"legalActionElapsedMs\":"
+              << ns_to_ms(runtime_metrics.legal_action_elapsed_ns)
+              << ",\"stateTransitionElapsedMs\":"
+              << ns_to_ms(runtime_metrics.state_transition_elapsed_ns)
+              << ",\"requestBuildElapsedMs\":"
+              << ns_to_ms(runtime_metrics.request_build_elapsed_ns)
+              << ",\"collectAgentRequestsElapsedMs\":"
+              << ns_to_ms(runtime_metrics.collect_agent_requests_elapsed_ns)
+              << ",\"requestSortElapsedMs\":"
+              << ns_to_ms(runtime_metrics.request_sort_elapsed_ns)
+              << ",\"requestIndexElapsedMs\":" << ns_to_ms(profile.request_index_elapsed_ns)
+              << ",\"policyExecutorRunElapsedMs\":"
+              << ns_to_ms(profile.policy_executor_run_elapsed_ns)
+              << ",\"policyHostPrepareElapsedMs\":"
+              << ns_to_ms(policy_stats.host_prepare_elapsed_ns)
+              << ",\"policySessionRunElapsedMs\":"
+              << ns_to_ms(policy_stats.session_run_elapsed_ns)
+              << ",\"policyResultMaterializationElapsedMs\":"
+              << ns_to_ms(policy_stats.result_materialization_elapsed_ns)
+              << ",\"submitAgentResultsElapsedMs\":"
+              << ns_to_ms(runtime_metrics.submit_agent_results_elapsed_ns)
+              << ",\"resultSortElapsedMs\":"
+              << ns_to_ms(runtime_metrics.result_sort_elapsed_ns)
+              << ",\"resultLookupElapsedMs\":"
+              << ns_to_ms(runtime_metrics.result_lookup_elapsed_ns)
+              << ",\"resultValidationElapsedMs\":"
+              << ns_to_ms(runtime_metrics.result_validation_elapsed_ns)
+              << ",\"resultCommitElapsedMs\":"
+              << ns_to_ms(runtime_metrics.result_commit_elapsed_ns)
+              << ",\"finishedGameCollectionElapsedMs\":"
+              << ns_to_ms(profile.finished_game_collection_elapsed_ns)
+              << ",\"runtimeCollectFinishedGamesElapsedMs\":"
+              << ns_to_ms(runtime_metrics.collect_finished_games_elapsed_ns)
+              << ",\"finishedMaterializationElapsedMs\":"
+              << ns_to_ms(runtime_metrics.finished_materialization_elapsed_ns)
+              << ",\"draftRecordElapsedMs\":" << ns_to_ms(profile.draft_record_elapsed_ns)
+              << ",\"sampleDraftHandlingElapsedMs\":"
+              << ns_to_ms(profile.sample_draft_handling_elapsed_ns)
+              << ",\"schedulerOtherElapsedMs\":" << other_unaccounted_ms
+              << ",\"otherUnaccountedElapsedMs\":" << other_unaccounted_ms
               << ",\"inferenceBatchCount\":" << policy_stats.session_run_count
               << ",\"inferenceRequestCount\":" << policy_stats.request_count
               << ",\"meanBatchSize\":" << policy_stats.mean_batch_size
