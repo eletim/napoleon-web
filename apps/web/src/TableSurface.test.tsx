@@ -80,6 +80,7 @@ describe("TableSurface", () => {
 
     expect(countOccurrences(unknownHtml, "class=\"table-role-marker")).toBe(5);
     expect(countOccurrences(unknownHtml, "の役職?")).toBe(5);
+    expect(unknownHtml).toContain("table-role-marker-unknown");
     expect(confirmedHtml).toContain("左側AIの役職N");
     expect(confirmedHtml).toContain("奥左AIの役職A");
     expect(confirmedHtml).toContain("table-role-marker-napoleon");
@@ -208,11 +209,16 @@ describe("TableSurface", () => {
   it("groups each player as a visual seat unit and hides unused trick slots while bidding", () => {
     const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
 
+    expect(styles).toContain(".table-surface::before,");
+    expect(getCssRule(styles, ".table-surface::before")).toContain("height: min(56vw, 400px);");
     expect(getCssRule(styles, ".table-seat-guide")).toContain("translate(var(--guide-x)");
     expect(getCssRule(styles, ".table-player-left")).toContain("--guide-rotation: -22deg;");
     expect(getCssRule(styles, ".table-player-self")).toContain("--guide-w:");
-    expect(getCssRule(styles, ".table-player-self")).toContain("--role-y: 112px;");
-    expect(getCssRule(styles, ".point-river-slot", 1)).toContain("rgb(255 255 255 / 9%)");
+    expect(getCssRule(styles, ".table-player-self")).toContain("--role-y: 354px;");
+    expect(getCssRule(styles, ".table-trick-card")).toContain("height: 78px;");
+    expect(getCssRule(styles, ".point-river-slot", 1)).toContain("rgb(255 255 255 / 5%)");
+    expect(styles).toContain(".table-side-actions .adjutant-controls label,");
+    expect(styles).toContain("color: rgb(226 232 240 / 88%);");
     expect(getCssRule(styles, ".table-surface-bidding .table-trick-zone")).toContain(
       "display: none;"
     );
