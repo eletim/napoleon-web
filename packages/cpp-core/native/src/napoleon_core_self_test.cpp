@@ -703,8 +703,51 @@ int main() {
   const std::vector<napoleon::AgentRequest> scheduled_requests =
       scheduled_runtime.collect_agent_requests();
   assert(scheduled_requests.size() == 2);
+  assert(scheduled_runtime.active_game_count() == 2);
   assert(scheduled_runtime.game_snapshots()[0].seed == 900);
   assert(scheduled_runtime.game_snapshots()[1].seed == 900);
+
+  napoleon::SimulationRuntime single_slot_runtime(napoleon::SimulationRuntimeConfig{
+      napoleon::fixed_roster({rule, rule, rule, rule, rule}),
+      1000,
+      0,
+      1});
+  single_slot_runtime.add_games(1);
+  assert(single_slot_runtime.active_game_count() == 1);
+  bool rejected_over_capacity = false;
+  try {
+    single_slot_runtime.add_games(1);
+  } catch (const std::runtime_error&) {
+    rejected_over_capacity = true;
+  }
+  assert(rejected_over_capacity);
+  single_slot_runtime.advance_runnable_games();
+  const std::vector<napoleon::FinishedGame> single_finished =
+      single_slot_runtime.collect_finished_games();
+  assert(single_finished.size() == 1);
+  assert(single_slot_runtime.active_game_count() == 0);
+  single_slot_runtime.add_games(1);
+  assert(single_slot_runtime.active_game_count() == 1);
+
+  napoleon::SimulationRuntime oversized_slot_runtime(napoleon::SimulationRuntimeConfig{
+      napoleon::fixed_roster({rule, rule, rule, rule, rule}),
+      2000,
+      0,
+      8});
+  oversized_slot_runtime.add_scheduled_games({
+      napoleon::ScheduledGame{
+          2001,
+          napoleon::sample_roster(napoleon::fixed_roster({rule, rule, rule, rule, rule}), 0, 0)},
+      napoleon::ScheduledGame{
+          2002,
+          napoleon::sample_roster(napoleon::fixed_roster({rule, rule, rule, rule, rule}), 0, 1)}});
+  assert(oversized_slot_runtime.active_game_count() == 2);
+  const std::vector<napoleon::FinishedGame> oversized_finished =
+      drive_external_first_legal(oversized_slot_runtime, 2);
+  assert(oversized_finished.size() == 2);
+  assert(oversized_finished[0].seed == 2001);
+  assert(oversized_finished[1].seed == 2002);
+  assert(oversized_slot_runtime.active_game_count() == 0);
 
   const napoleon::evaluation::EvaluationArtifact eval_artifact =
       napoleon::evaluation::run_evaluation(napoleon::evaluation::EvaluationOptions{

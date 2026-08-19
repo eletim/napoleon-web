@@ -12,6 +12,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <memory>
@@ -686,9 +687,15 @@ int main(int argc, char** argv) {
     std::uint64_t finished_games = 0;
     const std::uint64_t total_games = schedule.size();
     while (finished_games < total_games) {
-      while (next_schedule < schedule.size() &&
-             runtime.game_snapshots().size() - finished_games < options.max_concurrent_games) {
-        runtime.add_scheduled_games({schedule[next_schedule++]});
+      const std::size_t active_games = runtime.active_game_count();
+      if (next_schedule < schedule.size() && active_games < options.max_concurrent_games) {
+        const std::size_t open_slots = options.max_concurrent_games - active_games;
+        const std::size_t batch_count = std::min(open_slots, schedule.size() - next_schedule);
+        std::vector<napoleon::ScheduledGame> batch(
+            schedule.begin() + static_cast<std::ptrdiff_t>(next_schedule),
+            schedule.begin() + static_cast<std::ptrdiff_t>(next_schedule + batch_count));
+        runtime.add_scheduled_games(batch);
+        next_schedule += batch_count;
       }
       runtime.advance_runnable_games();
       const std::vector<napoleon::AgentRequest> requests = runtime.collect_agent_requests();

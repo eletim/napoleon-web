@@ -530,7 +530,7 @@ EvaluationRun drive_schedule(
   EvaluationRun run;
   std::size_t next_schedule_index = 0;
   while (run.completed.size() < schedule.size()) {
-    const std::size_t in_flight = runtime.game_snapshots().size() - run.completed.size();
+    const std::size_t in_flight = runtime.active_game_count();
     if (next_schedule_index < schedule.size() && in_flight < options.max_concurrent_games) {
       const std::size_t open_slots = options.max_concurrent_games - in_flight;
       const std::size_t batch_count =
