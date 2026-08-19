@@ -9,6 +9,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace napoleon {
@@ -96,6 +97,22 @@ struct RuntimeMetrics {
   std::uint64_t internal_transition_count = 0;
   std::uint64_t runnable_pass_count = 0;
   std::uint64_t cpu_elapsed_ns = 0;
+  std::uint64_t add_scheduled_games_elapsed_ns = 0;
+  std::uint64_t advance_runnable_games_elapsed_ns = 0;
+  std::uint64_t rule_based_action_elapsed_ns = 0;
+  std::uint64_t observation_generation_elapsed_ns = 0;
+  std::uint64_t legal_action_elapsed_ns = 0;
+  std::uint64_t state_transition_elapsed_ns = 0;
+  std::uint64_t request_build_elapsed_ns = 0;
+  std::uint64_t collect_agent_requests_elapsed_ns = 0;
+  std::uint64_t request_sort_elapsed_ns = 0;
+  std::uint64_t submit_agent_results_elapsed_ns = 0;
+  std::uint64_t result_sort_elapsed_ns = 0;
+  std::uint64_t result_lookup_elapsed_ns = 0;
+  std::uint64_t result_validation_elapsed_ns = 0;
+  std::uint64_t result_commit_elapsed_ns = 0;
+  std::uint64_t collect_finished_games_elapsed_ns = 0;
+  std::uint64_t finished_materialization_elapsed_ns = 0;
   double games_per_second = 0.0;
   double decisions_per_second = 0.0;
 };
@@ -118,12 +135,14 @@ class SimulationRuntime {
 
  private:
   struct RuntimeGame;
-  void mark_finished(RuntimeGame& game);
+  void mark_finished(std::size_t game_index);
 
   SimulationRuntimeConfig config_;
   std::vector<RuntimeGame> games_;
   std::vector<std::size_t> active_game_indices_;
+  std::vector<std::size_t> finished_game_indices_;
   std::vector<AgentRequest> pending_requests_;
+  std::unordered_map<std::uint64_t, std::size_t> pending_request_game_indices_;
   RuntimeMetrics metrics_;
   std::size_t active_game_count_ = 0;
   std::chrono::steady_clock::time_point started_at_;

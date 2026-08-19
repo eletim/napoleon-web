@@ -56,6 +56,9 @@ struct PolicyBatchStats {
   std::size_t max_observed_batch_size = 0;
   std::map<std::size_t, std::uint64_t> batch_size_histogram;
   std::uint64_t inference_elapsed_ns = 0;
+  std::uint64_t host_prepare_elapsed_ns = 0;
+  std::uint64_t session_run_elapsed_ns = 0;
+  std::uint64_t result_materialization_elapsed_ns = 0;
 };
 
 struct BatchedPolicyStats {
@@ -65,6 +68,9 @@ struct BatchedPolicyStats {
   std::size_t max_observed_batch_size = 0;
   std::map<std::size_t, std::uint64_t> batch_size_histogram;
   std::uint64_t inference_elapsed_ns = 0;
+  std::uint64_t host_prepare_elapsed_ns = 0;
+  std::uint64_t session_run_elapsed_ns = 0;
+  std::uint64_t result_materialization_elapsed_ns = 0;
   std::map<std::string, PolicyBatchStats> policy_stats;
 };
 
