@@ -217,6 +217,11 @@ html:has(.table-design-mock-page) {
   position: relative;
 }
 
+.mock-river-card.mock-playing-card,
+.mock-trick-card.mock-playing-card {
+  position: absolute;
+}
+
 .mock-card-red {
   color: #ec3f36;
 }
