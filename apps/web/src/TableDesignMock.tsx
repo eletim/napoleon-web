@@ -24,7 +24,6 @@ interface SeatLayout {
   hand: Point & { rotation: number };
   id: string;
   label: string;
-  labelOffset: Point;
   river: Point & { rotation: number };
   trick: Point & { rotation: number };
 }
@@ -67,9 +66,9 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
   },
   center: {
     x: 1120,
-    y: 920,
-    width: 360,
-    height: 322
+    y: 890,
+    width: 338,
+    height: 303
   },
   cardSizes: {
     trick: { width: 132, height: 178 },
@@ -82,16 +81,15 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
   },
   action: {
     x: 1120,
-    y: 1418,
-    width: 206,
-    height: 248
+    y: 1376,
+    width: 224,
+    height: 274
   },
   seats: [
     {
       id: "top-left",
       label: "北西",
       avatar: { x: 586, y: 132 },
-      labelOffset: { x: 0, y: 74 },
       hand: { x: 672, y: 292, rotation: -19 },
       trick: { x: 1034, y: 713, rotation: -38 },
       river: { x: 836, y: 540, rotation: -37 }
@@ -100,7 +98,6 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
       id: "top-right",
       label: "北東",
       avatar: { x: 1590, y: 144 },
-      labelOffset: { x: 0, y: 74 },
       hand: { x: 1538, y: 294, rotation: 19 },
       trick: { x: 1298, y: 732, rotation: 31 },
       river: { x: 1376, y: 540, rotation: 37 }
@@ -109,7 +106,6 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
       id: "right",
       label: "右席",
       avatar: { x: 2112, y: 1074 },
-      labelOffset: { x: -6, y: 76 },
       hand: { x: 1942, y: 1080, rotation: 55 },
       trick: { x: 1307, y: 1016, rotation: 14 },
       river: { x: 1578, y: 1036, rotation: 15 }
@@ -118,16 +114,14 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
       id: "self",
       label: "自分",
       avatar: { x: 808, y: 1492 },
-      labelOffset: { x: 0, y: 78 },
-      hand: { x: 1118, y: 1724, rotation: 0 },
-      trick: { x: 1122, y: 1064, rotation: 0 },
-      river: { x: 1120, y: 1112, rotation: 0 }
+      hand: { x: 1118, y: 1684, rotation: 0 },
+      trick: { x: 1122, y: 1138, rotation: 0 },
+      river: { x: 1120, y: 1078, rotation: 0 }
     },
     {
       id: "left",
       label: "左席",
       avatar: { x: 136, y: 1070 },
-      labelOffset: { x: 0, y: 76 },
       hand: { x: 308, y: 1086, rotation: -54 },
       trick: { x: 902, y: 934, rotation: -12 },
       river: { x: 644, y: 1038, rotation: -15 }
@@ -262,15 +256,6 @@ function SeatArtifacts({ seat }: { seat: SeatLayout }) {
       >
         <span className="mock-avatar-head" />
         <span className="mock-avatar-body" />
-      </div>
-      <div
-        className="mock-player-label"
-        style={pointStyle({
-          x: seat.avatar.x + seat.labelOffset.x,
-          y: seat.avatar.y + seat.labelOffset.y
-        })}
-      >
-        {seat.label}
       </div>
 
       {seat.id === "self" ? (
