@@ -73,7 +73,6 @@ html:has(.table-design-mock-page) {
 }
 
 .mock-avatar,
-.mock-player-label,
 .mock-card-back-fan,
 .mock-self-hand,
 .mock-self-trick-stack,
@@ -85,7 +84,6 @@ html:has(.table-design-mock-page) {
 }
 
 .mock-avatar,
-.mock-player-label,
 .mock-card-back-fan,
 .mock-self-hand,
 .mock-self-trick-stack,
@@ -125,18 +123,6 @@ html:has(.table-design-mock-page) {
   width: 94px;
 }
 
-.mock-player-label {
-  background: rgb(255 255 255 / 12%);
-  border: 1px solid rgb(255 255 255 / 24%);
-  border-radius: 999px;
-  color: #f8fafc;
-  font-size: 22px;
-  font-weight: 700;
-  line-height: 1;
-  padding: 7px 14px;
-  white-space: nowrap;
-}
-
 .mock-card-back-fan {
   height: 126px;
   width: 182px;
@@ -166,30 +152,30 @@ html:has(.table-design-mock-page) {
 }
 
 .mock-card-back:nth-child(1) {
-  transform: translate(-88px, -47px) rotate(-8deg);
+  transform: translate(-86px, -48px) rotate(-2deg);
 }
 
 .mock-card-back:nth-child(2) {
-  transform: translate(-28px, -50px) rotate(2deg);
+  transform: translate(-28px, -50px) rotate(0deg);
 }
 
 .mock-card-back:nth-child(3) {
-  transform: translate(30px, -47px) rotate(9deg);
+  transform: translate(30px, -48px) rotate(2deg);
 }
 
 .mock-card-back-fan-left .mock-card-back:nth-child(1),
 .mock-card-back-fan-right .mock-card-back:nth-child(1) {
-  transform: translate(-86px, -46px) rotate(-3deg);
+  transform: translate(-86px, -48px) rotate(-1deg);
 }
 
 .mock-card-back-fan-left .mock-card-back:nth-child(2),
 .mock-card-back-fan-right .mock-card-back:nth-child(2) {
-  transform: translate(-30px, -50px) rotate(1deg);
+  transform: translate(-29px, -50px) rotate(0deg);
 }
 
 .mock-card-back-fan-left .mock-card-back:nth-child(3),
 .mock-card-back-fan-right .mock-card-back:nth-child(3) {
-  transform: translate(26px, -46px) rotate(4deg);
+  transform: translate(28px, -48px) rotate(1deg);
 }
 
 .mock-point-river {

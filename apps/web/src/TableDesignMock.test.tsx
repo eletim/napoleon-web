@@ -15,5 +15,12 @@ describe("TableDesignMock", () => {
     expect(html).toContain("北西の裏向き手札");
     expect(html).toContain("--mock-page-width:2200px");
     expect(html).toContain("--mock-trick-card-width:132px");
+    expect(html).not.toContain("mock-player-label");
+    expect(tableDesignMockLayout.center).toMatchObject({ height: 303, width: 338, y: 890 });
+    expect(tableDesignMockLayout.action).toMatchObject({ height: 274, width: 224, y: 1376 });
+    expect(tableDesignMockLayout.seats.find((seat) => seat.id === "self")).toMatchObject({
+      hand: { y: 1684 },
+      trick: { y: 1138 }
+    });
   });
 });
