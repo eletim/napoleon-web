@@ -49,21 +49,32 @@ describe("TableSurface", () => {
     expect(html).toContain("自分が10♠を出しました");
   });
 
-  it("reserves a fixed twenty-card point river for every player", () => {
+  it("renders a compact point river inside every seat", () => {
     const html = renderTable(
       createState({
         capturedPointCards: {
-          "player-1": [standardCard("spades", "A"), standardCard("hearts", "10")],
+          "player-1": [
+            standardCard("spades", "A"),
+            standardCard("spades", "K"),
+            standardCard("spades", "Q"),
+            standardCard("hearts", "A"),
+            standardCard("hearts", "K"),
+            standardCard("hearts", "10")
+          ],
           "player-0": [standardCard("clubs", "K")]
         },
         opponentHandCounts: [8, 8, 8, 8]
       })
     );
 
-    expect(countOccurrences(html, "class=\"point-river-grid\"")).toBe(5);
-    expect(countOccurrences(html, "point-river-slot-empty")).toBe(97);
+    expect(countOccurrences(html, "class=\"point-river ")).toBe(5);
+    expect(countOccurrences(html, "class=\"point-river-stack")).toBe(5);
+    expect(countOccurrences(html, "point-river-empty-mark")).toBe(3);
+    expect(countOccurrences(html, "table-point-card")).toBe(7);
     expect(html).not.toContain("★");
-    expect(html).toContain("左側AIの獲得ポイント札 2枚");
+    expect(html).toContain("河 <strong>6</strong>");
+    expect(html).toContain("河 <strong>1</strong>");
+    expect(html).toContain("左側AIの獲得ポイント札 6枚");
     expect(html).toContain("自分の獲得ポイント札 1枚");
   });
 
@@ -102,7 +113,8 @@ describe("TableSurface", () => {
     );
 
     expect(hudHtml).toContain("♥13");
-    expect(hudHtml).toContain("副官 ");
+    expect(hudHtml).toContain("契約");
+    expect(hudHtml).toContain("呼札 ");
     expect(hudHtml).toContain("♦J");
     expect(hudHtml).toContain("red-text");
     expect(hudHtml).not.toContain("左側AI");
@@ -146,24 +158,31 @@ describe("TableSurface", () => {
     expect(html).toContain("card-black");
   });
 
-  it("keeps pentagon seat placement separate from stable card orientations", () => {
+  it("keeps seat placement separate from stable card orientations", () => {
     const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
 
     expect(styles).not.toContain("--axis-angle");
-    expect(styles).toContain("rotate(var(--zone-rotation))");
+    expect(styles).not.toContain("--name-x");
+    expect(styles).not.toContain("--hand-x");
+    expect(styles).not.toContain("--trick-x");
+    expect(styles).not.toContain("--river-x");
+    expect(styles).not.toContain("--role-x");
+    expect(styles).not.toContain("--zone-x");
+    expect(styles).not.toContain("--zone-rotation");
     expect(getCssRule(styles, ".table-hand-zone")).toContain(
-      "--zone-rotation: var(--hand-rotation);"
+      "transform: rotate(var(--seat-hand-rotation));"
     );
     expect(getCssRule(styles, ".table-trick-zone")).toContain(
-      "--zone-rotation: var(--trick-rotation);"
+      "transform: rotate(var(--seat-trick-rotation));"
     );
     expect(getCssRule(styles, ".table-river-zone", 1)).toContain(
-      "--zone-rotation: var(--river-rotation);"
+      "transform: rotate(var(--seat-river-rotation));"
     );
-    expect(getCssRule(styles, ".table-player-left")).toContain("--hand-rotation: 90deg;");
-    expect(getCssRule(styles, ".table-player-right")).toContain("--hand-rotation: -90deg;");
-    expect(getCssRule(styles, ".table-player-top-left")).not.toContain("--hand-rotation:");
-    expect(getCssRule(styles, ".table-player-top-right")).not.toContain("--hand-rotation:");
+    expect(getCssRule(styles, ".table-player-left")).not.toContain("--seat-hand-rotation:");
+    expect(getCssRule(styles, ".table-player-right")).not.toContain("--seat-hand-rotation:");
+    expect(getCssRule(styles, ".table-player-top-left")).not.toContain("--seat-hand-rotation:");
+    expect(getCssRule(styles, ".table-player-top-right")).not.toContain("--seat-hand-rotation:");
+    expect(styles).toContain("flex-direction: column;\n  max-height: 156px;");
   });
 
   it("keeps permanent and contextual controls in the left side action rail", () => {
@@ -180,7 +199,7 @@ describe("TableSurface", () => {
       </div>
     );
     const asideStart = html.indexOf("class=\"table-side-actions\"");
-    const seatsStart = html.indexOf("class=\"table-player-zone\"");
+    const seatsStart = html.indexOf("class=\"table-seat-container");
     const asideHtml = html.slice(asideStart, seatsStart);
 
     expect(asideHtml).toContain("aria-label=\"操作\"");
@@ -206,17 +225,54 @@ describe("TableSurface", () => {
     expect(styles).toContain("white-space: nowrap;");
   });
 
-  it("groups each player as a visual seat unit and hides unused trick slots while bidding", () => {
-    const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
+  it("keeps completed trick controls attached to the self seat", () => {
+    const html = renderTable(
+      createState({ isTrickComplete: true, opponentHandCounts: [9, 9, 9, 9] }),
+      <div className="action-area">
+        <button
+          aria-label="次のトリックへ進む"
+          className="secondary-button next-trick-button"
+          type="button"
+        >
+          次へ
+        </button>
+      </div>
+    );
+    const asideStart = html.indexOf("class=\"table-side-actions\"");
+    const seatsStart = html.indexOf("class=\"table-seat-container");
+    const asideHtml = html.slice(asideStart, seatsStart);
+    const selfSeatStart = html.indexOf("class=\"table-seat-container table-player-self");
+    const selfSeatEnd = html.indexOf("<div class=\"table-core\"", selfSeatStart);
+    const selfSeatHtml = html.slice(selfSeatStart, selfSeatEnd);
 
+    expect(asideHtml).not.toContain("next-trick-button");
+    expect(selfSeatHtml).toContain("class=\"table-seat-actions\"");
+    expect(selfSeatHtml).toContain("理牌");
+    expect(selfSeatHtml).toContain("勝札");
+    expect(selfSeatHtml).toContain("next-trick-button");
+  });
+
+  it("groups each player as a concrete seat container and hides unused trick slots while bidding", () => {
+    const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
+    const html = renderTable(createState({ opponentHandCounts: [10, 10, 10, 10] }));
+
+    expect(countOccurrences(html, "class=\"table-seat-container")).toBe(5);
+    expect(countOccurrences(html, "class=\"table-seat-header\"")).toBe(5);
+    expect(html.indexOf("class=\"table-seat-header\"")).toBeLessThan(
+      html.indexOf("class=\"table-hand-zone\"")
+    );
     expect(styles).toContain(".table-surface::before,");
     expect(getCssRule(styles, ".table-surface::before")).toContain("height: min(56vw, 400px);");
-    expect(getCssRule(styles, ".table-seat-guide")).toContain("translate(var(--guide-x)");
-    expect(getCssRule(styles, ".table-player-left")).toContain("--guide-rotation: -22deg;");
-    expect(getCssRule(styles, ".table-player-self")).toContain("--guide-w:");
-    expect(getCssRule(styles, ".table-player-self")).toContain("--role-y: 354px;");
+    expect(getCssRule(styles, ".table-seat-container")).toContain("display: flex;");
+    expect(getCssRule(styles, ".table-seat-guide")).toContain("inset: -6px;");
+    expect(getCssRule(styles, ".table-player-left")).toContain("flex-direction: row;");
+    expect(getCssRule(styles, ".table-player-right")).toContain("flex-direction: row-reverse;");
+    expect(getCssRule(styles, ".table-player-self")).toContain("flex-direction: column-reverse;");
+    expect(styles).toContain("position: relative;\n  transform-origin: center;");
+    expect(getCssRule(styles, ".table-role-marker")).toContain("position: relative;");
     expect(getCssRule(styles, ".table-trick-card")).toContain("height: 78px;");
-    expect(getCssRule(styles, ".point-river-slot", 1)).toContain("rgb(255 255 255 / 5%)");
+    expect(getCssRule(styles, ".point-river")).toContain("display: inline-grid;");
+    expect(styles).toContain("background: rgb(255 255 255 / 10%);");
     expect(styles).toContain(".table-side-actions .adjutant-controls label,");
     expect(styles).toContain("color: rgb(226 232 240 / 88%);");
     expect(getCssRule(styles, ".table-surface-bidding .table-trick-zone")).toContain(
@@ -252,6 +308,7 @@ function createState({
   adjutantRevealedPlayerId = null,
   biddingHistory = [],
   contractSuit = "spades",
+  isTrickComplete = false,
   phase = "playing",
   opponentHandCounts
 }: {
@@ -261,6 +318,7 @@ function createState({
   capturedPointCards?: Partial<Record<string, readonly PublicStandardCard[]>>;
   contractSuit?: PublicSuit;
   currentTrick?: readonly PublicPlayedCard[];
+  isTrickComplete?: boolean;
   phase?: PublicGameState["phase"];
   opponentHandCounts: readonly [number, number, number, number];
 }): PublicGameState {
@@ -318,7 +376,7 @@ function createState({
     currentTrick,
     completedTrickCount: 0,
     trickNumber: 1,
-    isTrickComplete: false,
+    isTrickComplete,
     isGameOver: false,
     legalActions: []
   };
