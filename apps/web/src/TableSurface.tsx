@@ -57,6 +57,33 @@ export function TableSurface({
       ? getCurrentWinningPlayerId(currentTrick, trumpSuit, trickNumber)
       : undefined;
   const collectingWinner = players.find((player) => player.id === collectingWinnerId);
+  const showSeatActions =
+    state?.phase === "playing" && state.isTrickComplete && !state.isGameOver;
+  const toolsPanel =
+    state === undefined ? null : (
+      <div className="table-side-tools" aria-label="補助操作">
+        <button
+          aria-label={handOrderMode === "riipai" ? "理牌オン" : "理牌オフ"}
+          aria-pressed={handOrderMode === "riipai"}
+          className={getSideToolButtonClassName(handOrderMode === "riipai")}
+          onClick={() =>
+            setHandOrderMode((current) => (current === "riipai" ? "original" : "riipai"))
+          }
+          type="button"
+        >
+          理牌
+        </button>
+        <button
+          aria-label={highlightWinningCard ? "暫定勝ち札強調オン" : "暫定勝ち札強調オフ"}
+          aria-pressed={highlightWinningCard}
+          className={getSideToolButtonClassName(highlightWinningCard)}
+          onClick={onToggleWinningCardHighlight}
+          type="button"
+        >
+          勝札
+        </button>
+      </div>
+    );
   const surfaceClassName = [
     "table-surface",
     state?.phase === "bidding" ? "table-surface-bidding" : "table-surface-playing",
@@ -72,31 +99,8 @@ export function TableSurface({
     <div className={surfaceClassName}>
       <TableHud state={state} />
       <aside className="table-side-actions" aria-label="操作">
-        {state !== undefined ? (
-          <div className="table-side-tools" aria-label="補助操作">
-            <button
-              aria-label={handOrderMode === "riipai" ? "理牌オン" : "理牌オフ"}
-              aria-pressed={handOrderMode === "riipai"}
-              className={getSideToolButtonClassName(handOrderMode === "riipai")}
-              onClick={() =>
-                setHandOrderMode((current) => (current === "riipai" ? "original" : "riipai"))
-              }
-              type="button"
-            >
-              理牌
-            </button>
-            <button
-              aria-label={highlightWinningCard ? "暫定勝ち札強調オン" : "暫定勝ち札強調オフ"}
-              aria-pressed={highlightWinningCard}
-              className={getSideToolButtonClassName(highlightWinningCard)}
-              onClick={onToggleWinningCardHighlight}
-              type="button"
-            >
-              勝札
-            </button>
-          </div>
-        ) : null}
-        {actionPanel}
+        {showSeatActions ? null : toolsPanel}
+        {showSeatActions ? null : actionPanel}
       </aside>
 
       {players.map((player) => (
@@ -112,6 +116,14 @@ export function TableSurface({
           onPlay={onPlay}
           played={playedCardsByPlayerId.get(player.id)}
           player={player}
+          seatActionPanel={
+            showSeatActions && player.isSelf ? (
+              <>
+                {toolsPanel}
+                {actionPanel}
+              </>
+            ) : null
+          }
           selectedDiscardCardIds={selectedDiscardCardIds}
           state={state}
         />
@@ -135,6 +147,7 @@ interface TableSeatProps {
   onPlay: (card: PublicCard) => void;
   played: PublicPlayedCard | undefined;
   player: TablePlayer;
+  seatActionPanel: ReactNode;
   selectedDiscardCardIds: readonly string[];
   state: PublicGameState | undefined;
 }
@@ -150,13 +163,14 @@ function TableSeat({
   onPlay,
   played,
   player,
+  seatActionPanel,
   selectedDiscardCardIds,
   state
 }: TableSeatProps) {
   const capturedPointCards =
     player.isSelf ? (state?.self.capturedPointCards ?? player.capturedPointCards) : player.capturedPointCards;
   const seatClassName = [
-    "table-player-zone",
+    "table-seat-container",
     `table-player-${player.seat}`,
     isCurrent ? "table-player-current" : ""
   ]
@@ -166,9 +180,17 @@ function TableSeat({
   return (
     <section aria-label={player.label} className={seatClassName}>
       <div className="table-seat-guide" aria-hidden="true" />
-      <div className="table-seat-name">
-        <span>{player.label}</span>
+      <div className="table-seat-header">
+        <div className="table-seat-name">
+          <span>{player.label}</span>
+        </div>
+        <RoleMarker player={player} state={state} />
       </div>
+      {seatActionPanel === null ? null : (
+        <div className="table-seat-actions" aria-label={`${player.label}の操作`}>
+          {seatActionPanel}
+        </div>
+      )}
       <div className="table-hand-zone" aria-label={`${player.label}の手札領域`}>
         {player.isSelf ? (
           <SelfTableHand
@@ -199,7 +221,6 @@ function TableSeat({
           <PointRiver cards={capturedPointCards} player={player} />
         )}
       </div>
-      <RoleMarker player={player} state={state} />
     </section>
   );
 }
@@ -316,24 +337,28 @@ function PointRiver({
 }) {
   return (
     <div
-      className="point-river-grid"
+      className={cards.length === 0 ? "point-river point-river-empty" : "point-river point-river-has-cards"}
       aria-label={`${player.label}の獲得ポイント札 ${cards.length}枚`}
     >
-      {Array.from({ length: 20 }, (_, index) => {
-        const card = cards[index];
-
-        return card === undefined ? (
-          <span
-            aria-hidden="true"
-            className="point-river-slot point-river-slot-empty"
-            key={`river-empty-${player.id}-${index}`}
-          />
+      <span className="point-river-label">
+        河 <strong>{cards.length}</strong>
+      </span>
+      <div
+        className={
+          cards.length === 0 ? "point-river-stack point-river-stack-empty" : "point-river-stack point-river-card-stack"
+        }
+        aria-hidden="true"
+      >
+        {cards.length === 0 ? (
+          <span className="point-river-empty-mark" />
         ) : (
-          <span className="table-card table-point-card" key={card.id}>
-            <CardFace card={card} />
-          </span>
-        );
-      })}
+          cards.map((card) => (
+            <span className="table-card table-point-card" key={card.id}>
+              <CardFace card={card} />
+            </span>
+          ))
+        )}
+      </div>
     </div>
   );
 }
@@ -407,10 +432,11 @@ function RoleMarker({
 function TableHud({ state }: { state: PublicGameState | undefined }) {
   return (
     <div className="table-hud" aria-label="ゲーム全体情報">
+      <span className="table-hud-label">契約</span>
       <strong className={createSuitTextClassName(state?.contract?.trumpSuit)}>
         {formatContractSummary(state?.contract)}
       </strong>
-      <span>副官 {renderCalledCard(state?.adjutant?.calledCardId)}</span>
+      <span>呼札 {renderCalledCard(state?.adjutant?.calledCardId)}</span>
     </div>
   );
 }
