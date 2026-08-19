@@ -12,6 +12,7 @@ import type {
 import { AutomatedSimulationViewer } from "./AutomatedSimulationViewer";
 import { BiddingPanel } from "./BiddingPanel";
 import { TableSurface } from "./TableSurface";
+import { TableDesignMock } from "./TableDesignMock";
 import {
   createAdjutantCardId,
   createAdjutantSelectionLabel,
@@ -52,6 +53,14 @@ const defaultAgentSelections: Record<string, string> = Object.fromEntries(
 );
 
 export function App() {
+  if (window.location.pathname.endsWith("/mock/table-design")) {
+    return <TableDesignMock />;
+  }
+
+  return <GameApp />;
+}
+
+function GameApp() {
   const [mode, setMode] = useState<AppMode>("game");
   const [session, setSession] = useState<Session | undefined>();
   const [message, setMessage] = useState("ゲームを開始してください。");

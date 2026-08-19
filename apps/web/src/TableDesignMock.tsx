@@ -1,0 +1,473 @@
+import type { CSSProperties } from "react";
+import "./TableDesignMock.css";
+
+type Suit = "spades" | "hearts" | "diamonds" | "clubs";
+
+interface MockCard {
+  rank: string;
+  suit: Suit;
+  face?: "king" | "queen" | "jack";
+}
+
+interface Point {
+  x: number;
+  y: number;
+}
+
+interface Box extends Point {
+  height: number;
+  width: number;
+}
+
+interface SeatLayout {
+  avatar: Point;
+  hand: Point & { rotation: number };
+  id: string;
+  label: string;
+  labelOffset: Point;
+  river: Point & { rotation: number };
+  trick: Point & { rotation: number };
+}
+
+interface TableDesignMockLayout {
+  action: Box;
+  cardSizes: {
+    river: { height: number; width: number };
+    selfHand: { height: number; width: number };
+    trick: { height: number; width: number };
+  };
+  center: Box;
+  hud: Box;
+  page: {
+    background: string;
+    height: number;
+    width: number;
+  };
+  riverSize: {
+    height: number;
+    width: number;
+  };
+  seats: readonly SeatLayout[];
+}
+
+// Source of Truth: https://github.com/eletim/napoleon-web/issues/308#issuecomment-5348323047
+// Keep the screenshot-facing coordinates here so the mock can be tuned without
+// hunting through individual elements.
+export const tableDesignMockLayout: TableDesignMockLayout = {
+  page: {
+    width: 2200,
+    height: 1830,
+    background: "#1d1d1d"
+  },
+  hud: {
+    x: 0,
+    y: 0,
+    width: 376,
+    height: 286
+  },
+  center: {
+    x: 1120,
+    y: 920,
+    width: 360,
+    height: 322
+  },
+  cardSizes: {
+    trick: { width: 132, height: 178 },
+    river: { width: 78, height: 106 },
+    selfHand: { width: 172, height: 228 }
+  },
+  riverSize: {
+    width: 260,
+    height: 210
+  },
+  action: {
+    x: 1120,
+    y: 1418,
+    width: 206,
+    height: 248
+  },
+  seats: [
+    {
+      id: "top-left",
+      label: "北西",
+      avatar: { x: 586, y: 132 },
+      labelOffset: { x: 0, y: 74 },
+      hand: { x: 672, y: 292, rotation: -19 },
+      trick: { x: 1034, y: 713, rotation: -38 },
+      river: { x: 836, y: 540, rotation: -37 }
+    },
+    {
+      id: "top-right",
+      label: "北東",
+      avatar: { x: 1590, y: 144 },
+      labelOffset: { x: 0, y: 74 },
+      hand: { x: 1538, y: 294, rotation: 19 },
+      trick: { x: 1298, y: 732, rotation: 31 },
+      river: { x: 1376, y: 540, rotation: 37 }
+    },
+    {
+      id: "right",
+      label: "右席",
+      avatar: { x: 2112, y: 1074 },
+      labelOffset: { x: -6, y: 76 },
+      hand: { x: 1942, y: 1080, rotation: 55 },
+      trick: { x: 1307, y: 1016, rotation: 14 },
+      river: { x: 1578, y: 1036, rotation: 15 }
+    },
+    {
+      id: "self",
+      label: "自分",
+      avatar: { x: 808, y: 1492 },
+      labelOffset: { x: 0, y: 78 },
+      hand: { x: 1118, y: 1724, rotation: 0 },
+      trick: { x: 1122, y: 1064, rotation: 0 },
+      river: { x: 1120, y: 1112, rotation: 0 }
+    },
+    {
+      id: "left",
+      label: "左席",
+      avatar: { x: 136, y: 1070 },
+      labelOffset: { x: 0, y: 76 },
+      hand: { x: 308, y: 1086, rotation: -54 },
+      trick: { x: 902, y: 934, rotation: -12 },
+      river: { x: 644, y: 1038, rotation: -15 }
+    }
+  ]
+};
+
+const selfCards: readonly MockCard[] = [
+  { rank: "5", suit: "spades" },
+  { rank: "7", suit: "spades" }
+];
+
+const selfTrickStack: readonly MockCard[] = [
+  { rank: "A", suit: "hearts" },
+  { rank: "10", suit: "spades" },
+  { rank: "J", suit: "clubs" },
+  { rank: "K", suit: "diamonds" },
+  { rank: "A", suit: "diamonds" }
+];
+
+const trickCards: Record<string, MockCard> = {
+  "top-left": { rank: "10", suit: "hearts" },
+  "top-right": { rank: "Q", suit: "hearts", face: "queen" },
+  right: { rank: "K", suit: "spades", face: "king" },
+  left: { rank: "A", suit: "spades" }
+};
+
+const riverCards: Record<string, readonly MockCard[]> = {
+  "top-left": [
+    { rank: "10", suit: "clubs" },
+    { rank: "Q", suit: "spades" }
+  ],
+  "top-right": [
+    { rank: "K", suit: "hearts" },
+    { rank: "10", suit: "diamonds" }
+  ],
+  right: [
+    { rank: "A", suit: "clubs" },
+    { rank: "K", suit: "clubs" },
+    { rank: "Q", suit: "clubs" }
+  ],
+  left: [
+    { rank: "A", suit: "hearts" },
+    { rank: "K", suit: "spades" }
+  ],
+  self: [
+    { rank: "A", suit: "hearts" },
+    { rank: "10", suit: "spades" },
+    { rank: "J", suit: "clubs" },
+    { rank: "K", suit: "diamonds" },
+    { rank: "A", suit: "diamonds" }
+  ]
+};
+
+const suitMarks: Record<Suit, string> = {
+  spades: "♠",
+  hearts: "♥",
+  diamonds: "♦",
+  clubs: "♣"
+};
+
+const roleCells = [
+  { label: "副", className: "role-cell role-cell-top-left" },
+  { label: "兵", className: "role-cell role-cell-top-right" },
+  { label: "ナポ", className: "role-cell role-cell-self" },
+  { label: "副", className: "role-cell role-cell-left" },
+  { label: "兵", className: "role-cell role-cell-right" }
+];
+
+export function TableDesignMock() {
+  const layout = tableDesignMockLayout;
+
+  return (
+    <main
+      aria-label="Issue 308 table design mock"
+      className="table-design-mock-page"
+      style={
+        {
+          "--mock-page-background": layout.page.background,
+          "--mock-page-height": `${layout.page.height}px`,
+          "--mock-page-width": `${layout.page.width}px`,
+          "--mock-river-height": `${layout.riverSize.height}px`,
+          "--mock-river-width": `${layout.riverSize.width}px`,
+          "--mock-river-card-height": `${layout.cardSizes.river.height}px`,
+          "--mock-river-card-width": `${layout.cardSizes.river.width}px`,
+          "--mock-self-card-height": `${layout.cardSizes.selfHand.height}px`,
+          "--mock-self-card-width": `${layout.cardSizes.selfHand.width}px`,
+          "--mock-trick-card-height": `${layout.cardSizes.trick.height}px`,
+          "--mock-trick-card-width": `${layout.cardSizes.trick.width}px`
+        } as CSSProperties
+      }
+    >
+      <div className="table-design-stage">
+        <HudBox layout={layout.hud} />
+        {layout.seats.map((seat) => (
+          <SeatArtifacts key={seat.id} seat={seat} />
+        ))}
+        <RoleBoard layout={layout.center} />
+        <SelfActionFocus layout={layout.action} />
+      </div>
+    </main>
+  );
+}
+
+function HudBox({ layout }: { layout: Box }) {
+  return (
+    <aside
+      aria-label="契約HUD"
+      className="mock-hud"
+      style={boxStyle(layout, "top-left")}
+    >
+      <div className="mock-hud-contract">
+        <span className="mock-hud-suit">♠</span>
+        <span>15</span>
+      </div>
+      <div className="mock-hud-adjutant">
+        <span>副</span>
+        <span className="mock-hud-suit">♠</span>
+        <span>A</span>
+      </div>
+    </aside>
+  );
+}
+
+function SeatArtifacts({ seat }: { seat: SeatLayout }) {
+  return (
+    <>
+      <div
+        aria-label={`${seat.label} プレイヤー`}
+        className={`mock-avatar mock-avatar-${seat.id}`}
+        style={pointStyle(seat.avatar)}
+      >
+        <span className="mock-avatar-head" />
+        <span className="mock-avatar-body" />
+      </div>
+      <div
+        className="mock-player-label"
+        style={pointStyle({
+          x: seat.avatar.x + seat.labelOffset.x,
+          y: seat.avatar.y + seat.labelOffset.y
+        })}
+      >
+        {seat.label}
+      </div>
+
+      {seat.id === "self" ? (
+        <SelfHand seat={seat} />
+      ) : (
+        <CardBackFan seat={seat} />
+      )}
+
+      {seat.id === "self" ? (
+        <SelfTrickStack seat={seat} />
+      ) : (
+        <PlayingCard
+          card={trickCards[seat.id]}
+          className="mock-trick-card"
+          style={pointWithRotationStyle(seat.trick)}
+        />
+      )}
+
+      <PointRiver seat={seat} />
+    </>
+  );
+}
+
+function SelfHand({ seat }: { seat: SeatLayout }) {
+  return (
+    <div
+      aria-label="自分の表向き手札"
+      className="mock-self-hand"
+      style={pointWithRotationStyle(seat.hand)}
+    >
+      {selfCards.map((card) => (
+        <PlayingCard card={card} className="mock-self-hand-card" key={`${card.rank}-${card.suit}`} />
+      ))}
+    </div>
+  );
+}
+
+function CardBackFan({ seat }: { seat: SeatLayout }) {
+  return (
+    <div
+      aria-label={`${seat.label}の裏向き手札`}
+      className={`mock-card-back-fan mock-card-back-fan-${seat.id}`}
+      style={pointWithRotationStyle(seat.hand)}
+    >
+      {[0, 1, 2].map((index) => (
+        <span className="mock-card-back" key={index} />
+      ))}
+    </div>
+  );
+}
+
+function SelfTrickStack({ seat }: { seat: SeatLayout }) {
+  return (
+    <div
+      aria-label="自分の現在トリック"
+      className="mock-self-trick-stack"
+      style={pointWithRotationStyle(seat.trick)}
+    >
+      {selfTrickStack.map((card, index) => (
+        <PlayingCard
+          card={card}
+          className="mock-trick-card mock-self-trick-card"
+          key={`${card.rank}-${card.suit}-${index}`}
+          style={{
+            "--mock-card-stack-index": index
+          } as CSSProperties}
+        />
+      ))}
+    </div>
+  );
+}
+
+function PointRiver({ seat }: { seat: SeatLayout }) {
+  const cards = riverCards[seat.id] ?? [];
+
+  return (
+    <section
+      aria-label={`${seat.label}のポイント札の河`}
+      className={`mock-point-river mock-point-river-${seat.id}`}
+      style={pointWithRotationStyle(seat.river)}
+    >
+      {cards.map((card, index) => (
+        <PlayingCard
+          card={card}
+          className="mock-river-card"
+          key={`${card.rank}-${card.suit}-${index}`}
+          style={{
+            "--mock-river-card-index": index
+          } as CSSProperties}
+        />
+      ))}
+    </section>
+  );
+}
+
+function RoleBoard({ layout }: { layout: Box }) {
+  return (
+    <section
+      aria-label="中央役職表示"
+      className="mock-role-board"
+      style={boxStyle(layout)}
+    >
+      <div className="mock-role-board-shape">
+        {roleCells.map((role) => (
+          <span className={role.className} key={role.className}>
+            {role.label}
+          </span>
+        ))}
+        <span className="mock-role-board-core" />
+      </div>
+    </section>
+  );
+}
+
+function SelfActionFocus({ layout }: { layout: Box }) {
+  return (
+    <section
+      aria-label="自席操作UI"
+      className="mock-self-action"
+      style={boxStyle(layout)}
+    >
+      <PlayingCard card={{ rank: "J", suit: "spades", face: "jack" }} className="mock-action-card" />
+      <div className="mock-action-controls" aria-label="操作">
+        <button type="button">出す</button>
+        <button type="button">待機</button>
+      </div>
+    </section>
+  );
+}
+
+function PlayingCard({
+  card,
+  className,
+  style
+}: {
+  card: MockCard | undefined;
+  className: string;
+  style?: CSSProperties;
+}) {
+  if (card === undefined) {
+    return null;
+  }
+
+  const mark = suitMarks[card.suit];
+  const isRed = card.suit === "hearts" || card.suit === "diamonds";
+  const faceText = card.face === undefined ? mark : faceGlyph(card.face);
+
+  return (
+    <article
+      aria-label={`${card.rank}${mark}`}
+      className={`${className} mock-playing-card ${isRed ? "mock-card-red" : "mock-card-black"}`}
+      style={style}
+    >
+      <span className="mock-card-corner mock-card-corner-top">
+        {card.rank}
+        {mark}
+      </span>
+      <span className="mock-card-face">{faceText}</span>
+      <span className="mock-card-corner mock-card-corner-bottom">
+        {card.rank}
+        {mark}
+      </span>
+    </article>
+  );
+}
+
+function faceGlyph(face: NonNullable<MockCard["face"]>): string {
+  switch (face) {
+    case "king":
+      return "♚";
+    case "queen":
+      return "♛";
+    case "jack":
+      return "♝";
+  }
+}
+
+function pointStyle(point: Point): CSSProperties {
+  return {
+    "--mock-x": `${point.x}px`,
+    "--mock-y": `${point.y}px`
+  } as CSSProperties;
+}
+
+function pointWithRotationStyle(point: Point & { rotation: number }): CSSProperties {
+  return {
+    ...pointStyle(point),
+    "--mock-rotation": `${point.rotation}deg`
+  } as CSSProperties;
+}
+
+function boxStyle(box: Box, origin: "center" | "top-left" = "center"): CSSProperties {
+  return {
+    "--mock-box-height": `${box.height}px`,
+    "--mock-box-width": `${box.width}px`,
+    "--mock-x": `${box.x}px`,
+    "--mock-y": `${box.y}px`,
+    "--mock-origin": origin === "center" ? "translate(-50%, -50%)" : "translate(0, 0)"
+  } as CSSProperties;
+}
