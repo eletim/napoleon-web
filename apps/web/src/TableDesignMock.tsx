@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import "./TableDesignMock.css";
 
 type Suit = "spades" | "hearts" | "diamonds" | "clubs";
+type SeatId = "top-left" | "top-right" | "right" | "self" | "left";
 
 interface MockCard {
   rank: string;
@@ -22,19 +23,14 @@ interface Box extends Point {
 interface SeatLayout {
   avatar: Point;
   hand: Point & { rotation: number };
-  id: string;
+  id: SeatId;
   label: string;
-  river: Point & { cardRotation: number; rotation: number };
-  trick: Point & { rotation: number };
+  trickZone: Box & { rotation: number };
 }
 
 interface TableDesignMockLayout {
   action: Box;
   cardSizes: {
-    river: {
-      opponent: { height: number; width: number };
-      self: { height: number; width: number };
-    };
     selfHand: { height: number; width: number };
     trick: { height: number; width: number };
   };
@@ -45,14 +41,9 @@ interface TableDesignMockLayout {
     height: number;
     width: number;
   };
-  riverSize: {
-    height: number;
-    width: number;
-  };
   riverGrid: {
     maxColumns: number;
     maxRows: number;
-    opponentColumnGap: number;
     rowGap: number;
   };
   seats: readonly SeatLayout[];
@@ -74,8 +65,8 @@ const roleBoardPentagon = {
 } as const satisfies Record<string, Point>;
 
 const cardAspectRatio = 178 / 132;
-const selfRiverCardWidth = toLayoutPrecision(roleBoardSelfSideLength(roleBoardCenter) * 0.5);
 const trickCardWidth = 118;
+const riverGap = 18;
 
 // Source of Truth: https://github.com/eletim/napoleon-web/issues/308#issuecomment-5348323047
 // Keep the screenshot-facing coordinates here so the mock can be tuned without
@@ -95,27 +86,18 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
   center: roleBoardCenter,
   cardSizes: {
     trick: { width: trickCardWidth, height: toLayoutPrecision(trickCardWidth * cardAspectRatio) },
-    river: {
-      self: { width: selfRiverCardWidth, height: toLayoutPrecision(selfRiverCardWidth * cardAspectRatio) },
-      opponent: { width: 56, height: 76 }
-    },
     selfHand: { width: 172, height: 228 }
-  },
-  riverSize: {
-    width: 260,
-    height: 210
   },
   riverGrid: {
     maxColumns: 5,
     maxRows: 4,
-    opponentColumnGap: 12,
     rowGap: 24
   },
   action: {
     x: 1120,
-    y: 1376,
-    width: 224,
-    height: 274
+    y: 1470,
+    width: 200,
+    height: 244
   },
   seats: [
     {
@@ -123,40 +105,35 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
       label: "北西",
       avatar: { x: 586, y: 132 },
       hand: { x: 672, y: 292, rotation: -19 },
-      trick: { x: 1034, y: 713, rotation: -38 },
-      river: { x: 836, y: 540, rotation: -37, cardRotation: 0 }
+      trickZone: { x: 836, y: 540, width: 260, height: 210, rotation: -37 }
     },
     {
       id: "top-right",
       label: "北東",
       avatar: { x: 1590, y: 144 },
       hand: { x: 1538, y: 294, rotation: 19 },
-      trick: { x: 1298, y: 732, rotation: 31 },
-      river: { x: 1376, y: 540, rotation: 37, cardRotation: 0 }
+      trickZone: { x: 1376, y: 540, width: 260, height: 210, rotation: 37 }
     },
     {
       id: "right",
       label: "右席",
       avatar: { x: 2112, y: 1074 },
       hand: { x: 1942, y: 1080, rotation: 55 },
-      trick: { x: 1307, y: 1016, rotation: 14 },
-      river: { x: 1578, y: 1036, rotation: 102, cardRotation: 0 }
+      trickZone: { x: 1578, y: 1036, width: 260, height: 210, rotation: 12 }
     },
     {
       id: "self",
       label: "自分",
       avatar: { x: 808, y: 1492 },
       hand: { x: 1118, y: 1684, rotation: 0 },
-      trick: { x: 1122, y: 1138, rotation: 0 },
-      river: { x: 1120, y: 1110, rotation: 0, cardRotation: 0 }
+      trickZone: { x: 1120, y: 1275, width: 260, height: 120, rotation: 0 }
     },
     {
       id: "left",
       label: "左席",
       avatar: { x: 136, y: 1070 },
       hand: { x: 308, y: 1086, rotation: -54 },
-      trick: { x: 902, y: 934, rotation: -12 },
-      river: { x: 644, y: 1038, rotation: -102, cardRotation: 0 }
+      trickZone: { x: 644, y: 1038, width: 260, height: 210, rotation: -12 }
     }
   ]
 };
@@ -166,7 +143,7 @@ const selfCards: readonly MockCard[] = [
   { rank: "7", suit: "spades" }
 ];
 
-const trickCards: Record<string, MockCard> = {
+const trickCards: Partial<Record<SeatId, MockCard>> = {
   "top-left": { rank: "10", suit: "hearts" },
   "top-right": { rank: "Q", suit: "hearts", face: "queen" },
   right: { rank: "K", suit: "spades", face: "king" },
@@ -220,19 +197,13 @@ export function TableDesignMock() {
 
   return (
     <main
-      aria-label="Issue 308 table design mock"
+      aria-label="Issue 323 table design mock"
       className="table-design-mock-page"
       style={
         {
           "--mock-page-background": layout.page.background,
           "--mock-page-height": `${layout.page.height}px`,
           "--mock-page-width": `${layout.page.width}px`,
-          "--mock-river-height": `${layout.riverSize.height}px`,
-          "--mock-river-width": `${layout.riverSize.width}px`,
-          "--mock-river-card-height": `${layout.cardSizes.river.opponent.height}px`,
-          "--mock-river-card-width": `${layout.cardSizes.river.opponent.width}px`,
-          "--mock-self-river-row-gap": `${layout.riverGrid.rowGap}px`,
-          "--mock-self-river-width": `${selfRiverWidth(layout)}px`,
           "--mock-self-card-height": `${layout.cardSizes.selfHand.height}px`,
           "--mock-self-card-width": `${layout.cardSizes.selfHand.width}px`,
           "--mock-trick-card-height": `${layout.cardSizes.trick.height}px`,
@@ -290,16 +261,7 @@ function SeatArtifacts({ seat }: { seat: SeatLayout }) {
         <CardBackFan seat={seat} />
       )}
 
-      {seat.id === "self" ? (
-        null
-      ) : (
-        <PlayingCard
-          card={trickCards[seat.id]}
-          className="mock-trick-card"
-          style={pointWithRotationStyle(seat.trick)}
-        />
-      )}
-
+      <CurrentTrickZone seat={seat} />
       <PointRiver seat={seat} />
     </>
   );
@@ -333,16 +295,29 @@ function CardBackFan({ seat }: { seat: SeatLayout }) {
   );
 }
 
+function CurrentTrickZone({ seat }: { seat: SeatLayout }) {
+  return (
+    <section
+      aria-label={`${seat.label}の現在トリック置き場`}
+      className={`mock-current-trick-zone mock-current-trick-zone-${seat.id}`}
+      style={trickZoneStyle(seat.trickZone)}
+    >
+      <PlayingCard card={trickCards[seat.id]} className="mock-trick-card" />
+    </section>
+  );
+}
+
 function PointRiver({ seat }: { seat: SeatLayout }) {
   const cards = riverCards[seat.id] ?? [];
   const layout = tableDesignMockLayout;
+  const riverGeometry = createRiverGeometry(layout, seat.id);
   const riverPlacements = createRiverPlacements(cards.length, layout, seat.id);
 
   return (
     <section
       aria-label={`${seat.label}のポイント札の河`}
       className={`mock-point-river mock-point-river-${seat.id}`}
-      style={riverStyle(seat, cards.length, layout)}
+      style={riverStyle(riverGeometry)}
     >
       {cards.slice(0, layout.riverGrid.maxColumns * layout.riverGrid.maxRows).map((card, index) => (
         <PlayingCard
@@ -352,6 +327,8 @@ function PointRiver({ seat }: { seat: SeatLayout }) {
           style={{
             "--mock-river-card-index": index,
             "--mock-river-card-rotation": `${riverPlacements[index]?.rotation ?? 0}deg`,
+            "--mock-river-card-height": `${riverGeometry.cardSize.height}px`,
+            "--mock-river-card-width": `${riverGeometry.cardSize.width}px`,
             "--mock-river-card-x": `${riverPlacements[index]?.x ?? 0}px`,
             "--mock-river-card-y": `${riverPlacements[index]?.y ?? 0}px`
           } as CSSProperties}
@@ -444,153 +421,123 @@ function faceGlyph(face: NonNullable<MockCard["face"]>): string {
 }
 
 export function selfRiverWidth(layout: TableDesignMockLayout): number {
-  return toLayoutPrecision(roleBoardSelfSideLength(layout.center));
+  return createRiverGeometry(layout, "self").d;
 }
 
 export function roleBoardSelfSideLength(layout: Box): number {
-  return distance(
-    roleBoardAbsolutePoint(layout, roleBoardPentagon.bottomLeft),
-    roleBoardAbsolutePoint(layout, roleBoardPentagon.bottomRight)
-  );
+  return createRoleBoardEdgeGeometry(layout, "self").d;
 }
 
-function riverCardSize(
-  seatId: string,
-  layout: TableDesignMockLayout
-): { height: number; width: number } {
-  return seatId === "self" ? layout.cardSizes.river.self : layout.cardSizes.river.opponent;
+interface RoleBoardEdgeGeometry {
+  d: number;
+  direction: Point;
+  end: Point;
+  normal: Point;
+  rotation: number;
+  start: Point;
+}
+
+interface RiverGeometry extends RoleBoardEdgeGeometry {
+  cardSize: { height: number; width: number };
+  height: number;
+  rowPitch: number;
+  width: number;
+  x: number;
+  y: number;
+}
+
+const roleBoardEdges: Record<SeatId, { end: Point; start: Point }> = {
+  "top-left": { start: roleBoardPentagon.top, end: roleBoardPentagon.topLeft },
+  "top-right": { start: roleBoardPentagon.topRight, end: roleBoardPentagon.top },
+  right: { start: roleBoardPentagon.bottomRight, end: roleBoardPentagon.topRight },
+  self: { start: roleBoardPentagon.bottomLeft, end: roleBoardPentagon.bottomRight },
+  left: { start: roleBoardPentagon.topLeft, end: roleBoardPentagon.bottomLeft }
+};
+
+export function createRoleBoardEdgeGeometry(
+  layout: Box,
+  seatId: SeatId
+): RoleBoardEdgeGeometry {
+  const edge = roleBoardEdges[seatId];
+  const start = roleBoardAbsolutePoint(layout, edge.start);
+  const end = roleBoardAbsolutePoint(layout, edge.end);
+  const vector = { x: end.x - start.x, y: end.y - start.y };
+  const d = toLayoutPrecision(distance(start, end));
+  const direction = normalizeVector(vector);
+  const normal = normalizeVector({ x: -direction.y, y: direction.x });
+
+  return {
+    d,
+    direction,
+    end,
+    normal,
+    rotation: toLayoutPrecision((Math.atan2(direction.y, direction.x) * 180) / Math.PI),
+    start
+  };
+}
+
+export function createRiverGeometry(
+  layout: TableDesignMockLayout,
+  seatId: SeatId
+): RiverGeometry {
+  const edge = createRoleBoardEdgeGeometry(layout.center, seatId);
+  const cardWidth = toLayoutPrecision(edge.d * 0.5);
+  const cardHeight = toLayoutPrecision(cardWidth * cardAspectRatio);
+  const rowPitch = toLayoutPrecision(cardHeight + layout.riverGrid.rowGap);
+  const height = toLayoutPrecision(cardHeight + rowPitch * (layout.riverGrid.maxRows - 1));
+  const offset = riverGap;
+
+  return {
+    ...edge,
+    cardSize: { width: cardWidth, height: cardHeight },
+    height,
+    rowPitch,
+    width: edge.d,
+    x: toLayoutPrecision(edge.start.x + edge.normal.x * offset),
+    y: toLayoutPrecision(edge.start.y + edge.normal.y * offset)
+  };
 }
 
 export function createRiverPlacements(
   cardCount: number,
   layout: TableDesignMockLayout,
-  seatId = "self"
+  seatId: SeatId = "self"
 ): Array<Point & { rotation: number }> {
-  if (seatId !== "self") {
-    return createOpponentRiverPlacements(cardCount, layout, seatId);
-  }
-
   const maxCards = layout.riverGrid.maxColumns * layout.riverGrid.maxRows;
   const boundedCardCount = Math.min(cardCount, maxCards);
+  const geometry = createRiverGeometry(layout, seatId);
   const placements: Array<Point & { rotation: number }> = [];
-  const d = selfRiverWidth(layout);
-  const { height: cardHeight } = riverCardSize(seatId, layout);
-  const baseRotation = riverCardBaseRotation(seatId, layout);
-  const rowPitch = cardHeight + layout.riverGrid.rowGap;
-  const columnOffset = toLayoutPrecision(d * 0.125);
+  const columnOffset = toLayoutPrecision(geometry.d * 0.125);
 
-  for (let row = 0; row < layout.riverGrid.maxRows; row += 1) {
-    const rowStart = row * layout.riverGrid.maxColumns;
-    const rowCount = Math.min(layout.riverGrid.maxColumns, boundedCardCount - rowStart);
+  for (let index = 0; index < boundedCardCount; index += 1) {
+    const column = index % layout.riverGrid.maxColumns;
+    const row = Math.floor(index / layout.riverGrid.maxColumns);
 
-    if (rowCount <= 0) {
-      break;
-    }
-
-    for (let column = 0; column < rowCount; column += 1) {
-      placements.push({
-        x: column * columnOffset,
-        y: row * rowPitch,
-        rotation: baseRotation
-      });
-    }
+    placements.push({
+      x: toLayoutPrecision(column * columnOffset),
+      y: toLayoutPrecision(row * geometry.rowPitch),
+      rotation: 0
+    });
   }
 
   return placements;
 }
 
-function createOpponentRiverPlacements(
-  cardCount: number,
-  layout: TableDesignMockLayout,
-  seatId: string
-): Array<Point & { rotation: number }> {
-  const maxCards = layout.riverGrid.maxColumns * layout.riverGrid.maxRows;
-  const boundedCardCount = Math.min(cardCount, maxCards);
-  const placements: Array<Point & { rotation: number }> = [];
-  const { height: cardHeight, width: cardWidth } = riverCardSize(seatId, layout);
-  const columnPitch = cardWidth + layout.riverGrid.opponentColumnGap;
-  const rowPitch = cardHeight + 8;
-  const rowCount = Math.max(1, Math.ceil(boundedCardCount / layout.riverGrid.maxColumns));
-  const totalHeight = cardHeight * rowCount + 8 * (rowCount - 1);
-  const startY = (layout.riverSize.height - totalHeight) / 2;
-
-  for (let row = 0; row < rowCount; row += 1) {
-    const rowStart = row * layout.riverGrid.maxColumns;
-    const columns = Math.min(layout.riverGrid.maxColumns, boundedCardCount - rowStart);
-    const totalWidth = cardWidth * columns + layout.riverGrid.opponentColumnGap * (columns - 1);
-    const startX = (layout.riverSize.width - totalWidth) / 2;
-
-    for (let column = 0; column < columns; column += 1) {
-      placements.push({
-        x: startX + column * columnPitch,
-        y: startY + row * rowPitch,
-        rotation: opponentRiverCardRotation(seatId, column, columns, layout)
-      });
-    }
-  }
-
-  return placements;
-}
-
-function opponentRiverCardRotation(
-  seatId: string,
-  column: number,
-  columns: number,
-  layout: TableDesignMockLayout
-): number {
-  const centeredColumn = column - (columns - 1) / 2;
-  const spread = centeredColumn * 2;
-  const baseRotation = riverCardBaseRotation(seatId, layout);
-
-  switch (seatId) {
-    case "top-left":
-    case "left":
-      return normalizeRotation(baseRotation + spread);
-    case "top-right":
-    case "right":
-      return normalizeRotation(baseRotation - spread);
-    default:
-      return normalizeRotation(baseRotation + spread);
-  }
-}
-
-function riverCardBaseRotation(seatId: string, layout: TableDesignMockLayout): number {
-  return layout.seats.find((seat) => seat.id === seatId)?.river.cardRotation ?? 0;
-}
-
-function normalizeRotation(rotation: number): number {
-  return Object.is(rotation, -0) ? 0 : rotation;
-}
-
-function selfRiverHeight(cardCount: number, layout: TableDesignMockLayout): number {
-  const maxCards = layout.riverGrid.maxColumns * layout.riverGrid.maxRows;
-  const boundedCardCount = Math.min(cardCount, maxCards);
-  const rows = Math.max(1, Math.ceil(boundedCardCount / layout.riverGrid.maxColumns));
-
-  return layout.cardSizes.river.self.height * rows + layout.riverGrid.rowGap * (rows - 1);
-}
-
-function riverStyle(
-  seat: SeatLayout,
-  cardCount: number,
-  layout: TableDesignMockLayout
-): CSSProperties {
-  const style = pointWithRotationStyle(seat.river);
-
-  if (seat.id !== "self") {
-    return {
-      ...style,
-      "--mock-river-card-height": `${layout.cardSizes.river.opponent.height}px`,
-      "--mock-river-card-width": `${layout.cardSizes.river.opponent.width}px`
-    } as CSSProperties;
-  }
-
+function riverStyle(geometry: RiverGeometry): CSSProperties {
   return {
-    ...style,
-    "--mock-river-card-height": `${layout.cardSizes.river.self.height}px`,
-    "--mock-river-card-width": `${layout.cardSizes.river.self.width}px`,
-    "--mock-self-river-height": `${selfRiverHeight(cardCount, layout)}px`,
-    "--mock-self-river-width": `${selfRiverWidth(layout)}px`
+    "--mock-river-height": `${geometry.height}px`,
+    "--mock-river-rotation": `${geometry.rotation}deg`,
+    "--mock-river-width": `${geometry.width}px`,
+    "--mock-x": `${geometry.x}px`,
+    "--mock-y": `${geometry.y}px`
+  } as CSSProperties;
+}
+
+function trickZoneStyle(zone: Box & { rotation: number }): CSSProperties {
+  return {
+    ...pointWithRotationStyle(zone),
+    "--mock-trick-zone-height": `${zone.height}px`,
+    "--mock-trick-zone-width": `${zone.width}px`
   } as CSSProperties;
 }
 
@@ -634,6 +581,15 @@ function roleBoardAbsolutePoint(layout: Box, point: Point): Point {
 
 function distance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function normalizeVector(vector: Point): Point {
+  const length = distance({ x: 0, y: 0 }, vector);
+
+  return {
+    x: vector.x / length,
+    y: vector.y / length
+  };
 }
 
 function roleBoardClipPath(): string {

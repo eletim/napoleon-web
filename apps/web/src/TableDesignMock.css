@@ -75,8 +75,8 @@ html:has(.table-design-mock-page) {
 .mock-avatar,
 .mock-card-back-fan,
 .mock-self-hand,
-.mock-point-river,
-.mock-trick-card {
+.mock-current-trick-zone,
+.mock-point-river {
   left: var(--mock-x);
   position: absolute;
   top: var(--mock-y);
@@ -85,8 +85,7 @@ html:has(.table-design-mock-page) {
 .mock-avatar,
 .mock-card-back-fan,
 .mock-self-hand,
-.mock-point-river,
-.mock-trick-card {
+.mock-current-trick-zone {
   transform: translate(-50%, -50%) rotate(var(--mock-rotation, 0deg));
 }
 
@@ -181,17 +180,19 @@ html:has(.table-design-mock-page) {
   transform: translate(28px, -62px) rotate(1deg) skewY(1deg) scaleY(1.06);
 }
 
-.mock-point-river {
+.mock-current-trick-zone {
   background: #d9ffd9;
-  height: var(--mock-river-height);
+  height: var(--mock-trick-zone-height);
   opacity: 0.98;
-  width: var(--mock-river-width);
+  width: var(--mock-trick-zone-width);
 }
 
-.mock-point-river-self {
+.mock-point-river {
   background: transparent;
-  height: var(--mock-self-river-height);
-  width: var(--mock-self-river-width);
+  height: var(--mock-river-height);
+  transform: rotate(var(--mock-river-rotation));
+  transform-origin: 0 0;
+  width: var(--mock-river-width);
 }
 
 .mock-playing-card {
@@ -206,8 +207,7 @@ html:has(.table-design-mock-page) {
   position: relative;
 }
 
-.mock-river-card.mock-playing-card,
-.mock-trick-card.mock-playing-card {
+.mock-river-card.mock-playing-card {
   position: absolute;
 }
 
@@ -220,7 +220,11 @@ html:has(.table-design-mock-page) {
 }
 
 .mock-trick-card {
+  left: 50%;
   height: var(--mock-trick-card-height);
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
   width: var(--mock-trick-card-width);
 }
 
