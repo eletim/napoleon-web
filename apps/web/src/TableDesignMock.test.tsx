@@ -20,15 +20,25 @@ describe("TableDesignMock", () => {
     expect(html).toContain("北西の裏向き手札");
     expect(html).toContain("--mock-page-width:2200px");
     expect(html).toContain("--mock-trick-card-width:132px");
+    expect(html).toContain("--mock-river-card-width:92px");
     expect(html).not.toContain("mock-player-label");
     expect(tableDesignMockLayout.center).toMatchObject({ height: 303, width: 338, y: 890 });
     expect(tableDesignMockLayout.action).toMatchObject({ height: 274, width: 224, y: 1376 });
+    expect(tableDesignMockLayout.cardSizes.river.self.width).toBeGreaterThan(
+      tableDesignMockLayout.cardSizes.river.opponent.width
+    );
+    expect(tableDesignMockLayout.cardSizes.river.self.width).toBeLessThan(
+      tableDesignMockLayout.cardSizes.trick.width
+    );
+    expect(tableDesignMockLayout.cardSizes.river.opponent.width).toBeLessThan(
+      tableDesignMockLayout.cardSizes.trick.width
+    );
     expect(tableDesignMockLayout.seats.find((seat) => seat.id === "self")).toMatchObject({
       hand: { y: 1684 },
       trick: { y: 1138 }
     });
     expect(tableDesignMockLayout.riverGrid).toMatchObject({ maxColumns: 5, maxRows: 4 });
-    expect(html).toContain("--mock-self-river-height:106px");
+    expect(html).toContain("--mock-self-river-height:124px");
   });
 
   it("lays out the self river from the role-board self edge length", () => {
@@ -38,13 +48,21 @@ describe("TableDesignMock", () => {
     const sixCards = createRiverPlacements(6, tableDesignMockLayout);
 
     expect(oneCard).toHaveLength(1);
-    expect(oneCard[0]?.x).toBeCloseTo((d - tableDesignMockLayout.cardSizes.river.width) / 2);
+    expect(oneCard[0]?.x).toBeCloseTo((d - tableDesignMockLayout.cardSizes.river.self.width) / 2);
     expect(fiveCards).toHaveLength(5);
     expect(fiveCards[0]?.x).toBeCloseTo(0);
-    expect(fiveCards[4]?.x).toBeCloseTo(d - tableDesignMockLayout.cardSizes.river.width);
+    expect(fiveCards[4]?.x).toBeCloseTo(d - tableDesignMockLayout.cardSizes.river.self.width);
     expect(sixCards).toHaveLength(6);
     expect(sixCards[5]?.y).toBe(
-      tableDesignMockLayout.cardSizes.river.height + tableDesignMockLayout.riverGrid.rowGap
+      tableDesignMockLayout.cardSizes.river.self.height + tableDesignMockLayout.riverGrid.rowGap
     );
+  });
+
+  it("keeps left and right river card rotations mirrored instead of perpendicular", () => {
+    const leftCards = createRiverPlacements(3, tableDesignMockLayout, "left");
+    const rightCards = createRiverPlacements(3, tableDesignMockLayout, "right");
+
+    expect(leftCards.map((card) => card.rotation)).toEqual([-2, 0, 2]);
+    expect(rightCards.map((card) => card.rotation)).toEqual([2, 0, -2]);
   });
 });
