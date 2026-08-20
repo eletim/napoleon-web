@@ -3,6 +3,7 @@ import "./TableDesignMock.css";
 
 type Suit = "spades" | "hearts" | "diamonds" | "clubs";
 type SeatId = "top-left" | "top-right" | "right" | "self" | "left";
+type TableDesignMockVariant = "projected" | "world";
 
 interface MockCard {
   rank: string;
@@ -13,6 +14,10 @@ interface MockCard {
 interface Point {
   x: number;
   y: number;
+}
+
+interface Point3 extends Point {
+  z: number;
 }
 
 interface Box extends Point {
@@ -28,6 +33,7 @@ interface SeatLayout {
 }
 
 interface TableDesignMockLayout {
+  camera: PerspectiveCameraConfig;
   cardSizes: {
     selfHand: { height: number; width: number };
     trick: { height: number; width: number };
@@ -58,6 +64,14 @@ interface TableDesignMockLayout {
     width: number;
   };
   seats: readonly SeatLayout[];
+  tableSurface: readonly Point[];
+}
+
+interface PerspectiveCameraConfig {
+  focalLength: number;
+  position: Point3;
+  screenCenter: Point;
+  target: Point3;
 }
 
 const roleBoardCenter: Box = {
@@ -77,6 +91,14 @@ const roleBoardPentagon = {
 
 const roleBoardVertexOrder = ["top", "topRight", "bottomRight", "bottomLeft", "topLeft"] as const;
 
+const tableSurfacePentagon = [
+  { x: 1120, y: 292 },
+  { x: 1796, y: 782 },
+  { x: 1538, y: 1534 },
+  { x: 702, y: 1534 },
+  { x: 444, y: 782 }
+] as const satisfies readonly Point[];
+
 const cardAspectRatio = 178 / 132;
 const trickCardWidth = 118;
 const riverGap = 18;
@@ -90,6 +112,13 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
     height: 1830,
     background: "#1d1d1d"
   },
+  camera: {
+    position: { x: 1120, y: 3150, z: 1720 },
+    target: { x: 1120, y: 910, z: 0 },
+    focalLength: 2150,
+    screenCenter: { x: 1100, y: 940 }
+  },
+  tableSurface: tableSurfacePentagon,
   roleBoard: {
     innerPentagonScale: 0.42
   },
@@ -210,13 +239,14 @@ const roleMarkers: Record<SeatId, string> = {
 
 const roleMarkerSeatOrder = ["top-left", "top-right", "right", "self", "left"] as const satisfies readonly SeatId[];
 
-export function TableDesignMock() {
+export function TableDesignMock({ variant = "world" }: { variant?: TableDesignMockVariant }) {
   const layout = tableDesignMockLayout;
+  const isProjected = variant === "projected";
 
   return (
     <main
-      aria-label="Issue 327 table design mock"
-      className="table-design-mock-page"
+      aria-label={`Issue 330 table design ${variant} mock`}
+      className={`table-design-mock-page table-design-mock-page-${variant}`}
       style={
         {
           "--mock-page-background": layout.page.background,
@@ -231,10 +261,23 @@ export function TableDesignMock() {
     >
       <div className="table-design-stage">
         <HudBox layout={layout.hud} />
+        {isProjected ? (
+          <ProjectedTabletop layout={layout} />
+        ) : (
+          <>
+            <TableSurfaceWorld points={layout.tableSurface} />
+            {layout.seats.map((seat) => (
+              <CurrentTrickZone key={`trick-${seat.id}`} seat={seat} />
+            ))}
+            {layout.seats.map((seat) => (
+              <PointRiver key={`river-${seat.id}`} seat={seat} />
+            ))}
+            <RoleBoard layout={layout.center} />
+          </>
+        )}
         {layout.seats.map((seat) => (
-          <SeatArtifacts key={seat.id} seat={seat} />
+          <PlayerArtifacts key={seat.id} seat={seat} />
         ))}
-        <RoleBoard layout={layout.center} />
       </div>
     </main>
   );
@@ -260,7 +303,7 @@ function HudBox({ layout }: { layout: Box }) {
   );
 }
 
-function SeatArtifacts({ seat }: { seat: SeatLayout }) {
+function PlayerArtifacts({ seat }: { seat: SeatLayout }) {
   return (
     <>
       <div
@@ -277,10 +320,19 @@ function SeatArtifacts({ seat }: { seat: SeatLayout }) {
       ) : (
         <CardBackFan seat={seat} />
       )}
-
-      <CurrentTrickZone seat={seat} />
-      <PointRiver seat={seat} />
     </>
+  );
+}
+
+function TableSurfaceWorld({ points }: { points: readonly Point[] }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className="mock-table-surface mock-table-surface-world"
+      viewBox={`0 0 ${tableDesignMockLayout.page.width} ${tableDesignMockLayout.page.height}`}
+    >
+      <polygon className="mock-table-surface-polygon" points={svgPoints(points)} />
+    </svg>
   );
 }
 
@@ -404,6 +456,187 @@ function RoleBoard({ layout }: { layout: Box }) {
   );
 }
 
+function ProjectedTabletop({ layout }: { layout: TableDesignMockLayout }) {
+  const camera = layout.camera;
+  const tablePoints = projectTablePolygon(layout.tableSurface, camera);
+  const roleOuterPoints = projectTablePolygon(roleBoardOuterPolygon(layout.center), camera);
+  const roleInnerPoints = projectTablePolygon(roleBoardInnerPolygon(layout.center), camera);
+  const sectorLines = createRoleBoardSectorLines(layout.center).map((line) => ({
+    inner: projectTablePoint(roleBoardLocalToAbsolute(layout.center, line.inner), camera),
+    outer: projectTablePoint(roleBoardLocalToAbsolute(layout.center, line.outer), camera)
+  }));
+
+  return (
+    <svg
+      aria-label="投影後の卓上Geometry"
+      className="mock-projected-tabletop"
+      viewBox={`0 0 ${layout.page.width} ${layout.page.height}`}
+    >
+      <polygon className="mock-table-surface-polygon" points={svgPoints(tablePoints)} />
+      {layout.seats.map((seat) => (
+        <ProjectedCurrentTrickZone key={`projected-trick-${seat.id}`} layout={layout} seat={seat} />
+      ))}
+      {layout.seats.map((seat) => (
+        <ProjectedPointRiver key={`projected-river-${seat.id}`} layout={layout} seat={seat} />
+      ))}
+      <g className="mock-projected-role-board">
+        <polygon className="mock-projected-role-board-outer" points={svgPoints(roleOuterPoints)} />
+        {sectorLines.map((line, index) => (
+          <line
+            className="mock-projected-role-board-sector-line"
+            key={index}
+            x1={line.outer.x}
+            x2={line.inner.x}
+            y1={line.outer.y}
+            y2={line.inner.y}
+          />
+        ))}
+        <polygon className="mock-projected-role-board-inner" points={svgPoints(roleInnerPoints)} />
+        {roleMarkerSeatOrder.map((seatId) => (
+          <ProjectedRoleMarker key={`projected-role-${seatId}`} layout={layout} seatId={seatId} />
+        ))}
+      </g>
+    </svg>
+  );
+}
+
+function ProjectedCurrentTrickZone({ layout, seat }: { layout: TableDesignMockLayout; seat: SeatLayout }) {
+  const cardCount = riverCards[seat.id]?.length ?? 0;
+  const geometry = createCurrentTrickZoneGeometry(layout, seat.id, cardCount);
+  const zoneCorners = projectTableCard(geometry, layout.camera);
+  const cardCorners = projectTableCard(
+    {
+      ...geometry,
+      height: layout.cardSizes.trick.height,
+      width: layout.cardSizes.trick.width
+    },
+    layout.camera
+  );
+
+  return (
+    <g className={`mock-projected-current-trick-zone mock-projected-current-trick-zone-${seat.id}`}>
+      <polygon className="mock-projected-current-trick-zone-fill" points={svgPoints(zoneCorners)} />
+      <ProjectedPlayingCard card={trickCards[seat.id]} corners={cardCorners} variant="trick" />
+    </g>
+  );
+}
+
+function ProjectedPointRiver({ layout, seat }: { layout: TableDesignMockLayout; seat: SeatLayout }) {
+  const cards = riverCards[seat.id] ?? [];
+  const river = createRiverGeometry(layout, seat.id);
+  const placements = createRiverPlacements(cards.length, layout, seat.id);
+
+  return (
+    <g className={`mock-projected-point-river mock-projected-point-river-${seat.id}`}>
+      {cards.slice(0, layout.riverGrid.maxColumns * layout.riverGrid.maxRows).map((card, index) => {
+        const placement = placements[index] ?? { x: 0, y: 0, rotation: 0 };
+        const corners = projectTableCard(
+          {
+            direction: river.direction,
+            height: river.cardSize.height,
+            normal: river.normal,
+            width: river.cardSize.width,
+            x: toLayoutPrecision(river.x + river.direction.x * placement.x + river.normal.x * placement.y),
+            y: toLayoutPrecision(river.y + river.direction.y * placement.x + river.normal.y * placement.y)
+          },
+          layout.camera,
+          "top-left"
+        );
+
+        return (
+          <ProjectedPlayingCard
+            card={card}
+            corners={corners}
+            key={`${card.rank}-${card.suit}-${index}`}
+            variant={seat.id === "self" ? "self-river" : "river"}
+          />
+        );
+      })}
+    </g>
+  );
+}
+
+function ProjectedRoleMarker({ layout, seatId }: { layout: TableDesignMockLayout; seatId: SeatId }) {
+  const marker = createRoleMarkerGeometry(layout.center, seatId);
+  const center = roleBoardLocalToAbsolute(layout.center, marker);
+  const corners = projectTableCard(
+    {
+      direction: { x: 1, y: 0 },
+      height: marker.height,
+      normal: { x: 0, y: 1 },
+      width: marker.width,
+      x: center.x,
+      y: center.y
+    },
+    layout.camera
+  );
+  const labelCenter = polygonCenter(corners);
+
+  return (
+    <g className={`mock-projected-role-marker mock-projected-role-marker-${seatId}`}>
+      <polygon className="mock-projected-role-marker-fill" points={svgPoints(corners)} />
+      <text
+        className="mock-projected-role-marker-text"
+        dominantBaseline="central"
+        textAnchor="middle"
+        x={labelCenter.x}
+        y={labelCenter.y}
+      >
+        {roleMarkers[seatId]}
+      </text>
+    </g>
+  );
+}
+
+function ProjectedPlayingCard({
+  card,
+  corners,
+  variant
+}: {
+  card: MockCard | undefined;
+  corners: readonly Point[];
+  variant: "river" | "self-river" | "trick";
+}) {
+  if (card === undefined) {
+    return null;
+  }
+
+  const center = polygonCenter(corners);
+  const width = distance(corners[0] ?? center, corners[1] ?? center);
+  const mark = suitMarks[card.suit];
+  const isRed = card.suit === "hearts" || card.suit === "diamonds";
+  const faceText = card.face === undefined ? mark : faceGlyph(card.face);
+  const cornerFontSize = toLayoutPrecision(Math.max(9, Math.min(22, width * 0.16)));
+  const faceFontSize = toLayoutPrecision(Math.max(20, Math.min(62, width * (variant === "trick" ? 0.44 : 0.38))));
+
+  return (
+    <g className={`mock-projected-playing-card ${isRed ? "mock-projected-card-red" : "mock-projected-card-black"}`}>
+      <polygon className="mock-projected-playing-card-fill" points={svgPoints(corners)} />
+      <text
+        className="mock-projected-card-corner"
+        dominantBaseline="central"
+        fontSize={cornerFontSize}
+        textAnchor="middle"
+        x={center.x - width * 0.24}
+        y={center.y - width * 0.24}
+      >
+        {card.rank}
+        {mark}
+      </text>
+      <text
+        className="mock-projected-card-face"
+        dominantBaseline="central"
+        fontSize={faceFontSize}
+        textAnchor="middle"
+        x={center.x}
+        y={center.y}
+      >
+        {faceText}
+      </text>
+    </g>
+  );
+}
+
 function PlayingCard({
   card,
   className,
@@ -492,6 +725,15 @@ interface RoleMarkerGeometry {
     outerEnd: Point;
     outerStart: Point;
   };
+  width: number;
+  x: number;
+  y: number;
+}
+
+interface TableCardPlane {
+  direction: Point;
+  height: number;
+  normal: Point;
   width: number;
   x: number;
   y: number;
@@ -618,6 +860,57 @@ function createRoleBoardSectorLines(
   }));
 }
 
+export function projectTablePoint(point: Point | Point3, camera = tableDesignMockLayout.camera): Point {
+  const worldPoint = "z" in point ? point : { ...point, z: 0 };
+  const forward = normalizeVector3(subtractPoint3(camera.target, camera.position));
+  const right = normalizeVector3(crossPoint3({ x: 0, y: 0, z: 1 }, forward));
+  const up = normalizeVector3(crossPoint3(forward, right));
+  const delta = subtractPoint3(worldPoint, camera.position);
+  const depth = dotPoint3(delta, forward);
+  const cameraX = dotPoint3(delta, right);
+  const cameraY = dotPoint3(delta, up);
+
+  return {
+    x: toLayoutPrecision(camera.screenCenter.x + (cameraX * camera.focalLength) / depth),
+    y: toLayoutPrecision(camera.screenCenter.y - (cameraY * camera.focalLength) / depth)
+  };
+}
+
+export function projectTablePolygon(points: readonly Point[], camera = tableDesignMockLayout.camera): Point[] {
+  return points.map((point) => projectTablePoint(point, camera));
+}
+
+export function projectTableCard(
+  card: TableCardPlane,
+  camera = tableDesignMockLayout.camera,
+  origin: "center" | "top-left" = "center"
+): Point[] {
+  const topLeft =
+    origin === "center"
+      ? {
+          x: card.x - card.direction.x * (card.width / 2) - card.normal.x * (card.height / 2),
+          y: card.y - card.direction.y * (card.width / 2) - card.normal.y * (card.height / 2)
+        }
+      : { x: card.x, y: card.y };
+  const corners = [
+    topLeft,
+    {
+      x: topLeft.x + card.direction.x * card.width,
+      y: topLeft.y + card.direction.y * card.width
+    },
+    {
+      x: topLeft.x + card.direction.x * card.width + card.normal.x * card.height,
+      y: topLeft.y + card.direction.y * card.width + card.normal.y * card.height
+    },
+    {
+      x: topLeft.x + card.normal.x * card.height,
+      y: topLeft.y + card.normal.y * card.height
+    }
+  ];
+
+  return projectTablePolygon(corners, camera);
+}
+
 export function createRiverPlacements(
   cardCount: number,
   layout: TableDesignMockLayout,
@@ -708,6 +1001,13 @@ function roleBoardAbsolutePoint(layout: Box, point: Point): Point {
   };
 }
 
+function roleBoardLocalToAbsolute(layout: Box, point: Point): Point {
+  return {
+    x: toLayoutPrecision(layout.x - layout.width / 2 + point.x),
+    y: toLayoutPrecision(layout.y - layout.height / 2 + point.y)
+  };
+}
+
 function roleBoardLocalPoint(layout: Box, point: Point): Point {
   return {
     x: point.x * layout.width,
@@ -738,6 +1038,38 @@ function roleBoardInnerPolygonPoints(
     .join(" ");
 }
 
+function roleBoardOuterPolygon(layout: Box): Point[] {
+  return roleBoardVertexOrder.map((vertexId) => roleBoardAbsolutePoint(layout, roleBoardPentagon[vertexId]));
+}
+
+function roleBoardInnerPolygon(
+  layout: Box,
+  innerScale = tableDesignMockLayout.roleBoard.innerPentagonScale
+): Point[] {
+  return roleBoardVertexOrder.map((vertexId) =>
+    roleBoardLocalToAbsolute(layout, roleBoardScaledLocalPoint(layout, roleBoardPentagon[vertexId], innerScale))
+  );
+}
+
+function svgPoints(points: readonly Point[]): string {
+  return points.map((point) => `${point.x},${point.y}`).join(" ");
+}
+
+function polygonCenter(points: readonly Point[]): Point {
+  const total = points.reduce(
+    (sum, point) => ({
+      x: sum.x + point.x,
+      y: sum.y + point.y
+    }),
+    { x: 0, y: 0 }
+  );
+
+  return {
+    x: toLayoutPrecision(total.x / points.length),
+    y: toLayoutPrecision(total.y / points.length)
+  };
+}
+
 function distance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
@@ -762,6 +1094,36 @@ function normalizeVector(vector: Point): Point {
   return {
     x: vector.x / length,
     y: vector.y / length
+  };
+}
+
+function subtractPoint3(a: Point3, b: Point3): Point3 {
+  return {
+    x: a.x - b.x,
+    y: a.y - b.y,
+    z: a.z - b.z
+  };
+}
+
+function dotPoint3(a: Point3, b: Point3): number {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+function crossPoint3(a: Point3, b: Point3): Point3 {
+  return {
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x
+  };
+}
+
+function normalizeVector3(vector: Point3): Point3 {
+  const length = Math.hypot(vector.x, vector.y, vector.z);
+
+  return {
+    x: vector.x / length,
+    y: vector.y / length,
+    z: vector.z / length
   };
 }
 

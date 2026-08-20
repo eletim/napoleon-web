@@ -8,17 +8,19 @@ import {
   createRoleMarkerGeometry,
   createRoleBoardEdgeGeometry,
   createRoleSectorGeometry,
+  projectTablePoint,
+  projectTablePolygon,
   roleBoardSelfSideLength,
   selfRiverWidth,
   tableDesignMockLayout
 } from "./TableDesignMock";
 
 describe("TableDesignMock", () => {
-  it("renders the issue 327 static table mock with compact role markers", () => {
+  it("renders the issue 330 world mock with unprojected tabletop geometry", () => {
     const html = renderToStaticMarkup(<TableDesignMock />);
 
     expect(tableDesignMockLayout.seats).toHaveLength(5);
-    expect(html).toContain("Issue 327 table design mock");
+    expect(html).toContain("Issue 330 table design world mock");
     expect(html).toContain("契約HUD");
     expect(html).toContain("中央役職表示");
     expect(html).toContain("自分の表向き手札");
@@ -32,7 +34,10 @@ describe("TableDesignMock", () => {
     expect(html).toContain("--mock-trick-zone-height:211.121px");
     expect(html).not.toContain("--mock-river-card-width:56px");
     expect(html).not.toContain("mock-player-label");
+    expect(html).toContain("mock-table-surface-world");
+    expect(html).toContain("1120,292 1796,782 1538,1534 702,1534 444,782");
     expect(tableDesignMockLayout.center).toMatchObject({ height: 303, width: 338, y: 890 });
+    expect(tableDesignMockLayout.tableSurface).toHaveLength(5);
     expect(tableDesignMockLayout.seats.find((seat) => seat.id === "self")).toMatchObject({ hand: { y: 1684 } });
     expect(tableDesignMockLayout.seats.some((seat) => "trickZone" in seat)).toBe(false);
     expect(tableDesignMockLayout.riverGrid).toMatchObject({ maxColumns: 5, maxRows: 4 });
@@ -45,6 +50,44 @@ describe("TableDesignMock", () => {
     expect(html).toContain("aria-label=\"J♠\"");
     expect(html).toContain(">ナポ</span>");
     expect(html).toContain(">副</span>");
+  });
+
+  it("renders the issue 330 projected mock from projected tabletop polygons", () => {
+    const html = renderToStaticMarkup(<TableDesignMock variant="projected" />);
+
+    expect(html).toContain("Issue 330 table design projected mock");
+    expect(html).toContain("投影後の卓上Geometry");
+    expect(html).toContain("mock-projected-tabletop");
+    expect(html).toContain("mock-table-surface-polygon");
+    expect((html.match(/mock-projected-current-trick-zone mock-projected-current-trick-zone-/g) ?? [])).toHaveLength(5);
+    expect((html.match(/mock-projected-role-marker mock-projected-role-marker-/g) ?? [])).toHaveLength(5);
+    expect((html.match(/mock-projected-playing-card /g) ?? [])).toHaveLength(19);
+    expect(html).not.toContain("mock-current-trick-zone mock-current-trick-zone");
+    expect(html).not.toContain("mock-point-river mock-point-river");
+    expect(html).toContain("北西の裏向き手札");
+    expect(html).toContain("自分の表向き手札");
+  });
+
+  it("projects table points through the shared camera so closer geometry is larger", () => {
+    const projectedTable = projectTablePolygon(tableDesignMockLayout.tableSurface);
+    const farSegment = [
+      projectTablePoint({ x: 1000, y: 620 }),
+      projectTablePoint({ x: 1200, y: 620 })
+    ];
+    const nearSegment = [
+      projectTablePoint({ x: 1000, y: 1420 }),
+      projectTablePoint({ x: 1200, y: 1420 })
+    ];
+
+    expect(projectedTable).toHaveLength(5);
+    expect(tableDesignMockLayout.camera).toMatchObject({
+      focalLength: 2150,
+      position: { x: 1120, y: 3150, z: 1720 },
+      target: { x: 1120, y: 910, z: 0 }
+    });
+    expect(distanceBetween(nearSegment[0], nearSegment[1])).toBeGreaterThan(
+      distanceBetween(farSegment[0], farSegment[1])
+    );
   });
 
   it("defines all river geometry from the corresponding role-board edge", () => {
@@ -164,6 +207,10 @@ function distanceAlongNormal(edge: { normal: { x: number; y: number }; start: { 
   y: number;
 }): number {
   return (point.x - edge.start.x) * edge.normal.x + (point.y - edge.start.y) * edge.normal.y;
+}
+
+function distanceBetween(a: { x: number; y: number }, b: { x: number; y: number }): number {
+  return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
 function midpointBetween(a: { x: number; y: number }, b: { x: number; y: number }): { x: number; y: number } {
