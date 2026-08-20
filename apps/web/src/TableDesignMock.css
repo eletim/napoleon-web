@@ -76,10 +76,33 @@ html:has(.table-design-mock-page) {
 .mock-card-back-fan,
 .mock-self-hand,
 .mock-current-trick-zone,
-.mock-point-river {
+.mock-point-river,
+.mock-table-surface,
+.mock-projected-tabletop {
   left: var(--mock-x);
   position: absolute;
   top: var(--mock-y);
+}
+
+.mock-table-surface,
+.mock-projected-tabletop {
+  height: var(--mock-page-height);
+  inset: 0;
+  left: 0;
+  pointer-events: none;
+  top: 0;
+  width: var(--mock-page-width);
+}
+
+.mock-table-surface-polygon {
+  fill: #3f8f51;
+  opacity: 0.82;
+  stroke: rgb(226 255 228 / 62%);
+  stroke-width: 4;
+}
+
+.mock-projected-tabletop {
+  overflow: visible;
 }
 
 .mock-avatar,
@@ -368,6 +391,66 @@ html:has(.table-design-mock-page) {
   opacity: 0.88;
   stroke: rgb(255 255 255 / 46%);
   stroke-width: 1.5;
+}
+
+.mock-projected-current-trick-zone-fill {
+  fill: #d9ffd9;
+  opacity: 0.92;
+  stroke: rgb(180 240 182 / 92%);
+  stroke-width: 2;
+}
+
+.mock-projected-playing-card-fill,
+.mock-projected-role-marker-fill {
+  fill: #ffffff;
+  stroke: #d6d6d6;
+  stroke-width: 1.4;
+}
+
+.mock-projected-playing-card {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+}
+
+.mock-projected-card-red {
+  fill: #ec3f36;
+}
+
+.mock-projected-card-black {
+  fill: #111111;
+}
+
+.mock-projected-card-corner,
+.mock-projected-card-face {
+  paint-order: stroke;
+  stroke: rgb(255 255 255 / 72%);
+  stroke-width: 2;
+}
+
+.mock-projected-role-board-outer {
+  fill: #d9d9d9;
+  opacity: 0.94;
+  stroke: rgb(255 255 255 / 58%);
+  stroke-width: 2;
+}
+
+.mock-projected-role-board-sector-line {
+  stroke: rgb(255 255 255 / 72%);
+  stroke-linecap: round;
+  stroke-width: 2;
+}
+
+.mock-projected-role-board-inner {
+  fill: #d7d5ff;
+  opacity: 0.9;
+  stroke: rgb(255 255 255 / 46%);
+  stroke-width: 1.5;
+}
+
+.mock-projected-role-marker-text {
+  fill: #303030;
+  font-size: 18px;
+  font-weight: 800;
 }
 
 .role-marker {

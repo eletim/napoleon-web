@@ -53,6 +53,14 @@ const defaultAgentSelections: Record<string, string> = Object.fromEntries(
 );
 
 export function App() {
+  if (window.location.pathname.endsWith("/mock/table-design-projected")) {
+    return <TableDesignMock variant="projected" />;
+  }
+
+  if (window.location.pathname.endsWith("/mock/table-design-world")) {
+    return <TableDesignMock variant="world" />;
+  }
+
   if (window.location.pathname.endsWith("/mock/table-design")) {
     return <TableDesignMock />;
   }
