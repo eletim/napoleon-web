@@ -239,9 +239,11 @@ std::size_t SimulationRuntime::advance_runnable_games(std::size_t max_transition
         const auto legal_started = std::chrono::steady_clock::now();
         request.legal_actions = runtime_legal_actions(game.state, player_index);
         metrics_.legal_action_elapsed_ns += elapsed_ns(legal_started);
-        const auto request_build_started = std::chrono::steady_clock::now();
-        request.snapshot_json = canonical_snapshot_json(game.state);
-        metrics_.request_build_elapsed_ns += elapsed_ns(request_build_started);
+        if (config_.materialize_agent_request_snapshot) {
+          const auto request_build_started = std::chrono::steady_clock::now();
+          request.snapshot_json = canonical_snapshot_json(game.state);
+          metrics_.request_build_elapsed_ns += elapsed_ns(request_build_started);
+        }
         if (request.legal_actions.empty()) {
           throw std::runtime_error("agent request has no legal actions");
         }

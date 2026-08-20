@@ -87,6 +87,9 @@ class PolicySession {
   virtual ~PolicySession() = default;
   virtual std::vector<std::vector<float>> run_logits_batch(
       const std::vector<std::vector<float>>& inputs) = 0;
+  virtual std::vector<std::vector<float>> run_logits_batch_contiguous(
+      const std::vector<float>& inputs,
+      std::size_t batch_size);
   virtual std::size_t model_input_feature_count() const = 0;
   virtual std::size_t action_count() const = 0;
   virtual ExecutionProvider execution_provider() const = 0;
@@ -102,6 +105,9 @@ class DeterministicPolicySession final : public PolicySession {
 
   std::vector<std::vector<float>> run_logits_batch(
       const std::vector<std::vector<float>>& inputs) override;
+  std::vector<std::vector<float>> run_logits_batch_contiguous(
+      const std::vector<float>& inputs,
+      std::size_t batch_size) override;
   std::size_t model_input_feature_count() const override;
   std::size_t action_count() const override;
   ExecutionProvider execution_provider() const override;

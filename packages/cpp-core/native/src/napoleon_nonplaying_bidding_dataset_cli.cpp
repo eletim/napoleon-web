@@ -689,7 +689,8 @@ int main(int argc, char** argv) {
             return napoleon::frozen_policy_agent("ppo-separated-v1000");
           }
           return napoleon::rule_based_agent("rule-based");
-        }});
+        },
+        false});
 
     RolloutProfile profile;
     const auto schedule_build_started = std::chrono::steady_clock::now();
