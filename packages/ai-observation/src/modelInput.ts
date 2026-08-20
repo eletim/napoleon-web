@@ -13,6 +13,10 @@ import {
   ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
   ADJUTANT_MODEL_INPUT_SCHEMA_VERSION,
   BIDDING_ACTION_COUNT,
+  BIDDING_ACTION_TYPE_BID,
+  BIDDING_BID_OWNER_CLASS_COUNT,
+  BIDDING_BID_POSITION_COUNT,
+  BIDDING_BID_POSITION_SUIT_ORDER,
   BIDDING_HISTORY_SUIT_ORDER,
   BIDDING_MODEL_INPUT_FEATURE_COUNT,
   BIDDING_MODEL_INPUT_SCHEMA_VERSION,
@@ -153,8 +157,7 @@ const BIDDING_MODEL_INPUT_SPEC: readonly (readonly [string, readonly number[]])[
   ["highestBidSuitOneHot", [BIDDING_HISTORY_SUIT_ORDER.length]],
   ["highestBidTargetPointCardsOneHot", [BIDDING_TARGET_POINT_CARDS_CLASS_COUNT]],
   ["consecutivePassCountOneHot", [CONSECUTIVE_PASS_COUNT_CLASS_COUNT]],
-  ["biddingHistoryActionMask", [MAX_BIDDING_ACTION_COUNT]],
-  ...BIDDING_HISTORY_ONEHOT_SPEC
+  ["biddingBidOwnerTableOneHot", [BIDDING_BID_POSITION_COUNT, BIDDING_BID_OWNER_CLASS_COUNT]]
 ];
 
 const EXCHANGE_MODEL_INPUT_SPEC: readonly (readonly [string, readonly number[]])[] = [
@@ -244,7 +247,7 @@ validateLayout(
 
 if (
   COMPLETE_INFO_PLAYING_MODEL_INPUT_SCHEMA_VERSION !== 1 ||
-  BIDDING_MODEL_INPUT_SCHEMA_VERSION !== 1 ||
+  BIDDING_MODEL_INPUT_SCHEMA_VERSION !== 2 ||
   EXCHANGE_MODEL_INPUT_SCHEMA_VERSION !== 2 ||
   ADJUTANT_MODEL_INPUT_SCHEMA_VERSION !== 1
 ) {
@@ -397,7 +400,7 @@ export function encodeBiddingModelInput(
     minValue: 0,
     emptyValues: []
   });
-  appendBiddingHistoryModelInputParts(modelInputParts, observation.biddingHistory);
+  appendBiddingBidOwnerTable(modelInputParts, observation.biddingHistory);
 
   return toCheckedFloat32Array(
     modelInputParts,
@@ -571,6 +574,58 @@ function appendBiddingHistoryModelInputParts(
     minValue: MIN_BIDDING_TARGET_POINT_CARDS,
     emptyValues: [0]
   });
+}
+
+function appendBiddingBidOwnerTable(
+  target: number[],
+  biddingHistory: EncodedBiddingHistory
+): void {
+  const table = Array(BIDDING_BID_POSITION_COUNT * BIDDING_BID_OWNER_CLASS_COUNT).fill(0);
+
+  for (let positionIndex = 0; positionIndex < BIDDING_BID_POSITION_COUNT; positionIndex += 1) {
+    table[positionIndex * BIDDING_BID_OWNER_CLASS_COUNT] = 1;
+  }
+
+  let highestSeenPosition = -1;
+  for (let slotIndex = 0; slotIndex < MAX_BIDDING_ACTION_COUNT; slotIndex += 1) {
+    if (biddingHistory.actionMask[slotIndex] === 0) {
+      continue;
+    }
+
+    if (biddingHistory.actionTypeIndices[slotIndex] !== BIDDING_ACTION_TYPE_BID) {
+      continue;
+    }
+
+    const playerIndex = biddingHistory.playerIndices[slotIndex];
+    const suit = BIDDING_HISTORY_SUIT_ORDER[biddingHistory.suitIndices[slotIndex]];
+    const suitPosition = BIDDING_BID_POSITION_SUIT_ORDER.indexOf(suit);
+    const targetPointCards = biddingHistory.targetPointCards[slotIndex];
+
+    if (playerIndex < 0 || playerIndex >= PLAYER_COUNT) {
+      throw new Error(`biddingHistory[${slotIndex}].playerIndex must be between 0 and 4.`);
+    }
+    if (suitPosition < 0) {
+      throw new Error(`biddingHistory[${slotIndex}].suitIndex is not a bid position suit.`);
+    }
+
+    const targetOffset = targetPointCards - MIN_BIDDING_TARGET_POINT_CARDS;
+    const positionIndex = targetOffset * BIDDING_BID_POSITION_SUIT_ORDER.length + suitPosition;
+
+    if (positionIndex <= highestSeenPosition) {
+      throw new Error("Bidding bid positions must be strictly increasing.");
+    }
+    highestSeenPosition = positionIndex;
+
+    const tableOffset = positionIndex * BIDDING_BID_OWNER_CLASS_COUNT;
+    if (table[tableOffset] !== 1) {
+      throw new Error(`Duplicate bid position in bidding history at position ${positionIndex}.`);
+    }
+
+    table[tableOffset] = 0;
+    table[tableOffset + playerIndex + 1] = 1;
+  }
+
+  append(target, table);
 }
 
 function appendSpecialCardIndicesOneHot(

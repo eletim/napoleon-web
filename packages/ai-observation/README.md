@@ -186,7 +186,7 @@ The non-playing phases expose the same API shape:
 
 | Phase | Encoder | Wrapper | Features | Legal mask returned by wrapper |
 | --- | --- | --- | ---: | --- |
-| bidding | `encodeBiddingModelInput()` | `createBiddingModelInput()` | 2333 | `legalBidMask` |
+| bidding | `encodeBiddingModelInput()` | `createBiddingModelInput()` | 278 | `legalBidMask` |
 | exchange | `encodeExchangeModelInput()` | `createExchangeModelInput()` | 2611 | `legalDiscardCardMask` |
 | adjutant | `encodeAdjutantModelInput()` | `createAdjutantModelInput()` | 2553 | `legalAdjutantMask` |
 

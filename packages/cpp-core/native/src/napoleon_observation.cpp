@@ -16,6 +16,8 @@ constexpr int kBiddingActionTypePass = 0;
 constexpr int kBiddingActionTypeBid = 1;
 constexpr int kMinBiddingTargetPointCards = 13;
 constexpr int kBiddingTargetPointCardsClassCount = 7;
+constexpr int kBiddingBidPositionCount = 28;
+constexpr int kBiddingBidOwnerClassCount = kPlayerCount + 1;
 constexpr int kConsecutivePassCountClassCount = kPlayerCount + 1;
 constexpr int kCompletedTrickCardSlotCount = kTrickCount * kCardsPerTrick;
 constexpr int kSelfRoleCount = 4;
@@ -165,6 +167,21 @@ int bidding_suit_index(Suit suit) {
   return static_cast<int>(suit);
 }
 
+int bidding_bid_position_suit_index(Suit suit) {
+  switch (suit) {
+    case Suit::Clubs:
+      return 0;
+    case Suit::Diamonds:
+      return 1;
+    case Suit::Hearts:
+      return 2;
+    case Suit::Spades:
+      return 3;
+  }
+
+  throw std::runtime_error("invalid bidding suit");
+}
+
 Card sei_jack_card(Suit trump_suit) {
   return Card{static_cast<std::uint8_t>(static_cast<int>(trump_suit) * 13 + 10)};
 }
@@ -258,6 +275,49 @@ void append_one_hot_value(
     const std::array<int, EmptySize>& empty_values) {
   const std::array<int, 1> indices{index};
   append_one_hot_array(target, indices, class_count, min_value, empty_values);
+}
+
+void append_bidding_bid_owner_table(
+    std::vector<float>& target,
+    const EncodedBiddingHistory& bidding_history) {
+  std::array<float, kBiddingBidPositionCount * kBiddingBidOwnerClassCount> table{};
+  for (int position_index = 0; position_index < kBiddingBidPositionCount; ++position_index) {
+    table[static_cast<std::size_t>(position_index * kBiddingBidOwnerClassCount)] = 1.0F;
+  }
+
+  int highest_seen_position = -1;
+  for (int slot_index = 0; slot_index < kMaxBiddingActionCount; ++slot_index) {
+    const std::size_t slot = static_cast<std::size_t>(slot_index);
+    if (bidding_history.action_mask[slot] == 0) {
+      continue;
+    }
+    if (bidding_history.action_type_indices[slot] != kBiddingActionTypeBid) {
+      continue;
+    }
+
+    const int player_index = bidding_history.player_indices[slot];
+    if (player_index < 0 || player_index >= kPlayerCount) {
+      throw std::runtime_error("bidding history bid player index out of range");
+    }
+    const Suit suit = static_cast<Suit>(bidding_history.suit_indices[slot]);
+    const int target_offset =
+        bidding_history.target_point_cards[slot] - kMinBiddingTargetPointCards;
+    const int position_index = target_offset * 4 + bidding_bid_position_suit_index(suit);
+    if (position_index <= highest_seen_position) {
+      throw std::runtime_error("bidding bid positions must be strictly increasing");
+    }
+    highest_seen_position = position_index;
+
+    const std::size_t table_offset =
+        static_cast<std::size_t>(position_index * kBiddingBidOwnerClassCount);
+    if (table[table_offset] != 1.0F) {
+      throw std::runtime_error("duplicate bid position in bidding history");
+    }
+    table[table_offset] = 0.0F;
+    table[table_offset + static_cast<std::size_t>(player_index + 1)] = 1.0F;
+  }
+
+  target.insert(target.end(), table.begin(), table.end());
 }
 
 EncodedBiddingHistory encode_bidding_history(
@@ -447,31 +507,7 @@ std::array<float, kBiddingModelInputFeatureCount> encode_bidding_model_input(
       0,
       std::array<int, 0>{});
 
-  append_values(values, bidding_history.action_mask);
-  append_one_hot_array(
-      values,
-      bidding_history.action_type_indices,
-      2,
-      0,
-      std::array<int, 1>{kEmptyBiddingActionType});
-  append_one_hot_array(
-      values,
-      bidding_history.player_indices,
-      kPlayerCount,
-      0,
-      std::array<int, 1>{kEmptyPlayerIndex});
-  append_one_hot_array(
-      values,
-      bidding_history.suit_indices,
-      4,
-      0,
-      std::array<int, 1>{kEmptyBiddingSuitIndex});
-  append_one_hot_array(
-      values,
-      bidding_history.target_point_cards,
-      kBiddingTargetPointCardsClassCount,
-      kMinBiddingTargetPointCards,
-      std::array<int, 1>{0});
+  append_bidding_bid_owner_table(values, bidding_history);
 
   if (static_cast<int>(values.size()) != kBiddingModelInputFeatureCount) {
     throw std::runtime_error("bidding model input feature count drift");
