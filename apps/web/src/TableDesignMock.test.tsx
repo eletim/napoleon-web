@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
   TableDesignMock,
+  createCurrentTrickZoneGeometry,
   createRiverGeometry,
   createRiverPlacements,
   createRoleBoardEdgeGeometry,
@@ -11,33 +12,31 @@ import {
 } from "./TableDesignMock";
 
 describe("TableDesignMock", () => {
-  it("renders the issue 323 static table mock with separate trick zones and rivers", () => {
+  it("renders the issue 325 static table mock with generated trick zones and rivers", () => {
     const html = renderToStaticMarkup(<TableDesignMock />);
 
     expect(tableDesignMockLayout.seats).toHaveLength(5);
-    expect(html).toContain("Issue 323 table design mock");
+    expect(html).toContain("Issue 325 table design mock");
     expect(html).toContain("契約HUD");
     expect(html).toContain("中央役職表示");
-    expect(html).toContain("自席操作UI");
     expect(html).toContain("自分の表向き手札");
     expect(html).toContain("北西の裏向き手札");
     expect(html).toContain("北西の現在トリック置き場");
     expect(html).toContain("自分のポイント札の河");
+    expect(html).not.toContain("自席操作UI");
     expect(html).toContain("--mock-page-width:2200px");
     expect(html).toContain("--mock-trick-card-width:118px");
-    expect(html).toContain("--mock-trick-zone-width:260px");
-    expect(html).toContain("--mock-trick-zone-height:120px");
+    expect(html).toContain("--mock-trick-zone-width:162px");
+    expect(html).toContain("--mock-trick-zone-height:211.121px");
     expect(html).not.toContain("--mock-river-card-width:56px");
     expect(html).not.toContain("mock-player-label");
     expect(tableDesignMockLayout.center).toMatchObject({ height: 303, width: 338, y: 890 });
-    expect(tableDesignMockLayout.action).toMatchObject({ height: 244, width: 200, y: 1470 });
-    expect(tableDesignMockLayout.seats.find((seat) => seat.id === "self")).toMatchObject({
-      hand: { y: 1684 },
-      trickZone: { y: 1275, height: 120 }
-    });
+    expect(tableDesignMockLayout.seats.find((seat) => seat.id === "self")).toMatchObject({ hand: { y: 1684 } });
+    expect(tableDesignMockLayout.seats.some((seat) => "trickZone" in seat)).toBe(false);
     expect(tableDesignMockLayout.riverGrid).toMatchObject({ maxColumns: 5, maxRows: 4 });
     expect((html.match(/mock-current-trick-zone/g) ?? [])).toHaveLength(10);
-    expect((html.match(/mock-trick-card mock-playing-card/g) ?? [])).toHaveLength(4);
+    expect((html.match(/mock-trick-card mock-playing-card/g) ?? [])).toHaveLength(5);
+    expect(html).toContain("aria-label=\"J♠\"");
   });
 
   it("defines all river geometry from the corresponding role-board edge", () => {
@@ -89,4 +88,47 @@ describe("TableDesignMock", () => {
       expect(maxCards).toHaveLength(20);
     }
   });
+
+  it("generates every current trick zone from the same edge geometry outside the river", () => {
+    const seatIds = ["top-left", "top-right", "right", "self", "left"] as const;
+    const riverCardCounts = {
+      "top-left": 2,
+      "top-right": 2,
+      right: 3,
+      self: 5,
+      left: 2
+    } as const;
+    const expected = {
+      "top-left": { rotation: 145.733, x: 872.532, y: 556.869 },
+      "top-right": { rotation: -145.733, x: 1367.468, y: 556.869 },
+      right: { rotation: -71.127, x: 1526.966, y: 1039.896 },
+      self: { rotation: 0, x: 1120, y: 1334.355 },
+      left: { rotation: 71.127, x: 713.034, y: 1039.896 }
+    } as const;
+
+    for (const seatId of seatIds) {
+      const edge = createRoleBoardEdgeGeometry(tableDesignMockLayout.center, seatId);
+      const river = createRiverGeometry(tableDesignMockLayout, seatId);
+      const zone = createCurrentTrickZoneGeometry(tableDesignMockLayout, seatId, riverCardCounts[seatId]);
+
+      expect(zone.rotation).toBeCloseTo(edge.rotation);
+      expect(zone.rotation).toBeCloseTo(expected[seatId].rotation);
+      expect(zone.width).toBeCloseTo(
+        tableDesignMockLayout.cardSizes.trick.width + tableDesignMockLayout.currentTrickZone.paddingInline
+      );
+      expect(zone.height).toBeCloseTo(
+        tableDesignMockLayout.cardSizes.trick.height + tableDesignMockLayout.currentTrickZone.paddingBlock
+      );
+      expect(zone.x).toBeCloseTo(expected[seatId].x);
+      expect(zone.y).toBeCloseTo(expected[seatId].y);
+      expect(distanceAlongNormal(edge, zone)).toBeGreaterThan(distanceAlongNormal(edge, river));
+    }
+  });
 });
+
+function distanceAlongNormal(edge: { normal: { x: number; y: number }; start: { x: number; y: number } }, point: {
+  x: number;
+  y: number;
+}): number {
+  return (point.x - edge.start.x) * edge.normal.x + (point.y - edge.start.y) * edge.normal.y;
+}

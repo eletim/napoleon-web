@@ -25,14 +25,17 @@ interface SeatLayout {
   hand: Point & { rotation: number };
   id: SeatId;
   label: string;
-  trickZone: Box & { rotation: number };
 }
 
 interface TableDesignMockLayout {
-  action: Box;
   cardSizes: {
     selfHand: { height: number; width: number };
     trick: { height: number; width: number };
+  };
+  currentTrickZone: {
+    gapFromRiver: number;
+    paddingBlock: number;
+    paddingInline: number;
   };
   center: Box;
   hud: Box;
@@ -88,52 +91,46 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
     trick: { width: trickCardWidth, height: toLayoutPrecision(trickCardWidth * cardAspectRatio) },
     selfHand: { width: 172, height: 228 }
   },
+  currentTrickZone: {
+    gapFromRiver: 28,
+    paddingBlock: 52,
+    paddingInline: 44
+  },
   riverGrid: {
     maxColumns: 5,
     maxRows: 4,
     rowGap: 24
-  },
-  action: {
-    x: 1120,
-    y: 1470,
-    width: 200,
-    height: 244
   },
   seats: [
     {
       id: "top-left",
       label: "北西",
       avatar: { x: 586, y: 132 },
-      hand: { x: 672, y: 292, rotation: -19 },
-      trickZone: { x: 836, y: 540, width: 260, height: 210, rotation: -37 }
+      hand: { x: 672, y: 292, rotation: -19 }
     },
     {
       id: "top-right",
       label: "北東",
       avatar: { x: 1590, y: 144 },
-      hand: { x: 1538, y: 294, rotation: 19 },
-      trickZone: { x: 1376, y: 540, width: 260, height: 210, rotation: 37 }
+      hand: { x: 1538, y: 294, rotation: 19 }
     },
     {
       id: "right",
       label: "右席",
       avatar: { x: 2112, y: 1074 },
-      hand: { x: 1942, y: 1080, rotation: 55 },
-      trickZone: { x: 1578, y: 1036, width: 260, height: 210, rotation: 12 }
+      hand: { x: 1942, y: 1080, rotation: 55 }
     },
     {
       id: "self",
       label: "自分",
       avatar: { x: 808, y: 1492 },
-      hand: { x: 1118, y: 1684, rotation: 0 },
-      trickZone: { x: 1120, y: 1275, width: 260, height: 120, rotation: 0 }
+      hand: { x: 1118, y: 1684, rotation: 0 }
     },
     {
       id: "left",
       label: "左席",
       avatar: { x: 136, y: 1070 },
-      hand: { x: 308, y: 1086, rotation: -54 },
-      trickZone: { x: 644, y: 1038, width: 260, height: 210, rotation: -12 }
+      hand: { x: 308, y: 1086, rotation: -54 }
     }
   ]
 };
@@ -147,7 +144,8 @@ const trickCards: Partial<Record<SeatId, MockCard>> = {
   "top-left": { rank: "10", suit: "hearts" },
   "top-right": { rank: "Q", suit: "hearts", face: "queen" },
   right: { rank: "K", suit: "spades", face: "king" },
-  left: { rank: "A", suit: "spades" }
+  left: { rank: "A", suit: "spades" },
+  self: { rank: "J", suit: "spades", face: "jack" }
 };
 
 const riverCards: Record<string, readonly MockCard[]> = {
@@ -197,7 +195,7 @@ export function TableDesignMock() {
 
   return (
     <main
-      aria-label="Issue 323 table design mock"
+      aria-label="Issue 325 table design mock"
       className="table-design-mock-page"
       style={
         {
@@ -217,7 +215,6 @@ export function TableDesignMock() {
           <SeatArtifacts key={seat.id} seat={seat} />
         ))}
         <RoleBoard layout={layout.center} />
-        <SelfActionFocus layout={layout.action} />
       </div>
     </main>
   );
@@ -296,11 +293,14 @@ function CardBackFan({ seat }: { seat: SeatLayout }) {
 }
 
 function CurrentTrickZone({ seat }: { seat: SeatLayout }) {
+  const cardCount = riverCards[seat.id]?.length ?? 0;
+  const geometry = createCurrentTrickZoneGeometry(tableDesignMockLayout, seat.id, cardCount);
+
   return (
     <section
       aria-label={`${seat.label}の現在トリック置き場`}
       className={`mock-current-trick-zone mock-current-trick-zone-${seat.id}`}
-      style={trickZoneStyle(seat.trickZone)}
+      style={trickZoneStyle(geometry)}
     >
       <PlayingCard card={trickCards[seat.id]} className="mock-trick-card" />
     </section>
@@ -352,22 +352,6 @@ function RoleBoard({ layout }: { layout: Box }) {
           </span>
         ))}
         <span className="mock-role-board-core" />
-      </div>
-    </section>
-  );
-}
-
-function SelfActionFocus({ layout }: { layout: Box }) {
-  return (
-    <section
-      aria-label="自席操作UI"
-      className="mock-self-action"
-      style={boxStyle(layout)}
-    >
-      <PlayingCard card={{ rank: "J", suit: "spades", face: "jack" }} className="mock-action-card" />
-      <div className="mock-action-controls" aria-label="操作">
-        <button type="button">出す</button>
-        <button type="button">待機</button>
       </div>
     </section>
   );
@@ -446,6 +430,13 @@ interface RiverGeometry extends RoleBoardEdgeGeometry {
   y: number;
 }
 
+interface CurrentTrickZoneGeometry extends RoleBoardEdgeGeometry {
+  height: number;
+  width: number;
+  x: number;
+  y: number;
+}
+
 const roleBoardEdges: Record<SeatId, { end: Point; start: Point }> = {
   "top-left": { start: roleBoardPentagon.top, end: roleBoardPentagon.topLeft },
   "top-right": { start: roleBoardPentagon.topRight, end: roleBoardPentagon.top },
@@ -498,6 +489,31 @@ export function createRiverGeometry(
   };
 }
 
+export function createCurrentTrickZoneGeometry(
+  layout: TableDesignMockLayout,
+  seatId: SeatId,
+  riverCardCount = 0
+): CurrentTrickZoneGeometry {
+  const edge = createRoleBoardEdgeGeometry(layout.center, seatId);
+  const river = createRiverGeometry(layout, seatId);
+  const visibleRiverRows = Math.max(1, Math.ceil(Math.min(riverCardCount, 20) / layout.riverGrid.maxColumns));
+  const visibleRiverDepth = toLayoutPrecision(
+    river.cardSize.height * visibleRiverRows + layout.riverGrid.rowGap * (visibleRiverRows - 1)
+  );
+  const width = toLayoutPrecision(layout.cardSizes.trick.width + layout.currentTrickZone.paddingInline);
+  const height = toLayoutPrecision(layout.cardSizes.trick.height + layout.currentTrickZone.paddingBlock);
+  const midpoint = midpointBetween(edge.start, edge.end);
+  const centerOffset = toLayoutPrecision(riverGap + visibleRiverDepth + layout.currentTrickZone.gapFromRiver + height / 2);
+
+  return {
+    ...edge,
+    height,
+    width,
+    x: toLayoutPrecision(midpoint.x + edge.normal.x * centerOffset),
+    y: toLayoutPrecision(midpoint.y + edge.normal.y * centerOffset)
+  };
+}
+
 export function createRiverPlacements(
   cardCount: number,
   layout: TableDesignMockLayout,
@@ -533,7 +549,7 @@ function riverStyle(geometry: RiverGeometry): CSSProperties {
   } as CSSProperties;
 }
 
-function trickZoneStyle(zone: Box & { rotation: number }): CSSProperties {
+function trickZoneStyle(zone: CurrentTrickZoneGeometry): CSSProperties {
   return {
     ...pointWithRotationStyle(zone),
     "--mock-trick-zone-height": `${zone.height}px`,
@@ -581,6 +597,13 @@ function roleBoardAbsolutePoint(layout: Box, point: Point): Point {
 
 function distance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function midpointBetween(a: Point, b: Point): Point {
+  return {
+    x: (a.x + b.x) / 2,
+    y: (a.y + b.y) / 2
+  };
 }
 
 function normalizeVector(vector: Point): Point {
