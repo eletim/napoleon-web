@@ -19,8 +19,10 @@ from napoleon_ml.adjutant.model import AdjutantMlpConfig
 from napoleon_ml.adjutant.ppo import AdjutantPpoTrainSettings, train_adjutant_ppo
 from napoleon_ml.bidding.model import BiddingMlpConfig
 from napoleon_ml.bidding.ppo import (
+    BIDDING_MINIBATCH_STRATEGY_RANDOM,
     DEFAULT_ADVANTAGE_NORMALIZATION,
     SUPPORTED_ADVANTAGE_NORMALIZATIONS,
+    SUPPORTED_BIDDING_MINIBATCH_STRATEGIES,
     BiddingPpoTrainSettings,
     advantage_normalization_from_metadata,
     advantage_normalization_metadata,
@@ -61,6 +63,7 @@ DEFAULT_PPO_CLIP_EPSILON = 0.2
 DEFAULT_VALUE_LOSS_COEFFICIENT = 0.5
 DEFAULT_BIDDING_ENTROPY_COEFFICIENT = 0.0
 DEFAULT_BIDDING_ADVANTAGE_NORMALIZATION = DEFAULT_ADVANTAGE_NORMALIZATION
+DEFAULT_BIDDING_MINIBATCH_STRATEGY = BIDDING_MINIBATCH_STRATEGY_RANDOM
 DEFAULT_TEMPERATURE = 1.0
 DEFAULT_INFERENCE_DEVICE: Literal["cpu", "auto", "cuda"] = "cpu"
 DEFAULT_TRAINING_DEVICE: RequestedTorchDevice = "cpu"
@@ -121,6 +124,7 @@ class NonPlayingRlRunConfig:
     value_loss_coefficient: float = DEFAULT_VALUE_LOSS_COEFFICIENT
     bidding_entropy_coefficient: float = DEFAULT_BIDDING_ENTROPY_COEFFICIENT
     bidding_advantage_normalization: str = DEFAULT_BIDDING_ADVANTAGE_NORMALIZATION
+    bidding_minibatch_strategy: str = DEFAULT_BIDDING_MINIBATCH_STRATEGY
     seed: int = DEFAULT_SEED
     temperature: float = DEFAULT_TEMPERATURE
     inference_device: Literal["cpu", "auto", "cuda"] = DEFAULT_INFERENCE_DEVICE
@@ -150,6 +154,7 @@ class NonPlayingRlRunConfig:
             value_loss_coefficient=self.value_loss_coefficient,
             bidding_entropy_coefficient=self.bidding_entropy_coefficient,
             bidding_advantage_normalization=self.bidding_advantage_normalization,
+            bidding_minibatch_strategy=self.bidding_minibatch_strategy,
             seed=self.seed,
             temperature=self.temperature,
             inference_device=self.inference_device,
@@ -185,6 +190,7 @@ class NonPlayingRlRunConfig:
             "biddingAdvantageNormalization": advantage_normalization_metadata(
                 self.bidding_advantage_normalization
             ),
+            "biddingMinibatchStrategy": self.bidding_minibatch_strategy,
             "seed": self.seed,
             "temperature": self.temperature,
             "reward": {
@@ -233,6 +239,7 @@ class NonPlayingIterativeRlRunConfig:
     value_loss_coefficient: float = DEFAULT_VALUE_LOSS_COEFFICIENT
     bidding_entropy_coefficient: float = DEFAULT_BIDDING_ENTROPY_COEFFICIENT
     bidding_advantage_normalization: str = DEFAULT_BIDDING_ADVANTAGE_NORMALIZATION
+    bidding_minibatch_strategy: str = DEFAULT_BIDDING_MINIBATCH_STRATEGY
     seed: int = DEFAULT_SEED
     temperature: float = DEFAULT_TEMPERATURE
     inference_device: Literal["cpu", "auto", "cuda"] = DEFAULT_INFERENCE_DEVICE
@@ -264,6 +271,7 @@ class NonPlayingIterativeRlRunConfig:
             value_loss_coefficient=self.value_loss_coefficient,
             bidding_entropy_coefficient=self.bidding_entropy_coefficient,
             bidding_advantage_normalization=self.bidding_advantage_normalization,
+            bidding_minibatch_strategy=self.bidding_minibatch_strategy,
             seed=self.seed,
             temperature=self.temperature,
             inference_device=self.inference_device,
@@ -300,6 +308,7 @@ class NonPlayingIterativeRlRunConfig:
             value_loss_coefficient=self.value_loss_coefficient,
             bidding_entropy_coefficient=self.bidding_entropy_coefficient,
             bidding_advantage_normalization=self.bidding_advantage_normalization,
+            bidding_minibatch_strategy=self.bidding_minibatch_strategy,
             seed=self.seed,
             temperature=self.temperature,
             inference_device=self.inference_device,
@@ -358,6 +367,7 @@ class NonPlayingIterativeRlRunConfig:
             "biddingAdvantageNormalization": advantage_normalization_metadata(
                 self.bidding_advantage_normalization
             ),
+            "biddingMinibatchStrategy": self.bidding_minibatch_strategy,
             "seed": self.seed,
             "temperature": self.temperature,
             "inferenceDevice": self.inference_device,
@@ -898,7 +908,11 @@ def _run_nonplaying_rollout(
             policy_onnx=policy_onnx,
             policy_metadata=policy_metadata,
             start_seed=start_seed,
-            artifact_id=artifact_id if artifact_id is not None else f"{phase}-bootstrap-seed-{start_seed}",
+            artifact_id=(
+                artifact_id
+                if artifact_id is not None
+                else f"{phase}-bootstrap-seed-{start_seed}"
+            ),
         )
         return summary
 
@@ -1117,6 +1131,7 @@ def _train_phase(
                 training_device=config.training_device,
                 parent_actor_checkpoint=None,
                 parent_checkpoint=str(parent_checkpoint) if parent_checkpoint is not None else None,
+                minibatch_strategy=config.bidding_minibatch_strategy,
             ),
             model_config=BiddingMlpConfig(
                 hidden_dim=config.hidden_dim,
@@ -1725,6 +1740,7 @@ def _validate_iterative_resume_config(
         "biddingFrozenOpponentMixRuleVersion",
         "biddingFrozenOpponentPolicyIds",
         "biddingAdvantageNormalization",
+        "biddingMinibatchStrategy",
         "playingPolicyOnnxSha256",
         "playingPolicyMetadataSha256",
         "playingPolicyArtifactId",
@@ -1736,6 +1752,8 @@ def _validate_iterative_resume_config(
         stored_value = stored_config.get(key)
         if key == "simulationBackend" and stored_value is None:
             stored_value = "typescript"
+        if key == "biddingMinibatchStrategy" and stored_value is None:
+            stored_value = BIDDING_MINIBATCH_STRATEGY_RANDOM
         if stored_value != requested_value:
             raise NonPlayingRlOrchestratorError(
                 f"resume config mismatch for {key}: {requested_value!r} != {stored_value!r}"
@@ -1769,6 +1787,9 @@ def _iterative_config_from_file_dict(
         bidding_entropy_coefficient=_required_float(data["biddingEntropyCoefficient"]),
         bidding_advantage_normalization=advantage_normalization_from_metadata(
             data.get("biddingAdvantageNormalization")
+        ),
+        bidding_minibatch_strategy=_required_minibatch_strategy(
+            data.get("biddingMinibatchStrategy", BIDDING_MINIBATCH_STRATEGY_RANDOM)
         ),
         seed=_required_int(data["seed"]),
         temperature=_required_float(data["temperature"]),
@@ -1826,6 +1847,11 @@ def _validate_config(config: NonPlayingRlRunConfig) -> None:
             "bidding-advantage-normalization must be one of "
             f"{', '.join(SUPPORTED_ADVANTAGE_NORMALIZATIONS)}."
         )
+    if config.bidding_minibatch_strategy not in SUPPORTED_BIDDING_MINIBATCH_STRATEGIES:
+        raise NonPlayingRlOrchestratorError(
+            "bidding-minibatch-strategy must be one of "
+            f"{', '.join(SUPPORTED_BIDDING_MINIBATCH_STRATEGIES)}."
+        )
     if config.dropout < 0.0 or config.dropout >= 1.0:
         raise NonPlayingRlOrchestratorError("dropout must be in [0.0, 1.0).")
     if config.inference_device not in SUPPORTED_INFERENCE_DEVICES:
@@ -1866,6 +1892,11 @@ def _validate_iterative_config(config: NonPlayingIterativeRlRunConfig) -> None:
         raise NonPlayingRlOrchestratorError(
             "bidding-advantage-normalization must be one of "
             f"{', '.join(SUPPORTED_ADVANTAGE_NORMALIZATIONS)}."
+        )
+    if config.bidding_minibatch_strategy not in SUPPORTED_BIDDING_MINIBATCH_STRATEGIES:
+        raise NonPlayingRlOrchestratorError(
+            "bidding-minibatch-strategy must be one of "
+            f"{', '.join(SUPPORTED_BIDDING_MINIBATCH_STRATEGIES)}."
         )
     if config.dropout < 0.0 or config.dropout >= 1.0:
         raise NonPlayingRlOrchestratorError("dropout must be in [0.0, 1.0).")
@@ -2135,6 +2166,15 @@ def _required_training_device(value: object) -> RequestedTorchDevice:
         raise NonPlayingRlOrchestratorError(
             "training-device must be one of "
             f"{', '.join(SUPPORTED_TORCH_DEVICES)}, got {value!r}."
+        )
+    return value
+
+
+def _required_minibatch_strategy(value: object) -> str:
+    if value not in SUPPORTED_BIDDING_MINIBATCH_STRATEGIES:
+        raise NonPlayingRlOrchestratorError(
+            "bidding-minibatch-strategy must be one of "
+            f"{', '.join(SUPPORTED_BIDDING_MINIBATCH_STRATEGIES)}, got {value!r}."
         )
     return value
 

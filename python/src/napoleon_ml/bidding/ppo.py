@@ -21,11 +21,13 @@ from napoleon_ml.dataset.constants import (
     BIDDING_ACTION_COUNT,
     BIDDING_ENCODER_SCHEMA_VERSION,
     BIDDING_HISTORY_SUIT_ORDER,
+    EXPECTED_CARD_IDS,
     MAX_BIDDING_TARGET_POINT_CARDS,
     MIN_BIDDING_TARGET_POINT_CARDS,
 )
 from napoleon_ml.dataset.tensors import (
     BIDDING_MODEL_INPUT_FEATURE_COUNT,
+    BIDDING_MODEL_INPUT_LAYOUT,
     BIDDING_MODEL_INPUT_SCHEMA_VERSION,
 )
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
@@ -71,6 +73,43 @@ BIDDING_PASS_ACTION_INDEX = 0
 BIDDING_TARGET_POINT_CARDS = tuple(
     range(MIN_BIDDING_TARGET_POINT_CARDS, MAX_BIDDING_TARGET_POINT_CARDS + 1)
 )
+BIDDING_MINIBATCH_STRATEGY_RANDOM = "random"
+BIDDING_MINIBATCH_STRATEGY_STRONGEST_SUIT_BALANCED = "strongest-suit-balanced"
+SUPPORTED_BIDDING_MINIBATCH_STRATEGIES = (
+    BIDDING_MINIBATCH_STRATEGY_RANDOM,
+    BIDDING_MINIBATCH_STRATEGY_STRONGEST_SUIT_BALANCED,
+)
+STRONGEST_SUIT_DEFINITION_VERSION = (
+    "rule-based-evaluateHandForTrump-v1-tie-spades-hearts-diamonds-clubs-v1"
+)
+STRONGEST_SUIT_TARGET_PER_SUIT = 32
+STRONGEST_SUIT_BALANCED_BATCH_SIZE = STRONGEST_SUIT_TARGET_PER_SUIT * len(
+    BIDDING_HISTORY_SUIT_ORDER
+)
+_SELF_HAND_SLICE = next(
+    item for item in BIDDING_MODEL_INPUT_LAYOUT if item.name == "selfHandMask"
+)
+_AI_RANK_VALUE: dict[str, int] = {
+    "A": 20,
+    "K": 13,
+    "Q": 12,
+    "J": 11,
+    "10": 10,
+    "9": 9,
+    "8": 8,
+    "7": 7,
+    "6": 6,
+    "5": 5,
+    "4": 4,
+    "3": 3,
+    "2": 12,
+}
+_URA_JACK_SUIT: dict[str, str] = {
+    "spades": "clubs",
+    "clubs": "spades",
+    "hearts": "diamonds",
+    "diamonds": "hearts",
+}
 
 
 class BiddingPpoCompatibilityError(ValueError):
@@ -160,6 +199,42 @@ class BiddingAdvantageStatistics:
 
 
 @dataclass(frozen=True)
+class BiddingMinibatchDiagnostics:
+    strategy: str
+    minibatch_count: int
+    strongest_suit_definition_version: str | None = None
+    per_suit_target_count: dict[str, int] | None = None
+    original_pool_count: dict[str, int] | None = None
+    actual_draw_count: dict[str, int] | None = None
+    oversampled_count: dict[str, int] | None = None
+    epoch_minibatch_count: int | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        data: dict[str, object] = {
+            "strategy": self.strategy,
+            "minibatchCount": self.minibatch_count,
+        }
+        if self.strongest_suit_definition_version is not None:
+            data["strongestSuitDefinitionVersion"] = self.strongest_suit_definition_version
+            data["strongestSuitDefinition"] = {
+                "id": self.strongest_suit_definition_version,
+                "source": "RuleBasedAgent.evaluateHandForTrump",
+                "tieBreakOrder": list(BIDDING_HISTORY_SUIT_ORDER),
+            }
+        if self.per_suit_target_count is not None:
+            data["perSuitTargetCount"] = dict(self.per_suit_target_count)
+        if self.original_pool_count is not None:
+            data["originalPoolCount"] = dict(self.original_pool_count)
+        if self.actual_draw_count is not None:
+            data["actualDrawCount"] = dict(self.actual_draw_count)
+        if self.oversampled_count is not None:
+            data["oversampledCount"] = dict(self.oversampled_count)
+        if self.epoch_minibatch_count is not None:
+            data["epochMinibatchCount"] = self.epoch_minibatch_count
+        return data
+
+
+@dataclass(frozen=True)
 class BiddingPpoTrainSettings:
     seed: int
     epochs: int
@@ -174,6 +249,7 @@ class BiddingPpoTrainSettings:
     training_device: RequestedTorchDevice = "cpu"
     parent_actor_checkpoint: str | None = None
     parent_checkpoint: str | None = None
+    minibatch_strategy: str = BIDDING_MINIBATCH_STRATEGY_RANDOM
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -193,6 +269,7 @@ class BiddingPpoTrainSettings:
             "algorithm": BIDDING_PPO_ALGORITHM,
             "parentActorCheckpoint": self.parent_actor_checkpoint,
             "parentCheckpoint": self.parent_checkpoint,
+            "minibatchStrategy": self.minibatch_strategy,
         }
 
 
@@ -218,9 +295,12 @@ class BiddingPpoTrainReport:
     requested_training_device: str
     resolved_training_device: str
     cuda_device_name: str | None
+    minibatch_strategy: str
+    minibatch_diagnostics: BiddingMinibatchDiagnostics
 
     def to_dict(self) -> dict[str, object]:
         advantage_statistics = self.advantage_statistics.to_dict()
+        minibatch_diagnostics = self.minibatch_diagnostics.to_dict()
         return {
             "sampleCount": self.sample_count,
             "optimizerStepCount": self.optimizer_step_count,
@@ -259,6 +339,8 @@ class BiddingPpoTrainReport:
             "requestedTrainingDevice": self.requested_training_device,
             "resolvedTrainingDevice": self.resolved_training_device,
             "cudaDeviceName": self.cuda_device_name,
+            "minibatchStrategy": self.minibatch_strategy,
+            "minibatchDiagnostics": minibatch_diagnostics,
         }
 
 
@@ -411,6 +493,199 @@ def create_non_playing_bidding_rl_dataloader(
             num_workers=0,
         ),
     )
+
+
+def evaluate_bidding_hand_for_trump(
+    self_hand_mask: np.ndarray,
+    trump_suit: str,
+) -> int:
+    if trump_suit not in BIDDING_HISTORY_SUIT_ORDER:
+        raise ValueError(f"unsupported trump suit: {trump_suit!r}.")
+    if self_hand_mask.shape != (len(EXPECTED_CARD_IDS),):
+        raise ValueError(
+            f"self_hand_mask must have shape ({len(EXPECTED_CARD_IDS)},)."
+        )
+    return sum(
+        _evaluate_card_id_for_trump(card_id, trump_suit)
+        for index, card_id in enumerate(EXPECTED_CARD_IDS)
+        if float(self_hand_mask[index]) > 0.5
+    )
+
+
+def strongest_suit_for_bidding_model_input(model_input: np.ndarray) -> str:
+    if model_input.shape != (BIDDING_MODEL_INPUT_FEATURE_COUNT,):
+        raise ValueError(
+            f"model_input must have shape ({BIDDING_MODEL_INPUT_FEATURE_COUNT},)."
+        )
+    self_hand_mask = model_input[_SELF_HAND_SLICE.start : _SELF_HAND_SLICE.stop]
+    best_suit = BIDDING_HISTORY_SUIT_ORDER[0]
+    best_score = evaluate_bidding_hand_for_trump(self_hand_mask, best_suit)
+    for candidate in BIDDING_HISTORY_SUIT_ORDER[1:]:
+        candidate_score = evaluate_bidding_hand_for_trump(self_hand_mask, candidate)
+        if candidate_score > best_score:
+            best_suit = candidate
+            best_score = candidate_score
+    return best_suit
+
+
+def create_bidding_minibatch_plan(
+    samples: list[NonPlayingBiddingRlSample],
+    *,
+    batch_size: int,
+    epochs: int,
+    strategy: str,
+    seed: int,
+) -> tuple[list[list[list[int]]], BiddingMinibatchDiagnostics]:
+    _validate_minibatch_strategy(strategy)
+    if strategy == BIDDING_MINIBATCH_STRATEGY_RANDOM:
+        return _create_random_minibatch_plan(
+            samples,
+            batch_size=batch_size,
+            epochs=epochs,
+            seed=seed,
+        )
+    return _create_strongest_suit_balanced_minibatch_plan(
+        samples,
+        batch_size=batch_size,
+        epochs=epochs,
+        seed=seed,
+    )
+
+
+def _create_random_minibatch_plan(
+    samples: list[NonPlayingBiddingRlSample],
+    *,
+    batch_size: int,
+    epochs: int,
+    seed: int,
+) -> tuple[list[list[list[int]]], BiddingMinibatchDiagnostics]:
+    rng = np.random.default_rng(seed)
+    epoch_batches: list[list[list[int]]] = []
+    for _epoch in range(epochs):
+        indices = np.arange(len(samples), dtype=np.int64)
+        rng.shuffle(indices)
+        epoch_batches.append(
+            [
+                [int(index) for index in indices[start : start + batch_size]]
+                for start in range(0, len(indices), batch_size)
+            ]
+        )
+    minibatch_count = sum(len(batches) for batches in epoch_batches)
+    return epoch_batches, BiddingMinibatchDiagnostics(
+        strategy=BIDDING_MINIBATCH_STRATEGY_RANDOM,
+        minibatch_count=minibatch_count,
+    )
+
+
+def _create_strongest_suit_balanced_minibatch_plan(
+    samples: list[NonPlayingBiddingRlSample],
+    *,
+    batch_size: int,
+    epochs: int,
+    seed: int,
+) -> tuple[list[list[list[int]]], BiddingMinibatchDiagnostics]:
+    if batch_size != STRONGEST_SUIT_BALANCED_BATCH_SIZE:
+        raise BiddingPpoCompatibilityError(
+            "strongest-suit-balanced minibatch strategy requires batch_size "
+            f"{STRONGEST_SUIT_BALANCED_BATCH_SIZE}, got {batch_size}."
+        )
+
+    pools: dict[str, list[int]] = {suit: [] for suit in BIDDING_HISTORY_SUIT_ORDER}
+    for dataset_index, sample in enumerate(samples):
+        pools[strongest_suit_for_bidding_model_input(sample.model_input)].append(dataset_index)
+
+    original_pool_count = {suit: len(pools[suit]) for suit in BIDDING_HISTORY_SUIT_ORDER}
+    empty_suits = [suit for suit, count in original_pool_count.items() if count == 0]
+    if empty_suits:
+        raise BiddingPpoCompatibilityError(
+            "strongest-suit-balanced minibatch strategy requires at least one sample "
+            f"for every strongestSuit pool; empty pools: {', '.join(empty_suits)}."
+        )
+
+    rng = np.random.default_rng(seed)
+    epoch_minibatch_count = math.ceil(len(samples) / batch_size)
+    actual_draw_count = {suit: 0 for suit in BIDDING_HISTORY_SUIT_ORDER}
+    oversampled_count = {suit: 0 for suit in BIDDING_HISTORY_SUIT_ORDER}
+    epoch_batches: list[list[list[int]]] = []
+
+    for _epoch in range(epochs):
+        states = {
+            suit: _BalancedPoolState(
+                indices=[int(index) for index in rng.permutation(pools[suit])],
+                cursor=0,
+                draw_count=0,
+            )
+            for suit in BIDDING_HISTORY_SUIT_ORDER
+        }
+        batches: list[list[int]] = []
+        for _batch in range(epoch_minibatch_count):
+            batch: list[int] = []
+            for suit in BIDDING_HISTORY_SUIT_ORDER:
+                state = states[suit]
+                for _draw in range(STRONGEST_SUIT_TARGET_PER_SUIT):
+                    if state.cursor >= len(state.indices):
+                        state.indices = [int(index) for index in rng.permutation(pools[suit])]
+                        state.cursor = 0
+                    if state.draw_count >= original_pool_count[suit]:
+                        oversampled_count[suit] += 1
+                    batch.append(state.indices[state.cursor])
+                    state.cursor += 1
+                    state.draw_count += 1
+                    actual_draw_count[suit] += 1
+            rng.shuffle(batch)
+            batches.append(batch)
+        epoch_batches.append(batches)
+
+    minibatch_count = sum(len(batches) for batches in epoch_batches)
+    return epoch_batches, BiddingMinibatchDiagnostics(
+        strategy=BIDDING_MINIBATCH_STRATEGY_STRONGEST_SUIT_BALANCED,
+        minibatch_count=minibatch_count,
+        strongest_suit_definition_version=STRONGEST_SUIT_DEFINITION_VERSION,
+        per_suit_target_count={
+            suit: STRONGEST_SUIT_TARGET_PER_SUIT for suit in BIDDING_HISTORY_SUIT_ORDER
+        },
+        original_pool_count=original_pool_count,
+        actual_draw_count=actual_draw_count,
+        oversampled_count=oversampled_count,
+        epoch_minibatch_count=epoch_minibatch_count,
+    )
+
+
+@dataclass
+class _BalancedPoolState:
+    indices: list[int]
+    cursor: int
+    draw_count: int
+
+
+def _create_bidding_ppo_dataloader_from_batches(
+    dataset: NonPlayingBiddingRlDataset,
+    batch_indices: list[list[int]],
+) -> DataLoader[BiddingPpoBatch]:
+    return cast(
+        DataLoader[BiddingPpoBatch],
+        DataLoader(
+            dataset,
+            batch_sampler=batch_indices,
+            collate_fn=_collate_bidding_ppo_batch,
+            num_workers=0,
+        ),
+    )
+
+
+def _evaluate_card_id_for_trump(card_id: str, trump_suit: str) -> int:
+    if card_id == "joker":
+        return 20
+    suit, rank = card_id.split("-", 1)
+    if card_id == "spades-A":
+        return 60
+    if card_id == f"{trump_suit}-J":
+        return 55
+    if card_id == f"{_URA_JACK_SUIT[trump_suit]}-J":
+        return 50
+    if card_id == "hearts-Q":
+        return 45 if suit == trump_suit else 30
+    return _AI_RANK_VALUE[rank] + (30 if suit == trump_suit else 0)
 
 
 def masked_selected_log_probability(
@@ -571,6 +846,14 @@ def _validate_advantage_normalization_settings(settings: BiddingPpoTrainSettings
     )
 
 
+def _validate_minibatch_strategy(strategy: str) -> None:
+    if strategy not in SUPPORTED_BIDDING_MINIBATCH_STRATEGIES:
+        raise ValueError(
+            "minibatch_strategy must be one of "
+            f"{', '.join(SUPPORTED_BIDDING_MINIBATCH_STRATEGIES)}, got {strategy!r}."
+        )
+
+
 def _prepare_actor_advantages(
     model: BiddingActorCriticModel,
     dataloader: DataLoader[BiddingPpoBatch],
@@ -638,6 +921,7 @@ def train_bidding_ppo(
     if settings.entropy_coefficient < 0.0:
         raise ValueError("entropy_coefficient must be non-negative.")
     _validate_advantage_normalization_settings(settings)
+    _validate_minibatch_strategy(settings.minibatch_strategy)
     training_device = resolve_torch_device(
         settings.training_device,
         flag_name="--training-device",
@@ -655,6 +939,7 @@ def train_bidding_ppo(
                 settings.advantage_normalization,
                 epsilon=settings.advantage_normalization_epsilon,
             ),
+            expected_minibatch_strategy=settings.minibatch_strategy,
         )
     elif settings.parent_actor_checkpoint is not None:
         parent_sha256 = initialize_actor_from_checkpoint(
@@ -663,23 +948,35 @@ def train_bidding_ppo(
         )
     model.to(training_device.torch_device)
 
-    dataloader = create_non_playing_bidding_rl_dataloader(
-        dataset_directory,
-        batch_size=settings.batch_size,
-        shuffle=False,
+    samples = list(iter_non_playing_bidding_rl_samples(dataset_directory))
+    dataset = NonPlayingBiddingRlDataset(samples)
+    advantage_dataloader = _create_bidding_ppo_dataloader_from_batches(
+        dataset,
+        [
+            list(range(start, min(start + settings.batch_size, len(samples))))
+            for start in range(0, len(samples), settings.batch_size)
+        ],
     )
     actor_advantage_by_sample, advantage_statistics = _prepare_actor_advantages(
         model,
-        dataloader,
+        advantage_dataloader,
         device=training_device,
         normalization=settings.advantage_normalization,
         epsilon=settings.advantage_normalization_epsilon,
     )
+    minibatch_plan, minibatch_diagnostics = create_bidding_minibatch_plan(
+        samples,
+        batch_size=settings.batch_size,
+        epochs=settings.epochs,
+        strategy=settings.minibatch_strategy,
+        seed=settings.seed,
+    )
     optimizer = optim.AdamW(model.parameters(), lr=settings.learning_rate)
     totals = _LossTotals()
 
-    for _epoch in range(settings.epochs):
+    for epoch_batches in minibatch_plan:
         model.train()
+        dataloader = _create_bidding_ppo_dataloader_from_batches(dataset, epoch_batches)
         for batch in dataloader:
             batch = _bidding_ppo_batch_to_device(batch, training_device)
             optimizer.zero_grad(set_to_none=True)
@@ -722,6 +1019,7 @@ def train_bidding_ppo(
         ),
         advantage_statistics=advantage_statistics,
         device=training_device,
+        minibatch_diagnostics=minibatch_diagnostics,
     )
 
 
@@ -731,6 +1029,7 @@ def initialize_model_from_checkpoint(
     *,
     expected_entropy_coefficient: float | None = None,
     expected_advantage_normalization: dict[str, object] | None = None,
+    expected_minibatch_strategy: str | None = None,
 ) -> str:
     checkpoint_file = Path(checkpoint_path)
     raw = _load_raw_checkpoint(checkpoint_file)
@@ -744,6 +1043,11 @@ def initialize_model_from_checkpoint(
         _validate_parent_advantage_normalization(
             raw,
             expected_advantage_normalization=expected_advantage_normalization,
+        )
+    if expected_minibatch_strategy is not None:
+        _validate_parent_minibatch_strategy(
+            raw,
+            expected_minibatch_strategy=expected_minibatch_strategy,
         )
     model_config_raw = raw.get("model_config")
     if not isinstance(model_config_raw, dict):
@@ -825,6 +1129,7 @@ def save_bidding_ppo_checkpoint(
             settings.advantage_normalization,
             epsilon=settings.advantage_normalization_epsilon,
         ),
+        "minibatch_strategy": settings.minibatch_strategy,
         "reward": dict(manifest.reward),
         "terminal_reward_transform": dict(manifest.terminal_reward_transform),
         "behavior_policy": dict(manifest.behavior_policy),
@@ -935,6 +1240,7 @@ class _LossTotals:
         advantage_normalization: dict[str, object],
         advantage_statistics: BiddingAdvantageStatistics,
         device: ResolvedTorchDevice,
+        minibatch_diagnostics: BiddingMinibatchDiagnostics,
     ) -> BiddingPpoTrainReport:
         return BiddingPpoTrainReport(
             sample_count=self.sample_count,
@@ -963,6 +1269,8 @@ class _LossTotals:
             requested_training_device=device.requested,
             resolved_training_device=device.resolved,
             cuda_device_name=device.cuda_device_name,
+            minibatch_strategy=minibatch_diagnostics.strategy,
+            minibatch_diagnostics=minibatch_diagnostics,
         )
 
     @property
@@ -1174,6 +1482,15 @@ def _validate_bidding_ppo_checkpoint(raw: dict[str, object]) -> None:
             "checkpoint advantage_normalization must match "
             "training_config.advantageNormalization."
         )
+    training_minibatch_strategy = _checkpoint_minibatch_strategy(training_config)
+    root_minibatch_strategy = _checkpoint_minibatch_strategy(
+        raw,
+        default=training_minibatch_strategy,
+    )
+    if root_minibatch_strategy != training_minibatch_strategy:
+        raise BiddingPpoCompatibilityError(
+            "checkpoint minibatch_strategy must match training_config.minibatchStrategy."
+        )
 
 
 def _validate_parent_entropy_coefficient(
@@ -1206,6 +1523,40 @@ def _validate_parent_advantage_normalization(
             "parent checkpoint advantageNormalization mismatch: "
             f"expected {expected_advantage_normalization!r}, got {actual!r}."
         )
+
+
+def _validate_parent_minibatch_strategy(
+    raw: dict[str, object],
+    *,
+    expected_minibatch_strategy: str,
+) -> None:
+    training_config = _require_dict(raw.get("training_config"), "parent checkpoint training_config")
+    actual = _checkpoint_minibatch_strategy(training_config)
+    if actual != expected_minibatch_strategy:
+        raise BiddingPpoCompatibilityError(
+            "parent checkpoint minibatchStrategy mismatch: "
+            f"expected {expected_minibatch_strategy!r}, got {actual!r}."
+        )
+
+
+def _checkpoint_minibatch_strategy(
+    data: dict[str, object],
+    *,
+    default: str | None = None,
+) -> str:
+    value = data.get("minibatchStrategy")
+    if value is None:
+        value = data.get("minibatch_strategy")
+    if value is None:
+        value = default if default is not None else BIDDING_MINIBATCH_STRATEGY_RANDOM
+    if not isinstance(value, str):
+        raise BiddingPpoCompatibilityError("minibatchStrategy must be a string.")
+    if value not in SUPPORTED_BIDDING_MINIBATCH_STRATEGIES:
+        raise BiddingPpoCompatibilityError(
+            "minibatchStrategy must be one of "
+            f"{', '.join(SUPPORTED_BIDDING_MINIBATCH_STRATEGIES)}, got {value!r}."
+        )
+    return value
 
 
 def _checkpoint_advantage_normalization(

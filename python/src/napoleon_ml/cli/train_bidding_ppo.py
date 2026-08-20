@@ -12,6 +12,7 @@ from napoleon_ml.bidding.model import BiddingMlpConfig
 from napoleon_ml.bidding.ppo import (
     DEFAULT_ADVANTAGE_NORMALIZATION,
     SUPPORTED_ADVANTAGE_NORMALIZATIONS,
+    SUPPORTED_BIDDING_MINIBATCH_STRATEGIES,
     BiddingPpoCompatibilityError,
     BiddingPpoTrainSettings,
     train_bidding_ppo,
@@ -48,6 +49,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--advantage-normalization",
         choices=SUPPORTED_ADVANTAGE_NORMALIZATIONS,
         default=DEFAULT_ADVANTAGE_NORMALIZATION,
+    )
+    parser.add_argument(
+        "--bidding-minibatch-strategy",
+        "--minibatch-strategy",
+        dest="minibatch_strategy",
+        choices=SUPPORTED_BIDDING_MINIBATCH_STRATEGIES,
+        default="random",
     )
     parser.add_argument(
         "--parent-actor-checkpoint",
@@ -90,6 +98,7 @@ def _run(args: argparse.Namespace) -> int:
         parent_actor_checkpoint=(
             str(args.parent_actor_checkpoint) if args.parent_actor_checkpoint is not None else None
         ),
+        minibatch_strategy=args.minibatch_strategy,
     )
     hidden_dims = (
         parse_hidden_dims(args.hidden_dims, label="bidding-hidden-dims")
