@@ -33,6 +33,7 @@ struct SimulationRuntimeConfig {
   std::size_t max_concurrent_games = 1024;
   AgentRequestPayloadBuilder build_agent_request_payload;
   AgentIdentityResolver resolve_agent_identity;
+  bool materialize_agent_request_snapshot = true;
 };
 
 struct RuntimeGameSnapshot {
