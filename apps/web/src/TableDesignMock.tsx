@@ -44,6 +44,9 @@ interface TableDesignMockLayout {
     height: number;
     width: number;
   };
+  roleBoard: {
+    innerPentagonScale: number;
+  };
   riverGrid: {
     maxColumns: number;
     maxRows: number;
@@ -51,7 +54,7 @@ interface TableDesignMockLayout {
   };
   roleMarker: {
     height: number;
-    insetFromEdge: number;
+    sectorMidpointRatio: number;
     width: number;
   };
   seats: readonly SeatLayout[];
@@ -72,6 +75,8 @@ const roleBoardPentagon = {
   topLeft: { x: 0, y: 0.38 }
 } as const satisfies Record<string, Point>;
 
+const roleBoardVertexOrder = ["top", "topRight", "bottomRight", "bottomLeft", "topLeft"] as const;
+
 const cardAspectRatio = 178 / 132;
 const trickCardWidth = 118;
 const riverGap = 18;
@@ -84,6 +89,9 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
     width: 2200,
     height: 1830,
     background: "#1d1d1d"
+  },
+  roleBoard: {
+    innerPentagonScale: 0.42
   },
   hud: {
     x: 0,
@@ -109,7 +117,7 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
   roleMarker: {
     width: 58,
     height: 34,
-    insetFromEdge: 64
+    sectorMidpointRatio: 0.5
   },
   seats: [
     {
@@ -351,6 +359,9 @@ function PointRiver({ seat }: { seat: SeatLayout }) {
 }
 
 function RoleBoard({ layout }: { layout: Box }) {
+  const sectorLines = createRoleBoardSectorLines(layout);
+  const innerPentagonPoints = roleBoardInnerPolygonPoints(layout);
+
   return (
     <section
       aria-label="中央役職表示"
@@ -358,6 +369,23 @@ function RoleBoard({ layout }: { layout: Box }) {
       style={roleBoardStyle(layout)}
     >
       <div className="mock-role-board-shape">
+        <svg
+          aria-hidden="true"
+          className="mock-role-board-sector-geometry"
+          viewBox={`0 0 ${layout.width} ${layout.height}`}
+        >
+          {sectorLines.map((line, index) => (
+            <line
+              className="mock-role-board-sector-line"
+              key={index}
+              x1={line.outer.x}
+              x2={line.inner.x}
+              y1={line.outer.y}
+              y2={line.inner.y}
+            />
+          ))}
+          <polygon className="mock-role-board-inner-pentagon" points={innerPentagonPoints} />
+        </svg>
         {roleMarkerSeatOrder.map((seatId) => {
           const marker = createRoleMarkerGeometry(layout, seatId);
 
@@ -371,7 +399,6 @@ function RoleBoard({ layout }: { layout: Box }) {
             </span>
           );
         })}
-        <span className="mock-role-board-core" />
       </div>
     </section>
   );
@@ -459,6 +486,12 @@ interface CurrentTrickZoneGeometry extends RoleBoardEdgeGeometry {
 
 interface RoleMarkerGeometry {
   height: number;
+  sector: {
+    innerEnd: Point;
+    innerStart: Point;
+    outerEnd: Point;
+    outerStart: Point;
+  };
   width: number;
   x: number;
   y: number;
@@ -546,19 +579,43 @@ export function createRoleMarkerGeometry(
   seatId: SeatId,
   marker = tableDesignMockLayout.roleMarker
 ): RoleMarkerGeometry {
-  const edge = roleBoardEdges[seatId];
-  const start = roleBoardLocalPoint(layout, edge.start);
-  const end = roleBoardLocalPoint(layout, edge.end);
-  const edgeMidpoint = midpointBetween(start, end);
-  const center = { x: layout.width / 2, y: layout.height / 2 };
-  const inward = normalizeVector({ x: center.x - edgeMidpoint.x, y: center.y - edgeMidpoint.y });
+  const sector = createRoleSectorGeometry(layout, seatId);
+  const outerMidpoint = midpointBetween(sector.outerStart, sector.outerEnd);
+  const innerMidpoint = midpointBetween(sector.innerStart, sector.innerEnd);
+  const center = interpolatePoint(outerMidpoint, innerMidpoint, marker.sectorMidpointRatio);
 
   return {
     height: marker.height,
+    sector,
     width: marker.width,
-    x: toLayoutPrecision(edgeMidpoint.x + inward.x * marker.insetFromEdge),
-    y: toLayoutPrecision(edgeMidpoint.y + inward.y * marker.insetFromEdge)
+    x: toLayoutPrecision(center.x),
+    y: toLayoutPrecision(center.y)
   };
+}
+
+export function createRoleSectorGeometry(
+  layout: Box,
+  seatId: SeatId,
+  innerScale = tableDesignMockLayout.roleBoard.innerPentagonScale
+): RoleMarkerGeometry["sector"] {
+  const edge = roleBoardEdges[seatId];
+
+  return {
+    outerStart: roleBoardLocalPoint(layout, edge.start),
+    outerEnd: roleBoardLocalPoint(layout, edge.end),
+    innerStart: roleBoardScaledLocalPoint(layout, edge.start, innerScale),
+    innerEnd: roleBoardScaledLocalPoint(layout, edge.end, innerScale)
+  };
+}
+
+function createRoleBoardSectorLines(
+  layout: Box,
+  innerScale = tableDesignMockLayout.roleBoard.innerPentagonScale
+): Array<{ inner: Point; outer: Point }> {
+  return roleBoardVertexOrder.map((vertexId) => ({
+    outer: roleBoardLocalPoint(layout, roleBoardPentagon[vertexId]),
+    inner: roleBoardScaledLocalPoint(layout, roleBoardPentagon[vertexId], innerScale)
+  }));
 }
 
 export function createRiverPlacements(
@@ -658,6 +715,29 @@ function roleBoardLocalPoint(layout: Box, point: Point): Point {
   };
 }
 
+function roleBoardScaledLocalPoint(layout: Box, point: Point, scale: number): Point {
+  const center = { x: layout.width / 2, y: layout.height / 2 };
+  const outer = roleBoardLocalPoint(layout, point);
+
+  return {
+    x: toLayoutPrecision(center.x + (outer.x - center.x) * scale),
+    y: toLayoutPrecision(center.y + (outer.y - center.y) * scale)
+  };
+}
+
+function roleBoardInnerPolygonPoints(
+  layout: Box,
+  innerScale = tableDesignMockLayout.roleBoard.innerPentagonScale
+): string {
+  return roleBoardVertexOrder
+    .map((vertexId) => {
+      const point = roleBoardScaledLocalPoint(layout, roleBoardPentagon[vertexId], innerScale);
+
+      return `${point.x},${point.y}`;
+    })
+    .join(" ");
+}
+
 function distance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
@@ -666,6 +746,13 @@ function midpointBetween(a: Point, b: Point): Point {
   return {
     x: (a.x + b.x) / 2,
     y: (a.y + b.y) / 2
+  };
+}
+
+function interpolatePoint(start: Point, end: Point, ratio: number): Point {
+  return {
+    x: start.x + (end.x - start.x) * ratio,
+    y: start.y + (end.y - start.y) * ratio
   };
 }
 

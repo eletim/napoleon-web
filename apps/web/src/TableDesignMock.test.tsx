@@ -7,6 +7,7 @@ import {
   createRiverPlacements,
   createRoleMarkerGeometry,
   createRoleBoardEdgeGeometry,
+  createRoleSectorGeometry,
   roleBoardSelfSideLength,
   selfRiverWidth,
   tableDesignMockLayout
@@ -38,6 +39,8 @@ describe("TableDesignMock", () => {
     expect((html.match(/mock-current-trick-zone/g) ?? [])).toHaveLength(10);
     expect((html.match(/mock-trick-card mock-playing-card/g) ?? [])).toHaveLength(5);
     expect((html.match(/class="role-marker /g) ?? [])).toHaveLength(5);
+    expect((html.match(/mock-role-board-sector-line/g) ?? [])).toHaveLength(5);
+    expect(html).toContain("mock-role-board-inner-pentagon");
     expect(html).not.toContain("role-cell");
     expect(html).toContain("aria-label=\"J♠\"");
     expect(html).toContain(">ナポ</span>");
@@ -130,22 +133,28 @@ describe("TableDesignMock", () => {
     }
   });
 
-  it("generates compact horizontal role marker centers from each role-board edge", () => {
+  it("generates role markers inside the five sectors between the outer and inner pentagons", () => {
     const expected = {
-      "top-left": { x: 127.303, y: 105.15 },
-      "top-right": { x: 210.697, y: 105.15 },
-      right: { x: 246.895, y: 184.259 },
-      self: { x: 169, y: 239 },
-      left: { x: 91.105, y: 184.259 }
+      "top-left": { x: 109.005, y: 84.81 },
+      "top-right": { x: 228.995, y: 84.81 },
+      right: { x: 266.192, y: 192.375 },
+      self: { x: 169, y: 259.065 },
+      left: { x: 71.808, y: 192.375 }
     } as const;
 
     for (const seatId of ["top-left", "top-right", "right", "self", "left"] as const) {
       const marker = createRoleMarkerGeometry(tableDesignMockLayout.center, seatId);
+      const sector = createRoleSectorGeometry(tableDesignMockLayout.center, seatId);
+      const outerMidpoint = midpointBetween(sector.outerStart, sector.outerEnd);
+      const innerMidpoint = midpointBetween(sector.innerStart, sector.innerEnd);
 
       expect(marker.width).toBe(58);
       expect(marker.height).toBe(34);
       expect(marker.x).toBeCloseTo(expected[seatId].x);
       expect(marker.y).toBeCloseTo(expected[seatId].y);
+      expect(marker.x).toBeCloseTo((outerMidpoint.x + innerMidpoint.x) / 2);
+      expect(marker.y).toBeCloseTo((outerMidpoint.y + innerMidpoint.y) / 2);
+      expect(marker.sector).toEqual(sector);
     }
   });
 });
@@ -155,4 +164,11 @@ function distanceAlongNormal(edge: { normal: { x: number; y: number }; start: { 
   y: number;
 }): number {
   return (point.x - edge.start.x) * edge.normal.x + (point.y - edge.start.y) * edge.normal.y;
+}
+
+function midpointBetween(a: { x: number; y: number }, b: { x: number; y: number }): { x: number; y: number } {
+  return {
+    x: (a.x + b.x) / 2,
+    y: (a.y + b.y) / 2
+  };
 }
