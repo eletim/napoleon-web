@@ -150,22 +150,6 @@ html:has(.table-design-mock-page) {
 }
 
 .mock-card-back {
-  background:
-    repeating-linear-gradient(
-      62deg,
-      rgb(255 255 255 / 0%) 0 7px,
-      rgb(215 215 215 / 80%) 7px 10px
-    ),
-    repeating-linear-gradient(
-      118deg,
-      #fbfbfb 0 8px,
-      #e8e8e8 8px 11px
-    );
-  border: 1px solid #d5d5d5;
-  border-bottom-color: #bdbdbd;
-  border-bottom-width: 4px;
-  box-shadow: 0 8px 2px rgb(0 0 0 / 34%);
-  clip-path: polygon(7% 0, 93% 0, 100% 100%, 0 100%);
   display: block;
   height: 112px;
   left: 50%;
@@ -173,7 +157,7 @@ html:has(.table-design-mock-page) {
   top: 50%;
   transform: translate(-50%, -50%);
   transform-origin: 50% 100%;
-  width: 48px;
+  width: 80px;
 }
 
 .mock-card-back:nth-child(1) {
@@ -219,27 +203,20 @@ html:has(.table-design-mock-page) {
 }
 
 .mock-playing-card {
-  background: #ffffff;
-  border: 1px solid #d6d6d6;
-  border-radius: 10px;
   box-shadow: 0 2px 0 rgb(0 0 0 / 26%);
-  color: #111111;
   display: block;
-  font-family: Georgia, "Times New Roman", serif;
   overflow: hidden;
   position: relative;
 }
 
+.mock-playing-card-svg {
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
 .mock-river-card.mock-playing-card {
   position: absolute;
-}
-
-.mock-card-red {
-  color: #ec3f36;
-}
-
-.mock-card-black {
-  color: #111111;
 }
 
 .mock-trick-card {
@@ -252,43 +229,12 @@ html:has(.table-design-mock-page) {
 }
 
 .mock-river-card {
-  border-radius: 6px;
   height: var(--mock-river-card-height);
   left: var(--mock-river-card-x);
   position: absolute;
   top: var(--mock-river-card-y);
   transform: rotate(var(--mock-river-card-rotation));
   width: var(--mock-river-card-width);
-}
-
-.mock-river-card .mock-card-corner {
-  font-size: 14px;
-}
-
-.mock-river-card .mock-card-corner-top {
-  left: 5px;
-  top: 5px;
-}
-
-.mock-river-card .mock-card-corner-bottom {
-  bottom: 5px;
-  right: 5px;
-}
-
-.mock-river-card .mock-card-face {
-  font-size: 34px;
-}
-
-.mock-point-river-self .mock-river-card {
-  border-radius: 8px;
-}
-
-.mock-point-river-self .mock-river-card .mock-card-corner {
-  font-size: 18px;
-}
-
-.mock-point-river-self .mock-river-card .mock-card-face {
-  font-size: 50px;
 }
 
 .mock-self-hand {
@@ -300,47 +246,6 @@ html:has(.table-design-mock-page) {
 .mock-self-hand-card {
   height: var(--mock-self-card-height);
   width: var(--mock-self-card-width);
-}
-
-.mock-card-corner {
-  align-items: center;
-  display: flex;
-  flex-direction: column;
-  font-size: 22px;
-  font-weight: 700;
-  line-height: 0.94;
-  position: absolute;
-}
-
-.mock-self-hand-card .mock-card-corner,
-.mock-action-card .mock-card-corner {
-  font-size: 28px;
-}
-
-.mock-card-corner-top {
-  left: 8px;
-  top: 8px;
-}
-
-.mock-card-corner-bottom {
-  bottom: 8px;
-  right: 8px;
-  transform: rotate(180deg);
-}
-
-.mock-card-face {
-  align-items: center;
-  display: flex;
-  font-size: 72px;
-  inset: 0;
-  justify-content: center;
-  line-height: 1;
-  position: absolute;
-}
-
-.mock-self-hand-card .mock-card-face,
-.mock-action-card .mock-card-face {
-  font-size: 96px;
 }
 
 .mock-role-board {
@@ -400,31 +305,29 @@ html:has(.table-design-mock-page) {
   stroke-width: 2;
 }
 
-.mock-projected-playing-card-fill,
 .mock-projected-role-marker-fill {
   fill: #ffffff;
   stroke: #d6d6d6;
   stroke-width: 1.4;
 }
 
+.mock-projected-card-layer {
+  height: var(--mock-page-height);
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  transform-style: preserve-3d;
+  width: var(--mock-page-width);
+}
+
 .mock-projected-playing-card {
-  font-family: Georgia, "Times New Roman", serif;
-  font-weight: 700;
-}
-
-.mock-projected-card-red {
-  fill: #ec3f36;
-}
-
-.mock-projected-card-black {
-  fill: #111111;
-}
-
-.mock-projected-card-corner,
-.mock-projected-card-face {
-  paint-order: stroke;
-  stroke: rgb(255 255 255 / 72%);
-  stroke-width: 2;
+  height: var(--mock-projected-card-height);
+  left: 0;
+  position: absolute;
+  top: 0;
+  transform: var(--mock-projected-card-transform);
+  transform-origin: 0 0;
+  width: var(--mock-projected-card-width);
 }
 
 .mock-projected-role-board-outer {
@@ -481,8 +384,6 @@ html:has(.table-design-mock-page) {
 }
 
 .mock-action-card {
-  border: 8px solid #caffca;
-  border-radius: 0;
   height: 100%;
   width: 100%;
 }
