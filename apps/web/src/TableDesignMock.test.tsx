@@ -10,6 +10,7 @@ import {
   createRoleSectorGeometry,
   projectTablePoint,
   projectTablePolygon,
+  regularPentagon,
   roleBoardSelfSideLength,
   selfRiverWidth,
   tableDesignMockLayout
@@ -35,9 +36,10 @@ describe("TableDesignMock", () => {
     expect(html).not.toContain("--mock-river-card-width:56px");
     expect(html).not.toContain("mock-player-label");
     expect(html).toContain("mock-table-surface-world");
-    expect(html).toContain("1120,292 1796,782 1538,1534 702,1534 444,782");
-    expect(tableDesignMockLayout.center).toMatchObject({ height: 303, width: 338, y: 890 });
+    expect(html).toContain("1120,210 1785.74,693.688 1531.45,1476.312 708.55,1476.312 454.26,693.688");
+    expect(tableDesignMockLayout.center).toMatchObject({ height: 350, width: 350, x: 1120, y: 910 });
     expect(tableDesignMockLayout.tableSurface).toHaveLength(5);
+    expect(tableDesignMockLayout.tableSurface).toEqual(regularPentagon({ x: 1120, y: 910 }, 700, -90));
     expect(tableDesignMockLayout.seats.find((seat) => seat.id === "self")).toMatchObject({ hand: { y: 1684 } });
     expect(tableDesignMockLayout.seats.some((seat) => "trickZone" in seat)).toBe(false);
     expect(tableDesignMockLayout.riverGrid).toMatchObject({ maxColumns: 5, maxRows: 4 });
@@ -93,12 +95,13 @@ describe("TableDesignMock", () => {
   it("defines all river geometry from the corresponding role-board edge", () => {
     const seatIds = ["top-left", "top-right", "right", "self", "left"] as const;
     const expected = {
-      "top-left": { d: 204.495, rotation: 145.733 },
-      "top-right": { d: 204.495, rotation: -145.733 },
-      right: { d: 198.534, rotation: -71.127 },
-      self: { d: 209.56, rotation: 0 },
-      left: { d: 198.534, rotation: 71.127 }
+      "top-left": { d: 205.725, rotation: 144 },
+      "top-right": { d: 205.725, rotation: -144 },
+      right: { d: 205.725, rotation: -72 },
+      self: { d: 205.725, rotation: 0 },
+      left: { d: 205.725, rotation: 72 }
     } as const;
+    const sideLengths = seatIds.map((seatId) => createRoleBoardEdgeGeometry(tableDesignMockLayout.center, seatId).d);
 
     for (const seatId of seatIds) {
       const edge = createRoleBoardEdgeGeometry(tableDesignMockLayout.center, seatId);
@@ -112,6 +115,7 @@ describe("TableDesignMock", () => {
       expect(river.normal.x * edge.direction.x + river.normal.y * edge.direction.y).toBeCloseTo(0);
     }
 
+    expect(new Set(sideLengths)).toEqual(new Set([205.725]));
     expect(selfRiverWidth(tableDesignMockLayout)).toBeCloseTo(roleBoardSelfSideLength(tableDesignMockLayout.center));
   });
 
@@ -150,11 +154,11 @@ describe("TableDesignMock", () => {
       left: 2
     } as const;
     const expected = {
-      "top-left": { rotation: 145.733, x: 872.532, y: 556.869 },
-      "top-right": { rotation: -145.733, x: 1367.468, y: 556.869 },
-      right: { rotation: -71.127, x: 1526.966, y: 1039.896 },
-      self: { rotation: 0, x: 1120, y: 1334.355 },
-      left: { rotation: 71.127, x: 713.034, y: 1039.896 }
+      "top-left": { rotation: 144, x: 866.167, y: 560.628 },
+      "top-right": { rotation: -144, x: 1373.833, y: 560.628 },
+      right: { rotation: -72, x: 1530.711, y: 1043.448 },
+      self: { rotation: 0, x: 1120, y: 1341.847 },
+      left: { rotation: 72, x: 709.289, y: 1043.448 }
     } as const;
 
     for (const seatId of seatIds) {
@@ -178,11 +182,11 @@ describe("TableDesignMock", () => {
 
   it("generates role markers inside the five sectors between the outer and inner pentagons", () => {
     const expected = {
-      "top-left": { x: 109.005, y: 84.81 },
-      "top-right": { x: 228.995, y: 84.81 },
-      right: { x: 266.192, y: 192.375 },
-      self: { x: 169, y: 259.065 },
-      left: { x: 71.808, y: 192.375 }
+      "top-left": { x: 115.916, y: 93.677 },
+      "top-right": { x: 234.084, y: 93.677 },
+      right: { x: 270.601, y: 206.063 },
+      self: { x: 175, y: 275.52 },
+      left: { x: 79.399, y: 206.063 }
     } as const;
 
     for (const seatId of ["top-left", "top-right", "right", "self", "left"] as const) {

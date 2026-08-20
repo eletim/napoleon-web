@@ -74,30 +74,29 @@ interface PerspectiveCameraConfig {
   target: Point3;
 }
 
+const pentagonCenter: Point = { x: 1120, y: 910 };
+const pentagonStartAngle = -90;
+const tableSurfaceRadius = 700;
+const roleBoardRadius = 175;
+
 const roleBoardCenter: Box = {
-  x: 1120,
-  y: 890,
-  width: 338,
-  height: 303
+  x: pentagonCenter.x,
+  y: pentagonCenter.y,
+  width: roleBoardRadius * 2,
+  height: roleBoardRadius * 2
 };
 
-const roleBoardPentagon = {
-  top: { x: 0.5, y: 0 },
-  topRight: { x: 1, y: 0.38 },
-  bottomRight: { x: 0.81, y: 1 },
-  bottomLeft: { x: 0.19, y: 1 },
-  topLeft: { x: 0, y: 0.38 }
-} as const satisfies Record<string, Point>;
-
 const roleBoardVertexOrder = ["top", "topRight", "bottomRight", "bottomLeft", "topLeft"] as const;
+type RoleBoardVertexId = (typeof roleBoardVertexOrder)[number];
 
-const tableSurfacePentagon = [
-  { x: 1120, y: 292 },
-  { x: 1796, y: 782 },
-  { x: 1538, y: 1534 },
-  { x: 702, y: 1534 },
-  { x: 444, y: 782 }
-] as const satisfies readonly Point[];
+const roleBoardPentagon = Object.fromEntries(
+  roleBoardVertexOrder.map((vertexId, index) => [
+    vertexId,
+    regularPentagon({ x: 0.5, y: 0.5 }, 0.5, pentagonStartAngle)[index]
+  ])
+) as Record<RoleBoardVertexId, Point>;
+
+const tableSurfacePentagon = regularPentagon(pentagonCenter, tableSurfaceRadius, pentagonStartAngle);
 
 const cardAspectRatio = 178 / 132;
 const trickCardWidth = 118;
@@ -1051,8 +1050,19 @@ function roleBoardInnerPolygon(
   );
 }
 
+export function regularPentagon(center: Point, radius: number, startAngle: number): Point[] {
+  return Array.from({ length: 5 }, (_, index) => {
+    const angle = ((startAngle + index * 72) * Math.PI) / 180;
+
+    return {
+      x: center.x + Math.cos(angle) * radius,
+      y: center.y + Math.sin(angle) * radius
+    };
+  });
+}
+
 function svgPoints(points: readonly Point[]): string {
-  return points.map((point) => `${point.x},${point.y}`).join(" ");
+  return points.map((point) => `${toLayoutPrecision(point.x)},${toLayoutPrecision(point.y)}`).join(" ");
 }
 
 function polygonCenter(points: readonly Point[]): Point {
