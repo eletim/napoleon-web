@@ -49,6 +49,11 @@ interface TableDesignMockLayout {
     maxRows: number;
     rowGap: number;
   };
+  roleMarker: {
+    height: number;
+    insetFromEdge: number;
+    width: number;
+  };
   seats: readonly SeatLayout[];
 }
 
@@ -100,6 +105,11 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
     maxColumns: 5,
     maxRows: 4,
     rowGap: 24
+  },
+  roleMarker: {
+    width: 58,
+    height: 34,
+    insetFromEdge: 64
   },
   seats: [
     {
@@ -182,20 +192,22 @@ const suitMarks: Record<Suit, string> = {
   clubs: "♣"
 };
 
-const roleCells = [
-  { label: "副", className: "role-cell role-cell-top-left" },
-  { label: "兵", className: "role-cell role-cell-top-right" },
-  { label: "ナポ", className: "role-cell role-cell-self" },
-  { label: "副", className: "role-cell role-cell-left" },
-  { label: "兵", className: "role-cell role-cell-right" }
-];
+const roleMarkers: Record<SeatId, string> = {
+  "top-left": "?",
+  "top-right": "?",
+  right: "?",
+  self: "ナポ",
+  left: "副"
+};
+
+const roleMarkerSeatOrder = ["top-left", "top-right", "right", "self", "left"] as const satisfies readonly SeatId[];
 
 export function TableDesignMock() {
   const layout = tableDesignMockLayout;
 
   return (
     <main
-      aria-label="Issue 325 table design mock"
+      aria-label="Issue 327 table design mock"
       className="table-design-mock-page"
       style={
         {
@@ -346,11 +358,19 @@ function RoleBoard({ layout }: { layout: Box }) {
       style={roleBoardStyle(layout)}
     >
       <div className="mock-role-board-shape">
-        {roleCells.map((role) => (
-          <span className={role.className} key={role.className}>
-            {role.label}
-          </span>
-        ))}
+        {roleMarkerSeatOrder.map((seatId) => {
+          const marker = createRoleMarkerGeometry(layout, seatId);
+
+          return (
+            <span
+              className={`role-marker role-marker-${seatId}`}
+              key={seatId}
+              style={roleMarkerStyle(marker)}
+            >
+              {roleMarkers[seatId]}
+            </span>
+          );
+        })}
         <span className="mock-role-board-core" />
       </div>
     </section>
@@ -437,6 +457,13 @@ interface CurrentTrickZoneGeometry extends RoleBoardEdgeGeometry {
   y: number;
 }
 
+interface RoleMarkerGeometry {
+  height: number;
+  width: number;
+  x: number;
+  y: number;
+}
+
 const roleBoardEdges: Record<SeatId, { end: Point; start: Point }> = {
   "top-left": { start: roleBoardPentagon.top, end: roleBoardPentagon.topLeft },
   "top-right": { start: roleBoardPentagon.topRight, end: roleBoardPentagon.top },
@@ -514,6 +541,26 @@ export function createCurrentTrickZoneGeometry(
   };
 }
 
+export function createRoleMarkerGeometry(
+  layout: Box,
+  seatId: SeatId,
+  marker = tableDesignMockLayout.roleMarker
+): RoleMarkerGeometry {
+  const edge = roleBoardEdges[seatId];
+  const start = roleBoardLocalPoint(layout, edge.start);
+  const end = roleBoardLocalPoint(layout, edge.end);
+  const edgeMidpoint = midpointBetween(start, end);
+  const center = { x: layout.width / 2, y: layout.height / 2 };
+  const inward = normalizeVector({ x: center.x - edgeMidpoint.x, y: center.y - edgeMidpoint.y });
+
+  return {
+    height: marker.height,
+    width: marker.width,
+    x: toLayoutPrecision(edgeMidpoint.x + inward.x * marker.insetFromEdge),
+    y: toLayoutPrecision(edgeMidpoint.y + inward.y * marker.insetFromEdge)
+  };
+}
+
 export function createRiverPlacements(
   cardCount: number,
   layout: TableDesignMockLayout,
@@ -557,6 +604,15 @@ function trickZoneStyle(zone: CurrentTrickZoneGeometry): CSSProperties {
   } as CSSProperties;
 }
 
+function roleMarkerStyle(marker: RoleMarkerGeometry): CSSProperties {
+  return {
+    "--mock-role-marker-height": `${marker.height}px`,
+    "--mock-role-marker-width": `${marker.width}px`,
+    "--mock-role-marker-x": `${marker.x}px`,
+    "--mock-role-marker-y": `${marker.y}px`
+  } as CSSProperties;
+}
+
 function pointStyle(point: Point): CSSProperties {
   return {
     "--mock-x": `${point.x}px`,
@@ -592,6 +648,13 @@ function roleBoardAbsolutePoint(layout: Box, point: Point): Point {
   return {
     x: layout.x - layout.width / 2 + point.x * layout.width,
     y: layout.y - layout.height / 2 + point.y * layout.height
+  };
+}
+
+function roleBoardLocalPoint(layout: Box, point: Point): Point {
+  return {
+    x: point.x * layout.width,
+    y: point.y * layout.height
   };
 }
 
