@@ -204,21 +204,24 @@ void append_matrix(
   }
 }
 
-void append_one_hot(
+template <typename Iterator, std::size_t EmptySize>
+void append_one_hot_range(
     std::vector<float>& target,
-    const std::vector<int>& indices,
+    Iterator begin,
+    Iterator end,
     int slot_count,
     int class_count,
     int min_value,
-    const std::vector<int>& empty_values) {
-  if (static_cast<int>(indices.size()) != slot_count) {
+    const std::array<int, EmptySize>& empty_values) {
+  if (static_cast<int>(std::distance(begin, end)) != slot_count) {
     throw std::runtime_error("one-hot index field has an invalid slot count");
   }
 
-  for (int index_value : indices) {
+  for (Iterator it = begin; it != end; ++it) {
+    const int index_value = *it;
     const int class_index = index_value - min_value;
-    const bool is_empty = std::find(empty_values.begin(), empty_values.end(), index_value) !=
-                          empty_values.end();
+    const bool is_empty =
+        std::find(empty_values.begin(), empty_values.end(), index_value) != empty_values.end();
     if ((class_index < 0 || class_index >= class_count) && !is_empty) {
       throw std::runtime_error("one-hot index out of range");
     }
@@ -229,9 +232,32 @@ void append_one_hot(
   }
 }
 
-template <std::size_t Size>
-std::vector<int> to_vector(const std::array<int, Size>& values) {
-  return std::vector<int>(values.begin(), values.end());
+template <std::size_t Size, std::size_t EmptySize>
+void append_one_hot_array(
+    std::vector<float>& target,
+    const std::array<int, Size>& indices,
+    int class_count,
+    int min_value,
+    const std::array<int, EmptySize>& empty_values) {
+  append_one_hot_range(
+      target,
+      indices.begin(),
+      indices.end(),
+      static_cast<int>(indices.size()),
+      class_count,
+      min_value,
+      empty_values);
+}
+
+template <std::size_t EmptySize>
+void append_one_hot_value(
+    std::vector<float>& target,
+    int index,
+    int class_count,
+    int min_value,
+    const std::array<int, EmptySize>& empty_values) {
+  const std::array<int, 1> indices{index};
+  append_one_hot_array(target, indices, class_count, min_value, empty_values);
 }
 
 EncodedBiddingHistory encode_bidding_history(
@@ -299,76 +325,66 @@ std::array<float, kPlayingModelInputFeatureCount> encode_model_input(
     throw std::runtime_error("flat observation feature count drift");
   }
 
-  append_one_hot(
+  append_one_hot_array(
       values,
-      {observation.special_card_indices.begin(), observation.special_card_indices.end()},
-      4,
+      observation.special_card_indices,
       kCardCount,
       0,
-      {kEmptyCardIndex});
-  append_one_hot(
+      std::array<int, 1>{kEmptyCardIndex});
+  append_one_hot_array(
       values,
-      to_vector(observation.current_trick_card_indices),
-      kCardsPerTrick,
+      observation.current_trick_card_indices,
       kCardCount,
       0,
-      {kEmptyCardIndex});
-  append_one_hot(
+      std::array<int, 1>{kEmptyCardIndex});
+  append_one_hot_array(
       values,
-      to_vector(observation.completed_trick_card_indices),
-      kCompletedTrickCardSlotCount,
+      observation.completed_trick_card_indices,
       kCardCount,
       0,
-      {kEmptyCardIndex});
-  append_one_hot(
+      std::array<int, 1>{kEmptyCardIndex});
+  append_one_hot_array(
       values,
-      to_vector(observation.current_trick_player_indices),
-      kCardsPerTrick,
+      observation.current_trick_player_indices,
       kPlayerCount,
       0,
-      {kEmptyPlayerIndex});
-  append_one_hot(
+      std::array<int, 1>{kEmptyPlayerIndex});
+  append_one_hot_array(
       values,
-      to_vector(observation.completed_trick_player_indices),
-      kCompletedTrickCardSlotCount,
+      observation.completed_trick_player_indices,
       kPlayerCount,
       0,
-      {kEmptyPlayerIndex});
-  append_one_hot(
+      std::array<int, 1>{kEmptyPlayerIndex});
+  append_one_hot_array(
       values,
-      to_vector(observation.completed_trick_winner_indices),
-      kTrickCount,
+      observation.completed_trick_winner_indices,
       kPlayerCount,
       0,
-      {kEmptyPlayerIndex});
-  append_one_hot(
+      std::array<int, 1>{kEmptyPlayerIndex});
+  append_one_hot_array(
       values,
-      to_vector(observation.bidding_history.action_type_indices),
-      kMaxBiddingActionCount,
+      observation.bidding_history.action_type_indices,
       2,
       0,
-      {kEmptyBiddingActionType});
-  append_one_hot(
+      std::array<int, 1>{kEmptyBiddingActionType});
+  append_one_hot_array(
       values,
-      to_vector(observation.bidding_history.player_indices),
-      kMaxBiddingActionCount,
+      observation.bidding_history.player_indices,
       kPlayerCount,
       0,
-      {kEmptyPlayerIndex});
-  append_one_hot(
+      std::array<int, 1>{kEmptyPlayerIndex});
+  append_one_hot_array(
       values,
-      to_vector(observation.bidding_history.suit_indices),
-      kMaxBiddingActionCount,
+      observation.bidding_history.suit_indices,
       4,
       0,
-      {kEmptyBiddingSuitIndex});
-  append_one_hot(
+      std::array<int, 1>{kEmptyBiddingSuitIndex});
+  append_one_hot_array(
       values,
-      to_vector(observation.bidding_history.target_point_cards),
-      kMaxBiddingActionCount,
+      observation.bidding_history.target_point_cards,
       kBiddingTargetPointCardsClassCount,
       kMinBiddingTargetPointCards,
-      {0});
+      std::array<int, 1>{0});
   append_values(values, observation.self_role_one_hot);
 
   if (static_cast<int>(values.size()) != kPlayingModelInputFeatureCount) {
@@ -395,76 +411,67 @@ std::array<float, kBiddingModelInputFeatureCount> encode_bidding_model_input(
 
   append_values(values, self_hand_mask);
   append_values(values, input.legal_bid_mask);
-  append_one_hot(
+  append_one_hot_value(
       values,
-      {relative_player_index(player_index, state.bidding->starter_player_index)},
-      1,
+      relative_player_index(player_index, state.bidding->starter_player_index),
       kPlayerCount,
       0,
-      {});
+      std::array<int, 0>{});
 
   const bool has_highest_bid = state.bidding->highest_bid.has_value();
   values.push_back(has_highest_bid ? 1.0F : 0.0F);
-  append_one_hot(
+  append_one_hot_value(
       values,
-      {has_highest_bid ? relative_player_index(player_index, state.bidding->highest_bid->player_index)
-                       : kEmptyPlayerIndex},
-      1,
+      has_highest_bid ? relative_player_index(player_index, state.bidding->highest_bid->player_index)
+                      : kEmptyPlayerIndex,
       kPlayerCount,
       0,
-      {kEmptyPlayerIndex});
-  append_one_hot(
+      std::array<int, 1>{kEmptyPlayerIndex});
+  append_one_hot_value(
       values,
-      {has_highest_bid ? bidding_suit_index(state.bidding->highest_bid->suit)
-                       : kEmptyBiddingSuitIndex},
-      1,
+      has_highest_bid ? bidding_suit_index(state.bidding->highest_bid->suit)
+                      : kEmptyBiddingSuitIndex,
       4,
       0,
-      {kEmptyBiddingSuitIndex});
-  append_one_hot(
+      std::array<int, 1>{kEmptyBiddingSuitIndex});
+  append_one_hot_value(
       values,
-      {has_highest_bid ? state.bidding->highest_bid->target_point_cards : 0},
-      1,
+      has_highest_bid ? state.bidding->highest_bid->target_point_cards : 0,
       kBiddingTargetPointCardsClassCount,
       kMinBiddingTargetPointCards,
-      {0});
-  append_one_hot(
+      std::array<int, 1>{0});
+  append_one_hot_value(
       values,
-      {state.bidding->consecutive_pass_count},
-      1,
+      state.bidding->consecutive_pass_count,
       kConsecutivePassCountClassCount,
       0,
-      {});
+      std::array<int, 0>{});
 
   append_values(values, bidding_history.action_mask);
-  append_one_hot(
+  append_one_hot_array(
       values,
-      to_vector(bidding_history.action_type_indices),
-      kMaxBiddingActionCount,
+      bidding_history.action_type_indices,
       2,
       0,
-      {kEmptyBiddingActionType});
-  append_one_hot(
+      std::array<int, 1>{kEmptyBiddingActionType});
+  append_one_hot_array(
       values,
-      to_vector(bidding_history.player_indices),
-      kMaxBiddingActionCount,
+      bidding_history.player_indices,
       kPlayerCount,
       0,
-      {kEmptyPlayerIndex});
-  append_one_hot(
+      std::array<int, 1>{kEmptyPlayerIndex});
+  append_one_hot_array(
       values,
-      to_vector(bidding_history.suit_indices),
-      kMaxBiddingActionCount,
+      bidding_history.suit_indices,
       4,
       0,
-      {kEmptyBiddingSuitIndex});
-  append_one_hot(
+      std::array<int, 1>{kEmptyBiddingSuitIndex});
+  append_one_hot_array(
       values,
-      to_vector(bidding_history.target_point_cards),
-      kMaxBiddingActionCount,
+      bidding_history.target_point_cards,
       kBiddingTargetPointCardsClassCount,
       kMinBiddingTargetPointCards,
-      {0});
+      std::array<int, 1>{0});
 
   if (static_cast<int>(values.size()) != kBiddingModelInputFeatureCount) {
     throw std::runtime_error("bidding model input feature count drift");
@@ -482,13 +489,12 @@ std::vector<float> encode_complete_info_model_input(
   std::vector<float> values;
   values.reserve(kCompleteInfoPlayingModelInputFeatureCount);
 
-  append_one_hot(
+  append_one_hot_array(
       values,
-      to_vector(card_owner_class_by_card),
-      kCardCount,
+      card_owner_class_by_card,
       kCompleteInfoOwnerClassCount,
       0,
-      {});
+      std::array<int, 0>{});
   append_values(values, captured_point_card_count_by_player);
   append_values(values, observation.trump_suit_one_hot);
   values.push_back(static_cast<float>(observation.contract_target_point_cards));
@@ -507,13 +513,12 @@ std::vector<float> encode_complete_info_model_input(
   append_values(values, observation.special_card_indices);
   append_values(values, observation.current_trick_slot_mask);
   append_values(values, observation.current_trick_card_indices);
-  append_one_hot(
+  append_one_hot_array(
       values,
-      to_vector(observation.current_trick_player_indices),
-      kCardsPerTrick,
+      observation.current_trick_player_indices,
       kPlayerCount,
       0,
-      {kEmptyPlayerIndex});
+      std::array<int, 1>{kEmptyPlayerIndex});
   values.push_back(static_cast<float>(observation.trick_number));
   values.push_back(static_cast<float>(observation.completed_trick_count));
 
