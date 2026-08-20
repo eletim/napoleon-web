@@ -336,12 +336,25 @@ class OnnxRuntimePolicySession final : public PolicySession {
       batch_input.insert(batch_input.end(), input.begin(), input.end());
     }
 
+    return run_logits_batch_contiguous(batch_input, inputs.size());
+  }
+
+  std::vector<std::vector<float>> run_logits_batch_contiguous(
+      const std::vector<float>& batch_input,
+      std::size_t batch_size) override {
+    if (batch_size == 0) {
+      throw std::runtime_error("ONNX batch must contain at least one input");
+    }
+    if (batch_input.size() != batch_size * model_input_feature_count_) {
+      throw std::runtime_error("ONNX policy contiguous input feature count mismatch");
+    }
+
     std::array<std::int64_t, 2> input_shape{
-        static_cast<std::int64_t>(inputs.size()),
+        static_cast<std::int64_t>(batch_size),
         static_cast<std::int64_t>(model_input_feature_count_)};
     Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
         memory_info_,
-        batch_input.data(),
+        const_cast<float*>(batch_input.data()),
         batch_input.size(),
         input_shape.data(),
         input_shape.size());
@@ -361,14 +374,14 @@ class OnnxRuntimePolicySession final : public PolicySession {
 
     Ort::TensorTypeAndShapeInfo shape = outputs[0].GetTensorTypeAndShapeInfo();
     const std::vector<std::int64_t> dims = shape.GetShape();
-    if (dims.size() != 2 || dims[0] != static_cast<std::int64_t>(inputs.size()) ||
+    if (dims.size() != 2 || dims[0] != static_cast<std::int64_t>(batch_size) ||
         dims[1] != static_cast<std::int64_t>(action_count_)) {
       throw std::runtime_error("ONNX output shape does not match configured action count");
     }
 
     const float* output_data = outputs[0].GetTensorData<float>();
-    std::vector<std::vector<float>> result(inputs.size(), std::vector<float>(action_count_));
-    for (std::size_t row = 0; row < inputs.size(); ++row) {
+    std::vector<std::vector<float>> result(batch_size, std::vector<float>(action_count_));
+    for (std::size_t row = 0; row < batch_size; ++row) {
       std::copy(
           output_data + row * action_count_,
           output_data + (row + 1) * action_count_,
@@ -417,8 +430,33 @@ struct BatchedPolicyExecutor::QueueItem {
 struct BatchedPolicyExecutor::PolicyState {
   std::unique_ptr<PolicySession> session;
   std::deque<QueueItem> queue;
+  std::vector<const QueueItem*> batch_items;
+  std::vector<float> batch_input;
+  std::vector<PolicyActionResult> batch_results;
   PolicyBatchStats stats;
 };
+
+std::vector<std::vector<float>> PolicySession::run_logits_batch_contiguous(
+    const std::vector<float>& inputs,
+    std::size_t batch_size) {
+  if (batch_size == 0) {
+    throw std::runtime_error("policy batch must contain at least one input");
+  }
+  const std::size_t feature_count = model_input_feature_count();
+  if (inputs.size() != batch_size * feature_count) {
+    throw std::runtime_error("policy contiguous input feature count mismatch");
+  }
+  std::vector<std::vector<float>> rows;
+  rows.reserve(batch_size);
+  for (std::size_t row = 0; row < batch_size; ++row) {
+    const auto row_begin =
+        inputs.begin() + static_cast<std::ptrdiff_t>(row * feature_count);
+    rows.emplace_back(
+        row_begin,
+        row_begin + static_cast<std::ptrdiff_t>(feature_count));
+  }
+  return run_logits_batch(rows);
+}
 
 DeterministicPolicySession::DeterministicPolicySession(
     std::array<float, kPolicyLogitCount> logits,
@@ -450,6 +488,20 @@ std::vector<std::vector<float>> DeterministicPolicySession::run_logits_batch(
   session_run_count_ += 1;
   std::vector<float> logits(logits_.begin(), logits_.begin() + static_cast<std::ptrdiff_t>(action_count_));
   return std::vector<std::vector<float>>(inputs.size(), logits);
+}
+
+std::vector<std::vector<float>> DeterministicPolicySession::run_logits_batch_contiguous(
+    const std::vector<float>& inputs,
+    std::size_t batch_size) {
+  if (batch_size == 0) {
+    throw std::runtime_error("deterministic policy batch must contain at least one input");
+  }
+  if (inputs.size() != batch_size * model_input_feature_count_) {
+    throw std::runtime_error("deterministic policy contiguous input feature count mismatch");
+  }
+  session_run_count_ += 1;
+  std::vector<float> logits(logits_.begin(), logits_.begin() + static_cast<std::ptrdiff_t>(action_count_));
+  return std::vector<std::vector<float>>(batch_size, logits);
 }
 
 std::size_t DeterministicPolicySession::model_input_feature_count() const {
@@ -556,32 +608,36 @@ std::vector<PolicyActionResult> BatchedPolicyExecutor::flush() {
       const std::size_t batch_size =
           std::min(config_.max_batch_size, static_cast<std::size_t>(policy.queue.size()));
       const auto host_prepare_started = std::chrono::steady_clock::now();
-      std::vector<QueueItem> batch;
-      batch.reserve(batch_size);
-      std::vector<std::vector<float>> inputs;
-      inputs.reserve(batch_size);
+      const std::size_t feature_count = policy.session->model_input_feature_count();
+      policy.batch_items.clear();
+      policy.batch_items.reserve(batch_size);
+      policy.batch_input.clear();
+      policy.batch_input.reserve(batch_size * feature_count);
       auto queue_it = policy.queue.begin();
       for (std::size_t index = 0; index < batch_size; ++index, ++queue_it) {
-        batch.push_back(*queue_it);
-        inputs.push_back(batch.back().model_input);
+        policy.batch_items.push_back(&*queue_it);
+        policy.batch_input.insert(
+            policy.batch_input.end(),
+            queue_it->model_input.begin(),
+            queue_it->model_input.end());
       }
       const std::uint64_t host_prepare_elapsed = elapsed_ns(host_prepare_started);
 
       const auto started = std::chrono::steady_clock::now();
       std::vector<std::vector<float>> logits =
-          policy.session->run_logits_batch(inputs);
+          policy.session->run_logits_batch_contiguous(policy.batch_input, batch_size);
       const auto ended = std::chrono::steady_clock::now();
-      if (logits.size() != batch.size()) {
+      if (logits.size() != policy.batch_items.size()) {
         throw std::runtime_error("policy session returned a mismatched batch size");
       }
       const std::uint64_t session_elapsed = static_cast<std::uint64_t>(
           std::chrono::duration_cast<std::chrono::nanoseconds>(ended - started).count());
-      std::vector<PolicyActionResult> batch_results;
-      batch_results.reserve(batch.size());
+      policy.batch_results.clear();
+      policy.batch_results.reserve(policy.batch_items.size());
 
       const auto result_started = std::chrono::steady_clock::now();
-      for (std::size_t index = 0; index < batch.size(); ++index) {
-        const QueueItem& item = batch[index];
+      for (std::size_t index = 0; index < policy.batch_items.size(); ++index) {
+        const QueueItem& item = *policy.batch_items[index];
         const std::uint32_t seed =
             sampling_seed_for_request(
                 config_.sampling_seed,
@@ -607,7 +663,7 @@ std::vector<PolicyActionResult> BatchedPolicyExecutor::flush() {
             item.phase == Phase::Playing ? sampled.selected_action_index : -1;
         result.behavior_log_probability = sampled.log_probability;
         result.policy_key = policy_id;
-        batch_results.push_back(PolicyActionResult{
+        policy.batch_results.push_back(PolicyActionResult{
             result,
             item.sequence,
             item.phase == Phase::Playing ? sampled.selected_action_index : -1,
@@ -616,14 +672,14 @@ std::vector<PolicyActionResult> BatchedPolicyExecutor::flush() {
       }
       const std::uint64_t result_elapsed = elapsed_ns(result_started);
 
-      for (std::size_t index = 0; index < batch.size(); ++index) {
+      for (std::size_t index = 0; index < policy.batch_items.size(); ++index) {
         policy.queue.pop_front();
       }
-      record_batch(policy.stats, batch.size(), session_elapsed, host_prepare_elapsed, result_elapsed);
+      record_batch(policy.stats, policy.batch_items.size(), session_elapsed, host_prepare_elapsed, result_elapsed);
       results.insert(
           results.end(),
-          std::make_move_iterator(batch_results.begin()),
-          std::make_move_iterator(batch_results.end()));
+          std::make_move_iterator(policy.batch_results.begin()),
+          std::make_move_iterator(policy.batch_results.end()));
     }
   }
 
