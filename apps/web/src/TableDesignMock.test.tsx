@@ -30,9 +30,11 @@ describe("TableDesignMock", () => {
     expect(html).toContain("自分のポイント札の河");
     expect(html).not.toContain("自席操作UI");
     expect(html).toContain("--mock-page-width:2200px");
+    expect(html).toContain("--mock-self-card-height:240.8px");
     expect(html).toContain("--mock-trick-card-width:118px");
+    expect(html).toContain("--mock-trick-card-height:165.2px");
     expect(html).toContain("--mock-trick-zone-width:162px");
-    expect(html).toContain("--mock-trick-zone-height:211.121px");
+    expect(html).toContain("--mock-trick-zone-height:217.2px");
     expect(html).not.toContain("--mock-river-card-width:56px");
     expect(html).not.toContain("mock-player-label");
     expect(html).toContain("mock-table-surface-world");
@@ -40,16 +42,20 @@ describe("TableDesignMock", () => {
     expect(tableDesignMockLayout.center).toMatchObject({ height: 350, width: 350, x: 1120, y: 910 });
     expect(tableDesignMockLayout.tableSurface).toHaveLength(5);
     expect(tableDesignMockLayout.tableSurface).toEqual(regularPentagon({ x: 1120, y: 910 }, 700, -90));
-    expect(tableDesignMockLayout.seats.find((seat) => seat.id === "self")).toMatchObject({ hand: { y: 1684 } });
+    expect(tableDesignMockLayout.seats.find((seat) => seat.id === "self")).toMatchObject({ hand: { y: 1640 } });
     expect(tableDesignMockLayout.seats.some((seat) => "trickZone" in seat)).toBe(false);
     expect(tableDesignMockLayout.riverGrid).toMatchObject({ maxColumns: 5, maxRows: 4 });
     expect((html.match(/mock-current-trick-zone/g) ?? [])).toHaveLength(10);
     expect((html.match(/mock-trick-card mock-playing-card/g) ?? [])).toHaveLength(5);
+    expect((html.match(/mock-playing-card-svg/g) ?? [])).toHaveLength(33);
+    expect((html.match(/aria-label="B1"/g) ?? [])).toHaveLength(12);
     expect((html.match(/class="role-marker /g) ?? [])).toHaveLength(5);
     expect((html.match(/mock-role-board-sector-line/g) ?? [])).toHaveLength(5);
     expect(html).toContain("mock-role-board-inner-pentagon");
     expect(html).not.toContain("role-cell");
-    expect(html).toContain("aria-label=\"J♠\"");
+    expect(html).not.toContain("mock-card-corner");
+    expect(html).not.toContain("mock-card-face");
+    expect(html).toContain("aria-label=\"Sj\"");
     expect(html).toContain(">ナポ</span>");
     expect(html).toContain(">副</span>");
   });
@@ -64,6 +70,10 @@ describe("TableDesignMock", () => {
     expect((html.match(/mock-projected-current-trick-zone mock-projected-current-trick-zone-/g) ?? [])).toHaveLength(5);
     expect((html.match(/mock-projected-role-marker mock-projected-role-marker-/g) ?? [])).toHaveLength(5);
     expect((html.match(/mock-projected-playing-card /g) ?? [])).toHaveLength(19);
+    expect((html.match(/matrix3d\(/g) ?? [])).toHaveLength(19);
+    expect(html).toContain("mock-projected-card-layer");
+    expect(html).not.toContain("mock-projected-card-corner");
+    expect(html).not.toContain("mock-projected-card-face");
     expect(html).not.toContain("mock-current-trick-zone mock-current-trick-zone");
     expect(html).not.toContain("mock-point-river mock-point-river");
     expect(html).toContain("北西の裏向き手札");
@@ -154,11 +164,11 @@ describe("TableDesignMock", () => {
       left: 2
     } as const;
     const expected = {
-      "top-left": { rotation: 144, x: 866.167, y: 560.628 },
-      "top-right": { rotation: -144, x: 1373.833, y: 560.628 },
-      right: { rotation: -72, x: 1530.711, y: 1043.448 },
-      self: { rotation: 0, x: 1120, y: 1341.847 },
-      left: { rotation: 72, x: 709.289, y: 1043.448 }
+      "top-left": { rotation: 144, x: 861.266, y: 553.883 },
+      "top-right": { rotation: -144, x: 1378.734, y: 553.883 },
+      right: { rotation: -72, x: 1538.641, y: 1046.025 },
+      self: { rotation: 0, x: 1120, y: 1350.185 },
+      left: { rotation: 72, x: 701.359, y: 1046.025 }
     } as const;
 
     for (const seatId of seatIds) {

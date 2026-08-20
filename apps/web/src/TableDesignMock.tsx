@@ -1,15 +1,15 @@
 import type { CSSProperties } from "react";
+import {
+  mockCardBackComponent,
+  mockCardBackComponentName,
+  mockPlayingCardComponent,
+  mockPlayingCardComponentName,
+  type MockPlayingCard
+} from "./mockPlayingCardAdapter";
 import "./TableDesignMock.css";
 
-type Suit = "spades" | "hearts" | "diamonds" | "clubs";
 type SeatId = "top-left" | "top-right" | "right" | "self" | "left";
 type TableDesignMockVariant = "projected" | "world";
-
-interface MockCard {
-  rank: string;
-  suit: Suit;
-  face?: "king" | "queen" | "jack";
-}
 
 interface Point {
   x: number;
@@ -98,7 +98,7 @@ const roleBoardPentagon = Object.fromEntries(
 
 const tableSurfacePentagon = regularPentagon(pentagonCenter, tableSurfaceRadius, pentagonStartAngle);
 
-const cardAspectRatio = 178 / 132;
+const cardAspectRatio = 7 / 5;
 const trickCardWidth = 118;
 const riverGap = 18;
 
@@ -130,7 +130,7 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
   center: roleBoardCenter,
   cardSizes: {
     trick: { width: trickCardWidth, height: toLayoutPrecision(trickCardWidth * cardAspectRatio) },
-    selfHand: { width: 172, height: 228 }
+    selfHand: { width: 172, height: toLayoutPrecision(172 * cardAspectRatio) }
   },
   currentTrickZone: {
     gapFromRiver: 28,
@@ -170,7 +170,7 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
       id: "self",
       label: "自分",
       avatar: { x: 808, y: 1492 },
-      hand: { x: 1118, y: 1684, rotation: 0 }
+      hand: { x: 1118, y: 1640, rotation: 0 }
     },
     {
       id: "left",
@@ -181,20 +181,20 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
   ]
 };
 
-const selfCards: readonly MockCard[] = [
+const selfCards: readonly MockPlayingCard[] = [
   { rank: "5", suit: "spades" },
   { rank: "7", suit: "spades" }
 ];
 
-const trickCards: Partial<Record<SeatId, MockCard>> = {
+const trickCards: Partial<Record<SeatId, MockPlayingCard>> = {
   "top-left": { rank: "10", suit: "hearts" },
-  "top-right": { rank: "Q", suit: "hearts", face: "queen" },
-  right: { rank: "K", suit: "spades", face: "king" },
+  "top-right": { rank: "Q", suit: "hearts" },
+  right: { rank: "K", suit: "spades" },
   left: { rank: "A", suit: "spades" },
-  self: { rank: "J", suit: "spades", face: "jack" }
+  self: { rank: "J", suit: "spades" }
 };
 
-const riverCards: Record<string, readonly MockCard[]> = {
+const riverCards: Record<string, readonly MockPlayingCard[]> = {
   "top-left": [
     { rank: "10", suit: "clubs" },
     { rank: "Q", suit: "spades" }
@@ -219,13 +219,6 @@ const riverCards: Record<string, readonly MockCard[]> = {
     { rank: "K", suit: "diamonds" },
     { rank: "A", suit: "diamonds" }
   ]
-};
-
-const suitMarks: Record<Suit, string> = {
-  spades: "♠",
-  hearts: "♥",
-  diamonds: "♦",
-  clubs: "♣"
 };
 
 const roleMarkers: Record<SeatId, string> = {
@@ -357,7 +350,7 @@ function CardBackFan({ seat }: { seat: SeatLayout }) {
       style={pointWithRotationStyle(seat.hand)}
     >
       {[0, 1, 2].map((index) => (
-        <span className="mock-card-back" key={index} />
+        <PlayingCardBack className="mock-card-back" key={index} />
       ))}
     </div>
   );
@@ -466,36 +459,43 @@ function ProjectedTabletop({ layout }: { layout: TableDesignMockLayout }) {
   }));
 
   return (
-    <svg
-      aria-label="投影後の卓上Geometry"
-      className="mock-projected-tabletop"
-      viewBox={`0 0 ${layout.page.width} ${layout.page.height}`}
-    >
-      <polygon className="mock-table-surface-polygon" points={svgPoints(tablePoints)} />
-      {layout.seats.map((seat) => (
-        <ProjectedCurrentTrickZone key={`projected-trick-${seat.id}`} layout={layout} seat={seat} />
-      ))}
-      {layout.seats.map((seat) => (
-        <ProjectedPointRiver key={`projected-river-${seat.id}`} layout={layout} seat={seat} />
-      ))}
-      <g className="mock-projected-role-board">
-        <polygon className="mock-projected-role-board-outer" points={svgPoints(roleOuterPoints)} />
-        {sectorLines.map((line, index) => (
-          <line
-            className="mock-projected-role-board-sector-line"
-            key={index}
-            x1={line.outer.x}
-            x2={line.inner.x}
-            y1={line.outer.y}
-            y2={line.inner.y}
-          />
+    <>
+      <svg
+        aria-label="投影後の卓上Geometry"
+        className="mock-projected-tabletop"
+        viewBox={`0 0 ${layout.page.width} ${layout.page.height}`}
+      >
+        <polygon className="mock-table-surface-polygon" points={svgPoints(tablePoints)} />
+        {layout.seats.map((seat) => (
+          <ProjectedCurrentTrickZone key={`projected-trick-${seat.id}`} layout={layout} seat={seat} />
         ))}
-        <polygon className="mock-projected-role-board-inner" points={svgPoints(roleInnerPoints)} />
-        {roleMarkerSeatOrder.map((seatId) => (
-          <ProjectedRoleMarker key={`projected-role-${seatId}`} layout={layout} seatId={seatId} />
+        <g className="mock-projected-role-board">
+          <polygon className="mock-projected-role-board-outer" points={svgPoints(roleOuterPoints)} />
+          {sectorLines.map((line, index) => (
+            <line
+              className="mock-projected-role-board-sector-line"
+              key={index}
+              x1={line.outer.x}
+              x2={line.inner.x}
+              y1={line.outer.y}
+              y2={line.inner.y}
+            />
+          ))}
+          <polygon className="mock-projected-role-board-inner" points={svgPoints(roleInnerPoints)} />
+          {roleMarkerSeatOrder.map((seatId) => (
+            <ProjectedRoleMarker key={`projected-role-${seatId}`} layout={layout} seatId={seatId} />
+          ))}
+        </g>
+      </svg>
+      <div aria-hidden="true" className="mock-projected-card-layer">
+        {layout.seats.map((seat) => (
+          <ProjectedCurrentTrickCard key={`projected-trick-card-${seat.id}`} layout={layout} seat={seat} />
         ))}
-      </g>
-    </svg>
+        {layout.seats.map((seat) => (
+          <ProjectedPointRiverCards key={`projected-river-cards-${seat.id}`} layout={layout} seat={seat} />
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -503,24 +503,31 @@ function ProjectedCurrentTrickZone({ layout, seat }: { layout: TableDesignMockLa
   const cardCount = riverCards[seat.id]?.length ?? 0;
   const geometry = createCurrentTrickZoneGeometry(layout, seat.id, cardCount);
   const zoneCorners = projectTableCard(geometry, layout.camera);
-  const cardCorners = projectTableCard(
-    {
-      ...geometry,
-      height: layout.cardSizes.trick.height,
-      width: layout.cardSizes.trick.width
-    },
-    layout.camera
-  );
 
   return (
     <g className={`mock-projected-current-trick-zone mock-projected-current-trick-zone-${seat.id}`}>
       <polygon className="mock-projected-current-trick-zone-fill" points={svgPoints(zoneCorners)} />
-      <ProjectedPlayingCard card={trickCards[seat.id]} corners={cardCorners} variant="trick" />
     </g>
   );
 }
 
-function ProjectedPointRiver({ layout, seat }: { layout: TableDesignMockLayout; seat: SeatLayout }) {
+function ProjectedCurrentTrickCard({ layout, seat }: { layout: TableDesignMockLayout; seat: SeatLayout }) {
+  const cardCount = riverCards[seat.id]?.length ?? 0;
+  const geometry = createCurrentTrickZoneGeometry(layout, seat.id, cardCount);
+  const size = layout.cardSizes.trick;
+  const corners = projectTableCard(
+    {
+      ...geometry,
+      height: size.height,
+      width: size.width
+    },
+    layout.camera
+  );
+
+  return <ProjectedPlayingCard card={trickCards[seat.id]} corners={corners} size={size} variant="trick" />;
+}
+
+function ProjectedPointRiverCards({ layout, seat }: { layout: TableDesignMockLayout; seat: SeatLayout }) {
   const cards = riverCards[seat.id] ?? [];
   const river = createRiverGeometry(layout, seat.id);
   const placements = createRiverPlacements(cards.length, layout, seat.id);
@@ -547,6 +554,7 @@ function ProjectedPointRiver({ layout, seat }: { layout: TableDesignMockLayout; 
             card={card}
             corners={corners}
             key={`${card.rank}-${card.suit}-${index}`}
+            size={river.cardSize}
             variant={seat.id === "self" ? "self-river" : "river"}
           />
         );
@@ -590,49 +598,32 @@ function ProjectedRoleMarker({ layout, seatId }: { layout: TableDesignMockLayout
 function ProjectedPlayingCard({
   card,
   corners,
+  size,
   variant
 }: {
-  card: MockCard | undefined;
+  card: MockPlayingCard | undefined;
   corners: readonly Point[];
+  size: { height: number; width: number };
   variant: "river" | "self-river" | "trick";
 }) {
   if (card === undefined) {
     return null;
   }
 
-  const center = polygonCenter(corners);
-  const width = distance(corners[0] ?? center, corners[1] ?? center);
-  const mark = suitMarks[card.suit];
-  const isRed = card.suit === "hearts" || card.suit === "diamonds";
-  const faceText = card.face === undefined ? mark : faceGlyph(card.face);
-  const cornerFontSize = toLayoutPrecision(Math.max(9, Math.min(22, width * 0.16)));
-  const faceFontSize = toLayoutPrecision(Math.max(20, Math.min(62, width * (variant === "trick" ? 0.44 : 0.38))));
+  const transform = projectiveTransformForRectangle(corners, size.width, size.height);
 
   return (
-    <g className={`mock-projected-playing-card ${isRed ? "mock-projected-card-red" : "mock-projected-card-black"}`}>
-      <polygon className="mock-projected-playing-card-fill" points={svgPoints(corners)} />
-      <text
-        className="mock-projected-card-corner"
-        dominantBaseline="central"
-        fontSize={cornerFontSize}
-        textAnchor="middle"
-        x={center.x - width * 0.24}
-        y={center.y - width * 0.24}
-      >
-        {card.rank}
-        {mark}
-      </text>
-      <text
-        className="mock-projected-card-face"
-        dominantBaseline="central"
-        fontSize={faceFontSize}
-        textAnchor="middle"
-        x={center.x}
-        y={center.y}
-      >
-        {faceText}
-      </text>
-    </g>
+    <PlayingCard
+      card={card}
+      className={`mock-projected-playing-card mock-projected-playing-card-${variant}`}
+      style={
+        {
+          "--mock-projected-card-height": `${size.height}px`,
+          "--mock-projected-card-transform": transform,
+          "--mock-projected-card-width": `${size.width}px`
+        } as CSSProperties
+      }
+    />
   );
 }
 
@@ -641,7 +632,7 @@ function PlayingCard({
   className,
   style
 }: {
-  card: MockCard | undefined;
+  card: MockPlayingCard | undefined;
   className: string;
   style?: CSSProperties;
 }) {
@@ -649,38 +640,28 @@ function PlayingCard({
     return null;
   }
 
-  const mark = suitMarks[card.suit];
-  const isRed = card.suit === "hearts" || card.suit === "diamonds";
-  const faceText = card.face === undefined ? mark : faceGlyph(card.face);
+  const CardComponent = mockPlayingCardComponent(card);
+  const componentName = mockPlayingCardComponentName(card);
 
   return (
     <article
-      aria-label={`${card.rank}${mark}`}
-      className={`${className} mock-playing-card ${isRed ? "mock-card-red" : "mock-card-black"}`}
+      aria-label={componentName}
+      className={`${className} mock-playing-card`}
       style={style}
     >
-      <span className="mock-card-corner mock-card-corner-top">
-        {card.rank}
-        {mark}
-      </span>
-      <span className="mock-card-face">{faceText}</span>
-      <span className="mock-card-corner mock-card-corner-bottom">
-        {card.rank}
-        {mark}
-      </span>
+      <CardComponent aria-hidden="true" className="mock-playing-card-svg" focusable="false" />
     </article>
   );
 }
 
-function faceGlyph(face: NonNullable<MockCard["face"]>): string {
-  switch (face) {
-    case "king":
-      return "♚";
-    case "queen":
-      return "♛";
-    case "jack":
-      return "♝";
-  }
+function PlayingCardBack({ className }: { className: string }) {
+  const CardBackComponent = mockCardBackComponent();
+
+  return (
+    <span aria-label={mockCardBackComponentName} className={`${className} mock-playing-card mock-playing-card-back`}>
+      <CardBackComponent aria-hidden="true" className="mock-playing-card-svg" focusable="false" />
+    </span>
+  );
 }
 
 export function selfRiverWidth(layout: TableDesignMockLayout): number {
@@ -908,6 +889,71 @@ export function projectTableCard(
   ];
 
   return projectTablePolygon(corners, camera);
+}
+
+function projectiveTransformForRectangle(corners: readonly Point[], width: number, height: number): string {
+  const sourceCorners = [
+    { x: 0, y: 0 },
+    { x: width, y: 0 },
+    { x: width, y: height },
+    { x: 0, y: height }
+  ];
+  const [a, b, c, d, e, f, g, h] = solveHomography(sourceCorners, corners);
+  const matrix = [a, d, 0, g, b, e, 0, h, 0, 0, 1, 0, c, f, 0, 1].map(cssMatrixNumber);
+
+  return `matrix3d(${matrix.join(",")})`;
+}
+
+function solveHomography(sourceCorners: readonly Point[], targetCorners: readonly Point[]): number[] {
+  const rows: number[][] = [];
+
+  for (let index = 0; index < 4; index += 1) {
+    const source = sourceCorners[index];
+    const target = targetCorners[index];
+
+    rows.push([source.x, source.y, 1, 0, 0, 0, -target.x * source.x, -target.x * source.y, target.x]);
+    rows.push([0, 0, 0, source.x, source.y, 1, -target.y * source.x, -target.y * source.y, target.y]);
+  }
+
+  for (let column = 0; column < 8; column += 1) {
+    let pivotRow = column;
+
+    for (let row = column + 1; row < rows.length; row += 1) {
+      if (Math.abs(rows[row][column]) > Math.abs(rows[pivotRow][column])) {
+        pivotRow = row;
+      }
+    }
+
+    [rows[column], rows[pivotRow]] = [rows[pivotRow], rows[column]];
+
+    const pivot = rows[column][column];
+    if (Math.abs(pivot) < 1e-9) {
+      throw new Error("Projected card corners cannot define a CSS transform");
+    }
+
+    for (let cell = column; cell < 9; cell += 1) {
+      rows[column][cell] /= pivot;
+    }
+
+    for (let row = 0; row < rows.length; row += 1) {
+      if (row === column) {
+        continue;
+      }
+
+      const factor = rows[row][column];
+      for (let cell = column; cell < 9; cell += 1) {
+        rows[row][cell] -= factor * rows[column][cell];
+      }
+    }
+  }
+
+  return rows.map((row) => row[8]);
+}
+
+function cssMatrixNumber(value: number): string {
+  const rounded = Math.abs(value) < 1e-10 ? 0 : Number(value.toFixed(10));
+
+  return String(rounded);
 }
 
 export function createRiverPlacements(
