@@ -54,10 +54,28 @@ interface TableDesignMockLayout {
     maxRows: number;
     opponentColumnGap: number;
     rowGap: number;
-    selfSideWidthRatio: number;
   };
   seats: readonly SeatLayout[];
 }
+
+const roleBoardCenter: Box = {
+  x: 1120,
+  y: 890,
+  width: 338,
+  height: 303
+};
+
+const roleBoardPentagon = {
+  top: { x: 0.5, y: 0 },
+  topRight: { x: 1, y: 0.38 },
+  bottomRight: { x: 0.81, y: 1 },
+  bottomLeft: { x: 0.19, y: 1 },
+  topLeft: { x: 0, y: 0.38 }
+} as const satisfies Record<string, Point>;
+
+const cardAspectRatio = 178 / 132;
+const selfRiverCardWidth = toLayoutPrecision(roleBoardSelfSideLength(roleBoardCenter) * 0.5);
+const trickCardWidth = 118;
 
 // Source of Truth: https://github.com/eletim/napoleon-web/issues/308#issuecomment-5348323047
 // Keep the screenshot-facing coordinates here so the mock can be tuned without
@@ -74,16 +92,11 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
     width: 376,
     height: 286
   },
-  center: {
-    x: 1120,
-    y: 890,
-    width: 338,
-    height: 303
-  },
+  center: roleBoardCenter,
   cardSizes: {
-    trick: { width: 132, height: 178 },
+    trick: { width: trickCardWidth, height: toLayoutPrecision(trickCardWidth * cardAspectRatio) },
     river: {
-      self: { width: 92, height: 124 },
+      self: { width: selfRiverCardWidth, height: toLayoutPrecision(selfRiverCardWidth * cardAspectRatio) },
       opponent: { width: 56, height: 76 }
     },
     selfHand: { width: 172, height: 228 }
@@ -96,8 +109,7 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
     maxColumns: 5,
     maxRows: 4,
     opponentColumnGap: 12,
-    rowGap: 24,
-    selfSideWidthRatio: 0.74
+    rowGap: 24
   },
   action: {
     x: 1120,
@@ -128,7 +140,7 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
       avatar: { x: 2112, y: 1074 },
       hand: { x: 1942, y: 1080, rotation: 55 },
       trick: { x: 1307, y: 1016, rotation: 14 },
-      river: { x: 1578, y: 1036, rotation: 12, cardRotation: 0 }
+      river: { x: 1578, y: 1036, rotation: 102, cardRotation: 0 }
     },
     {
       id: "self",
@@ -144,7 +156,7 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
       avatar: { x: 136, y: 1070 },
       hand: { x: 308, y: 1086, rotation: -54 },
       trick: { x: 902, y: 934, rotation: -12 },
-      river: { x: 644, y: 1038, rotation: -12, cardRotation: 0 }
+      river: { x: 644, y: 1038, rotation: -102, cardRotation: 0 }
     }
   ]
 };
@@ -354,7 +366,7 @@ function RoleBoard({ layout }: { layout: Box }) {
     <section
       aria-label="中央役職表示"
       className="mock-role-board"
-      style={boxStyle(layout)}
+      style={roleBoardStyle(layout)}
     >
       <div className="mock-role-board-shape">
         {roleCells.map((role) => (
@@ -432,7 +444,14 @@ function faceGlyph(face: NonNullable<MockCard["face"]>): string {
 }
 
 export function selfRiverWidth(layout: TableDesignMockLayout): number {
-  return layout.center.width * layout.riverGrid.selfSideWidthRatio;
+  return toLayoutPrecision(roleBoardSelfSideLength(layout.center));
+}
+
+export function roleBoardSelfSideLength(layout: Box): number {
+  return distance(
+    roleBoardAbsolutePoint(layout, roleBoardPentagon.bottomLeft),
+    roleBoardAbsolutePoint(layout, roleBoardPentagon.bottomRight)
+  );
 }
 
 function riverCardSize(
@@ -455,9 +474,10 @@ export function createRiverPlacements(
   const boundedCardCount = Math.min(cardCount, maxCards);
   const placements: Array<Point & { rotation: number }> = [];
   const d = selfRiverWidth(layout);
-  const { height: cardHeight, width: cardWidth } = riverCardSize(seatId, layout);
+  const { height: cardHeight } = riverCardSize(seatId, layout);
   const baseRotation = riverCardBaseRotation(seatId, layout);
   const rowPitch = cardHeight + layout.riverGrid.rowGap;
+  const columnOffset = toLayoutPrecision(d * 0.125);
 
   for (let row = 0; row < layout.riverGrid.maxRows; row += 1) {
     const rowStart = row * layout.riverGrid.maxColumns;
@@ -467,17 +487,9 @@ export function createRiverPlacements(
       break;
     }
 
-    const rowLength = d * (0.5 + 0.125 * (rowCount - 1));
-    const rowLeft = (d - rowLength) / 2;
-    const usableTravel = Math.max(rowLength - cardWidth, 0);
-
     for (let column = 0; column < rowCount; column += 1) {
-      const x =
-        rowLeft +
-        (rowCount === 1 ? usableTravel / 2 : (usableTravel * column) / (rowCount - 1));
-
       placements.push({
-        x,
+        x: column * columnOffset,
         y: row * rowPitch,
         rotation: baseRotation
       });
@@ -596,6 +608,13 @@ function pointWithRotationStyle(point: Point & { rotation: number }): CSSPropert
   } as CSSProperties;
 }
 
+function roleBoardStyle(box: Box): CSSProperties {
+  return {
+    ...boxStyle(box),
+    "--mock-role-board-polygon": roleBoardClipPath()
+  } as CSSProperties;
+}
+
 function boxStyle(box: Box, origin: "center" | "top-left" = "center"): CSSProperties {
   return {
     "--mock-box-height": `${box.height}px`,
@@ -604,4 +623,31 @@ function boxStyle(box: Box, origin: "center" | "top-left" = "center"): CSSProper
     "--mock-y": `${box.y}px`,
     "--mock-origin": origin === "center" ? "translate(-50%, -50%)" : "translate(0, 0)"
   } as CSSProperties;
+}
+
+function roleBoardAbsolutePoint(layout: Box, point: Point): Point {
+  return {
+    x: layout.x - layout.width / 2 + point.x * layout.width,
+    y: layout.y - layout.height / 2 + point.y * layout.height
+  };
+}
+
+function distance(a: Point, b: Point): number {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function roleBoardClipPath(): string {
+  return [
+    roleBoardPentagon.top,
+    roleBoardPentagon.topRight,
+    roleBoardPentagon.bottomRight,
+    roleBoardPentagon.bottomLeft,
+    roleBoardPentagon.topLeft
+  ]
+    .map((point) => `${point.x * 100}% ${point.y * 100}%`)
+    .join(", ");
+}
+
+function toLayoutPrecision(value: number): number {
+  return Number(value.toFixed(3));
 }
