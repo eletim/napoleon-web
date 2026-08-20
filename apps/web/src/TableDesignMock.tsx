@@ -24,14 +24,17 @@ interface SeatLayout {
   hand: Point & { rotation: number };
   id: string;
   label: string;
-  river: Point & { rotation: number };
+  river: Point & { cardRotation: number; rotation: number };
   trick: Point & { rotation: number };
 }
 
 interface TableDesignMockLayout {
   action: Box;
   cardSizes: {
-    river: { height: number; width: number };
+    river: {
+      opponent: { height: number; width: number };
+      self: { height: number; width: number };
+    };
     selfHand: { height: number; width: number };
     trick: { height: number; width: number };
   };
@@ -49,6 +52,7 @@ interface TableDesignMockLayout {
   riverGrid: {
     maxColumns: number;
     maxRows: number;
+    opponentColumnGap: number;
     rowGap: number;
     selfSideWidthRatio: number;
   };
@@ -78,7 +82,10 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
   },
   cardSizes: {
     trick: { width: 132, height: 178 },
-    river: { width: 78, height: 106 },
+    river: {
+      self: { width: 92, height: 124 },
+      opponent: { width: 56, height: 76 }
+    },
     selfHand: { width: 172, height: 228 }
   },
   riverSize: {
@@ -88,8 +95,9 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
   riverGrid: {
     maxColumns: 5,
     maxRows: 4,
+    opponentColumnGap: 12,
     rowGap: 24,
-    selfSideWidthRatio: 0.62
+    selfSideWidthRatio: 0.74
   },
   action: {
     x: 1120,
@@ -104,7 +112,7 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
       avatar: { x: 586, y: 132 },
       hand: { x: 672, y: 292, rotation: -19 },
       trick: { x: 1034, y: 713, rotation: -38 },
-      river: { x: 836, y: 540, rotation: -37 }
+      river: { x: 836, y: 540, rotation: -37, cardRotation: 0 }
     },
     {
       id: "top-right",
@@ -112,7 +120,7 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
       avatar: { x: 1590, y: 144 },
       hand: { x: 1538, y: 294, rotation: 19 },
       trick: { x: 1298, y: 732, rotation: 31 },
-      river: { x: 1376, y: 540, rotation: 37 }
+      river: { x: 1376, y: 540, rotation: 37, cardRotation: 0 }
     },
     {
       id: "right",
@@ -120,7 +128,7 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
       avatar: { x: 2112, y: 1074 },
       hand: { x: 1942, y: 1080, rotation: 55 },
       trick: { x: 1307, y: 1016, rotation: 14 },
-      river: { x: 1578, y: 1036, rotation: 12 }
+      river: { x: 1578, y: 1036, rotation: 12, cardRotation: 0 }
     },
     {
       id: "self",
@@ -128,7 +136,7 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
       avatar: { x: 808, y: 1492 },
       hand: { x: 1118, y: 1684, rotation: 0 },
       trick: { x: 1122, y: 1138, rotation: 0 },
-      river: { x: 1120, y: 1110, rotation: 0 }
+      river: { x: 1120, y: 1110, rotation: 0, cardRotation: 0 }
     },
     {
       id: "left",
@@ -136,7 +144,7 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
       avatar: { x: 136, y: 1070 },
       hand: { x: 308, y: 1086, rotation: -54 },
       trick: { x: 902, y: 934, rotation: -12 },
-      river: { x: 644, y: 1038, rotation: -12 }
+      river: { x: 644, y: 1038, rotation: -12, cardRotation: 0 }
     }
   ]
 };
@@ -209,8 +217,8 @@ export function TableDesignMock() {
           "--mock-page-width": `${layout.page.width}px`,
           "--mock-river-height": `${layout.riverSize.height}px`,
           "--mock-river-width": `${layout.riverSize.width}px`,
-          "--mock-river-card-height": `${layout.cardSizes.river.height}px`,
-          "--mock-river-card-width": `${layout.cardSizes.river.width}px`,
+          "--mock-river-card-height": `${layout.cardSizes.river.opponent.height}px`,
+          "--mock-river-card-width": `${layout.cardSizes.river.opponent.width}px`,
           "--mock-self-river-row-gap": `${layout.riverGrid.rowGap}px`,
           "--mock-self-river-width": `${selfRiverWidth(layout)}px`,
           "--mock-self-card-height": `${layout.cardSizes.selfHand.height}px`,
@@ -316,8 +324,7 @@ function CardBackFan({ seat }: { seat: SeatLayout }) {
 function PointRiver({ seat }: { seat: SeatLayout }) {
   const cards = riverCards[seat.id] ?? [];
   const layout = tableDesignMockLayout;
-  const riverPlacements =
-    seat.id === "self" ? createRiverPlacements(cards.length, layout) : [];
+  const riverPlacements = createRiverPlacements(cards.length, layout, seat.id);
 
   return (
     <section
@@ -332,9 +339,9 @@ function PointRiver({ seat }: { seat: SeatLayout }) {
           key={`${card.rank}-${card.suit}-${index}`}
           style={{
             "--mock-river-card-index": index,
-            "--mock-river-card-rotation": `${riverPlacements[index]?.rotation ?? (index - 1) * 4}deg`,
-            "--mock-river-card-x": `${riverPlacements[index]?.x ?? 18 + index * 34}px`,
-            "--mock-river-card-y": `${riverPlacements[index]?.y ?? 32}px`
+            "--mock-river-card-rotation": `${riverPlacements[index]?.rotation ?? 0}deg`,
+            "--mock-river-card-x": `${riverPlacements[index]?.x ?? 0}px`,
+            "--mock-river-card-y": `${riverPlacements[index]?.y ?? 0}px`
           } as CSSProperties}
         />
       ))}
@@ -428,16 +435,28 @@ export function selfRiverWidth(layout: TableDesignMockLayout): number {
   return layout.center.width * layout.riverGrid.selfSideWidthRatio;
 }
 
+function riverCardSize(
+  seatId: string,
+  layout: TableDesignMockLayout
+): { height: number; width: number } {
+  return seatId === "self" ? layout.cardSizes.river.self : layout.cardSizes.river.opponent;
+}
+
 export function createRiverPlacements(
   cardCount: number,
-  layout: TableDesignMockLayout
+  layout: TableDesignMockLayout,
+  seatId = "self"
 ): Array<Point & { rotation: number }> {
+  if (seatId !== "self") {
+    return createOpponentRiverPlacements(cardCount, layout, seatId);
+  }
+
   const maxCards = layout.riverGrid.maxColumns * layout.riverGrid.maxRows;
   const boundedCardCount = Math.min(cardCount, maxCards);
   const placements: Array<Point & { rotation: number }> = [];
   const d = selfRiverWidth(layout);
-  const cardWidth = layout.cardSizes.river.width;
-  const cardHeight = layout.cardSizes.river.height;
+  const { height: cardHeight, width: cardWidth } = riverCardSize(seatId, layout);
+  const baseRotation = riverCardBaseRotation(seatId, layout);
   const rowPitch = cardHeight + layout.riverGrid.rowGap;
 
   for (let row = 0; row < layout.riverGrid.maxRows; row += 1) {
@@ -460,7 +479,7 @@ export function createRiverPlacements(
       placements.push({
         x,
         y: row * rowPitch,
-        rotation: 0
+        rotation: baseRotation
       });
     }
   }
@@ -468,12 +487,75 @@ export function createRiverPlacements(
   return placements;
 }
 
+function createOpponentRiverPlacements(
+  cardCount: number,
+  layout: TableDesignMockLayout,
+  seatId: string
+): Array<Point & { rotation: number }> {
+  const maxCards = layout.riverGrid.maxColumns * layout.riverGrid.maxRows;
+  const boundedCardCount = Math.min(cardCount, maxCards);
+  const placements: Array<Point & { rotation: number }> = [];
+  const { height: cardHeight, width: cardWidth } = riverCardSize(seatId, layout);
+  const columnPitch = cardWidth + layout.riverGrid.opponentColumnGap;
+  const rowPitch = cardHeight + 8;
+  const rowCount = Math.max(1, Math.ceil(boundedCardCount / layout.riverGrid.maxColumns));
+  const totalHeight = cardHeight * rowCount + 8 * (rowCount - 1);
+  const startY = (layout.riverSize.height - totalHeight) / 2;
+
+  for (let row = 0; row < rowCount; row += 1) {
+    const rowStart = row * layout.riverGrid.maxColumns;
+    const columns = Math.min(layout.riverGrid.maxColumns, boundedCardCount - rowStart);
+    const totalWidth = cardWidth * columns + layout.riverGrid.opponentColumnGap * (columns - 1);
+    const startX = (layout.riverSize.width - totalWidth) / 2;
+
+    for (let column = 0; column < columns; column += 1) {
+      placements.push({
+        x: startX + column * columnPitch,
+        y: startY + row * rowPitch,
+        rotation: opponentRiverCardRotation(seatId, column, columns, layout)
+      });
+    }
+  }
+
+  return placements;
+}
+
+function opponentRiverCardRotation(
+  seatId: string,
+  column: number,
+  columns: number,
+  layout: TableDesignMockLayout
+): number {
+  const centeredColumn = column - (columns - 1) / 2;
+  const spread = centeredColumn * 2;
+  const baseRotation = riverCardBaseRotation(seatId, layout);
+
+  switch (seatId) {
+    case "top-left":
+    case "left":
+      return normalizeRotation(baseRotation + spread);
+    case "top-right":
+    case "right":
+      return normalizeRotation(baseRotation - spread);
+    default:
+      return normalizeRotation(baseRotation + spread);
+  }
+}
+
+function riverCardBaseRotation(seatId: string, layout: TableDesignMockLayout): number {
+  return layout.seats.find((seat) => seat.id === seatId)?.river.cardRotation ?? 0;
+}
+
+function normalizeRotation(rotation: number): number {
+  return Object.is(rotation, -0) ? 0 : rotation;
+}
+
 function selfRiverHeight(cardCount: number, layout: TableDesignMockLayout): number {
   const maxCards = layout.riverGrid.maxColumns * layout.riverGrid.maxRows;
   const boundedCardCount = Math.min(cardCount, maxCards);
   const rows = Math.max(1, Math.ceil(boundedCardCount / layout.riverGrid.maxColumns));
 
-  return layout.cardSizes.river.height * rows + layout.riverGrid.rowGap * (rows - 1);
+  return layout.cardSizes.river.self.height * rows + layout.riverGrid.rowGap * (rows - 1);
 }
 
 function riverStyle(
@@ -484,11 +566,17 @@ function riverStyle(
   const style = pointWithRotationStyle(seat.river);
 
   if (seat.id !== "self") {
-    return style;
+    return {
+      ...style,
+      "--mock-river-card-height": `${layout.cardSizes.river.opponent.height}px`,
+      "--mock-river-card-width": `${layout.cardSizes.river.opponent.width}px`
+    } as CSSProperties;
   }
 
   return {
     ...style,
+    "--mock-river-card-height": `${layout.cardSizes.river.self.height}px`,
+    "--mock-river-card-width": `${layout.cardSizes.river.self.width}px`,
     "--mock-self-river-height": `${selfRiverHeight(cardCount, layout)}px`,
     "--mock-self-river-width": `${selfRiverWidth(layout)}px`
   } as CSSProperties;

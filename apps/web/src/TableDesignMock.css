@@ -225,6 +225,7 @@ html:has(.table-design-mock-page) {
 }
 
 .mock-river-card {
+  border-radius: 6px;
   height: var(--mock-river-card-height);
   left: var(--mock-river-card-x);
   position: absolute;
@@ -233,8 +234,34 @@ html:has(.table-design-mock-page) {
   width: var(--mock-river-card-width);
 }
 
-.mock-point-river:not(.mock-point-river-self) .mock-river-card {
-  display: none;
+.mock-river-card .mock-card-corner {
+  font-size: 14px;
+}
+
+.mock-river-card .mock-card-corner-top {
+  left: 5px;
+  top: 5px;
+}
+
+.mock-river-card .mock-card-corner-bottom {
+  bottom: 5px;
+  right: 5px;
+}
+
+.mock-river-card .mock-card-face {
+  font-size: 34px;
+}
+
+.mock-point-river-self .mock-river-card {
+  border-radius: 8px;
+}
+
+.mock-point-river-self .mock-river-card .mock-card-corner {
+  font-size: 18px;
+}
+
+.mock-point-river-self .mock-river-card .mock-card-face {
+  font-size: 50px;
 }
 
 .mock-self-hand {
