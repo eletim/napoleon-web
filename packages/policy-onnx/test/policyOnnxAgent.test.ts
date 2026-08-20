@@ -20,6 +20,7 @@ import {
   ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
   BIDDING_ACTION_COUNT,
   BIDDING_MODEL_INPUT_FEATURE_COUNT,
+  BIDDING_MODEL_INPUT_SCHEMA_VERSION,
   CARD_COUNT,
   COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT,
   COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT,
@@ -833,7 +834,7 @@ function nonPlayingSpec(policyType: NonPlayingPolicyType): {
       inputFeatureCount: BIDDING_MODEL_INPUT_FEATURE_COUNT,
       outputCount: BIDDING_ACTION_COUNT,
       encoderSchemaVersion: 1,
-      modelInputSchemaVersion: 1
+      modelInputSchemaVersion: BIDDING_MODEL_INPUT_SCHEMA_VERSION
     };
   }
   if (policyType === "exchange") {

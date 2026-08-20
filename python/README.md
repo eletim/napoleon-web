@@ -336,7 +336,7 @@ lengths are:
 | Sample type | Tensorized dataclass | `model_input` shape |
 | --- | --- | --- |
 | `playing-training-sample` | `TensorizedPlayingSample` | `(6246,)` |
-| `bidding-training-sample` | `TensorizedBiddingSample` | `(2333,)` |
+| `bidding-training-sample` | `TensorizedBiddingSample` | `(278,)` |
 | `exchange-training-sample` | `TensorizedExchangeSample` | `(2611,)` |
 | `adjutant-training-sample` | `TensorizedAdjutantSample` | `(2553,)` |
 
@@ -457,9 +457,16 @@ The non-playing phases expose equivalent named layouts:
 
 | Constant | Feature count | Notes |
 | --- | --- | --- |
-| `BIDDING_MODEL_INPUT_LAYOUT` | 2333 | self hand, legal bid mask, bidding state, shared bidding history |
+| `BIDDING_MODEL_INPUT_LAYOUT` | 278 | self hand, legal bid mask, bidding state, 28×6 bid-owner table |
 | `EXCHANGE_MODEL_INPUT_LAYOUT` | 2611 | includes `handCountByPlayer (5,)` and excludes discard target |
 | `ADJUTANT_MODEL_INPUT_LAYOUT` | 2553 | adjutant legal mask plus shared bidding history |
+
+Bidding model input schema version 2 replaces the old 117-step bidding
+history one-hot regions with `biddingBidOwnerTableOneHot (28, 6)`. Rows are
+target 13–19 by suit order clubs, diamonds, hearts, spades; columns are
+nobody followed by relative players 0–4. PASS history is not stored in this
+region because it is recoverable from the bid owners, turn order, starter and
+current bidding state, consecutive pass count, and highest bid.
 
 All layout slices are explicit `FeatureSlice` entries. The tensorizer does
 not recursively flatten arbitrary JSON. Training labels (`actorTarget` and
@@ -554,7 +561,7 @@ not match.
 
 | Sample type | Batch fields |
 | --- | --- |
-| `bidding-training-sample` | `model_input (batch, 2333) float32`, `legal_bid_mask (batch, 29) bool`, `actor_target (batch,) int64` |
+| `bidding-training-sample` | `model_input (batch, 278) float32`, `legal_bid_mask (batch, 29) bool`, `actor_target (batch,) int64` |
 | `exchange-training-sample` | `model_input (batch, 2611) float32`, `legal_discard_card_mask (batch, 53) bool`, `discard_target_mask (batch, 53) bool` |
 | `adjutant-training-sample` | `model_input (batch, 2553) float32`, `legal_adjutant_mask (batch, 53) bool`, `actor_target (batch,) int64` |
 
@@ -660,7 +667,7 @@ napoleon-train-bidding-mlp ./datasets/rule-based-bidding-v1 \
   --seed 0
 ```
 
-The model consumes bidding `model_input` with shape `(batch, 2333)` and emits
+The model consumes bidding `model_input` with shape `(batch, 278)` and emits
 29 logits. Training, evaluation, and `select_bidding_action()` mask
 `legal_bid_mask` before cross entropy or argmax, so illegal actions are never
 selected or trained as targets. Evaluation reports top-1 accuracy, pass/bid

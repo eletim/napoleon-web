@@ -37,6 +37,8 @@ using napoleon::RosterAssignment;
 constexpr int kPlayerCount = napoleon::kPlayerCount;
 constexpr int kBiddingActionCount = napoleon::observation::kBiddingActionCount;
 constexpr int kBiddingFeatureCount = napoleon::observation::kBiddingModelInputFeatureCount;
+constexpr int kBiddingModelInputSchemaVersion =
+    napoleon::observation::kBiddingModelInputSchemaVersion;
 constexpr int kPlayingFeatureCount = napoleon::observation::kPlayingModelInputFeatureCount;
 
 std::uint64_t elapsed_ns(std::chrono::steady_clock::time_point started) {
@@ -869,7 +871,8 @@ int main(int argc, char** argv) {
     manifest << ",\n";
     manifest << "  \"cardIdsSha256\":\"7ea0fdb58078f835bc5f7e6307a2a0c869430db343dd9e50ed1226f0452aaf38\",\n";
     manifest << "  \"biddingEncoderSchemaVersion\":1,\n";
-    manifest << "  \"biddingModelInputSchemaVersion\":1,\n";
+    manifest << "  \"biddingModelInputSchemaVersion\":" << kBiddingModelInputSchemaVersion
+             << ",\n";
     manifest << "  \"biddingModelInputFeatureCount\":" << kBiddingFeatureCount << ",\n";
     manifest << "  \"playingModelInputSchemaVersion\":2,\n";
     manifest << "  \"playingModelInputFeatureCount\":" << kPlayingFeatureCount << ",\n";
