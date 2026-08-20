@@ -1123,6 +1123,10 @@ def _checkpoint_compatibility_metadata(
             )
             if bidding_advantage_normalization is not None:
                 metadata["biddingAdvantageNormalization"] = bidding_advantage_normalization
+            metadata["biddingMinibatchStrategy"] = training_config.get(
+                "minibatchStrategy",
+                checkpoint.get("minibatch_strategy", "random"),
+            )
     terminal_reward_transform = checkpoint.get("terminal_reward_transform")
     if isinstance(terminal_reward_transform, dict):
         metadata["terminalRewardTransform"] = terminal_reward_transform

@@ -16,6 +16,7 @@ from napoleon_ml.cli.run_nonplaying_rl import (
 from napoleon_ml.nonplaying_rl_orchestrator import (
     DEFAULT_BIDDING_ADVANTAGE_NORMALIZATION,
     DEFAULT_BIDDING_ENTROPY_COEFFICIENT,
+    DEFAULT_BIDDING_MINIBATCH_STRATEGY,
     DEFAULT_ITERATIVE_BATCH_SIZE,
     DEFAULT_ITERATIVE_EVALUATION_GAMES,
     NONPLAYING_ALL_PASS_RULE_ID,
@@ -142,6 +143,7 @@ def test_nonplaying_rl_pipeline_smoke_writes_summary(
     written = json.loads((output_dir / "run-summary.json").read_text(encoding="utf-8"))
     assert written["settings"]["trainingDevice"] == "auto"
     assert written["settings"]["biddingHiddenDims"] == [16, 12]
+    assert written["settings"]["biddingMinibatchStrategy"] == DEFAULT_BIDDING_MINIBATCH_STRATEGY
     assert written["evaluation"]["fallbackCount"] == 0
     assert written["evaluation"]["illegalActionCount"] == 0
     assert written["artifactPaths"]["bidding"]["onnxPath"].endswith("bidding/policy.onnx")
@@ -464,6 +466,7 @@ def test_iterative_nonplaying_rl_resumes_and_chains_checkpoints(
     stored_config = json.loads((output_dir / "config.json").read_text(encoding="utf-8"))
     assert stored_config["trainingDevice"] == "cpu"
     assert stored_config["biddingEntropyCoefficient"] == 0.01
+    assert stored_config["biddingMinibatchStrategy"] == "random"
     assert stored_config["biddingAdvantageNormalization"] == (
         advantage_normalization_metadata(DEFAULT_BIDDING_ADVANTAGE_NORMALIZATION)
     )
@@ -836,6 +839,62 @@ def test_iterative_resume_rejects_bidding_advantage_normalization_mismatch(
         )
 
 
+def test_iterative_resume_defaults_missing_bidding_minibatch_strategy_to_random(
+    tmp_path: Path,
+) -> None:
+    playing_onnx = tmp_path / "playing.onnx"
+    playing_metadata = tmp_path / "playing.json"
+    playing_onnx.write_bytes(b"playing-onnx")
+    playing_metadata.write_text("{}\n", encoding="utf-8")
+    stored_config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        bidding_minibatch_strategy="random",
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    ).file_dict()
+    stored_config.pop("biddingMinibatchStrategy")
+    requested_config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        bidding_minibatch_strategy="random",
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    ).file_dict()
+
+    _validate_iterative_resume_config(
+        stored_config,
+        requested_config,
+        provided_config_keys=set(),
+    )
+
+
+def test_iterative_resume_rejects_bidding_minibatch_strategy_mismatch(
+    tmp_path: Path,
+) -> None:
+    playing_onnx = tmp_path / "playing.onnx"
+    playing_metadata = tmp_path / "playing.json"
+    playing_onnx.write_bytes(b"playing-onnx")
+    playing_metadata.write_text("{}\n", encoding="utf-8")
+    stored_config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        bidding_minibatch_strategy="random",
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    ).file_dict()
+    requested_config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        bidding_minibatch_strategy="strongest-suit-balanced",
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    ).file_dict()
+
+    with pytest.raises(NonPlayingRlOrchestratorError, match="biddingMinibatchStrategy"):
+        _validate_iterative_resume_config(
+            stored_config,
+            requested_config,
+            provided_config_keys=set(),
+        )
+
+
 def test_iterative_cli_honors_explicit_one_shot_default_values() -> None:
     argv = [
         "--output-dir",
@@ -856,6 +915,8 @@ def test_iterative_cli_honors_explicit_one_shot_default_values() -> None:
         "512,256,256",
         "--bidding-advantage-normalization",
         "dataset",
+        "--bidding-minibatch-strategy",
+        "strongest-suit-balanced",
         "--training-device",
         "auto",
     ]
@@ -872,8 +933,10 @@ def test_iterative_cli_honors_explicit_one_shot_default_values() -> None:
     assert config.bidding_entropy_coefficient == 0.01
     assert config.resolved_bidding_hidden_dims == (512, 256, 256)
     assert config.bidding_advantage_normalization == "dataset"
+    assert config.bidding_minibatch_strategy == "strongest-suit-balanced"
     assert config.training_device == "auto"
     assert "biddingHiddenDims" in _provided_iterative_config_keys(argv)
+    assert "biddingMinibatchStrategy" in _provided_iterative_config_keys(argv)
 
 
 def test_iterative_cli_accepts_cpp_simulation_backend() -> None:
@@ -914,6 +977,7 @@ def test_iterative_cli_uses_iterative_defaults_when_values_are_omitted() -> None
     assert config.batch_size == DEFAULT_ITERATIVE_BATCH_SIZE
     assert config.bidding_entropy_coefficient == DEFAULT_BIDDING_ENTROPY_COEFFICIENT
     assert config.bidding_advantage_normalization == DEFAULT_BIDDING_ADVANTAGE_NORMALIZATION
+    assert config.bidding_minibatch_strategy == DEFAULT_BIDDING_MINIBATCH_STRATEGY
 
 
 def _terminal_reward_transform() -> dict[str, object]:
