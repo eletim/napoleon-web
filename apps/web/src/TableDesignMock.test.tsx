@@ -5,6 +5,7 @@ import {
   createCurrentTrickZoneGeometry,
   createRiverGeometry,
   createRiverPlacements,
+  createRoleMarkerGeometry,
   createRoleBoardEdgeGeometry,
   roleBoardSelfSideLength,
   selfRiverWidth,
@@ -12,11 +13,11 @@ import {
 } from "./TableDesignMock";
 
 describe("TableDesignMock", () => {
-  it("renders the issue 325 static table mock with generated trick zones and rivers", () => {
+  it("renders the issue 327 static table mock with compact role markers", () => {
     const html = renderToStaticMarkup(<TableDesignMock />);
 
     expect(tableDesignMockLayout.seats).toHaveLength(5);
-    expect(html).toContain("Issue 325 table design mock");
+    expect(html).toContain("Issue 327 table design mock");
     expect(html).toContain("契約HUD");
     expect(html).toContain("中央役職表示");
     expect(html).toContain("自分の表向き手札");
@@ -36,7 +37,11 @@ describe("TableDesignMock", () => {
     expect(tableDesignMockLayout.riverGrid).toMatchObject({ maxColumns: 5, maxRows: 4 });
     expect((html.match(/mock-current-trick-zone/g) ?? [])).toHaveLength(10);
     expect((html.match(/mock-trick-card mock-playing-card/g) ?? [])).toHaveLength(5);
+    expect((html.match(/class="role-marker /g) ?? [])).toHaveLength(5);
+    expect(html).not.toContain("role-cell");
     expect(html).toContain("aria-label=\"J♠\"");
+    expect(html).toContain(">ナポ</span>");
+    expect(html).toContain(">副</span>");
   });
 
   it("defines all river geometry from the corresponding role-board edge", () => {
@@ -122,6 +127,25 @@ describe("TableDesignMock", () => {
       expect(zone.x).toBeCloseTo(expected[seatId].x);
       expect(zone.y).toBeCloseTo(expected[seatId].y);
       expect(distanceAlongNormal(edge, zone)).toBeGreaterThan(distanceAlongNormal(edge, river));
+    }
+  });
+
+  it("generates compact horizontal role marker centers from each role-board edge", () => {
+    const expected = {
+      "top-left": { x: 127.303, y: 105.15 },
+      "top-right": { x: 210.697, y: 105.15 },
+      right: { x: 246.895, y: 184.259 },
+      self: { x: 169, y: 239 },
+      left: { x: 91.105, y: 184.259 }
+    } as const;
+
+    for (const seatId of ["top-left", "top-right", "right", "self", "left"] as const) {
+      const marker = createRoleMarkerGeometry(tableDesignMockLayout.center, seatId);
+
+      expect(marker.width).toBe(58);
+      expect(marker.height).toBe(34);
+      expect(marker.x).toBeCloseTo(expected[seatId].x);
+      expect(marker.y).toBeCloseTo(expected[seatId].y);
     }
   });
 });

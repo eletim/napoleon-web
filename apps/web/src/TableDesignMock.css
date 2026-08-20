@@ -353,56 +353,35 @@ html:has(.table-design-mock-page) {
 .mock-role-board-core {
   background: #d7d5ff;
   clip-path: polygon(50% 0, 98% 35%, 80% 94%, 20% 94%, 2% 35%);
-  height: 90px;
+  height: 52px;
   left: 50%;
+  opacity: 0.74;
   position: absolute;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: 110px;
+  width: 64px;
 }
 
-.role-cell {
-  color: #ffffff;
-  font-size: 42px;
+.role-marker {
+  align-items: center;
+  background: rgb(255 255 255 / 72%);
+  border: 1px solid rgb(117 117 117 / 54%);
+  border-radius: 7px;
+  box-shadow: 0 1px 0 rgb(0 0 0 / 20%);
+  color: #303030;
+  display: flex;
+  font-size: 18px;
   font-weight: 800;
+  height: var(--mock-role-marker-height);
+  justify-content: center;
+  left: var(--mock-role-marker-x);
+  line-height: 1;
   position: absolute;
-  text-shadow:
-    2px 0 #7a7a7a,
-    -2px 0 #7a7a7a,
-    0 2px #7a7a7a,
-    0 -2px #7a7a7a;
+  top: var(--mock-role-marker-y);
+  transform: translate(-50%, -50%);
   white-space: nowrap;
+  width: var(--mock-role-marker-width);
   z-index: 1;
-}
-
-.role-cell-top-left {
-  left: 88px;
-  top: 84px;
-  transform: rotate(-35deg);
-}
-
-.role-cell-top-right {
-  right: 92px;
-  top: 82px;
-  transform: rotate(35deg);
-}
-
-.role-cell-left {
-  left: 44px;
-  top: 184px;
-  transform: rotate(-72deg);
-}
-
-.role-cell-right {
-  right: 42px;
-  top: 188px;
-  transform: rotate(75deg);
-}
-
-.role-cell-self {
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
 }
 
 .mock-self-action {
