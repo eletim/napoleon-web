@@ -4,6 +4,9 @@ import {
   cardDesignCardHeight,
   cardDesignComparisonRanks,
   cardDesignConfig,
+  cardDesignExposureLeft,
+  cardDesignExposureOffset,
+  cardDesignIdentificationGuideX,
   cardDesignOverlapWidth,
   cardDesignSuitLabels,
   cardDesignSuitOrder,
@@ -37,9 +40,11 @@ export function CardDesignMock() {
   const normalWidth = cardDesignConfig.sizes.normalWidth;
   const smallWidth = cardDesignConfig.sizes.smallWidth;
   const overlapWidth = cardDesignConfig.sizes.overlapWidth;
+  const identificationGuideX = cardDesignIdentificationGuideX(overlapWidth);
+  const exposureOffset = cardDesignExposureOffset(overlapWidth);
 
   return (
-    <main aria-label="Issue 352 card design mock" className="card-design-page">
+    <main aria-label="Issue 355 card design mock" className="card-design-page">
       <header className="card-design-header">
         <div>
           <p className="card-design-eyebrow">/mock/card-design</p>
@@ -68,35 +73,56 @@ export function CardDesignMock() {
 
       <section aria-label="25%露出テスト" className="card-design-section">
         <SectionTitle
-          metric={`left ${Math.round(cardDesignConfig.layout.leftIdentificationAreaRatio * 100)}% exposed`}
+          metric={`guide ${Math.round(cardDesignConfig.layout.identificationAreaRatio * 100)}% / offset ${Math.round(cardDesignConfig.layout.exposureOffsetRatio * 100)}%`}
           title="25% Exposure"
         />
         <div
-          className="card-design-overlap-strip"
+          className="card-design-exposure-debug"
           style={
             {
+              "--card-design-identification-guide-x": `${identificationGuideX}px`,
               "--card-design-overlap-card-width": `${overlapWidth}px`,
               "--card-design-overlap-card-height": `${cardDesignCardHeight(overlapWidth)}px`,
               "--card-design-overlap-count": tenExposureCards.length,
-              "--card-design-overlap-step": `${cardDesignConfig.layout.leftIdentificationAreaRatio * 100}%`,
+              "--card-design-overlap-step": `${cardDesignConfig.layout.exposureOffsetRatio * 100}%`,
+              "--card-design-exposure-offset": `${exposureOffset}px`,
               "--card-design-overlap-width": `${cardDesignOverlapWidth(tenExposureCards.length, overlapWidth)}px`
             } as CSSProperties
           }
         >
-          {tenExposureCards.map((card, index) => (
-            <div
-              className="card-design-overlap-card"
-              key={`${card.rank}-${card.suit}`}
-              style={
-                {
-                  "--card-design-overlap-left": `${index * overlapWidth * cardDesignConfig.layout.leftIdentificationAreaRatio}px`,
-                  zIndex: index + 1
-                } as CSSProperties
-              }
-            >
-              <CardDesignPrototypeCard card={card} width={overlapWidth} />
+          <div aria-hidden="true" className="card-design-exposure-ruler">
+            <span className="card-design-exposure-ruler-segment card-design-exposure-ruler-segment-left">25%</span>
+            <span className="card-design-exposure-ruler-segment card-design-exposure-ruler-segment-right">75%</span>
+          </div>
+          <div className="card-design-overlap-strip">
+            <div aria-hidden="true" className="card-design-overlap-guides">
+              {tenExposureCards.slice(0, -1).map((card, index) => (
+                <span
+                  className="card-design-overlap-guide"
+                  key={`${card.rank}-${card.suit}-guide`}
+                  style={
+                    {
+                      "--card-design-overlap-guide-left": `${cardDesignExposureLeft(index + 1, overlapWidth)}px`
+                    } as CSSProperties
+                  }
+                />
+              ))}
             </div>
-          ))}
+            {tenExposureCards.map((card, index) => (
+              <div
+                className="card-design-overlap-card"
+                key={`${card.rank}-${card.suit}`}
+                style={
+                  {
+                    "--card-design-overlap-left": `${cardDesignExposureLeft(index, overlapWidth)}px`,
+                    zIndex: index + 1
+                  } as CSSProperties
+                }
+              >
+                <CardDesignPrototypeCard card={card} showIdentificationGuide width={overlapWidth} />
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -155,7 +181,7 @@ function SuitRow({ suit, width }: { suit: MockPlayingCardSuit; width: number }) 
       </div>
       <div className="card-design-row-cards">
         {cardDesignComparisonRanks.map((rank) => (
-          <CardDesignPrototypeCard card={{ rank, suit }} key={`${rank}-${suit}`} width={width} />
+          <CardDesignPrototypeCard card={{ rank, suit }} key={`${rank}-${suit}`} showIdentificationGuide width={width} />
         ))}
       </div>
     </div>

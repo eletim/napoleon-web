@@ -5,6 +5,9 @@ import {
   cardDesignCardHeight,
   cardDesignComparisonRanks,
   cardDesignConfig,
+  cardDesignExposureLeft,
+  cardDesignExposureOffset,
+  cardDesignIdentificationGuideX,
   cardDesignOverlapWidth,
   cardDesignSuitOrder,
   createCardDesignDeck
@@ -22,7 +25,7 @@ afterEach(() => {
 });
 
 describe("CardDesignMock", () => {
-  it("renders the issue 352 card design sandbox at /mock/card-design", () => {
+  it("renders the issue 355 card design sandbox at /mock/card-design", () => {
     Object.defineProperty(globalThis, "window", {
       configurable: true,
       value: {
@@ -34,7 +37,7 @@ describe("CardDesignMock", () => {
 
     const html = renderToStaticMarkup(<App />);
 
-    expect(html).toContain("Issue 352 card design mock");
+    expect(html).toContain("Issue 355 card design mock");
     expect(html).toContain("/mock/card-design");
     expect(html).not.toContain("Issue 348 table design");
   });
@@ -61,7 +64,8 @@ describe("CardDesignMock", () => {
   });
 
   it("keeps card design settings centralized in config", () => {
-    const ratio = cardDesignConfig.layout.leftIdentificationAreaRatio;
+    const identificationAreaRatio = cardDesignConfig.layout.identificationAreaRatio;
+    const exposureOffsetRatio = cardDesignConfig.layout.exposureOffsetRatio;
 
     expect(cardDesignConfig.colors).toEqual({
       spades: "#111827",
@@ -70,6 +74,8 @@ describe("CardDesignMock", () => {
       clubs: "#15803d"
     });
     expect(cardDesignConfig.layout).toMatchObject({
+      identificationAreaRatio: 0.25,
+      exposureOffsetRatio: 0.25,
       rankFontRatio: 0.18,
       suitSymbolRatio: 0.2,
       cornerPaddingRatio: 0.055,
@@ -78,22 +84,42 @@ describe("CardDesignMock", () => {
       borderWidthRatio: 0.016,
       borderRadiusRatio: 0.065
     });
-    expect(ratio).toBe(0.25);
+    expect(identificationAreaRatio).toBe(0.25);
+    expect(exposureOffsetRatio).toBe(0.25);
+    expect(identificationAreaRatio).toBe(exposureOffsetRatio);
     expect(cardDesignCardHeight(100)).toBe(140);
   });
 
-  it("renders a 25 percent exposure strip for the four tens", () => {
+  it("renders a 25 percent exposure strip for the four tens using the explicit offset ratio", () => {
     const html = renderToStaticMarkup(<CardDesignMock />);
     const width = cardDesignConfig.sizes.overlapWidth;
+    const offset = width * cardDesignConfig.layout.exposureOffsetRatio;
 
-    expect(cardDesignOverlapWidth(4, width)).toBe(width + 3 * width * 0.25);
+    expect(cardDesignConfig.layout.identificationAreaRatio).toBe(cardDesignConfig.layout.exposureOffsetRatio);
+    expect(cardDesignIdentificationGuideX(width)).toBe(offset);
+    expect(cardDesignExposureOffset(width)).toBe(offset);
+    expect(cardDesignExposureLeft(0, width)).toBe(0);
+    expect(cardDesignExposureLeft(1, width)).toBe(offset);
+    expect(cardDesignExposureLeft(2, width)).toBe(offset * 2);
+    expect(cardDesignExposureLeft(3, width)).toBe(offset * 3);
+    expect(cardDesignOverlapWidth(4, width)).toBe(width + 3 * offset);
     expect(html).toContain("25% Exposure");
+    expect(html).toContain("guide 25% / offset 25%");
+    expect(html).toContain("--card-design-identification-guide-x:40px");
     expect(html).toContain("--card-design-overlap-step:25%");
+    expect(html).toContain("--card-design-exposure-offset:40px");
     expect(html).toContain(`--card-design-overlap-width:${cardDesignOverlapWidth(4, width)}px`);
     expect(html).toContain("--card-design-overlap-left:0px");
-    expect(html).toContain("--card-design-overlap-left:24px");
-    expect(html).toContain("--card-design-overlap-left:48px");
-    expect(html).toContain("--card-design-overlap-left:72px");
+    expect(html).toContain("--card-design-overlap-left:40px");
+    expect(html).toContain("--card-design-overlap-left:80px");
+    expect(html).toContain("--card-design-overlap-left:120px");
+    expect(html).toContain("--card-design-overlap-guide-left:40px");
+    expect(html).toContain("--card-design-overlap-guide-left:80px");
+    expect(html).toContain("--card-design-overlap-guide-left:120px");
+    expect(html).toContain('aria-label="10♠"');
+    expect(html).toContain('aria-label="10♣"');
+    expect(html).toContain('aria-label="10♥"');
+    expect(html).toContain('aria-label="10♦"');
   });
 
   it("can render all 52 prototype cards and compare current letele cards", () => {
