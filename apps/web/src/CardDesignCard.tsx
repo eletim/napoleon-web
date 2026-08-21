@@ -33,7 +33,8 @@ export const cardDesignConfig = {
     clubs: "#15803d"
   },
   layout: {
-    leftIdentificationAreaRatio: 0.25,
+    identificationAreaRatio: 0.25,
+    exposureOffsetRatio: 0.25,
     rankFontRatio: 0.18,
     suitSymbolRatio: 0.2,
     cornerPaddingRatio: 0.055,
@@ -48,12 +49,12 @@ export const cardDesignConfig = {
     backgroundColor: "#fffdf6",
     identificationAreaColor: "#f7f0d7",
     borderColor: "#111827",
-    guideColor: "rgb(17 24 39 / 20%)"
+    guideColor: "rgb(225 29 72 / 92%)"
   },
   sizes: {
     normalWidth: 124,
     smallWidth: 70,
-    overlapWidth: 96
+    overlapWidth: 160
   }
 } as const;
 
@@ -67,27 +68,41 @@ export function cardDesignCardHeight(width: number): number {
   return width * cardDesignConfig.aspectRatio.height / cardDesignConfig.aspectRatio.width;
 }
 
+export function cardDesignIdentificationGuideX(cardWidth: number): number {
+  return cardWidth * cardDesignConfig.layout.identificationAreaRatio;
+}
+
+export function cardDesignExposureOffset(cardWidth: number): number {
+  return cardWidth * cardDesignConfig.layout.exposureOffsetRatio;
+}
+
+export function cardDesignExposureLeft(cardIndex: number, cardWidth: number): number {
+  return cardIndex * cardDesignExposureOffset(cardWidth);
+}
+
 export function cardDesignOverlapWidth(cardCount: number, cardWidth = cardDesignConfig.sizes.overlapWidth): number {
   if (cardCount <= 0) {
     return 0;
   }
 
-  return cardWidth + (cardCount - 1) * cardWidth * cardDesignConfig.layout.leftIdentificationAreaRatio;
+  return cardWidth + (cardCount - 1) * cardDesignExposureOffset(cardWidth);
 }
 
 export function CardDesignPrototypeCard({
   card,
   className,
+  showIdentificationGuide = false,
   width = cardDesignConfig.sizes.normalWidth
 }: {
   card: MockPlayingCard;
   className?: string;
+  showIdentificationGuide?: boolean;
   width?: number;
 }) {
   const config = cardDesignConfig;
   const suitColor = config.colors[card.suit];
   const symbol = cardDesignSuitSymbols[card.suit];
-  const leftWidth = config.layout.leftIdentificationAreaRatio * 100;
+  const leftWidth = config.layout.identificationAreaRatio * 100;
   const cornerX = leftWidth / 2;
   const cornerPadding = config.layout.cornerPaddingRatio * 100;
   const rankY = cornerPadding + config.layout.rankFontRatio * 50;
@@ -137,15 +152,30 @@ export function CardDesignPrototypeCard({
           x={cornerPadding * 0.65}
           y={cornerPadding}
         />
-        <line
-          stroke={config.surfaces.guideColor}
-          strokeDasharray="2 2"
-          strokeWidth="0.65"
-          x1={leftWidth}
-          x2={leftWidth}
-          y1={cornerPadding}
-          y2={140 - cornerPadding}
-        />
+        {showIdentificationGuide ? (
+          <>
+            <line
+              className="card-design-identification-guide"
+              stroke={config.surfaces.guideColor}
+              strokeDasharray="2 2"
+              strokeWidth="0.9"
+              x1={leftWidth}
+              x2={leftWidth}
+              y1={cornerPadding}
+              y2={140 - cornerPadding}
+            />
+            <text
+              className="card-design-guide-label"
+              fill={config.surfaces.guideColor}
+              fontSize="7"
+              fontWeight={config.layout.fontWeight}
+              x={leftWidth + 2.4}
+              y={cornerPadding + 6}
+            >
+              25%
+            </text>
+          </>
+        ) : null}
         <text
           className="card-design-rank"
           fill={suitColor}

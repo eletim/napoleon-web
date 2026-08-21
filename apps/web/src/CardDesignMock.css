@@ -177,7 +177,8 @@ html:has(.card-design-page) {
 .card-design-suit,
 .card-design-center-rank,
 .card-design-center-suit,
-.card-design-pip {
+.card-design-pip,
+.card-design-guide-label {
   dominant-baseline: middle;
   font-family: Georgia, "Times New Roman", serif;
   paint-order: stroke;
@@ -187,17 +188,87 @@ html:has(.card-design-page) {
   text-anchor: middle;
 }
 
+.card-design-identification-guide {
+  vector-effect: non-scaling-stroke;
+}
+
+.card-design-guide-label {
+  stroke-width: 1.4;
+  text-anchor: start;
+}
+
 .card-design-inverted {
   transform: rotate(180deg);
   transform-box: fill-box;
   transform-origin: center;
 }
 
+.card-design-exposure-debug {
+  margin: 4px auto 2px;
+  width: var(--card-design-overlap-width);
+}
+
+.card-design-exposure-ruler {
+  display: grid;
+  font-size: 0.72rem;
+  font-weight: 900;
+  grid-template-columns: var(--card-design-exposure-offset) 1fr;
+  height: 24px;
+  line-height: 1;
+  margin-bottom: 4px;
+  position: relative;
+  width: var(--card-design-overlap-card-width);
+}
+
+.card-design-exposure-ruler::after {
+  background: #e11d48;
+  bottom: -4px;
+  content: "";
+  left: var(--card-design-identification-guide-x);
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  width: 2px;
+}
+
+.card-design-exposure-ruler-segment {
+  align-items: center;
+  border-block: 1px solid #e11d48;
+  color: #be123c;
+  display: flex;
+  justify-content: center;
+}
+
+.card-design-exposure-ruler-segment-left {
+  border-left: 1px solid #e11d48;
+}
+
+.card-design-exposure-ruler-segment-right {
+  border-left: 1px solid #e11d48;
+  border-right: 1px solid #e11d48;
+}
+
 .card-design-overlap-strip {
   height: var(--card-design-overlap-card-height);
-  margin: 4px auto 2px;
   position: relative;
   width: var(--card-design-overlap-width);
+}
+
+.card-design-overlap-guides {
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 20;
+}
+
+.card-design-overlap-guide {
+  background: #e11d48;
+  bottom: 0;
+  left: var(--card-design-overlap-guide-left);
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  width: 2px;
 }
 
 .card-design-overlap-card {
