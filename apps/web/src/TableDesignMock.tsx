@@ -4,8 +4,7 @@ import {
   mockCardBackComponentName,
   mockPlayingCardComponent,
   mockPlayingCardComponentName,
-  type MockPlayingCard,
-  type MockPlayingCardSuit
+  type MockPlayingCard
 } from "./mockPlayingCardAdapter";
 import "./TableDesignMock.css";
 
@@ -271,30 +270,19 @@ const trickCards: Partial<Record<SeatId, MockPlayingCard>> = {
 const riverCards: Record<string, readonly MockPlayingCard[]> = {
   "top-left": [
     { rank: "10", suit: "clubs" },
-    { rank: "J", suit: "hearts" },
-    { rank: "Q", suit: "spades" },
-    { rank: "K", suit: "clubs" },
-    { rank: "A", suit: "diamonds" }
+    { rank: "Q", suit: "spades" }
   ],
   "top-right": [
     { rank: "K", suit: "hearts" },
-    { rank: "10", suit: "diamonds" },
-    { rank: "Q", suit: "diamonds" },
-    { rank: "J", suit: "clubs" },
-    { rank: "A", suit: "spades" }
+    { rank: "10", suit: "diamonds" }
   ],
   right: [
     { rank: "A", suit: "clubs" },
     { rank: "K", suit: "clubs" },
-    { rank: "Q", suit: "clubs" },
-    { rank: "J", suit: "diamonds" },
-    { rank: "10", suit: "hearts" }
+    { rank: "Q", suit: "clubs" }
   ],
   left: [
     { rank: "A", suit: "hearts" },
-    { rank: "10", suit: "diamonds" },
-    { rank: "J", suit: "spades" },
-    { rank: "Q", suit: "hearts" },
     { rank: "K", suit: "spades" }
   ],
   self: [
@@ -317,25 +305,6 @@ const roleMarkers: Record<SeatId, string> = {
 const roleMarkerSeatOrder = ["top-left", "top-right", "right", "self", "left"] as const satisfies readonly SeatId[];
 const opponentSeatOrder = ["top-left", "top-right", "right", "left"] as const satisfies readonly OpponentSeatId[];
 
-export const RIVER_CARD_FACE_LAYOUT = {
-  leftRatio: 0.25,
-  centerRatio: 0.5,
-  rightRatio: 0.25,
-  rankFontRatio: 0.17,
-  suitFontRatio: 0.19,
-  centerSymbolRatio: 0.32,
-  paddingRatio: 0.035
-} as const;
-
-const riverCardSuitSymbols = {
-  spades: "♠",
-  hearts: "♥",
-  diamonds: "♦",
-  clubs: "♣"
-} as const satisfies Record<MockPlayingCardSuit, string>;
-
-const redRiverCardSuits = new Set<MockPlayingCardSuit>(["hearts", "diamonds"]);
-
 export function TableDesignMock({ variant = "world" }: { variant?: TableDesignMockVariant }) {
   const layout = tableDesignMockLayout;
   const isProjected = variant === "projected";
@@ -343,7 +312,7 @@ export function TableDesignMock({ variant = "world" }: { variant?: TableDesignMo
 
   return (
     <main
-      aria-label={`Issue 350 table design ${variant} mock`}
+      aria-label={`Issue 348 table design ${variant} mock`}
       className={`table-design-mock-page table-design-mock-page-${variant}`}
       style={
         {
@@ -494,7 +463,7 @@ function PointRiver({ seat }: { seat: SeatLayout }) {
       style={riverStyle(riverGeometry)}
     >
       {cards.slice(0, layout.riverGrid.maxColumns * layout.riverGrid.maxRows).map((card, index) => (
-        <RiverPlayingCard
+        <PlayingCard
           card={card}
           className="mock-river-card"
           key={`${card.rank}-${card.suit}-${index}`}
@@ -719,11 +688,12 @@ function ProjectedPointRiverCards({ layout, seat }: { layout: TableDesignMockLay
         );
 
         return (
-          <ProjectedRiverPlayingCard
+          <ProjectedPlayingCard
             card={card}
             corners={corners}
             key={`${card.rank}-${card.suit}-${index}`}
             size={river.cardSize}
+            variant={seat.id === "self" ? "self-river" : "river"}
           />
         );
       })}
@@ -795,32 +765,6 @@ function ProjectedPlayingCard({
   );
 }
 
-function ProjectedRiverPlayingCard({
-  card,
-  corners,
-  size
-}: {
-  card: MockPlayingCard;
-  corners: readonly Point[];
-  size: { height: number; width: number };
-}) {
-  const transform = projectiveTransformForRectangle(corners, size.width, size.height);
-
-  return (
-    <RiverPlayingCard
-      card={card}
-      className="mock-projected-playing-card mock-projected-playing-card-river"
-      style={
-        {
-          "--mock-projected-card-height": `${size.height}px`,
-          "--mock-projected-card-transform": transform,
-          "--mock-projected-card-width": `${size.width}px`
-        } as CSSProperties
-      }
-    />
-  );
-}
-
 function PlayingCard({
   card,
   className,
@@ -845,107 +789,6 @@ function PlayingCard({
     >
       <CardComponent aria-hidden="true" className="mock-playing-card-svg" focusable="false" />
     </article>
-  );
-}
-
-function RiverPlayingCard({
-  card,
-  className,
-  style
-}: {
-  card: MockPlayingCard;
-  className: string;
-  style?: CSSProperties;
-}) {
-  const componentName = mockPlayingCardComponentName(card);
-
-  return (
-    <article
-      aria-label={componentName}
-      className={`${className} mock-playing-card mock-river-playing-card`}
-      style={style}
-    >
-      <RiverCardFace card={card} />
-    </article>
-  );
-}
-
-function RiverCardFace({ card }: { card: MockPlayingCard }) {
-  const layout = RIVER_CARD_FACE_LAYOUT;
-  const leftWidth = layout.leftRatio * 100;
-  const centerWidth = layout.centerRatio * 100;
-  const padding = layout.paddingRatio * 100;
-  const suitSymbol = riverCardSuitSymbols[card.suit];
-  const isRed = redRiverCardSuits.has(card.suit);
-  const faceColor = isRed ? "#d9142c" : "#111111";
-  const centerX = leftWidth + centerWidth / 2;
-
-  return (
-    <svg
-      aria-hidden="true"
-      className="mock-river-card-face-svg"
-      focusable="false"
-      preserveAspectRatio="none"
-      viewBox="0 0 100 140"
-    >
-      <rect className="mock-river-card-face-paper" height="138" rx="5" ry="5" width="98" x="1" y="1" />
-      <rect className="mock-river-card-face-left-band" height="132" rx="3" ry="3" width={leftWidth - padding} x={padding} y="4" />
-      <line className="mock-river-card-face-guide" x1={leftWidth} x2={leftWidth} y1="6" y2="134" />
-      <text
-        className="mock-river-card-face-rank"
-        fill={faceColor}
-        fontSize={100 * layout.rankFontRatio}
-        x={leftWidth / 2}
-        y="27"
-      >
-        {card.rank}
-      </text>
-      <text
-        className="mock-river-card-face-suit"
-        fill={faceColor}
-        fontSize={100 * layout.suitFontRatio}
-        x={leftWidth / 2}
-        y="55"
-      >
-        {suitSymbol}
-      </text>
-      <text
-        className="mock-river-card-face-rank mock-river-card-face-rank-bottom"
-        fill={faceColor}
-        fontSize={100 * layout.rankFontRatio}
-        x={leftWidth / 2}
-        y="118"
-      >
-        {card.rank}
-      </text>
-      <text
-        className="mock-river-card-face-suit mock-river-card-face-suit-bottom"
-        fill={faceColor}
-        fontSize={100 * layout.suitFontRatio}
-        x={leftWidth / 2}
-        y="91"
-      >
-        {suitSymbol}
-      </text>
-      <text
-        className="mock-river-card-face-center-symbol"
-        fill={faceColor}
-        fontSize={100 * layout.centerSymbolRatio}
-        x={centerX}
-        y="77"
-      >
-        {suitSymbol}
-      </text>
-      <text
-        className="mock-river-card-face-center-rank"
-        fill={faceColor}
-        fontSize="16"
-        x={centerX}
-        y="104"
-      >
-        {card.rank}
-      </text>
-    </svg>
   );
 }
 
