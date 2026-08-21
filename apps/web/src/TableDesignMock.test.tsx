@@ -6,6 +6,8 @@ import {
   createOpponentHandCardMetrics,
   createOpponentHandGeometry,
   createOpponentHandsGeometry,
+  createProjectedBoardFit,
+  createProjectedTableBoundingBox,
   createRiverGeometry,
   createRiverPlacements,
   createRoleMarkerGeometry,
@@ -26,12 +28,12 @@ import {
 } from "./TableDesignMock";
 
 describe("TableDesignMock", () => {
-  it("renders the issue 344 world mock with unprojected tabletop geometry", () => {
+  it("renders the issue 348 world mock with unprojected tabletop geometry", () => {
     const html = renderToStaticMarkup(<TableDesignMock />);
     const selfHandStyle = html.match(/aria-label="自分の表向き手札" class="mock-self-hand" style="([^"]+)"/)?.[1] ?? "";
 
     expect(tableDesignMockLayout.seats).toHaveLength(5);
-    expect(html).toContain("Issue 344 table design world mock");
+    expect(html).toContain("Issue 348 table design world mock");
     expect(html).toContain("契約HUD");
     expect(html).toContain("中央役職表示");
     expect(html).toContain("自分の表向き手札");
@@ -95,11 +97,13 @@ describe("TableDesignMock", () => {
     expect(html).toContain(">副</span>");
   });
 
-  it("renders the issue 344 projected mock from projected tabletop polygons", () => {
+  it("renders the issue 348 projected mock from projected tabletop polygons", () => {
     const html = renderToStaticMarkup(<TableDesignMock variant="projected" />);
 
-    expect(html).toContain("Issue 344 table design projected mock");
+    expect(html).toContain("Issue 348 table design projected mock");
     expect(html).toContain("投影後の卓上Geometry");
+    expect(html).toContain("mock-projected-board-fit");
+    expect(html).toContain("--mock-projected-board-transform:");
     expect(html).toContain("mock-projected-tabletop");
     expect(html).toContain("mock-table-surface-polygon");
     expect((html.match(/mock-projected-current-trick-zone mock-projected-current-trick-zone-/g) ?? [])).toHaveLength(5);
@@ -140,6 +144,47 @@ describe("TableDesignMock", () => {
     expect(reducedHand.gap).toBe(fullHand.gap);
     expect(reducedHand.handWidth).toBeLessThan(fullHand.handWidth);
     expect(reducedHand.center.x).toBeCloseTo(viewportWidth / 2);
+  });
+
+  it("keeps the self hand viewport-width based when projected board fit changes", () => {
+    const fullHdHand = createSelfHandViewportLayout(tableDesignMockLayout, 13, { width: 1920, height: 1080 });
+    const qhdHand = createSelfHandViewportLayout(tableDesignMockLayout, 13, { width: 2560, height: 1440 });
+
+    expect(fullHdHand.cardSize.width).toBeCloseTo((0.8 * 1920) / 13);
+    expect(fullHdHand.cardSize.height).toBeCloseTo(fullHdHand.cardSize.width * 7 / 5);
+    expect(fullHdHand.gap).toBeCloseTo((0.16 * 1920) / 12);
+    expect(fullHdHand.handWidth).toBeCloseTo(0.96 * 1920);
+    expect(fullHdHand.center.x).toBeCloseTo(960);
+    expect(fullHdHand.bottom).toBe(1064);
+
+    expect(qhdHand.cardSize.width).toBeCloseTo((0.8 * 2560) / 13);
+    expect(qhdHand.handWidth).toBeCloseTo(0.96 * 2560);
+    expect(qhdHand.center.x).toBeCloseTo(1280);
+    expect(qhdHand.cardSize.width).toBeGreaterThan(fullHdHand.cardSize.width);
+  });
+
+  it("fits projected table scale from viewport height and keeps width growth from enlarging it", () => {
+    const rawBox = createProjectedTableBoundingBox(tableDesignMockLayout);
+    const fullHd = createProjectedBoardFit(tableDesignMockLayout, { width: 1920, height: 1080 });
+    const widerSameHeight = createProjectedBoardFit(tableDesignMockLayout, { width: 2560, height: 1080 });
+    const qhd = createProjectedBoardFit(tableDesignMockLayout, { width: 2560, height: 1440 });
+
+    expect(rawBox.height).toBeGreaterThan(0);
+    expect(fullHd.scale).toBeCloseTo((1080 * tableDesignMockLayout.projectedFit.tableHeightRatio) / rawBox.height);
+    expect(fullHd.transformedTableBox.height).toBeCloseTo(1080 * tableDesignMockLayout.projectedFit.tableHeightRatio);
+    expect(fullHd.transformedTableBox.top).toBeCloseTo(1080 * 0.015);
+    expect(fullHd.transformedTableBox.x).toBeCloseTo(960);
+    expect(fullHd.transformedTableBox.width).toBeLessThan(1920);
+
+    expect(widerSameHeight.scale).toBeCloseTo(fullHd.scale);
+    expect(widerSameHeight.transformedTableBox.height).toBeCloseTo(fullHd.transformedTableBox.height);
+    expect(widerSameHeight.transformedTableBox.width).toBeCloseTo(fullHd.transformedTableBox.width);
+    expect(widerSameHeight.transformedTableBox.x).toBeCloseTo(1280);
+
+    expect(qhd.scale).toBeGreaterThan(fullHd.scale);
+    expect(qhd.transformedTableBox.height).toBeCloseTo(1440 * tableDesignMockLayout.projectedFit.tableHeightRatio);
+    expect(qhd.transformedTableBox.top).toBeCloseTo(1440 * 0.015);
+    expect(qhd.transformedTableBox.x).toBeCloseTo(1280);
   });
 
   it("uses the same unprojected self-hand layout for world and projected mocks", () => {
