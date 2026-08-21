@@ -35,6 +35,7 @@ interface SeatLayout {
 interface TableDesignMockLayout {
   camera: PerspectiveCameraConfig;
   cardSizes: {
+    opponentHand: { height: number; width: number };
     selfHand: { height: number; width: number };
     trick: { height: number; width: number };
   };
@@ -63,8 +64,19 @@ interface TableDesignMockLayout {
     sectorMidpointRatio: number;
     width: number;
   };
+  opponentHand: {
+    baselineOffset: number;
+    cardCount: number;
+    cardGap: number;
+    cardThickness: number;
+  };
   seats: readonly SeatLayout[];
   tableSurface: readonly Point[];
+  tabletopWorld: {
+    roleBoardRadius: number;
+    scale: number;
+    tableSurfaceRadius: number;
+  };
 }
 
 interface PerspectiveCameraConfig {
@@ -76,8 +88,9 @@ interface PerspectiveCameraConfig {
 
 const pentagonCenter: Point = { x: 1120, y: 910 };
 const pentagonStartAngle = -90;
-const tableSurfaceRadius = 700;
-const roleBoardRadius = 175;
+const tabletopWorldScale = 1.8;
+const tableSurfaceRadius = scaleTabletopDimension(700);
+const roleBoardRadius = scaleTabletopDimension(175);
 
 const roleBoardCenter: Box = {
   x: pentagonCenter.x,
@@ -99,8 +112,14 @@ const roleBoardPentagon = Object.fromEntries(
 const tableSurfacePentagon = regularPentagon(pentagonCenter, tableSurfaceRadius, pentagonStartAngle);
 
 const cardAspectRatio = 7 / 5;
-const trickCardWidth = 118;
-const riverGap = 18;
+const trickCardWidth = scaleTabletopDimension(118);
+const riverGap = scaleTabletopDimension(18);
+const opponentHandCardWidth = scaleTabletopDimension(80);
+
+const projectedSelfArtifacts: Pick<SeatLayout, "avatar" | "hand"> = {
+  avatar: { x: 808, y: 1570 },
+  hand: { x: 1118, y: 1660, rotation: 0 }
+};
 
 // Source of Truth: https://github.com/eletim/napoleon-web/issues/308#issuecomment-5348323047
 // Keep the screenshot-facing coordinates here so the mock can be tuned without
@@ -112,10 +131,15 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
     background: "#1d1d1d"
   },
   camera: {
-    position: { x: 1120, y: 3150, z: 1720 },
+    position: { x: 1120, y: 2450, z: 2750 },
     target: { x: 1120, y: 910, z: 0 },
-    focalLength: 2150,
-    screenCenter: { x: 1100, y: 940 }
+    focalLength: 2300,
+    screenCenter: { x: 1100, y: 671.144 }
+  },
+  tabletopWorld: {
+    scale: tabletopWorldScale,
+    tableSurfaceRadius,
+    roleBoardRadius
   },
   tableSurface: tableSurfacePentagon,
   roleBoard: {
@@ -129,22 +153,32 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
   },
   center: roleBoardCenter,
   cardSizes: {
+    opponentHand: {
+      width: opponentHandCardWidth,
+      height: toLayoutPrecision(opponentHandCardWidth * cardAspectRatio)
+    },
     trick: { width: trickCardWidth, height: toLayoutPrecision(trickCardWidth * cardAspectRatio) },
     selfHand: { width: 172, height: toLayoutPrecision(172 * cardAspectRatio) }
   },
+  opponentHand: {
+    baselineOffset: scaleTabletopDimension(40),
+    cardCount: 3,
+    cardGap: scaleTabletopDimension(16),
+    cardThickness: scaleTabletopDimension(6)
+  },
   currentTrickZone: {
-    gapFromRiver: 28,
-    paddingBlock: 52,
-    paddingInline: 44
+    gapFromRiver: scaleTabletopDimension(28),
+    paddingBlock: scaleTabletopDimension(52),
+    paddingInline: scaleTabletopDimension(44)
   },
   riverGrid: {
     maxColumns: 5,
     maxRows: 4,
-    rowGap: 24
+    rowGap: scaleTabletopDimension(24)
   },
   roleMarker: {
-    width: 58,
-    height: 34,
+    width: scaleTabletopDimension(58),
+    height: scaleTabletopDimension(34),
     sectorMidpointRatio: 0.5
   },
   seats: [
@@ -230,6 +264,7 @@ const roleMarkers: Record<SeatId, string> = {
 };
 
 const roleMarkerSeatOrder = ["top-left", "top-right", "right", "self", "left"] as const satisfies readonly SeatId[];
+const opponentSeatOrder = ["top-left", "top-right", "right", "left"] as const satisfies readonly OpponentSeatId[];
 
 export function TableDesignMock({ variant = "world" }: { variant?: TableDesignMockVariant }) {
   const layout = tableDesignMockLayout;
@@ -237,7 +272,7 @@ export function TableDesignMock({ variant = "world" }: { variant?: TableDesignMo
 
   return (
     <main
-      aria-label={`Issue 330 table design ${variant} mock`}
+      aria-label={`Issue 340 table design ${variant} mock`}
       className={`table-design-mock-page table-design-mock-page-${variant}`}
       style={
         {
@@ -264,15 +299,27 @@ export function TableDesignMock({ variant = "world" }: { variant?: TableDesignMo
             {layout.seats.map((seat) => (
               <PointRiver key={`river-${seat.id}`} seat={seat} />
             ))}
+            <OpponentHandsWorld layout={layout} />
             <RoleBoard layout={layout.center} />
           </>
         )}
         {layout.seats.map((seat) => (
-          <PlayerArtifacts key={seat.id} seat={seat} />
+          <PlayerArtifacts key={seat.id} seat={playerArtifactSeat(seat, isProjected)} />
         ))}
       </div>
     </main>
   );
+}
+
+function playerArtifactSeat(seat: SeatLayout, isProjected: boolean): SeatLayout {
+  if (!isProjected || seat.id !== "self") {
+    return seat;
+  }
+
+  return {
+    ...seat,
+    ...projectedSelfArtifacts
+  };
 }
 
 function HudBox({ layout }: { layout: Box }) {
@@ -309,9 +356,7 @@ function PlayerArtifacts({ seat }: { seat: SeatLayout }) {
 
       {seat.id === "self" ? (
         <SelfHand seat={seat} />
-      ) : (
-        <CardBackFan seat={seat} />
-      )}
+      ) : null}
     </>
   );
 }
@@ -337,20 +382,6 @@ function SelfHand({ seat }: { seat: SeatLayout }) {
     >
       {selfCards.map((card) => (
         <PlayingCard card={card} className="mock-self-hand-card" key={`${card.rank}-${card.suit}`} />
-      ))}
-    </div>
-  );
-}
-
-function CardBackFan({ seat }: { seat: SeatLayout }) {
-  return (
-    <div
-      aria-label={`${seat.label}の裏向き手札`}
-      className={`mock-card-back-fan mock-card-back-fan-${seat.id}`}
-      style={pointWithRotationStyle(seat.hand)}
-    >
-      {[0, 1, 2].map((index) => (
-        <PlayingCardBack className="mock-card-back" key={index} />
       ))}
     </div>
   );
@@ -494,7 +525,62 @@ function ProjectedTabletop({ layout }: { layout: TableDesignMockLayout }) {
         {layout.seats.map((seat) => (
           <ProjectedPointRiverCards key={`projected-river-cards-${seat.id}`} layout={layout} seat={seat} />
         ))}
+        <ProjectedOpponentHands layout={layout} />
       </div>
+    </>
+  );
+}
+
+function OpponentHandsWorld({ layout }: { layout: TableDesignMockLayout }) {
+  const hands = createOpponentHandsGeometry(layout);
+
+  return (
+    <svg
+      aria-label="相手の垂直手札World Geometry"
+      className="mock-opponent-hands-world"
+      viewBox={`0 0 ${layout.page.width} ${layout.page.height}`}
+    >
+      {hands.map((hand) => (
+        <g
+          aria-label={`${seatLabel(hand.seatId)}の裏向き手札`}
+          className={`mock-opponent-hand-world mock-opponent-hand-world-${hand.seatId}`}
+          key={hand.seatId}
+        >
+          {hand.cards.map((card) => (
+            <polygon
+              className="mock-opponent-hand-world-card"
+              key={card.index}
+              points={svgPoints(
+                verticalCardTopDownThicknessPolygon(card, hand.edge.normal, layout.opponentHand.cardThickness)
+              )}
+            />
+          ))}
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+function ProjectedOpponentHands({ layout }: { layout: TableDesignMockLayout }) {
+  const hands = createOpponentHandsGeometry(layout);
+
+  return (
+    <>
+      {hands.map((hand) => (
+        <section
+          aria-label={`${seatLabel(hand.seatId)}の裏向き手札`}
+          className={`mock-projected-opponent-hand mock-projected-opponent-hand-${hand.seatId}`}
+          key={hand.seatId}
+        >
+          {hand.cards.map((card) => (
+            <ProjectedPlayingCardBack
+              corners={projectVerticalCard(card, layout.camera)}
+              key={card.index}
+              size={layout.cardSizes.opponentHand}
+            />
+          ))}
+        </section>
+      ))}
     </>
   );
 }
@@ -654,13 +740,40 @@ function PlayingCard({
   );
 }
 
-function PlayingCardBack({ className }: { className: string }) {
+function PlayingCardBack({ className, style }: { className: string; style?: CSSProperties }) {
   const CardBackComponent = mockCardBackComponent();
 
   return (
-    <span aria-label={mockCardBackComponentName} className={`${className} mock-playing-card mock-playing-card-back`}>
+    <span
+      aria-label={mockCardBackComponentName}
+      className={`${className} mock-playing-card mock-playing-card-back`}
+      style={style}
+    >
       <CardBackComponent aria-hidden="true" className="mock-playing-card-svg" focusable="false" />
     </span>
+  );
+}
+
+function ProjectedPlayingCardBack({
+  corners,
+  size
+}: {
+  corners: readonly Point[];
+  size: { height: number; width: number };
+}) {
+  const transform = projectiveTransformForRectangle(corners, size.width, size.height);
+
+  return (
+    <PlayingCardBack
+      className="mock-projected-playing-card mock-projected-playing-card-opponent-hand"
+      style={
+        {
+          "--mock-projected-card-height": `${size.height}px`,
+          "--mock-projected-card-transform": transform,
+          "--mock-projected-card-width": `${size.width}px`
+        } as CSSProperties
+      }
+    />
   );
 }
 
@@ -680,6 +793,8 @@ interface RoleBoardEdgeGeometry {
   rotation: number;
   start: Point;
 }
+
+type OpponentSeatId = Exclude<SeatId, "self">;
 
 interface RiverGeometry extends RoleBoardEdgeGeometry {
   cardSize: { height: number; width: number };
@@ -719,6 +834,26 @@ interface TableCardPlane {
   y: number;
 }
 
+interface VerticalCardGeometry {
+  index: number;
+  leftBottom: Point3;
+  leftTop: Point3;
+  rightBottom: Point3;
+  rightTop: Point3;
+}
+
+interface OpponentHandGeometry {
+  baseline: {
+    center: Point;
+    direction: Point;
+    normal: Point;
+    offset: number;
+  };
+  cards: readonly VerticalCardGeometry[];
+  edge: RoleBoardEdgeGeometry;
+  seatId: OpponentSeatId;
+}
+
 const roleBoardEdges: Record<SeatId, { end: Point; start: Point }> = {
   "top-left": { start: roleBoardPentagon.top, end: roleBoardPentagon.topLeft },
   "top-right": { start: roleBoardPentagon.topRight, end: roleBoardPentagon.top },
@@ -726,6 +861,11 @@ const roleBoardEdges: Record<SeatId, { end: Point; start: Point }> = {
   self: { start: roleBoardPentagon.bottomLeft, end: roleBoardPentagon.bottomRight },
   left: { start: roleBoardPentagon.topLeft, end: roleBoardPentagon.bottomLeft }
 };
+
+const tableSurfaceVertexIds = ["top", "topRight", "bottomRight", "bottomLeft", "topLeft"] as const;
+const tableSurfaceVertexIndexes = Object.fromEntries(
+  tableSurfaceVertexIds.map((vertexId, index) => [vertexId, index])
+) as Record<RoleBoardVertexId, number>;
 
 export function createRoleBoardEdgeGeometry(
   layout: Box,
@@ -746,6 +886,104 @@ export function createRoleBoardEdgeGeometry(
     normal,
     rotation: toLayoutPrecision((Math.atan2(direction.y, direction.x) * 180) / Math.PI),
     start
+  };
+}
+
+export function createTableSurfaceEdgeGeometry(
+  layout: TableDesignMockLayout,
+  seatId: SeatId
+): RoleBoardEdgeGeometry {
+  const edge = roleBoardEdges[seatId];
+  const start = layout.tableSurface[tableSurfaceVertexIndexes[roleBoardVertexIdForPoint(edge.start)]];
+  const end = layout.tableSurface[tableSurfaceVertexIndexes[roleBoardVertexIdForPoint(edge.end)]];
+
+  if (start === undefined || end === undefined) {
+    throw new Error(`Missing table surface edge for ${seatId}`);
+  }
+
+  return createEdgeGeometry(start, end);
+}
+
+export function createOpponentHandsGeometry(layout: TableDesignMockLayout): OpponentHandGeometry[] {
+  return opponentSeatOrder.map((seatId) => createOpponentHandGeometry(layout, seatId));
+}
+
+export function createOpponentHandGeometry(
+  layout: TableDesignMockLayout,
+  seatId: OpponentSeatId
+): OpponentHandGeometry {
+  const edge = createTableSurfaceEdgeGeometry(layout, seatId);
+  const midpoint = midpointBetween(edge.start, edge.end);
+  const baselineCenter = {
+    x: toLayoutPrecision(midpoint.x + edge.normal.x * layout.opponentHand.baselineOffset),
+    y: toLayoutPrecision(midpoint.y + edge.normal.y * layout.opponentHand.baselineOffset)
+  };
+  const cards = Array.from({ length: layout.opponentHand.cardCount }, (_, index) => {
+    const totalWidth =
+      layout.cardSizes.opponentHand.width * layout.opponentHand.cardCount +
+      layout.opponentHand.cardGap * (layout.opponentHand.cardCount - 1);
+    const cardCenterOffset =
+      -totalWidth / 2 +
+      layout.cardSizes.opponentHand.width / 2 +
+      index * (layout.cardSizes.opponentHand.width + layout.opponentHand.cardGap);
+    const cardCenter = {
+      x: baselineCenter.x + edge.direction.x * cardCenterOffset,
+      y: baselineCenter.y + edge.direction.y * cardCenterOffset
+    };
+
+    return createVerticalCardGeometry({
+      baselineCenter: cardCenter,
+      direction: edge.direction,
+      height: layout.cardSizes.opponentHand.height,
+      index,
+      width: layout.cardSizes.opponentHand.width
+    });
+  });
+
+  return {
+    baseline: {
+      center: baselineCenter,
+      direction: edge.direction,
+      normal: edge.normal,
+      offset: layout.opponentHand.baselineOffset
+    },
+    cards,
+    edge,
+    seatId
+  };
+}
+
+export function createVerticalCardGeometry({
+  baselineCenter,
+  direction,
+  height,
+  index,
+  width
+}: {
+  baselineCenter: Point;
+  direction: Point;
+  height: number;
+  index: number;
+  width: number;
+}): VerticalCardGeometry {
+  const halfWidth = width / 2;
+  const leftBottom = {
+    x: toLayoutPrecision(baselineCenter.x - direction.x * halfWidth),
+    y: toLayoutPrecision(baselineCenter.y - direction.y * halfWidth),
+    z: 0
+  };
+  const rightBottom = {
+    x: toLayoutPrecision(baselineCenter.x + direction.x * halfWidth),
+    y: toLayoutPrecision(baselineCenter.y + direction.y * halfWidth),
+    z: 0
+  };
+
+  return {
+    index,
+    leftBottom,
+    rightBottom,
+    rightTop: { ...rightBottom, z: height },
+    leftTop: { ...leftBottom, z: height }
   };
 }
 
@@ -891,6 +1129,18 @@ export function projectTableCard(
   return projectTablePolygon(corners, camera);
 }
 
+export function projectVerticalCard(
+  card: VerticalCardGeometry,
+  camera = tableDesignMockLayout.camera
+): Point[] {
+  return [
+    projectTablePoint(card.leftTop, camera),
+    projectTablePoint(card.rightTop, camera),
+    projectTablePoint(card.rightBottom, camera),
+    projectTablePoint(card.leftBottom, camera)
+  ];
+}
+
 function projectiveTransformForRectangle(corners: readonly Point[], width: number, height: number): string {
   const sourceCorners = [
     { x: 0, y: 0 },
@@ -991,6 +1241,33 @@ function riverStyle(geometry: RiverGeometry): CSSProperties {
   } as CSSProperties;
 }
 
+function verticalCardTopDownThicknessPolygon(
+  card: VerticalCardGeometry,
+  normal: Point,
+  thickness: number
+): Point[] {
+  const halfThickness = thickness / 2;
+
+  return [
+    {
+      x: card.leftBottom.x - normal.x * halfThickness,
+      y: card.leftBottom.y - normal.y * halfThickness
+    },
+    {
+      x: card.rightBottom.x - normal.x * halfThickness,
+      y: card.rightBottom.y - normal.y * halfThickness
+    },
+    {
+      x: card.rightBottom.x + normal.x * halfThickness,
+      y: card.rightBottom.y + normal.y * halfThickness
+    },
+    {
+      x: card.leftBottom.x + normal.x * halfThickness,
+      y: card.leftBottom.y + normal.y * halfThickness
+    }
+  ];
+}
+
 function trickZoneStyle(zone: CurrentTrickZoneGeometry): CSSProperties {
   return {
     ...pointWithRotationStyle(zone),
@@ -1044,6 +1321,36 @@ function roleBoardAbsolutePoint(layout: Box, point: Point): Point {
     x: layout.x - layout.width / 2 + point.x * layout.width,
     y: layout.y - layout.height / 2 + point.y * layout.height
   };
+}
+
+function createEdgeGeometry(start: Point, end: Point): RoleBoardEdgeGeometry {
+  const vector = { x: end.x - start.x, y: end.y - start.y };
+  const d = toLayoutPrecision(distance(start, end));
+  const direction = normalizeVector(vector);
+  const normal = normalizeVector({ x: -direction.y, y: direction.x });
+
+  return {
+    d,
+    direction,
+    end,
+    normal,
+    rotation: toLayoutPrecision((Math.atan2(direction.y, direction.x) * 180) / Math.PI),
+    start
+  };
+}
+
+function roleBoardVertexIdForPoint(point: Point): RoleBoardVertexId {
+  const entry = roleBoardVertexOrder.find((vertexId) => roleBoardPentagon[vertexId] === point);
+
+  if (entry === undefined) {
+    throw new Error("Unknown role-board vertex");
+  }
+
+  return entry;
+}
+
+function seatLabel(seatId: SeatId): string {
+  return tableDesignMockLayout.seats.find((seat) => seat.id === seatId)?.label ?? seatId;
 }
 
 function roleBoardLocalToAbsolute(layout: Box, point: Point): Point {
@@ -1197,4 +1504,8 @@ function roleBoardClipPath(): string {
 
 function toLayoutPrecision(value: number): number {
   return Number(value.toFixed(3));
+}
+
+function scaleTabletopDimension(value: number): number {
+  return toLayoutPrecision(value * tabletopWorldScale);
 }

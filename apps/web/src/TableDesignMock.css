@@ -73,19 +73,20 @@ html:has(.table-design-mock-page) {
 }
 
 .mock-avatar,
-.mock-card-back-fan,
 .mock-self-hand,
 .mock-current-trick-zone,
 .mock-point-river,
 .mock-table-surface,
-.mock-projected-tabletop {
+.mock-projected-tabletop,
+.mock-opponent-hands-world {
   left: var(--mock-x);
   position: absolute;
   top: var(--mock-y);
 }
 
 .mock-table-surface,
-.mock-projected-tabletop {
+.mock-projected-tabletop,
+.mock-opponent-hands-world {
   height: var(--mock-page-height);
   inset: 0;
   left: 0;
@@ -101,12 +102,12 @@ html:has(.table-design-mock-page) {
   stroke-width: 4;
 }
 
-.mock-projected-tabletop {
+.mock-projected-tabletop,
+.mock-opponent-hands-world {
   overflow: visible;
 }
 
 .mock-avatar,
-.mock-card-back-fan,
 .mock-self-hand,
 .mock-current-trick-zone {
   transform: translate(-50%, -50%) rotate(var(--mock-rotation, 0deg));
@@ -143,48 +144,16 @@ html:has(.table-design-mock-page) {
   width: 94px;
 }
 
-.mock-card-back-fan {
-  height: 140px;
-  perspective: 340px;
-  width: 182px;
+.mock-opponent-hands-world {
+  pointer-events: none;
 }
 
-.mock-card-back {
-  display: block;
-  height: 112px;
-  left: 50%;
-  position: absolute;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  transform-origin: 50% 100%;
-  width: 80px;
-}
-
-.mock-card-back:nth-child(1) {
-  transform: translate(-84px, -62px) rotate(-2deg) skewY(-6deg) scaleY(1.04);
-}
-
-.mock-card-back:nth-child(2) {
-  transform: translate(-28px, -64px) rotate(0deg) skewY(-4deg) scaleY(1.05);
-}
-
-.mock-card-back:nth-child(3) {
-  transform: translate(28px, -62px) rotate(2deg) skewY(-2deg) scaleY(1.04);
-}
-
-.mock-card-back-fan-left .mock-card-back:nth-child(1),
-.mock-card-back-fan-right .mock-card-back:nth-child(1) {
-  transform: translate(-84px, -62px) rotate(-1deg) skewY(5deg) scaleY(1.06);
-}
-
-.mock-card-back-fan-left .mock-card-back:nth-child(2),
-.mock-card-back-fan-right .mock-card-back:nth-child(2) {
-  transform: translate(-28px, -64px) rotate(0deg) skewY(3deg) scaleY(1.07);
-}
-
-.mock-card-back-fan-left .mock-card-back:nth-child(3),
-.mock-card-back-fan-right .mock-card-back:nth-child(3) {
-  transform: translate(28px, -62px) rotate(1deg) skewY(1deg) scaleY(1.06);
+.mock-opponent-hand-world-card {
+  fill: #f8fafc;
+  opacity: 0.96;
+  stroke: rgb(10 24 18 / 72%);
+  stroke-linejoin: round;
+  stroke-width: 2;
 }
 
 .mock-current-trick-zone {
@@ -328,6 +297,14 @@ html:has(.table-design-mock-page) {
   transform: var(--mock-projected-card-transform);
   transform-origin: 0 0;
   width: var(--mock-projected-card-width);
+}
+
+.mock-projected-opponent-hand {
+  display: contents;
+}
+
+.mock-projected-playing-card-opponent-hand {
+  filter: drop-shadow(0 6px 4px rgb(0 0 0 / 34%));
 }
 
 .mock-projected-role-board-outer {
