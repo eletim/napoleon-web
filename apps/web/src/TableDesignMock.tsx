@@ -71,6 +71,10 @@ interface TableDesignMockLayout {
     cardThickness: number;
     maxCardCount: number;
   };
+  selfHandUi: {
+    bottomInset: number;
+    maxCardCount: number;
+  };
   seats: readonly SeatLayout[];
   tableSurface: readonly Point[];
   tabletopWorld: {
@@ -89,6 +93,9 @@ interface PerspectiveCameraConfig {
 
 const pentagonCenter: Point = { x: 1120, y: 910 };
 const pentagonStartAngle = -90;
+const mockPageWidth = 2200;
+const mockPageHeight = 1830;
+const maxSelfHandCardCount = 13;
 const tabletopWorldScale = 1.8;
 const tableSurfaceRadius = scaleTabletopDimension(700);
 const roleBoardRadius = scaleTabletopDimension(175);
@@ -114,13 +121,13 @@ const tableSurfacePentagon = regularPentagon(pentagonCenter, tableSurfaceRadius,
 
 const cardAspectRatio = 7 / 5;
 const trickCardWidth = scaleTabletopDimension(118);
+const selfHandCardWidth = (0.8 * mockPageWidth) / maxSelfHandCardCount;
 const riverGap = scaleTabletopDimension(18);
 const opponentHandCardWidthRatio = 0.08;
 const opponentHandCardGapRatio = 0.02;
 
-const projectedSelfArtifacts: Pick<SeatLayout, "avatar" | "hand"> = {
-  avatar: { x: 808, y: 1570 },
-  hand: { x: 1118, y: 1660, rotation: 0 }
+const projectedSelfArtifacts: Pick<SeatLayout, "avatar"> = {
+  avatar: { x: 808, y: 1492 }
 };
 
 // Source of Truth: https://github.com/eletim/napoleon-web/issues/308#issuecomment-5348323047
@@ -128,8 +135,8 @@ const projectedSelfArtifacts: Pick<SeatLayout, "avatar" | "hand"> = {
 // hunting through individual elements.
 export const tableDesignMockLayout: TableDesignMockLayout = {
   page: {
-    width: 2200,
-    height: 1830,
+    width: mockPageWidth,
+    height: mockPageHeight,
     background: "#1d1d1d"
   },
   camera: {
@@ -156,7 +163,7 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
   center: roleBoardCenter,
   cardSizes: {
     trick: { width: trickCardWidth, height: toLayoutPrecision(trickCardWidth * cardAspectRatio) },
-    selfHand: { width: 172, height: toLayoutPrecision(172 * cardAspectRatio) }
+    selfHand: { width: selfHandCardWidth, height: selfHandCardWidth * cardAspectRatio }
   },
   opponentHand: {
     baselineOffset: scaleTabletopDimension(40),
@@ -169,6 +176,10 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
     cardGapRatio: opponentHandCardGapRatio,
     cardThickness: scaleTabletopDimension(6),
     maxCardCount: 10
+  },
+  selfHandUi: {
+    bottomInset: 16,
+    maxCardCount: maxSelfHandCardCount
   },
   currentTrickZone: {
     gapFromRiver: scaleTabletopDimension(28),
@@ -220,8 +231,19 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
 };
 
 const selfCards: readonly MockPlayingCard[] = [
+  { rank: "A", suit: "spades" },
+  { rank: "2", suit: "spades" },
+  { rank: "3", suit: "spades" },
+  { rank: "4", suit: "spades" },
   { rank: "5", suit: "spades" },
-  { rank: "7", suit: "spades" }
+  { rank: "6", suit: "spades" },
+  { rank: "7", suit: "spades" },
+  { rank: "8", suit: "spades" },
+  { rank: "9", suit: "spades" },
+  { rank: "10", suit: "spades" },
+  { rank: "J", suit: "spades" },
+  { rank: "Q", suit: "spades" },
+  { rank: "K", suit: "spades" }
 ];
 
 const trickCards: Partial<Record<SeatId, MockPlayingCard>> = {
@@ -276,15 +298,13 @@ export function TableDesignMock({ variant = "world" }: { variant?: TableDesignMo
 
   return (
     <main
-      aria-label={`Issue 342 table design ${variant} mock`}
+      aria-label={`Issue 344 table design ${variant} mock`}
       className={`table-design-mock-page table-design-mock-page-${variant}`}
       style={
         {
           "--mock-page-background": layout.page.background,
           "--mock-page-height": `${layout.page.height}px`,
           "--mock-page-width": `${layout.page.width}px`,
-          "--mock-self-card-height": `${layout.cardSizes.selfHand.height}px`,
-          "--mock-self-card-width": `${layout.cardSizes.selfHand.width}px`,
           "--mock-trick-card-height": `${layout.cardSizes.trick.height}px`,
           "--mock-trick-card-width": `${layout.cardSizes.trick.width}px`
         } as CSSProperties
@@ -310,6 +330,7 @@ export function TableDesignMock({ variant = "world" }: { variant?: TableDesignMo
         {layout.seats.map((seat) => (
           <PlayerArtifacts key={seat.id} seat={playerArtifactSeat(seat, isProjected)} />
         ))}
+        <SelfHand layout={layout} cards={selfCards} />
       </div>
     </main>
   );
@@ -358,9 +379,6 @@ function PlayerArtifacts({ seat }: { seat: SeatLayout }) {
         <span className="mock-avatar-body" />
       </div>
 
-      {seat.id === "self" ? (
-        <SelfHand seat={seat} />
-      ) : null}
     </>
   );
 }
@@ -377,15 +395,17 @@ function TableSurfaceWorld({ points }: { points: readonly Point[] }) {
   );
 }
 
-function SelfHand({ seat }: { seat: SeatLayout }) {
+function SelfHand({ cards, layout }: { cards: readonly MockPlayingCard[]; layout: TableDesignMockLayout }) {
+  const selfHandLayout = createSelfHandViewportLayout(layout, cards.length);
+
   return (
     <div
       aria-label="自分の表向き手札"
       className="mock-self-hand"
-      style={pointWithRotationStyle(seat.hand)}
+      style={selfHandViewportStyle(selfHandLayout)}
     >
-      {selfCards.map((card) => (
-        <PlayingCard card={card} className="mock-self-hand-card" key={`${card.rank}-${card.suit}`} />
+      {cards.map((card, index) => (
+        <PlayingCard card={card} className="mock-self-hand-card" key={`${card.rank}-${card.suit}-${index}`} />
       ))}
     </div>
   );
@@ -865,6 +885,16 @@ interface OpponentHandGeometry {
   seatId: OpponentSeatId;
 }
 
+interface SelfHandViewportLayout {
+  bottom: number;
+  cardSize: { height: number; width: number };
+  center: Point;
+  gap: number;
+  handWidth: number;
+  left: number;
+  top: number;
+}
+
 const roleBoardEdges: Record<SeatId, { end: Point; start: Point }> = {
   "top-left": { start: roleBoardPentagon.top, end: roleBoardPentagon.topLeft },
   "top-right": { start: roleBoardPentagon.topRight, end: roleBoardPentagon.top },
@@ -991,6 +1021,49 @@ export function opponentHandWidth(cardCount: number, metrics: OpponentHandCardMe
   }
 
   return cardCount * metrics.cardSize.width + (cardCount - 1) * metrics.gap;
+}
+
+export function createSelfHandViewportMetrics(viewportWidth: number): Pick<SelfHandViewportLayout, "cardSize" | "gap"> {
+  const width = (0.8 * viewportWidth) / tableDesignMockLayout.selfHandUi.maxCardCount;
+
+  return {
+    cardSize: {
+      width,
+      height: width * cardAspectRatio
+    },
+    gap: (0.16 * viewportWidth) / (tableDesignMockLayout.selfHandUi.maxCardCount - 1)
+  };
+}
+
+export function selfHandWidth(cardCount: number, metrics: Pick<SelfHandViewportLayout, "cardSize" | "gap">): number {
+  if (cardCount <= 0) {
+    return 0;
+  }
+
+  return cardCount * metrics.cardSize.width + (cardCount - 1) * metrics.gap;
+}
+
+export function createSelfHandViewportLayout(
+  layout: TableDesignMockLayout,
+  cardCount: number
+): SelfHandViewportLayout {
+  const metrics = createSelfHandViewportMetrics(layout.page.width);
+  const handWidth = selfHandWidth(cardCount, metrics);
+  const left = toLayoutPrecision((layout.page.width - handWidth) / 2);
+  const bottom = toLayoutPrecision(layout.page.height - layout.selfHandUi.bottomInset);
+  const top = toLayoutPrecision(bottom - metrics.cardSize.height);
+
+  return {
+    ...metrics,
+    bottom,
+    center: {
+      x: toLayoutPrecision(left + handWidth / 2),
+      y: toLayoutPrecision(top + metrics.cardSize.height / 2)
+    },
+    handWidth,
+    left,
+    top
+  };
 }
 
 export function createVerticalCardGeometry({
@@ -1322,6 +1395,17 @@ function roleMarkerStyle(marker: RoleMarkerGeometry): CSSProperties {
     "--mock-role-marker-width": `${marker.width}px`,
     "--mock-role-marker-x": `${marker.x}px`,
     "--mock-role-marker-y": `${marker.y}px`
+  } as CSSProperties;
+}
+
+function selfHandViewportStyle(layout: SelfHandViewportLayout): CSSProperties {
+  return {
+    "--mock-self-card-gap": `${layout.gap}px`,
+    "--mock-self-card-height": `${layout.cardSize.height}px`,
+    "--mock-self-card-width": `${layout.cardSize.width}px`,
+    "--mock-self-hand-left": `${layout.left}px`,
+    "--mock-self-hand-top": `${layout.top}px`,
+    "--mock-self-hand-width": `${layout.handWidth}px`
   } as CSSProperties;
 }
 

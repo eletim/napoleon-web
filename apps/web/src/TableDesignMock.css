@@ -108,7 +108,6 @@ html:has(.table-design-mock-page) {
 }
 
 .mock-avatar,
-.mock-self-hand,
 .mock-current-trick-zone {
   transform: translate(-50%, -50%) rotate(var(--mock-rotation, 0deg));
 }
@@ -209,10 +208,16 @@ html:has(.table-design-mock-page) {
 .mock-self-hand {
   align-items: end;
   display: flex;
-  gap: 18px;
+  gap: var(--mock-self-card-gap);
+  height: var(--mock-self-card-height);
+  left: var(--mock-self-hand-left);
+  top: var(--mock-self-hand-top);
+  width: var(--mock-self-hand-width);
+  z-index: 5;
 }
 
 .mock-self-hand-card {
+  flex: 0 0 auto;
   height: var(--mock-self-card-height);
   width: var(--mock-self-card-width);
 }
