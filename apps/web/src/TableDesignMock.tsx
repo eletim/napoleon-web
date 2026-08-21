@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import {
   mockCardBackComponent,
   mockCardBackComponentName,
@@ -22,6 +22,11 @@ interface Point3 extends Point {
 }
 
 interface Box extends Point {
+  height: number;
+  width: number;
+}
+
+interface ViewportSize {
   height: number;
   width: number;
 }
@@ -74,6 +79,10 @@ interface TableDesignMockLayout {
   selfHandUi: {
     bottomInset: number;
     maxCardCount: number;
+  };
+  projectedFit: {
+    tableHeightRatio: number;
+    topInsetRatio: number;
   };
   seats: readonly SeatLayout[];
   tableSurface: readonly Point[];
@@ -180,6 +189,10 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
   selfHandUi: {
     bottomInset: 16,
     maxCardCount: maxSelfHandCardCount
+  },
+  projectedFit: {
+    tableHeightRatio: 0.76,
+    topInsetRatio: 0.015
   },
   currentTrickZone: {
     gapFromRiver: scaleTabletopDimension(28),
@@ -295,10 +308,11 @@ const opponentSeatOrder = ["top-left", "top-right", "right", "left"] as const sa
 export function TableDesignMock({ variant = "world" }: { variant?: TableDesignMockVariant }) {
   const layout = tableDesignMockLayout;
   const isProjected = variant === "projected";
+  const viewportSize = useViewportSize(layout.page);
 
   return (
     <main
-      aria-label={`Issue 344 table design ${variant} mock`}
+      aria-label={`Issue 348 table design ${variant} mock`}
       className={`table-design-mock-page table-design-mock-page-${variant}`}
       style={
         {
@@ -313,7 +327,7 @@ export function TableDesignMock({ variant = "world" }: { variant?: TableDesignMo
       <div className="table-design-stage">
         <HudBox layout={layout.hud} />
         {isProjected ? (
-          <ProjectedTabletop layout={layout} />
+          <ProjectedTabletop layout={layout} viewportSize={viewportSize} />
         ) : (
           <>
             <TableSurfaceWorld points={layout.tableSurface} />
@@ -327,10 +341,12 @@ export function TableDesignMock({ variant = "world" }: { variant?: TableDesignMo
             <RoleBoard layout={layout.center} />
           </>
         )}
-        {layout.seats.map((seat) => (
-          <PlayerArtifacts key={seat.id} seat={playerArtifactSeat(seat, isProjected)} />
-        ))}
-        <SelfHand layout={layout} cards={selfCards} />
+        {isProjected
+          ? null
+          : layout.seats.map((seat) => (
+              <PlayerArtifacts key={seat.id} seat={playerArtifactSeat(seat, isProjected)} />
+            ))}
+        <SelfHand cards={selfCards} layout={layout} viewportSize={viewportSize} />
       </div>
     </main>
   );
@@ -395,8 +411,16 @@ function TableSurfaceWorld({ points }: { points: readonly Point[] }) {
   );
 }
 
-function SelfHand({ cards, layout }: { cards: readonly MockPlayingCard[]; layout: TableDesignMockLayout }) {
-  const selfHandLayout = createSelfHandViewportLayout(layout, cards.length);
+function SelfHand({
+  cards,
+  layout,
+  viewportSize
+}: {
+  cards: readonly MockPlayingCard[];
+  layout: TableDesignMockLayout;
+  viewportSize: ViewportSize;
+}) {
+  const selfHandLayout = createSelfHandViewportLayout(layout, cards.length, viewportSize);
 
   return (
     <div
@@ -503,18 +527,19 @@ function RoleBoard({ layout }: { layout: Box }) {
   );
 }
 
-function ProjectedTabletop({ layout }: { layout: TableDesignMockLayout }) {
+function ProjectedTabletop({ layout, viewportSize }: { layout: TableDesignMockLayout; viewportSize: ViewportSize }) {
   const camera = layout.camera;
   const tablePoints = projectTablePolygon(layout.tableSurface, camera);
   const roleOuterPoints = projectTablePolygon(roleBoardOuterPolygon(layout.center), camera);
   const roleInnerPoints = projectTablePolygon(roleBoardInnerPolygon(layout.center), camera);
+  const fit = createProjectedBoardFit(layout, viewportSize);
   const sectorLines = createRoleBoardSectorLines(layout.center).map((line) => ({
     inner: projectTablePoint(roleBoardLocalToAbsolute(layout.center, line.inner), camera),
     outer: projectTablePoint(roleBoardLocalToAbsolute(layout.center, line.outer), camera)
   }));
 
   return (
-    <>
+    <div className="mock-projected-board-fit" style={projectedBoardFitStyle(fit)}>
       <svg
         aria-label="投影後の卓上Geometry"
         className="mock-projected-tabletop"
@@ -551,7 +576,10 @@ function ProjectedTabletop({ layout }: { layout: TableDesignMockLayout }) {
         ))}
         <ProjectedOpponentHands layout={layout} />
       </div>
-    </>
+      {layout.seats.map((seat) => (
+        <PlayerArtifacts key={seat.id} seat={playerArtifactSeat(seat, true)} />
+      ))}
+    </div>
   );
 }
 
@@ -895,6 +923,22 @@ interface SelfHandViewportLayout {
   top: number;
 }
 
+interface BoundingBox extends Box {
+  bottom: number;
+  left: number;
+  right: number;
+  top: number;
+}
+
+interface ProjectedBoardFit {
+  projectedTableBox: BoundingBox;
+  scale: number;
+  tableHeightRatio: number;
+  transformedTableBox: BoundingBox;
+  translate: Point;
+  viewport: ViewportSize;
+}
+
 const roleBoardEdges: Record<SeatId, { end: Point; start: Point }> = {
   "top-left": { start: roleBoardPentagon.top, end: roleBoardPentagon.topLeft },
   "top-right": { start: roleBoardPentagon.topRight, end: roleBoardPentagon.top },
@@ -1045,12 +1089,13 @@ export function selfHandWidth(cardCount: number, metrics: Pick<SelfHandViewportL
 
 export function createSelfHandViewportLayout(
   layout: TableDesignMockLayout,
-  cardCount: number
+  cardCount: number,
+  viewport: ViewportSize = layout.page
 ): SelfHandViewportLayout {
-  const metrics = createSelfHandViewportMetrics(layout.page.width);
+  const metrics = createSelfHandViewportMetrics(viewport.width);
   const handWidth = selfHandWidth(cardCount, metrics);
-  const left = toLayoutPrecision((layout.page.width - handWidth) / 2);
-  const bottom = toLayoutPrecision(layout.page.height - layout.selfHandUi.bottomInset);
+  const left = toLayoutPrecision((viewport.width - handWidth) / 2);
+  const bottom = toLayoutPrecision(viewport.height - layout.selfHandUi.bottomInset);
   const top = toLayoutPrecision(bottom - metrics.cardSize.height);
 
   return {
@@ -1063,6 +1108,34 @@ export function createSelfHandViewportLayout(
     handWidth,
     left,
     top
+  };
+}
+
+export function createProjectedTableBoundingBox(layout: TableDesignMockLayout): BoundingBox {
+  return boundingBox(projectTablePolygon(layout.tableSurface, layout.camera));
+}
+
+export function createProjectedBoardFit(
+  layout: TableDesignMockLayout,
+  viewport: ViewportSize
+): ProjectedBoardFit {
+  const projectedTableBox = createProjectedTableBoundingBox(layout);
+  const targetTableHeight = viewport.height * layout.projectedFit.tableHeightRatio;
+  const scale = targetTableHeight / projectedTableBox.height;
+  const targetTop = viewport.height * layout.projectedFit.topInsetRatio;
+  const translate = {
+    x: toLayoutPrecision(viewport.width / 2 - projectedTableBox.x * scale),
+    y: toLayoutPrecision(targetTop - projectedTableBox.top * scale)
+  };
+  const transformedTableBox = transformBoundingBox(projectedTableBox, scale, translate);
+
+  return {
+    projectedTableBox,
+    scale,
+    tableHeightRatio: layout.projectedFit.tableHeightRatio,
+    transformedTableBox,
+    translate,
+    viewport
   };
 }
 
@@ -1409,11 +1482,41 @@ function selfHandViewportStyle(layout: SelfHandViewportLayout): CSSProperties {
   } as CSSProperties;
 }
 
+function projectedBoardFitStyle(fit: ProjectedBoardFit): CSSProperties {
+  return {
+    "--mock-projected-board-transform": `translate(${fit.translate.x}px, ${fit.translate.y}px) scale(${fit.scale})`
+  } as CSSProperties;
+}
+
 function pointStyle(point: Point): CSSProperties {
   return {
     "--mock-x": `${point.x}px`,
     "--mock-y": `${point.y}px`
   } as CSSProperties;
+}
+
+function useViewportSize(fallback: ViewportSize): ViewportSize {
+  const [viewportSize, setViewportSize] = useState<ViewportSize>(fallback);
+
+  useEffect(() => {
+    const readViewportSize = () => ({
+      width: window.innerWidth,
+      height: window.innerHeight
+    });
+
+    const updateViewportSize = () => {
+      setViewportSize(readViewportSize());
+    };
+
+    updateViewportSize();
+    window.addEventListener("resize", updateViewportSize);
+
+    return () => {
+      window.removeEventListener("resize", updateViewportSize);
+    };
+  }, []);
+
+  return viewportSize;
 }
 
 function pointWithRotationStyle(point: Point & { rotation: number }): CSSProperties {
@@ -1554,6 +1657,48 @@ function polygonCenter(points: readonly Point[]): Point {
   return {
     x: toLayoutPrecision(total.x / points.length),
     y: toLayoutPrecision(total.y / points.length)
+  };
+}
+
+function boundingBox(points: readonly Point[]): BoundingBox {
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  const left = Math.min(...xs);
+  const right = Math.max(...xs);
+  const top = Math.min(...ys);
+  const bottom = Math.max(...ys);
+  const width = right - left;
+  const height = bottom - top;
+
+  return {
+    bottom: toLayoutPrecision(bottom),
+    height: toLayoutPrecision(height),
+    left: toLayoutPrecision(left),
+    right: toLayoutPrecision(right),
+    top: toLayoutPrecision(top),
+    width: toLayoutPrecision(width),
+    x: toLayoutPrecision(left + width / 2),
+    y: toLayoutPrecision(top + height / 2)
+  };
+}
+
+function transformBoundingBox(box: BoundingBox, scale: number, translate: Point): BoundingBox {
+  const left = box.left * scale + translate.x;
+  const right = box.right * scale + translate.x;
+  const top = box.top * scale + translate.y;
+  const bottom = box.bottom * scale + translate.y;
+  const width = right - left;
+  const height = bottom - top;
+
+  return {
+    bottom: toLayoutPrecision(bottom),
+    height: toLayoutPrecision(height),
+    left: toLayoutPrecision(left),
+    right: toLayoutPrecision(right),
+    top: toLayoutPrecision(top),
+    width: toLayoutPrecision(width),
+    x: toLayoutPrecision(left + width / 2),
+    y: toLayoutPrecision(top + height / 2)
   };
 }
 

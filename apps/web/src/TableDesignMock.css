@@ -24,6 +24,12 @@ html:has(.table-design-mock-page) {
   width: var(--mock-page-width);
 }
 
+.table-design-mock-page-projected .table-design-stage {
+  height: 100vh;
+  height: 100dvh;
+  width: 100vw;
+}
+
 .mock-hud,
 .mock-role-board,
 .mock-self-action {
@@ -290,6 +296,18 @@ html:has(.table-design-mock-page) {
   inset: 0;
   pointer-events: none;
   position: absolute;
+  transform-style: preserve-3d;
+  width: var(--mock-page-width);
+}
+
+.mock-projected-board-fit {
+  height: var(--mock-page-height);
+  left: 0;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  transform: var(--mock-projected-board-transform);
+  transform-origin: 0 0;
   transform-style: preserve-3d;
   width: var(--mock-page-width);
 }
