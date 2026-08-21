@@ -1,5 +1,6 @@
 import { generateRuleBasedDataset } from "@napoleon/training-data";
 import { createProgressReporter } from "./formatProgress.js";
+import { runNonPlayingBiddingDiagnosticsCli } from "./nonPlayingBiddingDiagnostics.js";
 import { runNonPlayingRlCli } from "./nonPlayingRlCli.js";
 import { parseArgs } from "./parseArgs.js";
 
@@ -17,6 +18,9 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
     const [command, ...rest] = argv;
     if (command === "non-playing-rollout" || command === "full-policy-evaluate") {
       return runNonPlayingRlCli(command, rest, io);
+    }
+    if (command === "bidding-diagnostics") {
+      return runNonPlayingBiddingDiagnosticsCli(rest, io);
     }
 
     const parsed = parseArgs(argv);
