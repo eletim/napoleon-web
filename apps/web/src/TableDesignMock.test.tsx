@@ -11,6 +11,8 @@ import {
   createRoleMarkerGeometry,
   createRoleBoardEdgeGeometry,
   createRoleSectorGeometry,
+  createSelfHandViewportLayout,
+  createSelfHandViewportMetrics,
   createTableSurfaceEdgeGeometry,
   opponentHandWidth,
   projectVerticalCard,
@@ -18,16 +20,18 @@ import {
   projectTablePolygon,
   regularPentagon,
   roleBoardSelfSideLength,
+  selfHandWidth,
   selfRiverWidth,
   tableDesignMockLayout
 } from "./TableDesignMock";
 
 describe("TableDesignMock", () => {
-  it("renders the issue 342 world mock with unprojected tabletop geometry", () => {
+  it("renders the issue 344 world mock with unprojected tabletop geometry", () => {
     const html = renderToStaticMarkup(<TableDesignMock />);
+    const selfHandStyle = html.match(/aria-label="自分の表向き手札" class="mock-self-hand" style="([^"]+)"/)?.[1] ?? "";
 
     expect(tableDesignMockLayout.seats).toHaveLength(5);
-    expect(html).toContain("Issue 342 table design world mock");
+    expect(html).toContain("Issue 344 table design world mock");
     expect(html).toContain("契約HUD");
     expect(html).toContain("中央役職表示");
     expect(html).toContain("自分の表向き手札");
@@ -36,7 +40,12 @@ describe("TableDesignMock", () => {
     expect(html).toContain("自分のポイント札の河");
     expect(html).not.toContain("自席操作UI");
     expect(html).toContain("--mock-page-width:2200px");
-    expect(html).toContain("--mock-self-card-height:240.8px");
+    expect(selfHandStyle).toContain("--mock-self-card-width:");
+    expect(selfHandStyle).toContain("--mock-self-card-height:");
+    expect(selfHandStyle).toContain("--mock-self-card-gap:");
+    expect(selfHandStyle).toContain("--mock-self-hand-left:");
+    expect(selfHandStyle).toContain("--mock-self-hand-top:");
+    expect(selfHandStyle).toContain("--mock-self-hand-width:");
     expect(html).toContain("--mock-trick-card-width:212.4px");
     expect(html).toContain("--mock-trick-card-height:297.36px");
     expect(html).toContain("--mock-trick-zone-width:291.6px");
@@ -70,7 +79,8 @@ describe("TableDesignMock", () => {
     expect(tableDesignMockLayout.riverGrid).toMatchObject({ maxColumns: 5, maxRows: 4 });
     expect((html.match(/mock-current-trick-zone/g) ?? [])).toHaveLength(10);
     expect((html.match(/mock-trick-card mock-playing-card/g) ?? [])).toHaveLength(5);
-    expect((html.match(/mock-playing-card-svg/g) ?? [])).toHaveLength(21);
+    expect((html.match(/mock-self-hand-card/g) ?? [])).toHaveLength(13);
+    expect((html.match(/mock-playing-card-svg/g) ?? [])).toHaveLength(32);
     expect((html.match(/mock-opponent-hand-world-card/g) ?? [])).toHaveLength(23);
     expect((html.match(/aria-label="B1"/g) ?? [])).toHaveLength(0);
     expect(html).not.toContain("mock-card-back-fan");
@@ -85,10 +95,10 @@ describe("TableDesignMock", () => {
     expect(html).toContain(">副</span>");
   });
 
-  it("renders the issue 342 projected mock from projected tabletop polygons", () => {
+  it("renders the issue 344 projected mock from projected tabletop polygons", () => {
     const html = renderToStaticMarkup(<TableDesignMock variant="projected" />);
 
-    expect(html).toContain("Issue 342 table design projected mock");
+    expect(html).toContain("Issue 344 table design projected mock");
     expect(html).toContain("投影後の卓上Geometry");
     expect(html).toContain("mock-projected-tabletop");
     expect(html).toContain("mock-table-surface-polygon");
@@ -105,10 +115,62 @@ describe("TableDesignMock", () => {
     expect(html).not.toContain("mock-point-river mock-point-river");
     expect(html).toContain("北西の裏向き手札");
     expect(html).toContain("自分の表向き手札");
-    expect(html).toContain(
-      'aria-label="自分の表向き手札" class="mock-self-hand" style="--mock-x:1118px;--mock-y:1660px'
-    );
-    expect(html).toContain('aria-label="自分 プレイヤー" class="mock-avatar mock-avatar-self" style="--mock-x:808px;--mock-y:1570px');
+    expect((html.match(/mock-self-hand-card/g) ?? [])).toHaveLength(13);
+    expect(html).toContain('aria-label="自分 プレイヤー" class="mock-avatar mock-avatar-self" style="--mock-x:808px;--mock-y:1492px');
+  });
+
+  it("lays out the self hand as viewport-width 2D UI for up to thirteen cards", () => {
+    const viewportWidth = tableDesignMockLayout.page.width;
+    const metrics = createSelfHandViewportMetrics(viewportWidth);
+    const fullHand = createSelfHandViewportLayout(tableDesignMockLayout, 13);
+    const reducedHand = createSelfHandViewportLayout(tableDesignMockLayout, 5);
+
+    expect(metrics.cardSize.width).toBeCloseTo((0.8 * viewportWidth) / 13);
+    expect(metrics.cardSize.height).toBeCloseTo(metrics.cardSize.width * 7 / 5);
+    expect(metrics.gap).toBeCloseTo((0.16 * viewportWidth) / 12);
+    expect(selfHandWidth(13, metrics)).toBeCloseTo(0.96 * viewportWidth);
+    expect(fullHand.handWidth).toBeCloseTo(0.96 * viewportWidth);
+    expect(fullHand.left).toBeCloseTo(0.02 * viewportWidth);
+    expect(tableDesignMockLayout.page.height - fullHand.bottom).toBe(tableDesignMockLayout.selfHandUi.bottomInset);
+    expect(fullHand.top).toBeGreaterThan(0);
+    expect(fullHand.bottom).toBeLessThanOrEqual(tableDesignMockLayout.page.height);
+
+    expect(reducedHand.cardSize.width).toBe(fullHand.cardSize.width);
+    expect(reducedHand.cardSize.height).toBe(fullHand.cardSize.height);
+    expect(reducedHand.gap).toBe(fullHand.gap);
+    expect(reducedHand.handWidth).toBeLessThan(fullHand.handWidth);
+    expect(reducedHand.center.x).toBeCloseTo(viewportWidth / 2);
+  });
+
+  it("uses the same unprojected self-hand layout for world and projected mocks", () => {
+    const world = renderToStaticMarkup(<TableDesignMock variant="world" />);
+    const projected = renderToStaticMarkup(<TableDesignMock variant="projected" />);
+    const selfHandStyle = /aria-label="自分の表向き手札" class="mock-self-hand" style="([^"]+)"/;
+    const worldStyle = world.match(selfHandStyle)?.[1];
+    const projectedStyle = projected.match(selfHandStyle)?.[1];
+
+    expect(worldStyle).toBeDefined();
+    expect(projectedStyle).toBeDefined();
+    expect(projectedStyle).toBe(worldStyle);
+    expect(worldStyle).not.toContain("matrix3d");
+    expect(worldStyle).not.toContain("--mock-x");
+    expect(worldStyle).not.toContain("--mock-y");
+  });
+
+  it("keeps the self-hand layout independent from projected camera settings", () => {
+    const baseline = createSelfHandViewportLayout(tableDesignMockLayout, 13);
+    const cameraChangedLayout = {
+      ...tableDesignMockLayout,
+      camera: {
+        ...tableDesignMockLayout.camera,
+        focalLength: tableDesignMockLayout.camera.focalLength * 1.5,
+        position: { x: 620, y: 3120, z: 1800 },
+        screenCenter: { x: 970, y: 520 },
+        target: { x: 1200, y: 860, z: 0 }
+      }
+    };
+
+    expect(createSelfHandViewportLayout(cameraChangedLayout, 13)).toEqual(baseline);
   });
 
   it("projects table points through the shared camera so closer geometry is larger", () => {
