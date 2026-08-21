@@ -149,9 +149,9 @@ html:has(.table-design-mock-page) {
 }
 
 .mock-opponent-hand-world-card {
-  fill: #f8fafc;
+  fill: #ffd75a;
   opacity: 0.96;
-  stroke: rgb(10 24 18 / 72%);
+  stroke: rgb(10 24 18 / 86%);
   stroke-linejoin: round;
   stroke-width: 2;
 }

@@ -9,6 +9,7 @@ import {
 import "./TableDesignMock.css";
 
 type SeatId = "top-left" | "top-right" | "right" | "self" | "left";
+type OpponentSeatId = Exclude<SeatId, "self">;
 type TableDesignMockVariant = "projected" | "world";
 
 interface Point {
@@ -35,7 +36,6 @@ interface SeatLayout {
 interface TableDesignMockLayout {
   camera: PerspectiveCameraConfig;
   cardSizes: {
-    opponentHand: { height: number; width: number };
     selfHand: { height: number; width: number };
     trick: { height: number; width: number };
   };
@@ -66,9 +66,10 @@ interface TableDesignMockLayout {
   };
   opponentHand: {
     baselineOffset: number;
-    cardCount: number;
-    cardGap: number;
+    cardCounts: Readonly<Record<OpponentSeatId, number>>;
+    cardGapRatio: number;
     cardThickness: number;
+    maxCardCount: number;
   };
   seats: readonly SeatLayout[];
   tableSurface: readonly Point[];
@@ -114,7 +115,8 @@ const tableSurfacePentagon = regularPentagon(pentagonCenter, tableSurfaceRadius,
 const cardAspectRatio = 7 / 5;
 const trickCardWidth = scaleTabletopDimension(118);
 const riverGap = scaleTabletopDimension(18);
-const opponentHandCardWidth = scaleTabletopDimension(80);
+const opponentHandCardWidthRatio = 0.08;
+const opponentHandCardGapRatio = 0.02;
 
 const projectedSelfArtifacts: Pick<SeatLayout, "avatar" | "hand"> = {
   avatar: { x: 808, y: 1570 },
@@ -153,18 +155,20 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
   },
   center: roleBoardCenter,
   cardSizes: {
-    opponentHand: {
-      width: opponentHandCardWidth,
-      height: toLayoutPrecision(opponentHandCardWidth * cardAspectRatio)
-    },
     trick: { width: trickCardWidth, height: toLayoutPrecision(trickCardWidth * cardAspectRatio) },
     selfHand: { width: 172, height: toLayoutPrecision(172 * cardAspectRatio) }
   },
   opponentHand: {
     baselineOffset: scaleTabletopDimension(40),
-    cardCount: 3,
-    cardGap: scaleTabletopDimension(16),
-    cardThickness: scaleTabletopDimension(6)
+    cardCounts: {
+      "top-left": 1,
+      "top-right": 5,
+      right: 10,
+      left: 7
+    },
+    cardGapRatio: opponentHandCardGapRatio,
+    cardThickness: scaleTabletopDimension(6),
+    maxCardCount: 10
   },
   currentTrickZone: {
     gapFromRiver: scaleTabletopDimension(28),
@@ -272,7 +276,7 @@ export function TableDesignMock({ variant = "world" }: { variant?: TableDesignMo
 
   return (
     <main
-      aria-label={`Issue 340 table design ${variant} mock`}
+      aria-label={`Issue 342 table design ${variant} mock`}
       className={`table-design-mock-page table-design-mock-page-${variant}`}
       style={
         {
@@ -576,7 +580,7 @@ function ProjectedOpponentHands({ layout }: { layout: TableDesignMockLayout }) {
             <ProjectedPlayingCardBack
               corners={projectVerticalCard(card, layout.camera)}
               key={card.index}
-              size={layout.cardSizes.opponentHand}
+              size={hand.cardSize}
             />
           ))}
         </section>
@@ -794,8 +798,6 @@ interface RoleBoardEdgeGeometry {
   start: Point;
 }
 
-type OpponentSeatId = Exclude<SeatId, "self">;
-
 interface RiverGeometry extends RoleBoardEdgeGeometry {
   cardSize: { height: number; width: number };
   height: number;
@@ -842,6 +844,12 @@ interface VerticalCardGeometry {
   rightTop: Point3;
 }
 
+interface OpponentHandCardMetrics {
+  cardSize: { height: number; width: number };
+  edgeLength: number;
+  gap: number;
+}
+
 interface OpponentHandGeometry {
   baseline: {
     center: Point;
@@ -849,8 +857,11 @@ interface OpponentHandGeometry {
     normal: Point;
     offset: number;
   };
+  cardSize: { height: number; width: number };
   cards: readonly VerticalCardGeometry[];
   edge: RoleBoardEdgeGeometry;
+  gap: number;
+  handWidth: number;
   seatId: OpponentSeatId;
 }
 
@@ -913,19 +924,19 @@ export function createOpponentHandGeometry(
   seatId: OpponentSeatId
 ): OpponentHandGeometry {
   const edge = createTableSurfaceEdgeGeometry(layout, seatId);
+  const cardCount = Math.min(layout.opponentHand.cardCounts[seatId], layout.opponentHand.maxCardCount);
+  const metrics = createOpponentHandCardMetrics(edge.d, layout.opponentHand.cardGapRatio);
+  const handWidth = opponentHandWidth(cardCount, metrics);
   const midpoint = midpointBetween(edge.start, edge.end);
   const baselineCenter = {
     x: toLayoutPrecision(midpoint.x + edge.normal.x * layout.opponentHand.baselineOffset),
     y: toLayoutPrecision(midpoint.y + edge.normal.y * layout.opponentHand.baselineOffset)
   };
-  const cards = Array.from({ length: layout.opponentHand.cardCount }, (_, index) => {
-    const totalWidth =
-      layout.cardSizes.opponentHand.width * layout.opponentHand.cardCount +
-      layout.opponentHand.cardGap * (layout.opponentHand.cardCount - 1);
+  const cards = Array.from({ length: cardCount }, (_, index) => {
     const cardCenterOffset =
-      -totalWidth / 2 +
-      layout.cardSizes.opponentHand.width / 2 +
-      index * (layout.cardSizes.opponentHand.width + layout.opponentHand.cardGap);
+      -handWidth / 2 +
+      metrics.cardSize.width / 2 +
+      index * (metrics.cardSize.width + metrics.gap);
     const cardCenter = {
       x: baselineCenter.x + edge.direction.x * cardCenterOffset,
       y: baselineCenter.y + edge.direction.y * cardCenterOffset
@@ -934,9 +945,9 @@ export function createOpponentHandGeometry(
     return createVerticalCardGeometry({
       baselineCenter: cardCenter,
       direction: edge.direction,
-      height: layout.cardSizes.opponentHand.height,
+      height: metrics.cardSize.height,
       index,
-      width: layout.cardSizes.opponentHand.width
+      width: metrics.cardSize.width
     });
   });
 
@@ -947,10 +958,39 @@ export function createOpponentHandGeometry(
       normal: edge.normal,
       offset: layout.opponentHand.baselineOffset
     },
+    cardSize: metrics.cardSize,
     cards,
     edge,
+    gap: metrics.gap,
+    handWidth,
     seatId
   };
+}
+
+export function createOpponentHandCardMetrics(
+  edgeLength: number,
+  gapRatio = opponentHandCardGapRatio,
+  widthRatio = opponentHandCardWidthRatio
+): OpponentHandCardMetrics {
+  const width = edgeLength * widthRatio;
+  const gap = edgeLength * gapRatio;
+
+  return {
+    cardSize: {
+      width,
+      height: width * cardAspectRatio
+    },
+    edgeLength,
+    gap
+  };
+}
+
+export function opponentHandWidth(cardCount: number, metrics: OpponentHandCardMetrics): number {
+  if (cardCount <= 0) {
+    return 0;
+  }
+
+  return cardCount * metrics.cardSize.width + (cardCount - 1) * metrics.gap;
 }
 
 export function createVerticalCardGeometry({

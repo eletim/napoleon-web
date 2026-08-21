@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   TableDesignMock,
   createCurrentTrickZoneGeometry,
+  createOpponentHandCardMetrics,
   createOpponentHandGeometry,
   createOpponentHandsGeometry,
   createRiverGeometry,
@@ -11,6 +12,7 @@ import {
   createRoleBoardEdgeGeometry,
   createRoleSectorGeometry,
   createTableSurfaceEdgeGeometry,
+  opponentHandWidth,
   projectVerticalCard,
   projectTablePoint,
   projectTablePolygon,
@@ -21,11 +23,11 @@ import {
 } from "./TableDesignMock";
 
 describe("TableDesignMock", () => {
-  it("renders the issue 330 world mock with unprojected tabletop geometry", () => {
+  it("renders the issue 342 world mock with unprojected tabletop geometry", () => {
     const html = renderToStaticMarkup(<TableDesignMock />);
 
     expect(tableDesignMockLayout.seats).toHaveLength(5);
-    expect(html).toContain("Issue 340 table design world mock");
+    expect(html).toContain("Issue 342 table design world mock");
     expect(html).toContain("契約HUD");
     expect(html).toContain("中央役職表示");
     expect(html).toContain("自分の表向き手札");
@@ -48,12 +50,17 @@ describe("TableDesignMock", () => {
       roleBoardRadius: 315,
       tableSurfaceRadius: 1260
     });
-    expect(tableDesignMockLayout.cardSizes.opponentHand).toMatchObject({ width: 144, height: 201.6 });
     expect(tableDesignMockLayout.opponentHand).toMatchObject({
       baselineOffset: 72,
-      cardCount: 3,
-      cardGap: 28.8,
-      cardThickness: 10.8
+      cardCounts: {
+        "top-left": 1,
+        "top-right": 5,
+        right: 10,
+        left: 7
+      },
+      cardGapRatio: 0.02,
+      cardThickness: 10.8,
+      maxCardCount: 10
     });
     expect(tableDesignMockLayout.center).toMatchObject({ height: 630, width: 630, x: 1120, y: 910 });
     expect(tableDesignMockLayout.tableSurface).toHaveLength(5);
@@ -64,7 +71,7 @@ describe("TableDesignMock", () => {
     expect((html.match(/mock-current-trick-zone/g) ?? [])).toHaveLength(10);
     expect((html.match(/mock-trick-card mock-playing-card/g) ?? [])).toHaveLength(5);
     expect((html.match(/mock-playing-card-svg/g) ?? [])).toHaveLength(21);
-    expect((html.match(/mock-opponent-hand-world-card/g) ?? [])).toHaveLength(12);
+    expect((html.match(/mock-opponent-hand-world-card/g) ?? [])).toHaveLength(23);
     expect((html.match(/aria-label="B1"/g) ?? [])).toHaveLength(0);
     expect(html).not.toContain("mock-card-back-fan");
     expect((html.match(/class="role-marker /g) ?? [])).toHaveLength(5);
@@ -78,19 +85,19 @@ describe("TableDesignMock", () => {
     expect(html).toContain(">副</span>");
   });
 
-  it("renders the issue 330 projected mock from projected tabletop polygons", () => {
+  it("renders the issue 342 projected mock from projected tabletop polygons", () => {
     const html = renderToStaticMarkup(<TableDesignMock variant="projected" />);
 
-    expect(html).toContain("Issue 340 table design projected mock");
+    expect(html).toContain("Issue 342 table design projected mock");
     expect(html).toContain("投影後の卓上Geometry");
     expect(html).toContain("mock-projected-tabletop");
     expect(html).toContain("mock-table-surface-polygon");
     expect((html.match(/mock-projected-current-trick-zone mock-projected-current-trick-zone-/g) ?? [])).toHaveLength(5);
     expect((html.match(/mock-projected-role-marker mock-projected-role-marker-/g) ?? [])).toHaveLength(5);
-    expect((html.match(/mock-projected-playing-card /g) ?? [])).toHaveLength(31);
-    expect((html.match(/mock-projected-playing-card-opponent-hand/g) ?? [])).toHaveLength(12);
-    expect((html.match(/matrix3d\(/g) ?? [])).toHaveLength(31);
-    expect((html.match(/aria-label="B1"/g) ?? [])).toHaveLength(12);
+    expect((html.match(/mock-projected-playing-card /g) ?? [])).toHaveLength(42);
+    expect((html.match(/mock-projected-playing-card-opponent-hand/g) ?? [])).toHaveLength(23);
+    expect((html.match(/matrix3d\(/g) ?? [])).toHaveLength(42);
+    expect((html.match(/aria-label="B1"/g) ?? [])).toHaveLength(23);
     expect(html).toContain("mock-projected-card-layer");
     expect(html).not.toContain("mock-projected-card-corner");
     expect(html).not.toContain("mock-projected-card-face");
@@ -183,8 +190,36 @@ describe("TableDesignMock", () => {
     }
   });
 
+  it("calculates opponent card metrics from each table-surface edge length", () => {
+    const seatIds = ["top-left", "top-right", "right", "left"] as const;
+    const edgeLengths = new Set<number>();
+
+    for (const seatId of seatIds) {
+      const edge = createTableSurfaceEdgeGeometry(tableDesignMockLayout, seatId);
+      const metrics = createOpponentHandCardMetrics(edge.d, tableDesignMockLayout.opponentHand.cardGapRatio);
+
+      edgeLengths.add(edge.d);
+      expect(metrics.edgeLength).toBe(edge.d);
+      expect(metrics.cardSize.width).toBeCloseTo(edge.d * 0.08);
+      expect(metrics.gap).toBeCloseTo(edge.d * 0.02);
+      expect(metrics.cardSize.height).toBeCloseTo(edge.d * 0.112);
+      expect(metrics.cardSize.height).toBeCloseTo(metrics.cardSize.width * 7 / 5);
+      expect(opponentHandWidth(1, metrics)).toBeCloseTo(edge.d * 0.08);
+      expect(opponentHandWidth(5, metrics)).toBeCloseTo(edge.d * 0.48);
+      expect(opponentHandWidth(10, metrics)).toBeCloseTo(edge.d * 0.98);
+    }
+
+    expect(edgeLengths).toEqual(new Set([createTableSurfaceEdgeGeometry(tableDesignMockLayout, "top-left").d]));
+  });
+
   it("generates opponent hands as vertical card planes from table-surface edges", () => {
     const seatIds = ["top-left", "top-right", "right", "left"] as const;
+    const expectedCounts = {
+      "top-left": 1,
+      "top-right": 5,
+      right: 10,
+      left: 7
+    } as const;
     const hands = createOpponentHandsGeometry(tableDesignMockLayout);
 
     expect(hands.map((hand) => hand.seatId)).toEqual(seatIds);
@@ -192,6 +227,7 @@ describe("TableDesignMock", () => {
     for (const seatId of seatIds) {
       const edge = createTableSurfaceEdgeGeometry(tableDesignMockLayout, seatId);
       const hand = createOpponentHandGeometry(tableDesignMockLayout, seatId);
+      const metrics = createOpponentHandCardMetrics(edge.d, tableDesignMockLayout.opponentHand.cardGapRatio);
       const edgeMidpoint = midpointBetween(edge.start, edge.end);
       const expectedBaseline = {
         x: edgeMidpoint.x + edge.normal.x * tableDesignMockLayout.opponentHand.baselineOffset,
@@ -204,7 +240,11 @@ describe("TableDesignMock", () => {
       expect(hand.baseline.center.x).toBeCloseTo(expectedBaseline.x);
       expect(hand.baseline.center.y).toBeCloseTo(expectedBaseline.y);
       expect(hand.baseline.offset).toBe(tableDesignMockLayout.opponentHand.baselineOffset);
-      expect(hand.cards).toHaveLength(3);
+      expect(hand.cardSize.width).toBeCloseTo(metrics.cardSize.width);
+      expect(hand.cardSize.height).toBeCloseTo(metrics.cardSize.height);
+      expect(hand.gap).toBeCloseTo(metrics.gap);
+      expect(hand.handWidth).toBeCloseTo(opponentHandWidth(expectedCounts[seatId], metrics));
+      expect(hand.cards).toHaveLength(expectedCounts[seatId]);
       expect(firstCard).toBeDefined();
       expect(lastCard).toBeDefined();
 
@@ -213,29 +253,33 @@ describe("TableDesignMock", () => {
       }
 
       expect(distanceAlongNormal(edge, hand.baseline.center)).toBeGreaterThan(0);
+      expect(hand.handWidth).toBeLessThan(edge.d);
+      expect(edge.d - hand.handWidth).toBeCloseTo(
+        edge.d * (1 - (expectedCounts[seatId] * 0.08 + (expectedCounts[seatId] - 1) * 0.02))
+      );
       expect(distanceBetween(firstCard.leftBottom, lastCard.rightBottom)).toBeCloseTo(
-        tableDesignMockLayout.cardSizes.opponentHand.width * 3 + tableDesignMockLayout.opponentHand.cardGap * 2
+        hand.handWidth
       );
 
       for (const card of hand.cards) {
         expect(card.leftBottom.z).toBe(0);
         expect(card.rightBottom.z).toBe(0);
-        expect(card.leftTop.z).toBe(tableDesignMockLayout.cardSizes.opponentHand.height);
-        expect(card.rightTop.z).toBe(tableDesignMockLayout.cardSizes.opponentHand.height);
+        expect(card.leftTop.z).toBe(hand.cardSize.height);
+        expect(card.rightTop.z).toBe(hand.cardSize.height);
         expect(card.leftTop.x).toBe(card.leftBottom.x);
         expect(card.leftTop.y).toBe(card.leftBottom.y);
         expect(card.rightTop.x).toBe(card.rightBottom.x);
         expect(card.rightTop.y).toBe(card.rightBottom.y);
         expect(distanceBetween(card.leftBottom, card.rightBottom)).toBeCloseTo(
-          tableDesignMockLayout.cardSizes.opponentHand.width
+          hand.cardSize.width
         );
       }
     }
   });
 
   it("projects vertical opponent cards through the shared camera", () => {
-    const hand = createOpponentHandGeometry(tableDesignMockLayout, "top-left");
-    const centerCard = hand.cards[1];
+    const hand = createOpponentHandGeometry(tableDesignMockLayout, "right");
+    const centerCard = hand.cards[4];
 
     if (centerCard === undefined) {
       throw new Error("Expected a center opponent card");
