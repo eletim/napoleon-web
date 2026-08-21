@@ -1,0 +1,234 @@
+.card-design-page,
+body:has(.card-design-page),
+html:has(.card-design-page) {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
+}
+
+.card-design-page {
+  background: #e8edf2;
+  color: #172033;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 1.55fr 0.78fr 0.78fr;
+  padding: 20px 24px 26px;
+}
+
+.card-design-header {
+  align-items: end;
+  display: flex;
+  gap: 20px;
+  grid-column: 1 / -1;
+  justify-content: space-between;
+}
+
+.card-design-eyebrow {
+  color: #64748b;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  margin: 0 0 3px;
+}
+
+.card-design-header h1 {
+  font-size: 1.6rem;
+  letter-spacing: 0;
+  line-height: 1;
+  margin: 0;
+}
+
+.card-design-config-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.card-design-config-swatch {
+  background: #ffffff;
+  border: 1px solid rgb(23 32 51 / 16%);
+  border-left: 8px solid var(--card-design-suit-color);
+  border-radius: 8px;
+  color: #334155;
+  font-size: 0.78rem;
+  font-weight: 800;
+  min-height: 30px;
+  padding: 6px 10px;
+}
+
+.card-design-section {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  box-shadow: 0 12px 30px rgb(15 23 42 / 8%);
+  min-width: 0;
+  padding: 12px;
+}
+
+.card-design-section-primary {
+  grid-row: span 4;
+}
+
+.card-design-section-wide {
+  grid-column: span 2;
+}
+
+.card-design-section-title {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.card-design-section-title h2 {
+  font-size: 0.92rem;
+  letter-spacing: 0;
+  line-height: 1.1;
+  margin: 0;
+}
+
+.card-design-section-title span {
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.card-design-focus-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.card-design-suit-row {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 88px minmax(0, 1fr);
+}
+
+.card-design-suit-label {
+  align-items: center;
+  border-left: 8px solid var(--card-design-suit-color);
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 4px 0 4px 10px;
+}
+
+.card-design-suit-label strong {
+  color: var(--card-design-suit-color);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.75rem;
+  line-height: 0.9;
+}
+
+.card-design-suit-label span {
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.card-design-row-cards {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.card-design-small-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.card-design-face-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(6, 1fr);
+}
+
+.card-design-deck-grid {
+  display: grid;
+  gap: 5px;
+  grid-template-columns: repeat(13, 1fr);
+}
+
+.card-design-letele-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(8, 1fr);
+}
+
+.card-design-card {
+  display: block;
+  height: var(--card-design-card-height);
+  width: min(100%, var(--card-design-card-width));
+}
+
+.card-design-card-svg {
+  display: block;
+  filter: drop-shadow(0 4px 7px rgb(15 23 42 / 14%));
+  height: 100%;
+  width: 100%;
+}
+
+.card-design-rank,
+.card-design-suit,
+.card-design-center-rank,
+.card-design-center-suit,
+.card-design-pip {
+  dominant-baseline: middle;
+  font-family: Georgia, "Times New Roman", serif;
+  paint-order: stroke;
+  stroke: #fffdf6;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  text-anchor: middle;
+}
+
+.card-design-inverted {
+  transform: rotate(180deg);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.card-design-overlap-strip {
+  height: var(--card-design-overlap-card-height);
+  margin: 4px auto 2px;
+  position: relative;
+  width: var(--card-design-overlap-width);
+}
+
+.card-design-overlap-card {
+  height: var(--card-design-overlap-card-height);
+  left: var(--card-design-overlap-left);
+  position: absolute;
+  top: 0;
+  width: var(--card-design-overlap-card-width);
+}
+
+.card-design-letele-card {
+  background: transparent;
+  display: block;
+  width: 58px;
+}
+
+.card-design-letele-svg {
+  display: block;
+  filter: drop-shadow(0 4px 7px rgb(15 23 42 / 13%));
+  height: auto;
+  width: 100%;
+}
+
+@media (max-width: 1500px) {
+  .card-design-page {
+    grid-template-columns: 1fr;
+  }
+
+  .card-design-section-primary,
+  .card-design-section-wide {
+    grid-column: auto;
+    grid-row: auto;
+  }
+}

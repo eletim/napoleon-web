@@ -11,6 +11,7 @@ import type {
 } from "@napoleon/protocol";
 import { AutomatedSimulationViewer } from "./AutomatedSimulationViewer";
 import { BiddingPanel } from "./BiddingPanel";
+import { CardDesignMock } from "./CardDesignMock";
 import { TableSurface } from "./TableSurface";
 import { TableDesignMock } from "./TableDesignMock";
 import {
@@ -53,6 +54,10 @@ const defaultAgentSelections: Record<string, string> = Object.fromEntries(
 );
 
 export function App() {
+  if (window.location.pathname.endsWith("/mock/card-design")) {
+    return <CardDesignMock />;
+  }
+
   if (window.location.pathname.endsWith("/mock/table-design-projected")) {
     return <TableDesignMock variant="projected" />;
   }
