@@ -792,6 +792,25 @@ def test_iterative_resume_rejects_train_mode_mismatch(tmp_path: Path) -> None:
         )
 
 
+def test_iterative_bidding_only_rejects_cpp_backend_until_frozen_downstream_supported(
+    tmp_path: Path,
+) -> None:
+    playing_onnx = tmp_path / "playing.onnx"
+    playing_metadata = tmp_path / "playing.json"
+    playing_onnx.write_bytes(b"playing-onnx")
+    playing_metadata.write_text("{}\n", encoding="utf-8")
+    config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        train_mode="bidding-only",
+        simulation_backend="cpp",
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    )
+
+    with pytest.raises(NonPlayingRlOrchestratorError, match="frozen adjutant"):
+        run_iterative_nonplaying_rl_pipeline(config)
+
+
 def test_iterative_resume_rejects_legacy_self_play_schema(tmp_path: Path) -> None:
     playing_onnx = tmp_path / "playing.onnx"
     playing_metadata = tmp_path / "playing.json"

@@ -1770,6 +1770,13 @@ export function validateNonPlayingBiddingRlGenerationOptions(
   ) {
     throw new Error("fixedExchangePolicy and fixedExchangePolicyArtifact must be provided together.");
   }
+  const hasFixedAdjutant =
+    options.fixedAdjutantPolicy !== undefined && options.fixedAdjutantPolicyArtifact !== undefined;
+  const hasFixedExchange =
+    options.fixedExchangePolicy !== undefined && options.fixedExchangePolicyArtifact !== undefined;
+  if (hasFixedAdjutant !== hasFixedExchange) {
+    throw new Error("fixed adjutant and fixed exchange policies must be provided together.");
+  }
 
   const endSeed = options.startSeed + options.gameCount - 1;
 

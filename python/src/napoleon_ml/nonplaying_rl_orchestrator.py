@@ -2131,6 +2131,12 @@ def _validate_iterative_config(config: NonPlayingIterativeRlRunConfig) -> None:
         raise NonPlayingRlOrchestratorError(
             f"inference-device must be one of {', '.join(SUPPORTED_INFERENCE_DEVICES)}."
         )
+    if config.train_mode == TRAIN_MODE_BIDDING_ONLY and config.simulation_backend == "cpp":
+        raise NonPlayingRlOrchestratorError(
+            "bidding-only train-mode requires simulation-backend typescript because "
+            "the C++ non-playing bidding rollout does not yet support frozen adjutant/"
+            "exchange ONNX policies."
+        )
     _validate_training_device(config.training_device)
     if config.playing_policy_artifact_id != DEFAULT_PLAYING_POLICY_ARTIFACT_ID:
         raise NonPlayingRlOrchestratorError(
