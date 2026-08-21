@@ -189,6 +189,51 @@ html:has(.table-design-mock-page) {
   width: 100%;
 }
 
+.mock-river-card-face-svg {
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+.mock-river-card-face-paper {
+  fill: #fffdf6;
+  stroke: #111111;
+  stroke-width: 1.4;
+}
+
+.mock-river-card-face-left-band {
+  fill: #fff7dc;
+  stroke: rgb(17 17 17 / 18%);
+  stroke-width: 0.6;
+}
+
+.mock-river-card-face-guide {
+  stroke: rgb(17 17 17 / 18%);
+  stroke-dasharray: 2 2;
+  stroke-width: 0.6;
+}
+
+.mock-river-card-face-rank,
+.mock-river-card-face-suit,
+.mock-river-card-face-center-rank,
+.mock-river-card-face-center-symbol {
+  dominant-baseline: middle;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 900;
+  paint-order: stroke;
+  stroke: #fffdf6;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+  text-anchor: middle;
+}
+
+.mock-river-card-face-rank-bottom,
+.mock-river-card-face-suit-bottom {
+  transform: rotate(180deg);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
 .mock-river-card.mock-playing-card {
   position: absolute;
 }
