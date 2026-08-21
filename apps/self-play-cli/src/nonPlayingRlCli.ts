@@ -28,6 +28,12 @@ interface ParsedRolloutArgs {
   policyMetadata: string;
   playingOnnx: string;
   playingMetadata: string;
+  adjutantOnnx: string | undefined;
+  adjutantMetadata: string | undefined;
+  adjutantArtifactId: string | undefined;
+  exchangeOnnx: string | undefined;
+  exchangeMetadata: string | undefined;
+  exchangeArtifactId: string | undefined;
   output: string;
   startSeed: number;
   games: number;
@@ -63,6 +69,12 @@ const rolloutOptionNames = new Set([
   "--policy-metadata",
   "--playing-onnx",
   "--playing-metadata",
+  "--adjutant-onnx",
+  "--adjutant-metadata",
+  "--adjutant-artifact-id",
+  "--exchange-onnx",
+  "--exchange-metadata",
+  "--exchange-artifact-id",
   "--output",
   "--start-seed",
   "--games",
@@ -127,6 +139,12 @@ function parseRolloutArgs(argv: readonly string[]): ParsedRolloutArgs {
     policyMetadata: requireValue(values, "--policy-metadata"),
     playingOnnx: requireValue(values, "--playing-onnx"),
     playingMetadata: requireValue(values, "--playing-metadata"),
+    adjutantOnnx: optionalValue(values, "--adjutant-onnx"),
+    adjutantMetadata: optionalValue(values, "--adjutant-metadata"),
+    adjutantArtifactId: optionalValue(values, "--adjutant-artifact-id"),
+    exchangeOnnx: optionalValue(values, "--exchange-onnx"),
+    exchangeMetadata: optionalValue(values, "--exchange-metadata"),
+    exchangeArtifactId: optionalValue(values, "--exchange-artifact-id"),
     output: requireValue(values, "--output"),
     startSeed,
     games,
@@ -192,6 +210,26 @@ async function runNonPlayingRollout(
     inferenceDevice: args.inferenceDevice,
     inferenceMaxBatchSize: args.inferenceMaxBatchSize
   });
+  validateOptionalPolicyPair("--adjutant-onnx", args.adjutantOnnx, "--adjutant-metadata", args.adjutantMetadata);
+  validateOptionalPolicyPair("--exchange-onnx", args.exchangeOnnx, "--exchange-metadata", args.exchangeMetadata);
+  const fixedAdjutantPolicy =
+    args.adjutantOnnx !== undefined && args.adjutantMetadata !== undefined
+      ? await loadNonPlayingPolicyOnnxModel({
+          onnxPath: args.adjutantOnnx,
+          metadataPath: args.adjutantMetadata,
+          inferenceDevice: args.inferenceDevice,
+          inferenceMaxBatchSize: args.inferenceMaxBatchSize
+        })
+      : undefined;
+  const fixedExchangePolicy =
+    args.exchangeOnnx !== undefined && args.exchangeMetadata !== undefined
+      ? await loadNonPlayingPolicyOnnxModel({
+          onnxPath: args.exchangeOnnx,
+          metadataPath: args.exchangeMetadata,
+          inferenceDevice: args.inferenceDevice,
+          inferenceMaxBatchSize: args.inferenceMaxBatchSize
+        })
+      : undefined;
   const common = {
     outputDirectory: args.output,
     playingPolicy,
@@ -213,7 +251,25 @@ async function runNonPlayingRollout(
       ? await generateNonPlayingBiddingRlDataset({
           ...common,
           biddingPolicy: policy,
-          biddingPolicyArtifact: policyArtifact(args)
+          biddingPolicyArtifact: policyArtifact(args),
+          fixedAdjutantPolicy,
+          fixedAdjutantPolicyArtifact:
+            args.adjutantOnnx !== undefined && args.adjutantMetadata !== undefined
+              ? {
+                  onnxPath: args.adjutantOnnx,
+                  metadataPath: args.adjutantMetadata,
+                  artifactId: args.adjutantArtifactId
+                }
+              : undefined,
+          fixedExchangePolicy,
+          fixedExchangePolicyArtifact:
+            args.exchangeOnnx !== undefined && args.exchangeMetadata !== undefined
+              ? {
+                  onnxPath: args.exchangeOnnx,
+                  metadataPath: args.exchangeMetadata,
+                  artifactId: args.exchangeArtifactId
+                }
+              : undefined
         })
       : args.phase === "adjutant"
         ? await generateNonPlayingAdjutantRlDataset({
@@ -318,6 +374,17 @@ function policyArtifact(args: ParsedRolloutArgs) {
     metadataPath: args.policyMetadata,
     artifactId: args.artifactId
   };
+}
+
+function validateOptionalPolicyPair(
+  leftName: string,
+  leftValue: string | undefined,
+  rightName: string,
+  rightValue: string | undefined
+): void {
+  if ((leftValue === undefined) !== (rightValue === undefined)) {
+    throw new Error(`${leftName} and ${rightName} must be provided together.`);
+  }
 }
 
 function parsePhase(value: string): NonPlayingPhase {

@@ -44,7 +44,9 @@ from napoleon_ml.nonplaying_rl_orchestrator import (
     DEFAULT_TRAINING_DEVICE,
     DEFAULT_VALUE_LOSS_COEFFICIENT,
     SUPPORTED_INFERENCE_DEVICES,
+    SUPPORTED_ITERATIVE_TRAIN_MODES,
     SUPPORTED_SIMULATION_BACKENDS,
+    IterativeTrainMode,
     NonPlayingIterativeRlRunConfig,
     NonPlayingRlOrchestratorError,
     NonPlayingRlRunConfig,
@@ -57,6 +59,15 @@ from napoleon_ml.policy.device import SUPPORTED_TORCH_DEVICES, RequestedTorchDev
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument(
+        "--train-mode",
+        choices=SUPPORTED_ITERATIVE_TRAIN_MODES,
+        default="multi-phase",
+        help=(
+            "Training phase mode for iterative runs. "
+            "Default keeps the existing multi-phase behavior."
+        ),
+    )
     parser.add_argument(
         "--iterations",
         type=int,
@@ -242,6 +253,7 @@ def _iterative_config_from_args(
     )
     return NonPlayingIterativeRlRunConfig(
         output_dir=args.output_dir,
+        train_mode=cast(IterativeTrainMode, args.train_mode),
         iterations=iterations,
         games_per_iteration=args.games_per_iteration,
         evaluation_interval=args.evaluation_interval,
@@ -279,6 +291,7 @@ def _provided_iterative_config_keys(argv: Sequence[str] | None) -> list[str]:
     names = {token.split("=", 1)[0] for token in argv if token.startswith("--")}
     option_to_key = {
         "--iterations": "iterations",
+        "--train-mode": "trainMode",
         "--games-per-iteration": "gamesPerIteration",
         "--evaluation-interval": "evaluationInterval",
         "--evaluation-every": "evaluationInterval",

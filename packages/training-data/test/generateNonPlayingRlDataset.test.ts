@@ -54,6 +54,7 @@ import {
   selectFrozenBiddingOpponentPolicy,
   validateNonPlayingAdjutantRlDatasetManifest,
   validateNonPlayingAdjutantRlSample,
+  validateNonPlayingBiddingRlGenerationOptions,
   validateNonPlayingBiddingRlSample,
   validateNonPlayingExchangeRlDatasetManifest,
   validateNonPlayingExchangeRlSample,
@@ -298,6 +299,44 @@ describe("generateNonPlayingBiddingRlDataset", () => {
       }
 
       assertNoCompleteStateFields(lines);
+    });
+  });
+
+  it("rejects partially fixed downstream bidding policies", async () => {
+    await withTempDir(async (directory) => {
+      const playingArtifact = await createPlayingPolicyFixture(join(directory, "playing"));
+      const biddingArtifact = await createBiddingPolicyFixture(join(directory, "bidding"));
+      const adjutantArtifact = await createAdjutantPolicyFixture(join(directory, "adjutant"));
+      const exchangeArtifact = await createExchangePolicyFixture(join(directory, "exchange"));
+      const playingPolicy = await loadPolicyOnnxModel(playingArtifact);
+      const biddingPolicy = await loadNonPlayingPolicyOnnxModel(biddingArtifact);
+      const adjutantPolicy = await loadNonPlayingPolicyOnnxModel(adjutantArtifact);
+      const exchangePolicy = await loadNonPlayingPolicyOnnxModel(exchangeArtifact);
+      const baseOptions = {
+        outputDirectory: join(directory, "bidding-rl"),
+        biddingPolicy,
+        biddingPolicyArtifact: biddingArtifact,
+        playingPolicy,
+        playingPolicyArtifact: playingArtifact,
+        startSeed: 0,
+        gameCount: 1,
+        gamesPerShard: 1
+      };
+
+      expect(() =>
+        validateNonPlayingBiddingRlGenerationOptions({
+          ...baseOptions,
+          fixedAdjutantPolicy: adjutantPolicy,
+          fixedAdjutantPolicyArtifact: adjutantArtifact
+        })
+      ).toThrow("fixed adjutant and fixed exchange policies must be provided together");
+      expect(() =>
+        validateNonPlayingBiddingRlGenerationOptions({
+          ...baseOptions,
+          fixedExchangePolicy: exchangePolicy,
+          fixedExchangePolicyArtifact: exchangeArtifact
+        })
+      ).toThrow("fixed adjutant and fixed exchange policies must be provided together");
     });
   });
 
