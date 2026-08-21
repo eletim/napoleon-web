@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
+  RIVER_CARD_FACE_LAYOUT,
   TableDesignMock,
   createCurrentTrickZoneGeometry,
   createOpponentHandCardMetrics,
@@ -28,12 +29,12 @@ import {
 } from "./TableDesignMock";
 
 describe("TableDesignMock", () => {
-  it("renders the issue 348 world mock with unprojected tabletop geometry", () => {
+  it("renders the issue 350 world mock with unprojected tabletop geometry", () => {
     const html = renderToStaticMarkup(<TableDesignMock />);
     const selfHandStyle = html.match(/aria-label="自分の表向き手札" class="mock-self-hand" style="([^"]+)"/)?.[1] ?? "";
 
     expect(tableDesignMockLayout.seats).toHaveLength(5);
-    expect(html).toContain("Issue 348 table design world mock");
+    expect(html).toContain("Issue 350 table design world mock");
     expect(html).toContain("契約HUD");
     expect(html).toContain("中央役職表示");
     expect(html).toContain("自分の表向き手札");
@@ -82,7 +83,9 @@ describe("TableDesignMock", () => {
     expect((html.match(/mock-current-trick-zone/g) ?? [])).toHaveLength(10);
     expect((html.match(/mock-trick-card mock-playing-card/g) ?? [])).toHaveLength(5);
     expect((html.match(/mock-self-hand-card/g) ?? [])).toHaveLength(13);
-    expect((html.match(/mock-playing-card-svg/g) ?? [])).toHaveLength(32);
+    expect((html.match(/mock-playing-card-svg/g) ?? [])).toHaveLength(18);
+    expect((html.match(/mock-river-card-face-svg/g) ?? [])).toHaveLength(25);
+    expect((html.match(/mock-river-card mock-playing-card mock-river-playing-card/g) ?? [])).toHaveLength(25);
     expect((html.match(/mock-opponent-hand-world-card/g) ?? [])).toHaveLength(23);
     expect((html.match(/aria-label="B1"/g) ?? [])).toHaveLength(0);
     expect(html).not.toContain("mock-card-back-fan");
@@ -97,10 +100,10 @@ describe("TableDesignMock", () => {
     expect(html).toContain(">副</span>");
   });
 
-  it("renders the issue 348 projected mock from projected tabletop polygons", () => {
+  it("renders the issue 350 projected mock from projected tabletop polygons", () => {
     const html = renderToStaticMarkup(<TableDesignMock variant="projected" />);
 
-    expect(html).toContain("Issue 348 table design projected mock");
+    expect(html).toContain("Issue 350 table design projected mock");
     expect(html).toContain("投影後の卓上Geometry");
     expect(html).toContain("mock-projected-board-fit");
     expect(html).toContain("--mock-projected-board-transform:");
@@ -108,9 +111,11 @@ describe("TableDesignMock", () => {
     expect(html).toContain("mock-table-surface-polygon");
     expect((html.match(/mock-projected-current-trick-zone mock-projected-current-trick-zone-/g) ?? [])).toHaveLength(5);
     expect((html.match(/mock-projected-role-marker mock-projected-role-marker-/g) ?? [])).toHaveLength(5);
-    expect((html.match(/mock-projected-playing-card /g) ?? [])).toHaveLength(42);
+    expect((html.match(/mock-projected-playing-card /g) ?? [])).toHaveLength(53);
     expect((html.match(/mock-projected-playing-card-opponent-hand/g) ?? [])).toHaveLength(23);
-    expect((html.match(/matrix3d\(/g) ?? [])).toHaveLength(42);
+    expect((html.match(/mock-projected-playing-card-river/g) ?? [])).toHaveLength(25);
+    expect((html.match(/mock-river-card-face-svg/g) ?? [])).toHaveLength(25);
+    expect((html.match(/matrix3d\(/g) ?? [])).toHaveLength(53);
     expect((html.match(/aria-label="B1"/g) ?? [])).toHaveLength(23);
     expect(html).toContain("mock-projected-card-layer");
     expect(html).not.toContain("mock-projected-card-corner");
@@ -121,6 +126,40 @@ describe("TableDesignMock", () => {
     expect(html).toContain("自分の表向き手札");
     expect((html.match(/mock-self-hand-card/g) ?? [])).toHaveLength(13);
     expect(html).toContain('aria-label="自分 プレイヤー" class="mock-avatar mock-avatar-self" style="--mock-x:808px;--mock-y:1492px');
+  });
+
+  it("uses a river-only card face layout with a readable exposed left quarter", () => {
+    const html = renderToStaticMarkup(<TableDesignMock />);
+    const ratioTotal =
+      RIVER_CARD_FACE_LAYOUT.leftRatio +
+      RIVER_CARD_FACE_LAYOUT.centerRatio +
+      RIVER_CARD_FACE_LAYOUT.rightRatio;
+
+    expect(RIVER_CARD_FACE_LAYOUT).toMatchObject({
+      leftRatio: 0.25,
+      centerRatio: 0.5,
+      rightRatio: 0.25
+    });
+    expect(ratioTotal).toBeCloseTo(1);
+    expect(html).toContain('width="21.5"');
+    expect(html).toContain('x="12.5"');
+    expect(html).toContain(">10</text>");
+    expect(html).toContain(">♦</text>");
+    expect(html).toContain(">J</text>");
+    expect(html).toContain(">Q</text>");
+    expect(html).toContain(">K</text>");
+    expect(html).not.toContain("mock-river-card mock-playing-card\"><svg");
+  });
+
+  it("keeps non-river cards on the existing playing-card SVG components", () => {
+    const world = renderToStaticMarkup(<TableDesignMock />);
+    const projected = renderToStaticMarkup(<TableDesignMock variant="projected" />);
+
+    expect((world.match(/mock-self-hand-card mock-playing-card/g) ?? [])).toHaveLength(13);
+    expect((world.match(/mock-trick-card mock-playing-card/g) ?? [])).toHaveLength(5);
+    expect((world.match(/mock-river-card mock-playing-card mock-river-playing-card/g) ?? [])).toHaveLength(25);
+    expect((projected.match(/mock-projected-playing-card-opponent-hand/g) ?? [])).toHaveLength(23);
+    expect((projected.match(/aria-label="B1"/g) ?? [])).toHaveLength(23);
   });
 
   it("lays out the self hand as viewport-width 2D UI for up to thirteen cards", () => {
