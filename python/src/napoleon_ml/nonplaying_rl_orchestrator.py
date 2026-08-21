@@ -99,7 +99,11 @@ SUPPORTED_INFERENCE_DEVICES = ("cpu", "auto", "cuda")
 SUPPORTED_SIMULATION_BACKENDS = ("typescript", "cpp")
 
 PhaseName = Literal["bidding", "adjutant", "exchange"]
+IterativeTrainMode = Literal["multi-phase", "bidding-only"]
 PHASES: tuple[PhaseName, ...] = ("bidding", "adjutant", "exchange")
+TRAIN_MODE_MULTI_PHASE: IterativeTrainMode = "multi-phase"
+TRAIN_MODE_BIDDING_ONLY: IterativeTrainMode = "bidding-only"
+SUPPORTED_ITERATIVE_TRAIN_MODES = (TRAIN_MODE_MULTI_PHASE, TRAIN_MODE_BIDDING_ONLY)
 _T = TypeVar("_T")
 
 
@@ -223,6 +227,7 @@ class NonPlayingRlRunConfig:
 @dataclass(frozen=True)
 class NonPlayingIterativeRlRunConfig:
     output_dir: Path
+    train_mode: IterativeTrainMode = TRAIN_MODE_MULTI_PHASE
     iterations: int = DEFAULT_ITERATIONS
     games_per_iteration: int = DEFAULT_GAMES_PER_ITERATION
     evaluation_interval: int = DEFAULT_EVALUATION_INTERVAL
@@ -255,6 +260,7 @@ class NonPlayingIterativeRlRunConfig:
     def normalized(self) -> NonPlayingIterativeRlRunConfig:
         return NonPlayingIterativeRlRunConfig(
             output_dir=self.output_dir.expanduser().resolve(),
+            train_mode=self.train_mode,
             iterations=self.iterations,
             games_per_iteration=self.games_per_iteration,
             evaluation_interval=self.evaluation_interval,
@@ -322,10 +328,23 @@ class NonPlayingIterativeRlRunConfig:
             overwrite=self.overwrite,
         )
 
+    @property
+    def train_phases(self) -> tuple[PhaseName, ...]:
+        if self.train_mode == TRAIN_MODE_BIDDING_ONLY:
+            return ("bidding",)
+        return PHASES
+
+    @property
+    def frozen_phases(self) -> tuple[PhaseName, ...]:
+        return tuple(phase for phase in PHASES if phase not in self.train_phases)
+
     def file_dict(self) -> dict[str, object]:
         return {
             "schemaVersion": ITERATIVE_RUN_CONFIG_SCHEMA_VERSION,
             "runType": "non-playing-iterative-ppo",
+            "trainMode": self.train_mode,
+            "trainPhases": list(self.train_phases),
+            "frozenPhases": list(self.frozen_phases),
             "outputDir": str(self.output_dir),
             "iterations": self.iterations,
             "gamesPerIteration": self.games_per_iteration,
@@ -467,7 +486,6 @@ def run_iterative_nonplaying_rl_pipeline(
         _validate_iterative_config(config)
     else:
         _prepare_iterative_output_dir(config)
-        _atomic_write_json(config_path, file_config)
 
     if config.build_typescript:
         _stage("typescript-build", _build_typescript_helpers)
@@ -476,6 +494,11 @@ def run_iterative_nonplaying_rl_pipeline(
 
     started = time.monotonic()
     bootstrap_artifacts = _ensure_bootstrap_artifacts(config)
+    if resume:
+        _validate_frozen_artifacts_match_config(config, file_config, bootstrap_artifacts)
+    else:
+        file_config = _iterative_config_with_frozen_artifacts(config, bootstrap_artifacts)
+        _atomic_write_json(config_path, file_config)
     next_iteration = _next_nonplaying_iteration(config, bootstrap_artifacts)
     state = _load_iterative_state(config.output_dir)
     state = _write_iterative_state(
@@ -541,6 +564,18 @@ def _run_iterative_iteration(
     print(f"[iter {iteration + 1}/{total}] starting", flush=True)
     for offset, phase_name in enumerate(("bidding", "adjutant", "exchange")):
         phase = cast(PhaseName, phase_name)
+        if phase not in config.train_phases:
+            artifact = bootstrap_artifacts[phase]
+            phase_records[phase] = _frozen_phase_record(phase, artifact)
+            final_artifacts[phase] = dict(artifact)
+            print(
+                f"[iter {iteration + 1}/{total}] {phase} frozen "
+                f"artifact={artifact['artifactId']} "
+                f"onnx_sha={artifact['onnxSha256']}",
+                flush=True,
+            )
+            continue
+
         phase_dir = iteration_dir / phase
         dataset_dir = phase_dir / "dataset"
         input_checkpoint = _iterative_input_checkpoint(config, iteration, phase)
@@ -570,6 +605,7 @@ def _run_iterative_iteration(
                 config,
                 phase=phase,
                 behavior_artifact=behavior_artifact,
+                bootstrap_artifacts=bootstrap_artifacts,
                 dataset_dir=dataset_dir,
                 rollout_seed=rollout_seed,
                 progress_prefix=f"[iter {iteration + 1}/{total}] {phase} rollout ",
@@ -626,7 +662,11 @@ def _run_iterative_iteration(
         final_artifacts[phase] = {
             "checkpointPath": str(checkpoint_path),
             "onnxPath": str(onnx_path),
+            "onnxSha256": phase_artifact["onnxSha256"],
             "metadataPath": str(metadata_path),
+            "metadataSha256": phase_artifact["metadataSha256"],
+            "artifactId": phase_artifact["artifactId"],
+            "provenance": f"iteration-{iteration:06d}",
         }
         phase_records[phase] = {
             "datasetDirectory": str(dataset_dir),
@@ -691,6 +731,9 @@ def _run_iterative_iteration(
         "completionState": "completed",
         "iteration": iteration,
         "iterationIndexWidth": 6,
+        "trainMode": config.train_mode,
+        "trainPhases": list(config.train_phases),
+        "frozenPhases": list(config.frozen_phases),
         "phaseOrder": ["bidding", "adjutant", "exchange"],
         "gamesPerIteration": config.games_per_iteration,
         "gamesPerIterationUnit": NONPLAYING_GAME_COUNT_UNIT,
@@ -713,6 +756,7 @@ def _run_iterative_iteration(
         "evaluationPath": evaluation_path,
         "phases": phase_records,
         "artifacts": final_artifacts,
+        "frozenArtifacts": _frozen_artifacts_metadata(config, bootstrap_artifacts),
         "completedAtUnixSeconds": int(time.time()),
         "elapsedSeconds": time.monotonic() - started,
     }
@@ -727,6 +771,7 @@ def _run_iterative_rollout_stage(
     *,
     phase: PhaseName,
     behavior_artifact: dict[str, str],
+    bootstrap_artifacts: dict[PhaseName, dict[str, str]],
     dataset_dir: Path,
     rollout_seed: int,
     progress_prefix: str,
@@ -739,6 +784,14 @@ def _run_iterative_rollout_stage(
         dataset_dir=dataset_dir,
         start_seed=rollout_seed,
         artifact_id=behavior_artifact["artifactId"],
+        fixed_artifacts=(
+            {
+                "adjutant": bootstrap_artifacts["adjutant"],
+                "exchange": bootstrap_artifacts["exchange"],
+            }
+            if config.train_mode == TRAIN_MODE_BIDDING_ONLY and phase == "bidding"
+            else None
+        ),
         progress_prefix=progress_prefix,
     )
 
@@ -777,6 +830,25 @@ def _export_iterative_phase(
         onnx_path,
         metadata_path,
     )
+
+
+def _frozen_phase_record(phase: PhaseName, artifact: dict[str, str]) -> dict[str, object]:
+    return {
+        "mode": "frozen",
+        "phase": phase,
+        "datasetDirectory": None,
+        "manifestPath": None,
+        "manifestSha256": None,
+        "rollout": None,
+        "rolloutStartSeed": None,
+        "trainingSeed": None,
+        "inputCheckpointPath": None,
+        "inputCheckpointSha256": None,
+        "behaviorArtifact": _artifact_provenance(artifact),
+        "train": None,
+        "export": None,
+        "artifact": _artifact_provenance(artifact),
+    }
 
 
 def _run_phase(
@@ -862,6 +934,7 @@ def _run_nonplaying_rollout(
     dataset_dir: Path,
     start_seed: int,
     artifact_id: str | None = None,
+    fixed_artifacts: dict[PhaseName, dict[str, str]] | None = None,
     progress_prefix: str | None = None,
 ) -> dict[str, object]:
     if config.simulation_backend == "cpp" and phase == "bidding":
@@ -916,44 +989,55 @@ def _run_nonplaying_rollout(
         )
         return summary
 
-    return _run_node_json(
-        [
-            "node",
-            str(_repo_root() / "apps/self-play-cli/dist/index.js"),
-            "non-playing-rollout",
-            "--phase",
-            phase,
-            "--policy-onnx",
-            str(policy_onnx),
-            "--policy-metadata",
-            str(policy_metadata),
-            "--playing-onnx",
-            str(config.playing_policy_onnx),
-            "--playing-metadata",
-            str(config.playing_policy_metadata),
-            "--output",
-            str(dataset_dir),
-            "--start-seed",
-            str(start_seed),
-            "--games",
-            str(config.games),
-            "--games-per-shard",
-            str(config.effective_games_per_shard),
-            "--temperature",
-            repr(config.temperature),
-            "--inference-device",
-            config.inference_device,
-            "--inference-max-batch-size",
-            str(config.inference_max_batch_size),
-            "--artifact-id",
-            artifact_id if artifact_id is not None else f"{phase}-bootstrap-seed-{start_seed}",
-            "--playing-artifact-id",
-            config.playing_policy_artifact_id,
-            "--progress-prefix",
-            progress_prefix if progress_prefix is not None else f"[{phase} rollout] ",
-        ],
-        cwd=_repo_root(),
-    )
+    command = [
+        "node",
+        str(_repo_root() / "apps/self-play-cli/dist/index.js"),
+        "non-playing-rollout",
+        "--phase",
+        phase,
+        "--policy-onnx",
+        str(policy_onnx),
+        "--policy-metadata",
+        str(policy_metadata),
+        "--playing-onnx",
+        str(config.playing_policy_onnx),
+        "--playing-metadata",
+        str(config.playing_policy_metadata),
+        "--output",
+        str(dataset_dir),
+        "--start-seed",
+        str(start_seed),
+        "--games",
+        str(config.games),
+        "--games-per-shard",
+        str(config.effective_games_per_shard),
+        "--temperature",
+        repr(config.temperature),
+        "--inference-device",
+        config.inference_device,
+        "--inference-max-batch-size",
+        str(config.inference_max_batch_size),
+        "--artifact-id",
+        artifact_id if artifact_id is not None else f"{phase}-bootstrap-seed-{start_seed}",
+        "--playing-artifact-id",
+        config.playing_policy_artifact_id,
+        "--progress-prefix",
+        progress_prefix if progress_prefix is not None else f"[{phase} rollout] ",
+    ]
+    if fixed_artifacts is not None and phase == "bidding":
+        for frozen_phase in ("adjutant", "exchange"):
+            artifact = fixed_artifacts[frozen_phase]
+            command.extend(
+                [
+                    f"--{frozen_phase}-onnx",
+                    artifact["onnxPath"],
+                    f"--{frozen_phase}-metadata",
+                    artifact["metadataPath"],
+                    f"--{frozen_phase}-artifact-id",
+                    artifact["artifactId"],
+                ]
+            )
+    return _run_node_json(command, cwd=_repo_root())
 
 
 def _patch_cpp_bidding_manifest(
@@ -1220,7 +1304,7 @@ def _run_full_policy_evaluation(
     evaluation_path: Path,
     start_seed: int | None = None,
 ) -> dict[str, object]:
-    return _run_node_json(
+    summary = _run_node_json(
         [
             "node",
             str(_repo_root() / "apps/self-play-cli/dist/index.js"),
@@ -1256,6 +1340,53 @@ def _run_full_policy_evaluation(
         ],
         cwd=_repo_root(),
     )
+    provenance = _policy_artifact_provenance(config, artifacts)
+    if evaluation_path.exists():
+        evaluation = _load_json_object(evaluation_path)
+        evaluation["policyArtifacts"] = provenance
+        _atomic_write_json(evaluation_path, evaluation)
+    summary["policyArtifacts"] = provenance
+    return summary
+
+
+def _policy_artifact_provenance(
+    config: NonPlayingRlRunConfig,
+    artifacts: dict[PhaseName, dict[str, str]],
+) -> dict[str, object]:
+    return {
+        "bidding": _artifact_provenance(artifacts["bidding"]),
+        "adjutant": _artifact_provenance(artifacts["adjutant"]),
+        "exchange": _artifact_provenance(artifacts["exchange"]),
+        "playing": {
+            "onnxPath": str(config.playing_policy_onnx),
+            "onnxSha256": _sha256_file(config.playing_policy_onnx),
+            "metadataPath": str(config.playing_policy_metadata),
+            "metadataSha256": _sha256_file(config.playing_policy_metadata),
+            "artifactId": config.playing_policy_artifact_id,
+            "provenance": "frozen-playing-policy",
+        },
+    }
+
+
+def _artifact_provenance(artifact: dict[str, str]) -> dict[str, object]:
+    data: dict[str, object] = {
+        "onnxPath": artifact["onnxPath"],
+        "onnxSha256": artifact.get("onnxSha256")
+        or _sha256_file(Path(artifact["onnxPath"])),
+        "metadataPath": artifact["metadataPath"],
+        "metadataSha256": artifact.get("metadataSha256")
+        or _sha256_file(Path(artifact["metadataPath"])),
+    }
+    if "checkpointPath" in artifact:
+        data["checkpointPath"] = artifact["checkpointPath"]
+        data["checkpointSha256"] = artifact.get("checkpointSha256") or _sha256_file(
+            Path(artifact["checkpointPath"])
+        )
+    if "artifactId" in artifact:
+        data["artifactId"] = artifact["artifactId"]
+    if "provenance" in artifact:
+        data["provenance"] = artifact["provenance"]
+    return data
 
 
 def _ensure_bootstrap_artifacts(
@@ -1283,11 +1414,43 @@ def _ensure_bootstrap_artifacts(
         _ensure_file(metadata_path, f"{phase} bootstrap metadata")
         bootstrap_artifacts[phase] = {
             "onnxPath": str(onnx_path),
+            "onnxSha256": _sha256_file(onnx_path),
             "metadataPath": str(metadata_path),
+            "metadataSha256": _sha256_file(metadata_path),
             "artifactId": f"{phase}-bootstrap-seed-{config.seed}",
             "provenance": "bootstrap",
         }
     return bootstrap_artifacts
+
+
+def _iterative_config_with_frozen_artifacts(
+    config: NonPlayingIterativeRlRunConfig,
+    bootstrap_artifacts: dict[PhaseName, dict[str, str]],
+) -> dict[str, object]:
+    data = config.file_dict()
+    data["frozenArtifacts"] = _frozen_artifacts_metadata(config, bootstrap_artifacts)
+    return data
+
+
+def _frozen_artifacts_metadata(
+    config: NonPlayingIterativeRlRunConfig,
+    bootstrap_artifacts: dict[PhaseName, dict[str, str]],
+) -> dict[str, object]:
+    return {
+        phase: _artifact_provenance(bootstrap_artifacts[phase])
+        for phase in config.frozen_phases
+    }
+
+
+def _validate_frozen_artifacts_match_config(
+    config: NonPlayingIterativeRlRunConfig,
+    file_config: dict[str, object],
+    bootstrap_artifacts: dict[PhaseName, dict[str, str]],
+) -> None:
+    expected = _frozen_artifacts_metadata(config, bootstrap_artifacts)
+    stored = file_config.get("frozenArtifacts", {})
+    if stored != expected:
+        raise NonPlayingRlOrchestratorError("resume frozen artifact provenance mismatch.")
 
 
 def _export_iterative_bootstrap(
@@ -1332,9 +1495,30 @@ def _next_nonplaying_iteration(
         if record is None:
             break
         _validate_nonplaying_iteration_artifacts(record)
+        record_train_mode = record.get("trainMode", TRAIN_MODE_MULTI_PHASE)
+        if record_train_mode != config.train_mode:
+            raise NonPlayingRlOrchestratorError(
+                f"{iteration_dir}: trainMode mismatch: "
+                f"{record_train_mode!r} != {config.train_mode!r}"
+            )
         phases = _require_dict(record.get("phases"), f"{iteration_dir}/iteration.json.phases")
         for phase in PHASES:
             phase_record = _require_dict(phases.get(phase), f"{phase}.record")
+            if phase not in config.train_phases:
+                artifact = _require_dict(phase_record.get("artifact"), f"{phase}.artifact")
+                if artifact.get("onnxSha256") != expected_behaviors[phase]:
+                    raise NonPlayingRlOrchestratorError(
+                        f"{iteration_dir}: {phase} frozen ONNX mismatch."
+                    )
+                behavior = _require_dict(
+                    phase_record.get("behaviorArtifact"),
+                    f"{phase}.behaviorArtifact",
+                )
+                if behavior.get("onnxSha256") != expected_behaviors[phase]:
+                    raise NonPlayingRlOrchestratorError(
+                        f"{iteration_dir}: {phase} frozen behavior mismatch."
+                    )
+                continue
             input_sha = phase_record.get("inputCheckpointSha256")
             if input_sha != expected_inputs[phase]:
                 raise NonPlayingRlOrchestratorError(
@@ -1431,6 +1615,20 @@ def _validate_nonplaying_iteration_artifacts(record: dict[str, object]) -> None:
     for phase_name in ("bidding", "adjutant", "exchange"):
         phase = _require_dict(phases.get(phase_name), f"iteration.phases.{phase_name}")
         artifact = _require_dict(phase.get("artifact"), f"{phase_name}.artifact")
+        if phase.get("mode") == "frozen":
+            for path_key, sha_key in (
+                ("onnxPath", "onnxSha256"),
+                ("metadataPath", "metadataSha256"),
+            ):
+                path = Path(_required_str(artifact.get(path_key)))
+                _ensure_file(path, f"{phase_name} {path_key}")
+                expected_sha = _required_str(artifact.get(sha_key))
+                actual_sha = _sha256_file(path)
+                if actual_sha != expected_sha:
+                    raise NonPlayingRlOrchestratorError(
+                        f"{phase_name} {path_key} SHA mismatch: {actual_sha} != {expected_sha}"
+                    )
+            continue
         for path_key, sha_key in (
             ("checkpointPath", "checkpointSha256"),
             ("onnxPath", "onnxSha256"),
@@ -1597,7 +1795,10 @@ def _update_latest_links(config: NonPlayingIterativeRlRunConfig, iteration: int)
     latest.mkdir(parents=True, exist_ok=True)
     for phase_name in ("bidding", "adjutant", "exchange"):
         link = latest / phase_name
-        target = Path("..") / "iterations" / f"iter-{iteration:06d}" / phase_name
+        if phase_name in config.train_phases:
+            target = Path("..") / "iterations" / f"iter-{iteration:06d}" / phase_name
+        else:
+            target = Path("..") / "bootstrap" / phase_name
         if link.exists() or link.is_symlink():
             if link.is_dir() and not link.is_symlink():
                 raise NonPlayingRlOrchestratorError(f"latest path is not a symlink: {link}")
@@ -1625,6 +1826,16 @@ def _iteration_summary_line(record: dict[str, object]) -> dict[str, object]:
     }
     for phase_name in ("bidding", "adjutant", "exchange"):
         phase = _require_dict(phases[phase_name], phase_name)
+        if phase.get("mode") == "frozen":
+            artifact = _require_dict(phase["artifact"], "artifact")
+            summary[phase_name] = {
+                "mode": "frozen",
+                "artifactId": artifact.get("artifactId"),
+                "provenance": artifact.get("provenance"),
+                "onnxSha256": artifact.get("onnxSha256"),
+                "metadataSha256": artifact.get("metadataSha256"),
+            }
+            continue
         train = _require_dict(phase["train"], f"{phase_name}.train")
         rollout = _require_dict(phase["rollout"], f"{phase_name}.rollout")
         summary[phase_name] = {
@@ -1669,6 +1880,10 @@ def _write_iterative_run_summary(
     summary: dict[str, object] = {
         "schemaVersion": 1,
         "runType": "non-playing-iterative-ppo",
+        "trainMode": config.train_mode,
+        "trainPhases": list(config.train_phases),
+        "frozenPhases": list(config.frozen_phases),
+        "frozenArtifacts": file_config.get("frozenArtifacts", {}),
         "config": file_config,
         "completedIterationCount": completed_iteration_count,
         "requestedIterations": config.iterations,
@@ -1750,6 +1965,12 @@ def _validate_iterative_resume_config(
     for key in always_check | semantic_provided_config_keys:
         requested_value = requested_config.get(key)
         stored_value = stored_config.get(key)
+        if key == "trainMode" and stored_value is None:
+            stored_value = TRAIN_MODE_MULTI_PHASE
+        if key == "trainPhases" and stored_value is None:
+            stored_value = list(PHASES)
+        if key == "frozenPhases" and stored_value is None:
+            stored_value = []
         if key == "simulationBackend" and stored_value is None:
             stored_value = "typescript"
         if key == "biddingMinibatchStrategy" and stored_value is None:
@@ -1767,6 +1988,7 @@ def _iterative_config_from_file_dict(
 ) -> NonPlayingIterativeRlRunConfig:
     return NonPlayingIterativeRlRunConfig(
         output_dir=Path(_required_str(data["outputDir"])),
+        train_mode=_required_train_mode(data.get("trainMode", TRAIN_MODE_MULTI_PHASE)),
         iterations=_required_int(data["iterations"]),
         games_per_iteration=_required_int(data["gamesPerIteration"]),
         evaluation_interval=_required_int(data["evaluationInterval"]),
@@ -1868,6 +2090,11 @@ def _validate_config(config: NonPlayingRlRunConfig) -> None:
 
 
 def _validate_iterative_config(config: NonPlayingIterativeRlRunConfig) -> None:
+    if config.train_mode not in SUPPORTED_ITERATIVE_TRAIN_MODES:
+        raise NonPlayingRlOrchestratorError(
+            "train-mode must be one of "
+            f"{', '.join(SUPPORTED_ITERATIVE_TRAIN_MODES)}."
+        )
     _validate_positive_int(config.iterations, "iterations")
     _validate_positive_int(config.games_per_iteration, "games-per-iteration")
     _validate_positive_int(config.evaluation_interval, "evaluation-interval")
@@ -2166,6 +2393,15 @@ def _required_training_device(value: object) -> RequestedTorchDevice:
         raise NonPlayingRlOrchestratorError(
             "training-device must be one of "
             f"{', '.join(SUPPORTED_TORCH_DEVICES)}, got {value!r}."
+        )
+    return value
+
+
+def _required_train_mode(value: object) -> IterativeTrainMode:
+    if value not in SUPPORTED_ITERATIVE_TRAIN_MODES:
+        raise NonPlayingRlOrchestratorError(
+            "train-mode must be one of "
+            f"{', '.join(SUPPORTED_ITERATIVE_TRAIN_MODES)}, got {value!r}."
         )
     return value
 

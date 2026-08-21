@@ -265,8 +265,11 @@ export interface NonPlayingRlDatasetManifest {
   ruleBasedPhases:
     | readonly ["choosing-adjutant", "exchanging"]
     | readonly ["bidding", "exchanging"]
-    | readonly ["bidding", "choosing-adjutant"];
-  fixedPhases: readonly ["playing"];
+    | readonly ["bidding", "choosing-adjutant"]
+    | readonly [];
+  fixedPhases:
+    | readonly ["playing"]
+    | readonly ["choosing-adjutant", "exchanging", "playing"];
   rolloutPolicyTopology: typeof NON_PLAYING_RL_ROLLOUT_POLICY_TOPOLOGY;
   gameCountUnit: typeof NON_PLAYING_RL_GAME_COUNT_UNIT;
   logicalSeedCount: number;
@@ -328,11 +331,11 @@ export interface NonPlayingRlDatasetManifest {
     choosingAdjutant?: {
       type: "rule-based";
       version: typeof RULE_BASED_AGENT_VERSION;
-    };
+    } | NonPlayingRlPolicyArtifactManifest;
     exchanging?: {
       type: "rule-based";
       version: typeof RULE_BASED_AGENT_VERSION;
-    };
+    } | NonPlayingRlPolicyArtifactManifest;
   };
   diagnostics?: NonPlayingRlDatasetDiagnostics;
   shards: readonly DatasetShardManifest[];
@@ -390,6 +393,10 @@ export interface GenerateNonPlayingBiddingRlDatasetOptions {
   outputDirectory: string;
   biddingPolicy: NonPlayingBiddingRlPolicy;
   biddingPolicyArtifact: NonPlayingRlPolicyArtifactOptions;
+  fixedAdjutantPolicy?: NonPlayingAdjutantRlPolicy;
+  fixedAdjutantPolicyArtifact?: NonPlayingRlPolicyArtifactOptions;
+  fixedExchangePolicy?: NonPlayingExchangeRlPolicy;
+  fixedExchangePolicyArtifact?: NonPlayingRlPolicyArtifactOptions;
   playingPolicy: FixedPlayingPolicy;
   playingPolicyArtifact: NonPlayingRlPolicyArtifactOptions;
   startSeed: number;
@@ -831,6 +838,22 @@ export async function generateNonPlayingBiddingRlDataset(
     artifact: options.playingPolicyArtifact,
     policy: options.playingPolicy
   });
+  const fixedAdjutantPolicy =
+    options.fixedAdjutantPolicy !== undefined && options.fixedAdjutantPolicyArtifact !== undefined
+      ? await createPolicyArtifactManifest({
+          type: "adjutant-onnx",
+          artifact: options.fixedAdjutantPolicyArtifact,
+          policy: options.fixedAdjutantPolicy
+        })
+      : undefined;
+  const fixedExchangePolicy =
+    options.fixedExchangePolicy !== undefined && options.fixedExchangePolicyArtifact !== undefined
+      ? await createPolicyArtifactManifest({
+          type: "exchange-onnx",
+          artifact: options.fixedExchangePolicyArtifact,
+          policy: options.fixedExchangePolicy
+        })
+      : undefined;
   const tempDirectory = await mkdtemp(
     join(dirname(outputDirectory), `.${basenameForTemp(outputDirectory)}.tmp-`)
   );
@@ -863,6 +886,8 @@ export async function generateNonPlayingBiddingRlDataset(
           seed,
           candidateSeatIndex: rotationOffset,
           biddingPolicy: options.biddingPolicy,
+          fixedAdjutantPolicy: options.fixedAdjutantPolicy,
+          fixedExchangePolicy: options.fixedExchangePolicy,
           playingPolicy: options.playingPolicy,
           temperature,
           maxDecisionSteps: options.maxDecisionSteps
@@ -917,6 +942,8 @@ export async function generateNonPlayingBiddingRlDataset(
       sampleCount: totalSampleCount,
       shards,
       behaviorPolicy,
+      fixedAdjutantPolicy,
+      fixedExchangePolicy,
       fixedPlayingPolicy,
       diagnostics: finalizeDiagnostics(diagnostics)
     });
@@ -1218,6 +1245,8 @@ export async function runNonPlayingBiddingRlGame(options: {
   seed: number;
   candidateSeatIndex: number;
   biddingPolicy: NonPlayingBiddingRlPolicy;
+  fixedAdjutantPolicy?: NonPlayingAdjutantRlPolicy;
+  fixedExchangePolicy?: NonPlayingExchangeRlPolicy;
   playingPolicy: FixedPlayingPolicy;
   temperature?: number;
   maxDecisionSteps?: number;
@@ -1234,6 +1263,8 @@ export async function runNonPlayingBiddingRlGame(options: {
       if (playerIndex === options.candidateSeatIndex) {
         return new NonPlayingBiddingRlAgent({
           biddingPolicy: options.biddingPolicy,
+          fixedAdjutantPolicy: options.fixedAdjutantPolicy,
+          fixedExchangePolicy: options.fixedExchangePolicy,
           playingPolicy: options.playingPolicy,
           rng,
           temperature,
@@ -1251,6 +1282,8 @@ export async function runNonPlayingBiddingRlGame(options: {
       frozenBiddingOpponentAssignments.set(playerIndex, policy);
       return new FrozenNonPlayingRlAgent({
         playingPolicy: options.playingPolicy,
+        fixedAdjutantPolicy: options.fixedAdjutantPolicy,
+        fixedExchangePolicy: options.fixedExchangePolicy,
         rng,
         biddingPolicyType: policy.type
       });
@@ -1725,6 +1758,18 @@ export function validateNonPlayingBiddingRlGenerationOptions(
   if (options.outputDirectory.length === 0) {
     throw new Error("outputDirectory must be a non-empty path.");
   }
+  if (
+    (options.fixedAdjutantPolicy === undefined) !==
+    (options.fixedAdjutantPolicyArtifact === undefined)
+  ) {
+    throw new Error("fixedAdjutantPolicy and fixedAdjutantPolicyArtifact must be provided together.");
+  }
+  if (
+    (options.fixedExchangePolicy === undefined) !==
+    (options.fixedExchangePolicyArtifact === undefined)
+  ) {
+    throw new Error("fixedExchangePolicy and fixedExchangePolicyArtifact must be provided together.");
+  }
 
   const endSeed = options.startSeed + options.gameCount - 1;
 
@@ -2000,8 +2045,14 @@ export function validateNonPlayingRlDatasetManifest(
   if (
     manifest.phaseScope !== NON_PLAYING_RL_PHASE_SCOPE ||
     !sameStringArray(manifest.learnedPhases, ["bidding"]) ||
-    !sameStringArray(manifest.ruleBasedPhases, ["choosing-adjutant", "exchanging"]) ||
-    !sameStringArray(manifest.fixedPhases, ["playing"])
+    !(
+      sameStringArray(manifest.ruleBasedPhases, ["choosing-adjutant", "exchanging"]) ||
+      sameStringArray(manifest.ruleBasedPhases, [])
+    ) ||
+    !(
+      sameStringArray(manifest.fixedPhases, ["playing"]) ||
+      sameStringArray(manifest.fixedPhases, ["choosing-adjutant", "exchanging", "playing"])
+    )
   ) {
     throw new Error("Non-playing RL manifest phase scope mismatch.");
   }
@@ -2045,6 +2096,18 @@ export function validateNonPlayingRlDatasetManifest(
   }
   validatePolicyArtifactManifest(manifest.behaviorPolicy, "bidding-onnx");
   validatePolicyArtifactManifest(manifest.fixedPlayingPolicy, "playing-onnx");
+  if (sameStringArray(manifest.fixedPhases, ["choosing-adjutant", "exchanging", "playing"])) {
+    const fixedAdjutant = manifest.nonLearningAgents.choosingAdjutant;
+    const fixedExchange = manifest.nonLearningAgents.exchanging;
+    if (fixedAdjutant === undefined || fixedExchange === undefined) {
+      throw new Error("Non-playing RL manifest fixed non-playing policy metadata missing.");
+    }
+    if (fixedAdjutant.type !== "adjutant-onnx" || fixedExchange.type !== "exchange-onnx") {
+      throw new Error("Non-playing RL manifest fixed non-playing policy type mismatch.");
+    }
+    validatePolicyArtifactManifest(fixedAdjutant, "adjutant-onnx");
+    validatePolicyArtifactManifest(fixedExchange, "exchange-onnx");
+  }
   if (manifest.samplingAlgorithm !== NON_PLAYING_RL_SAMPLING_ALGORITHM) {
     throw new Error("Non-playing RL manifest samplingAlgorithm mismatch.");
   }
@@ -2058,13 +2121,15 @@ export function validateNonPlayingRlDatasetManifest(
   }
   validateTerminalRewardTransformMetadata(manifest);
   validateAllPassRuleMetadata(manifest);
-  if (
-    manifest.nonLearningAgents.choosingAdjutant?.type !== "rule-based" ||
-    manifest.nonLearningAgents.choosingAdjutant?.version !== RULE_BASED_AGENT_VERSION ||
-    manifest.nonLearningAgents.exchanging?.type !== "rule-based" ||
-    manifest.nonLearningAgents.exchanging?.version !== RULE_BASED_AGENT_VERSION
-  ) {
-    throw new Error("Non-playing RL manifest non-learning agent metadata mismatch.");
+  if (sameStringArray(manifest.fixedPhases, ["playing"])) {
+    if (
+      manifest.nonLearningAgents.choosingAdjutant?.type !== "rule-based" ||
+      manifest.nonLearningAgents.choosingAdjutant?.version !== RULE_BASED_AGENT_VERSION ||
+      manifest.nonLearningAgents.exchanging?.type !== "rule-based" ||
+      manifest.nonLearningAgents.exchanging?.version !== RULE_BASED_AGENT_VERSION
+    ) {
+      throw new Error("Non-playing RL manifest non-learning agent metadata mismatch.");
+    }
   }
   validateFrozenBiddingOpponentMixMetadata(manifest.nonLearningAgents.bidding);
   validateFrozenBiddingOpponentMixDiagnostics(manifest.diagnostics?.frozenBiddingOpponentMix);
@@ -2343,6 +2408,8 @@ class NonPlayingBiddingRlAgent implements Agent {
   constructor(
     private readonly options: {
       biddingPolicy: NonPlayingBiddingRlPolicy;
+      fixedAdjutantPolicy?: NonPlayingAdjutantRlPolicy;
+      fixedExchangePolicy?: NonPlayingExchangeRlPolicy;
       playingPolicy: FixedPlayingPolicy;
       rng: () => number;
       temperature: number;
@@ -2366,7 +2433,21 @@ class NonPlayingBiddingRlAgent implements Agent {
       case "playing":
         return this.selectPlayingAction(observation, context);
       case "choosing-adjutant":
+        if (this.options.fixedAdjutantPolicy !== undefined) {
+          return selectFixedAdjutantAction({
+            observation,
+            adjutantPolicy: this.options.fixedAdjutantPolicy
+          });
+        }
+        return this.ruleBasedAgent.selectAction(observation);
       case "exchanging":
+        if (this.options.fixedExchangePolicy !== undefined) {
+          return selectFixedExchangeAction({
+            observation,
+            exchangePolicy: this.options.fixedExchangePolicy
+          });
+        }
+        return this.ruleBasedAgent.selectAction(observation);
       case "finished":
         return this.ruleBasedAgent.selectAction(observation);
     }
@@ -2447,6 +2528,8 @@ class FrozenNonPlayingRlAgent implements Agent {
   constructor(
     private readonly options: {
       playingPolicy: FixedPlayingPolicy;
+      fixedAdjutantPolicy?: NonPlayingAdjutantRlPolicy;
+      fixedExchangePolicy?: NonPlayingExchangeRlPolicy;
       rng: () => number;
       biddingPolicyType?: FrozenBiddingOpponentPolicyType;
     }
@@ -2475,7 +2558,21 @@ class FrozenNonPlayingRlAgent implements Agent {
           playingPolicy: this.options.playingPolicy
         });
       case "choosing-adjutant":
+        if (this.options.fixedAdjutantPolicy !== undefined) {
+          return selectFixedAdjutantAction({
+            observation,
+            adjutantPolicy: this.options.fixedAdjutantPolicy
+          });
+        }
+        return this.ruleBasedAgent.selectAction(observation);
       case "exchanging":
+        if (this.options.fixedExchangePolicy !== undefined) {
+          return selectFixedExchangeAction({
+            observation,
+            exchangePolicy: this.options.fixedExchangePolicy
+          });
+        }
+        return this.ruleBasedAgent.selectAction(observation);
       case "finished":
         return this.ruleBasedAgent.selectAction(observation);
     }
@@ -2743,6 +2840,79 @@ async function selectFixedPlayingAction(options: {
   return selectedAction;
 }
 
+async function selectFixedAdjutantAction(options: {
+  observation: PlayerObservation;
+  adjutantPolicy: NonPlayingAdjutantRlPolicy;
+}): Promise<GameAction> {
+  const { observation } = options;
+  if (observation.publicActionHistory === undefined) {
+    throw new Error("Fixed adjutant policy input requires publicActionHistory.");
+  }
+  const absolutePlayerIds = observation.view.players.map((player) => player.id);
+  const relativePlayerIds = createRelativePlayerOrder(absolutePlayerIds, observation.playerId);
+  const biddingHistory = encodeBiddingHistoryFromPublicActions(
+    observation.publicActionHistory,
+    relativePlayerIds
+  );
+  const encoded = encodeAdjutantObservation(observation, absolutePlayerIds, biddingHistory);
+  const { modelInput, legalAdjutantMask } = createAdjutantModelInput(encoded);
+  const logits = await options.adjutantPolicy.predictLogits(modelInput);
+  const selectedIndex = selectHighestLegalIndex(logits, legalAdjutantMask, CARD_COUNT);
+  const selectedAction = decodeAdjutantAction(selectedIndex, observation.playerId);
+  const legalAction = observation.legalActions.find((action) =>
+    adjutantActionsEqual(action, selectedAction)
+  );
+
+  if (legalAction === undefined) {
+    throw new Error(`Fixed adjutant policy selected card index ${selectedIndex} outside legal actions.`);
+  }
+
+  return legalAction;
+}
+
+async function selectFixedExchangeAction(options: {
+  observation: PlayerObservation;
+  exchangePolicy: NonPlayingExchangeRlPolicy;
+}): Promise<GameAction> {
+  const { observation } = options;
+  if (observation.publicActionHistory === undefined) {
+    throw new Error("Fixed exchange policy input requires publicActionHistory.");
+  }
+  const absolutePlayerIds = observation.view.players.map((player) => player.id);
+  const relativePlayerIds = createRelativePlayerOrder(absolutePlayerIds, observation.playerId);
+  const biddingHistory = encodeBiddingHistoryFromPublicActions(
+    observation.publicActionHistory,
+    relativePlayerIds
+  );
+  const baseObservation = encodeExchangeObservation(observation, absolutePlayerIds, biddingHistory);
+  const selectedActionIndices: number[] = [];
+
+  for (let exchangeStepIndex = 0; exchangeStepIndex < 3; exchangeStepIndex += 1) {
+    const steppedObservation = createExchangeStepObservation(baseObservation, selectedActionIndices);
+    const { modelInput, legalDiscardCardMask } = createExchangeModelInput(steppedObservation);
+    const logits = await options.exchangePolicy.predictLogits(modelInput);
+    selectedActionIndices.push(selectHighestLegalIndex(logits, legalDiscardCardMask, CARD_COUNT));
+  }
+
+  const selectedCardIds = selectedActionIndices.map((index) => getCardId(index));
+  const legalAction = observation.legalActions.find(
+    (action) =>
+      action.type === "discard-cards" &&
+      action.playerId === observation.playerId &&
+      sameStringSet(action.cardIds, selectedCardIds)
+  );
+
+  if (legalAction === undefined) {
+    throw new Error("Fixed exchange policy selected cards outside legal discard action.");
+  }
+
+  return {
+    type: "discard-cards",
+    playerId: observation.playerId,
+    cardIds: selectedCardIds
+  };
+}
+
 function createBiddingRlOutcome(
   result: GameResult,
   actingPlayerId: PlayerId
@@ -2936,9 +3106,13 @@ function createNonPlayingRlDatasetManifest(input: {
   sampleCount: number;
   shards: readonly DatasetShardManifest[];
   behaviorPolicy: NonPlayingRlPolicyArtifactManifest;
+  fixedAdjutantPolicy?: NonPlayingRlPolicyArtifactManifest;
+  fixedExchangePolicy?: NonPlayingRlPolicyArtifactManifest;
   fixedPlayingPolicy: NonPlayingRlPolicyArtifactManifest;
   diagnostics: NonPlayingRlDatasetDiagnostics;
 }): NonPlayingRlDatasetManifest {
+  const usesFixedNonPlayingPolicies =
+    input.fixedAdjutantPolicy !== undefined && input.fixedExchangePolicy !== undefined;
   return {
     datasetSchemaVersion: NON_PLAYING_RL_DATASET_SCHEMA_VERSION,
     generatorVersion: NON_PLAYING_RL_DATASET_GENERATOR_VERSION,
@@ -2947,8 +3121,10 @@ function createNonPlayingRlDatasetManifest(input: {
     sampleSchemaVersion: NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION,
     phaseScope: NON_PLAYING_RL_PHASE_SCOPE,
     learnedPhases: ["bidding"],
-    ruleBasedPhases: ["choosing-adjutant", "exchanging"],
-    fixedPhases: ["playing"],
+    ruleBasedPhases: usesFixedNonPlayingPolicies ? [] : ["choosing-adjutant", "exchanging"],
+    fixedPhases: usesFixedNonPlayingPolicies
+      ? ["choosing-adjutant", "exchanging", "playing"]
+      : ["playing"],
     rolloutPolicyTopology: NON_PLAYING_RL_ROLLOUT_POLICY_TOPOLOGY,
     gameCountUnit: NON_PLAYING_RL_GAME_COUNT_UNIT,
     logicalSeedCount: input.options.gameCount,
@@ -2983,14 +3159,18 @@ function createNonPlayingRlDatasetManifest(input: {
     allPassRule: createAllPassRuleMetadata(),
     nonLearningAgents: {
       bidding: createFrozenBiddingOpponentMixMetadata(),
-      choosingAdjutant: {
-        type: "rule-based",
-        version: RULE_BASED_AGENT_VERSION
-      },
-      exchanging: {
-        type: "rule-based",
-        version: RULE_BASED_AGENT_VERSION
-      }
+      choosingAdjutant:
+        input.fixedAdjutantPolicy ??
+        {
+          type: "rule-based",
+          version: RULE_BASED_AGENT_VERSION
+        },
+      exchanging:
+        input.fixedExchangePolicy ??
+        {
+          type: "rule-based",
+          version: RULE_BASED_AGENT_VERSION
+        }
     },
     diagnostics: input.diagnostics,
     shards: input.shards

@@ -510,6 +510,288 @@ def test_iterative_nonplaying_rl_resumes_and_chains_checkpoints(
     assert all(parent is not None for _phase, parent in parent_checkpoints[3:])
 
 
+def test_iterative_bidding_only_freezes_downstream_artifacts_and_resumes(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    playing_onnx = tmp_path / "playing.onnx"
+    playing_metadata = tmp_path / "playing.json"
+    playing_onnx.write_bytes(b"playing-onnx")
+    playing_metadata.write_text("{}\n", encoding="utf-8")
+    stages: list[str] = []
+    evaluation_artifacts: list[dict[str, dict[str, str]]] = []
+
+    def sha256(path: Path) -> str:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    monkeypatch.setattr(
+        "napoleon_ml.nonplaying_rl_orchestrator._build_typescript_helpers",
+        lambda: stages.append("typescript-build"),
+    )
+
+    def fake_bootstrap(**kwargs: object) -> dict[str, object]:
+        phase = str(kwargs["policy_type"])
+        onnx_path = Path(cast(str | Path, kwargs["onnx_path"]))
+        metadata_path = Path(cast(str | Path, kwargs["metadata_path"]))
+        onnx_path.parent.mkdir(parents=True, exist_ok=True)
+        onnx_path.write_bytes(f"{phase}-bootstrap-onnx".encode())
+        metadata_path.write_text(json.dumps({"policyType": phase}) + "\n", encoding="utf-8")
+        stages.append(f"{phase}-bootstrap")
+        return {"policyType": phase}
+
+    def fake_rollout(*args: object, **kwargs: object) -> dict[str, object]:
+        phase = str(kwargs["phase"])
+        fixed_artifacts = cast(dict[str, dict[str, str]] | None, kwargs.get("fixed_artifacts"))
+        assert phase == "bidding"
+        assert fixed_artifacts is not None
+        assert set(fixed_artifacts) == {"adjutant", "exchange"}
+        stages.append(f"{phase}-rollout")
+        dataset_dir = Path(cast(str | Path, kwargs["dataset_dir"]))
+        policy_onnx = Path(cast(str | Path, kwargs["policy_onnx"]))
+        policy_metadata = Path(cast(str | Path, kwargs["policy_metadata"]))
+        start_seed = cast(int, kwargs["start_seed"])
+        dataset_dir.mkdir(parents=True, exist_ok=True)
+        (dataset_dir / "samples.jsonl").write_text("{}\n", encoding="utf-8")
+        (dataset_dir / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "startSeed": start_seed,
+                    "gameCount": 1,
+                    "gameCountUnit": "logical-seeds",
+                    "logicalSeedCount": 1,
+                    "actualGameCount": 5,
+                    "rolloutPolicyTopology": "candidate-x1-frozen-x4-v1",
+                    "rotationOffsets": [0, 1, 2, 3, 4],
+                    "reward": {
+                        "type": NONPLAYING_REWARD_TYPE,
+                        "version": NONPLAYING_REWARD_VERSION,
+                        "id": NONPLAYING_REWARD_ID,
+                    },
+                    "terminalRewardTransform": _terminal_reward_transform(),
+                    "allPassRule": {
+                        "id": NONPLAYING_ALL_PASS_RULE_ID,
+                        "starterPayoff": 0,
+                        "otherPayoff": 0,
+                    },
+                    "behaviorPolicy": {
+                        "onnxSha256": sha256(policy_onnx),
+                        "metadataSha256": sha256(policy_metadata),
+                    },
+                    "fixedPlayingPolicy": {"artifactId": "ppo-separated-v1000"},
+                    "nonLearningAgents": {
+                        "bidding": {
+                            "type": "mixed-frozen-bidding",
+                            "mixingRuleVersion": (
+                                "per-seat-seeded-rule-based-conservative-50-50-v1"
+                            ),
+                            "selectionUnit": "game-seat",
+                            "ruleBasedWeight": 0.5,
+                            "conservativeWeight": 0.5,
+                            "policies": {
+                                "ruleBased": {
+                                    "type": "rule-based-bidding",
+                                    "id": "rule-based-bidding-v1",
+                                },
+                                "conservative": {
+                                    "type": "conservative-bidding",
+                                    "id": "conservative-bidding-v1",
+                                },
+                            },
+                        }
+                    },
+                    "diagnostics": {
+                        "frozenBiddingOpponentMix": {
+                            "mixingRuleVersion": (
+                                "per-seat-seeded-rule-based-conservative-50-50-v1"
+                            ),
+                            "ruleBasedSeatCount": 10,
+                            "conservativeSeatCount": 10,
+                            "seatAssignments": [
+                                {
+                                    "policy": {
+                                        "type": "rule-based-bidding",
+                                        "id": "rule-based-bidding-v1",
+                                    }
+                                }
+                                for _ in range(10)
+                            ]
+                            + [
+                                {
+                                    "policy": {
+                                        "type": "conservative-bidding",
+                                        "id": "conservative-bidding-v1",
+                                    }
+                                }
+                                for _ in range(10)
+                            ],
+                        }
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return {"phase": phase, "sampleCount": 1, "gameCount": 1}
+
+    def fake_train(
+        config: NonPlayingRlRunConfig,
+        phase: str,
+        dataset_dir: Path,
+        checkpoint_path: Path,
+        training_seed: int,
+        parent_checkpoint: Path | None = None,
+    ) -> dict[str, object]:
+        assert phase == "bidding"
+        stages.append(f"{phase}-train")
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        checkpoint_path.write_bytes(f"{phase}-checkpoint-{training_seed}".encode())
+        return {
+            "sampleCount": 1,
+            "meanReward": 0.1,
+            "meanTotalLoss": 0.2,
+            "meanValueLoss": 0.3,
+            "clippedFraction": 0.0,
+        }
+
+    def fake_export(
+        phase: str,
+        dataset_dir: Path,
+        checkpoint_path: Path,
+        onnx_path: Path,
+        metadata_path: Path,
+    ) -> dict[str, object]:
+        assert phase == "bidding"
+        stages.append(f"{phase}-export")
+        onnx_path.write_bytes(f"{phase}-onnx-{checkpoint_path.read_text()}".encode())
+        metadata_path.write_text(json.dumps({"policyType": phase}) + "\n", encoding="utf-8")
+        return {"policyType": phase}
+
+    def fake_evaluation(
+        config: NonPlayingRlRunConfig,
+        artifacts: dict[str, dict[str, str]],
+        evaluation_path: Path,
+        start_seed: int | None = None,
+    ) -> dict[str, object]:
+        evaluation_artifacts.append(artifacts)
+        result = {
+            "scheduledGames": 1,
+            "completedGames": 1,
+            "failedGames": 0,
+            "fallbackCount": 0,
+            "illegalActionCount": 0,
+            "policyArtifacts": artifacts,
+            "policyAgentDecisionCounts": {
+                "biddingOnnxCallCount": 1,
+                "adjutantOnnxCallCount": 1,
+                "exchangeOnnxCallCount": 1,
+            },
+        }
+        evaluation_path.write_text(json.dumps(result) + "\n", encoding="utf-8")
+        return result
+
+    monkeypatch.setattr(
+        "napoleon_ml.nonplaying_rl_orchestrator.export_seeded_nonplaying_bootstrap_policy_to_onnx",
+        fake_bootstrap,
+    )
+    monkeypatch.setattr(
+        "napoleon_ml.nonplaying_rl_orchestrator._run_nonplaying_rollout",
+        fake_rollout,
+    )
+    monkeypatch.setattr("napoleon_ml.nonplaying_rl_orchestrator._train_phase", fake_train)
+    monkeypatch.setattr(
+        "napoleon_ml.nonplaying_rl_orchestrator._export_trained_phase",
+        fake_export,
+    )
+    monkeypatch.setattr(
+        "napoleon_ml.nonplaying_rl_orchestrator._run_full_policy_evaluation",
+        fake_evaluation,
+    )
+
+    output_dir = tmp_path / "bidding-only"
+    config = NonPlayingIterativeRlRunConfig(
+        output_dir=output_dir,
+        train_mode="bidding-only",
+        iterations=2,
+        games_per_iteration=1,
+        evaluation_interval=1,
+        evaluation_games=1,
+        games_per_shard=1,
+        hidden_dim=8,
+        hidden_layers=1,
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    )
+
+    first_summary = run_iterative_nonplaying_rl_pipeline(config, stop_after_iterations=1)
+    resumed_summary = run_iterative_nonplaying_rl_pipeline(config, resume=True)
+
+    assert first_summary["completedIterationCount"] == 1
+    assert resumed_summary["completedIterationCount"] == 2
+    stored_config = json.loads((output_dir / "config.json").read_text(encoding="utf-8"))
+    assert stored_config["trainMode"] == "bidding-only"
+    assert stored_config["trainPhases"] == ["bidding"]
+    assert stored_config["frozenPhases"] == ["adjutant", "exchange"]
+    assert set(stored_config["frozenArtifacts"]) == {"adjutant", "exchange"}
+
+    iter0 = json.loads(
+        (output_dir / "iterations" / "iter-000000" / "iteration.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    iter1 = json.loads(
+        (output_dir / "iterations" / "iter-000001" / "iteration.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert iter0["trainPhases"] == ["bidding"]
+    assert iter0["phases"]["adjutant"]["mode"] == "frozen"
+    assert iter0["phases"]["exchange"]["mode"] == "frozen"
+    assert not (output_dir / "iterations" / "iter-000000" / "adjutant").exists()
+    assert not (output_dir / "iterations" / "iter-000000" / "exchange").exists()
+    assert (
+        iter0["phases"]["bidding"]["artifact"]["checkpointSha256"]
+        != iter1["phases"]["bidding"]["artifact"]["checkpointSha256"]
+    )
+    for phase in ("adjutant", "exchange"):
+        assert iter0["phases"][phase]["artifact"]["onnxSha256"] == (
+            iter1["phases"][phase]["artifact"]["onnxSha256"]
+        )
+        assert iter0["phases"][phase]["artifact"]["onnxSha256"] == (
+            stored_config["frozenArtifacts"][phase]["onnxSha256"]
+        )
+    assert evaluation_artifacts[-1]["bidding"]["artifactId"] == "bidding-iter-000002"
+    assert evaluation_artifacts[-1]["adjutant"]["artifactId"] == "adjutant-bootstrap-seed-202"
+    assert evaluation_artifacts[-1]["exchange"]["artifactId"] == "exchange-bootstrap-seed-202"
+    assert "adjutant-train" not in stages
+    assert "exchange-train" not in stages
+
+
+def test_iterative_resume_rejects_train_mode_mismatch(tmp_path: Path) -> None:
+    playing_onnx = tmp_path / "playing.onnx"
+    playing_metadata = tmp_path / "playing.json"
+    playing_onnx.write_bytes(b"playing-onnx")
+    playing_metadata.write_text("{}\n", encoding="utf-8")
+    stored_config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        train_mode="bidding-only",
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    ).file_dict()
+    requested_config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        train_mode="multi-phase",
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    ).file_dict()
+
+    with pytest.raises(NonPlayingRlOrchestratorError, match="train"):
+        _validate_iterative_resume_config(
+            stored_config,
+            requested_config,
+            provided_config_keys={"trainMode"},
+        )
+
+
 def test_iterative_resume_rejects_legacy_self_play_schema(tmp_path: Path) -> None:
     playing_onnx = tmp_path / "playing.onnx"
     playing_metadata = tmp_path / "playing.json"
