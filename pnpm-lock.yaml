@@ -20,6 +20,15 @@ importers:
 
   apps/self-play-cli:
     dependencies:
+      '@napoleon/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
+      '@napoleon/ai-observation':
+        specifier: workspace:*
+        version: link:../../packages/ai-observation
+      '@napoleon/game-core':
+        specifier: workspace:*
+        version: link:../../packages/game-core
       '@napoleon/policy-onnx':
         specifier: workspace:*
         version: link:../../packages/policy-onnx
