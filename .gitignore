@@ -3,6 +3,7 @@ dist/
 .vite/
 coverage/
 datasets/
+apps/web/visual-review/
 *.log
 *.tsbuildinfo
 .DS_Store
