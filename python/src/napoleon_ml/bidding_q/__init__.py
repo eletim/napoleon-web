@@ -1,0 +1,63 @@
+"""Monte Carlo Q regression utilities for Napoleon bidding."""
+
+from .dataset import (
+    BIDDING_Q_ACTION_MAPPING_ID,
+    BIDDING_Q_DATASET_SAMPLE_TYPE,
+    BIDDING_Q_DATASET_SCHEMA_VERSION,
+    BIDDING_Q_REWARD_ID,
+    BiddingQAggregatedExample,
+    BiddingQDataset,
+    BiddingQDatasetManifest,
+    BiddingQRawSample,
+    BiddingQSplit,
+    aggregate_bidding_q_samples,
+    create_bidding_q_split,
+    load_bidding_q_dataset,
+)
+from .model import (
+    BIDDING_Q_MLP_ARCHITECTURE_ID,
+    BiddingQModel,
+    BiddingQModelConfig,
+    create_seeded_bidding_q_model,
+)
+from .training import (
+    BiddingQTrainConfig,
+    BiddingQTrainResult,
+    bidding_q_selected_action_loss,
+    coverage_diagnostics,
+    evaluate_bidding_q_model,
+    export_bidding_q_onnx,
+    load_bidding_q_checkpoint,
+    ranking_metrics,
+    save_bidding_q_artifact,
+    train_bidding_q_model,
+)
+
+__all__ = [
+    "BIDDING_Q_ACTION_MAPPING_ID",
+    "BIDDING_Q_DATASET_SAMPLE_TYPE",
+    "BIDDING_Q_DATASET_SCHEMA_VERSION",
+    "BIDDING_Q_MLP_ARCHITECTURE_ID",
+    "BIDDING_Q_REWARD_ID",
+    "BiddingQAggregatedExample",
+    "BiddingQDataset",
+    "BiddingQDatasetManifest",
+    "BiddingQModel",
+    "BiddingQModelConfig",
+    "BiddingQRawSample",
+    "BiddingQSplit",
+    "BiddingQTrainConfig",
+    "BiddingQTrainResult",
+    "aggregate_bidding_q_samples",
+    "bidding_q_selected_action_loss",
+    "coverage_diagnostics",
+    "create_bidding_q_split",
+    "create_seeded_bidding_q_model",
+    "evaluate_bidding_q_model",
+    "export_bidding_q_onnx",
+    "load_bidding_q_checkpoint",
+    "load_bidding_q_dataset",
+    "ranking_metrics",
+    "save_bidding_q_artifact",
+    "train_bidding_q_model",
+]
