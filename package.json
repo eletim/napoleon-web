@@ -8,6 +8,7 @@
     "dev:raw": "pnpm --parallel --filter @napoleon/server --filter @napoleon/web dev",
     "self-play:generate": "pnpm --filter @napoleon/self-play-cli... build && pnpm --filter @napoleon/self-play-cli exec node dist/index.js",
     "benchmark:playing-cache": "pnpm --filter @napoleon/training-data... build && node scripts/benchmark-playing-self-play-cache.mjs",
+    "bidding-q:counterfactual": "pnpm --filter @napoleon/training-data... --filter @napoleon/policy-onnx... build && node scripts/generate-bidding-q-counterfactual-dataset.mjs",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck"
