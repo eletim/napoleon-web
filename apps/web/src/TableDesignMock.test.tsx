@@ -10,6 +10,7 @@ import {
   createOpponentHandsGeometry,
   createProjectedBoardFit,
   createProjectedTableBoundingBox,
+  createRiverFaceMetrics,
   createRiverGeometry,
   createRiverPlacements,
   createRoleBoardEdgeGeometry,
@@ -28,6 +29,7 @@ import {
   selfRiverWidth,
   tableDesignMockLayout
 } from "./TableDesignMock";
+import { cardmeisterFourColorCsv, fourColorSuitColors } from "./cardSuitTheme";
 
 describe("TableDesignMock", () => {
   it("renders the issue 348 world mock with unprojected tabletop geometry", () => {
@@ -85,11 +87,27 @@ describe("TableDesignMock", () => {
       maxColumns: 10,
       maxRows: 2
     });
+    expect(tableDesignMockLayout.riverFace).toMatchObject({
+      borderWidthRatio: 0.03,
+      gapRatio: 0.025,
+      paddingRatio: 0.025,
+      rankFontRatio: 0.9,
+      suitFontRatio: 0.82
+    });
     expect("edgeInset" in tableDesignMockLayout.riverGrid).toBe(false);
     expect((html.match(/mock-current-trick-zone/g) ?? [])).toHaveLength(10);
     expect((html.match(/mock-trick-card mock-playing-card/g) ?? [])).toHaveLength(5);
     expect((html.match(/mock-self-hand-card/g) ?? [])).toHaveLength(13);
-    expect((html.match(/mock-playing-card-svg/g) ?? [])).toHaveLength(50);
+    expect((html.match(/class="mock-cardmeister-playing-card"/g) ?? [])).toHaveLength(18);
+    expect((html.match(/<playing-card/g) ?? [])).toHaveLength(18);
+    expect((html.match(new RegExp(`suitcolor="${cardmeisterFourColorCsv}"`, "g")) ?? [])).toHaveLength(18);
+    expect((html.match(/mock-river-card mock-river-card-face/g) ?? [])).toHaveLength(32);
+    expect(html).toContain('aria-label="10♦"');
+    expect(html).toContain('aria-label="A♦"');
+    expect(html).toContain('aria-label="K♦"');
+    expect(html).toContain(`--mock-river-face-color:${fourColorSuitColors.diamonds}`);
+    expect(html).not.toContain("--mock-river-card-full-height");
+    expect((html.match(/mock-playing-card-svg/g) ?? [])).toHaveLength(0);
     expect((html.match(/mock-opponent-hand-world-card/g) ?? [])).toHaveLength(23);
     expect((html.match(/aria-label="B1"/g) ?? [])).toHaveLength(0);
     expect(html).not.toContain("mock-card-back-fan");
@@ -99,7 +117,7 @@ describe("TableDesignMock", () => {
     expect(html).not.toContain("role-cell");
     expect(html).not.toContain("mock-card-corner");
     expect(html).not.toContain("mock-card-face");
-    expect(html).toContain("aria-label=\"Sj\"");
+    expect(html).toContain("aria-label=\"Js\"");
     expect(html).toContain(">ナポ</span>");
     expect(html).toContain(">副</span>");
   });
@@ -116,9 +134,13 @@ describe("TableDesignMock", () => {
     expect((html.match(/mock-projected-current-trick-zone mock-projected-current-trick-zone-/g) ?? [])).toHaveLength(5);
     expect((html.match(/mock-projected-role-marker mock-projected-role-marker-/g) ?? [])).toHaveLength(5);
     expect((html.match(/mock-projected-playing-card /g) ?? [])).toHaveLength(60);
+    expect((html.match(/mock-projected-river-card-face/g) ?? [])).toHaveLength(32);
+    expect((html.match(/class="mock-cardmeister-playing-card"/g) ?? [])).toHaveLength(18);
     expect((html.match(/mock-projected-playing-card-opponent-hand/g) ?? [])).toHaveLength(23);
     expect((html.match(/matrix3d\(/g) ?? [])).toHaveLength(60);
     expect((html.match(/aria-label="B1"/g) ?? [])).toHaveLength(23);
+    expect(html).toContain(`rankcolor="${cardmeisterFourColorCsv}"`);
+    expect(html).toContain(`--mock-river-face-color:${fourColorSuitColors.clubs}`);
     expect(html).toContain("mock-projected-card-layer");
     expect(html).not.toContain("mock-projected-card-corner");
     expect(html).not.toContain("mock-projected-card-face");
@@ -280,6 +302,12 @@ describe("TableDesignMock", () => {
       expect(river.visibleCardSize.height).toBeCloseTo(
         river.cardSize.height * tableDesignMockLayout.riverGrid.cardExposureRatio
       );
+      const face = createRiverFaceMetrics(river.visibleCardSize);
+
+      expect(face.rankFontSize).toBeCloseTo(river.visibleCardSize.height * tableDesignMockLayout.riverFace.rankFontRatio);
+      expect(face.suitFontSize).toBeCloseTo(river.visibleCardSize.height * tableDesignMockLayout.riverFace.suitFontRatio);
+      expect(face.gap).toBeCloseTo(river.visibleCardSize.width * tableDesignMockLayout.riverFace.gapRatio);
+      expect(face.padding).toBeCloseTo(Math.min(river.visibleCardSize.width, river.visibleCardSize.height) * tableDesignMockLayout.riverFace.paddingRatio);
       expect(river.normal.x * edge.direction.x + river.normal.y * edge.direction.y).toBeCloseTo(0);
 
       const riverOuterStart = {

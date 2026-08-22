@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { fourColorSuitColors } from "./cardSuitTheme";
 import type { MockPlayingCard, MockPlayingCardRank, MockPlayingCardSuit } from "./mockPlayingCardAdapter";
 
 export const cardDesignSuitSymbols = {
@@ -27,10 +28,7 @@ export const cardDesignConfig = {
     height: 7
   },
   colors: {
-    spades: "#111827",
-    hearts: "#dc2626",
-    diamonds: "#2563eb",
-    clubs: "#15803d"
+    ...fourColorSuitColors
   },
   layout: {
     identificationAreaRatio: 0.25,
