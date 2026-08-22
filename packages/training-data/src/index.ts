@@ -163,6 +163,25 @@ export type {
   NumericSummary
 } from "./generateFixedHandBiddingMarginDataset.js";
 export {
+  FIXED_HAND_PASS_OUTCOME_DATASET_GENERATOR_VERSION,
+  FIXED_HAND_PASS_OUTCOME_DATASET_SAMPLE_TYPE,
+  FIXED_HAND_PASS_OUTCOME_DATASET_SCHEMA_VERSION,
+  FIXED_HAND_PASS_OUTCOME_SAMPLE_SCHEMA_VERSION,
+  FIXED_HAND_PASS_OUTCOME_TEACHER_ID,
+  aggregateFixedHandPassRollouts,
+  createFixedHandPassPlan,
+  generateFixedHandPassOutcomeDataset,
+  summarizeFixedHandPassOutcomeSamples,
+  validateGenerateFixedHandPassOutcomeDatasetOptions
+} from "./generateFixedHandPassOutcomeDataset.js";
+export type {
+  FixedHandPassOutcomeDatasetManifest,
+  FixedHandPassOutcomeDatasetSummary,
+  FixedHandPassOutcomeSample,
+  GenerateFixedHandPassOutcomeDatasetOptions,
+  RoleConditionedMarginSummary
+} from "./generateFixedHandPassOutcomeDataset.js";
+export {
   calculateCardIdsSha256,
   serializeManifest,
   serializePlayingTrainingSample,
