@@ -1817,21 +1817,10 @@ function createProjectedOpponentPlayerInfoLayout(
   seatId: OpponentSeatId,
   viewport: ViewportSize
 ): PlayerInfoGeometry {
-  const hand = createOpponentHandGeometry(layout, seatId);
-  const fit = createProjectedBoardFit(layout, viewport);
-  const handBox = transformBoundingBox(
-    boundingBox(hand.cards.flatMap((card) => projectVerticalCard(card, layout.camera))),
-    fit.scale,
-    fit.translate
-  );
-  const outward = normalizeVector({
-    x: handBox.x - fit.transformedTableBox.x,
-    y: handBox.y - fit.transformedTableBox.y
-  });
-  const center = playerInfoCenterOutsideBox(handBox, outward, layout.playerInfo);
-  const clampedCenter = clampPlayerInfoCenter(center, viewport, layout.playerInfo);
+  const context = createProjectedOpponentPlayerInfoContext(layout, seatId, viewport);
+  const preferredCenter = createProjectedOpponentPlayerInfoBalancedCenter(layout, seatId, viewport, context);
   const hudBox = boundingBoxFromTopLeft(layout.hud);
-  const riverBox = createProjectedRiverCardsBoundingBox(layout, seatId, fit);
+  const riverBox = createProjectedRiverCardsBoundingBox(layout, seatId, context.fit);
   const selfHand = createSelfHandViewportLayout(layout, selfCards.length, viewport);
   const selfHandBox = boundingBoxFromTopLeft({
     height: selfHand.cardSize.height,
@@ -1844,13 +1833,69 @@ function createProjectedOpponentPlayerInfoLayout(
     layout,
     seatId,
     avoidPlayerInfoOverlaps(
-      clampedCenter,
-      [handBox, hudBox, selfHandBox, ...optionalBox(riverBox)],
-      handBox,
-      outward,
+      preferredCenter,
+      [context.handBox, hudBox, selfHandBox, ...optionalBox(riverBox)],
+      context.handBox,
+      context.outward,
       viewport,
-      layout.playerInfo
+      layout.playerInfo,
+      seatId === "top-right" ? preferredCenter : undefined
     )
+  );
+}
+
+function createProjectedOpponentPlayerInfoContext(
+  layout: TableDesignMockLayout,
+  seatId: OpponentSeatId,
+  viewport: ViewportSize
+): {
+  clampedCenter: Point;
+  fit: ProjectedBoardFit;
+  handBox: BoundingBox;
+  outward: Point;
+} {
+  const hand = createOpponentHandGeometry(layout, seatId);
+  const fit = createProjectedBoardFit(layout, viewport);
+  const handBox = transformBoundingBox(
+    boundingBox(hand.cards.flatMap((card) => projectVerticalCard(card, layout.camera))),
+    fit.scale,
+    fit.translate
+  );
+  const outward = normalizeVector({
+    x: handBox.x - fit.transformedTableBox.x,
+    y: handBox.y - fit.transformedTableBox.y
+  });
+  const center = playerInfoCenterOutsideBox(handBox, outward, layout.playerInfo);
+
+  return {
+    clampedCenter: clampPlayerInfoCenter(center, viewport, layout.playerInfo),
+    fit,
+    handBox,
+    outward
+  };
+}
+
+function createProjectedOpponentPlayerInfoBalancedCenter(
+  layout: TableDesignMockLayout,
+  seatId: OpponentSeatId,
+  viewport: ViewportSize,
+  context: ReturnType<typeof createProjectedOpponentPlayerInfoContext>
+): Point {
+  if (seatId !== "top-right") {
+    return context.clampedCenter;
+  }
+
+  const topLeft = createProjectedOpponentPlayerInfoLayout(layout, "top-left", viewport);
+  const tableCenterX = context.fit.transformedTableBox.x;
+  const mirroredTopLeftX = tableCenterX + Math.abs(tableCenterX - topLeft.x);
+
+  return clampPlayerInfoCenter(
+    {
+      x: mirroredTopLeftX,
+      y: context.clampedCenter.y
+    },
+    viewport,
+    layout.playerInfo
   );
 }
 
@@ -2554,7 +2599,8 @@ function avoidPlayerInfoOverlaps(
   anchorBox: BoundingBox,
   outward: Point,
   viewport: ViewportSize,
-  info: TableDesignMockLayout["playerInfo"]
+  info: TableDesignMockLayout["playerInfo"],
+  preferredCenter?: Point
 ): Point {
   const boxForCenter = (candidate: Point): BoundingBox => boundingBoxFromCenter({
     ...candidate,
@@ -2570,6 +2616,24 @@ function avoidPlayerInfoOverlaps(
 
   const gap = info.offsetFromHand;
   const candidateBoxes = [...avoidBoxes, boundingBoxAroundBoxes(avoidBoxes)];
+  const preferredOffsets =
+    preferredCenter === undefined
+      ? []
+      : [gap, info.unitHeight / 2 + gap, info.unitHeight + gap, info.unitWidth / 2 + gap];
+  const preferredCandidates = preferredOffsets.flatMap((offset) =>
+    preferredCenter === undefined
+      ? []
+      : [
+          { x: preferredCenter.x, y: preferredCenter.y - offset },
+          { x: preferredCenter.x, y: preferredCenter.y + offset },
+          { x: preferredCenter.x - offset, y: preferredCenter.y },
+          { x: preferredCenter.x + offset, y: preferredCenter.y },
+          {
+            x: preferredCenter.x + outward.x * offset,
+            y: preferredCenter.y + outward.y * offset
+          }
+        ]
+  );
   const candidates = candidateBoxes
     .flatMap((avoidBox) => [
       { x: center.x, y: avoidBox.top - info.unitHeight / 2 - gap },
@@ -2577,6 +2641,7 @@ function avoidPlayerInfoOverlaps(
       { x: avoidBox.left - info.unitWidth / 2 - gap, y: center.y },
       { x: avoidBox.right + info.unitWidth / 2 + gap, y: center.y }
     ])
+    .concat(preferredCandidates)
     .map((candidate) => clampPlayerInfoCenter(candidate, viewport, info));
   const nonOverlapping = uniquePoints(candidates).filter((candidate) => !overlapsAnyBox(candidate));
 
@@ -2584,7 +2649,21 @@ function avoidPlayerInfoOverlaps(
     return center;
   }
 
-  return [...nonOverlapping].sort((a, b) => {
+  const outwardValue = (candidate: Point) =>
+    (candidate.x - anchorBox.x) * outward.x + (candidate.y - anchorBox.y) * outward.y;
+  const outwardCandidates = nonOverlapping.filter((candidate) => outwardValue(candidate) > 0);
+  const sortableCandidates = outwardCandidates.length > 0 ? outwardCandidates : nonOverlapping;
+
+  return [...sortableCandidates].sort((a, b) => {
+    if (preferredCenter !== undefined) {
+      const aPreferredDistance = distance(a, preferredCenter);
+      const bPreferredDistance = distance(b, preferredCenter);
+
+      if (aPreferredDistance !== bPreferredDistance) {
+        return aPreferredDistance - bPreferredDistance;
+      }
+    }
+
     const aOutward = (a.x - anchorBox.x) * outward.x + (a.y - anchorBox.y) * outward.y;
     const bOutward = (b.x - anchorBox.x) * outward.x + (b.y - anchorBox.y) * outward.y;
 

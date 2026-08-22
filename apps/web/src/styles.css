@@ -997,7 +997,7 @@ input:focus-visible {
   align-items: center;
   color: #f8fafc;
   display: flex;
-  gap: 8px;
+  gap: 10px;
   left: 14px;
   position: fixed;
   top: 50px;
@@ -1011,23 +1011,63 @@ input:focus-visible {
   border-radius: 8px;
   box-shadow: 0 8px 18px rgb(0 0 0 / 22%);
   display: inline-flex;
-  gap: 7px;
-  min-height: 34px;
-  padding: 0 10px;
+  gap: 9px;
+  min-height: 48px;
+  padding: 0 14px;
 }
 
 .production-contract-chip span {
   color: rgb(226 232 240 / 84%);
-  font-size: 0.78rem;
+  font-size: 0.9rem;
   font-weight: 800;
 }
 
 .production-contract-chip strong {
   color: var(--mock-bidding-action-color);
   font-family: Arial, Helvetica, sans-serif;
-  font-size: 1.15rem;
+  font-size: 1.9rem;
   font-weight: 950;
   line-height: 1;
+}
+
+.production-riipai-sidebar {
+  align-content: center;
+  background: rgb(15 23 42 / 88%);
+  border: 1px solid rgb(255 255 255 / 24%);
+  border-left: 0;
+  border-radius: 0 10px 10px 0;
+  bottom: 166px;
+  box-shadow: 0 10px 20px rgb(0 0 0 / 24%);
+  color: #e2e8f0;
+  cursor: pointer;
+  display: grid;
+  gap: 2px;
+  height: 64px;
+  justify-items: center;
+  left: 0;
+  line-height: 1;
+  padding: 7px 5px;
+  position: fixed;
+  text-align: center;
+  width: 44px;
+  z-index: 24;
+}
+
+.production-riipai-sidebar span {
+  font-size: 1.12rem;
+  font-weight: 950;
+}
+
+.production-riipai-sidebar strong {
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 0.78rem;
+  font-weight: 950;
+}
+
+.production-riipai-sidebar-active {
+  background: #f8fafc;
+  border-color: #facc15;
+  color: #111827;
 }
 
 .production-tool-button {
@@ -1104,23 +1144,39 @@ input:focus-visible {
     top: 42px;
   }
 
+  .production-riipai-sidebar {
+    bottom: 146px;
+    gap: 1px;
+    height: 54px;
+    padding: 6px 4px;
+    width: 38px;
+  }
+
+  .production-riipai-sidebar span {
+    font-size: 0.98rem;
+  }
+
+  .production-riipai-sidebar strong {
+    font-size: 0.68rem;
+  }
+
   .production-contract-hud {
     left: 8px;
     top: 42px;
   }
 
   .production-contract-chip {
-    gap: 5px;
-    min-height: 28px;
-    padding: 0 7px;
+    gap: 6px;
+    min-height: 34px;
+    padding: 0 8px;
   }
 
   .production-contract-chip span {
-    font-size: 0.68rem;
+    font-size: 0.7rem;
   }
 
   .production-contract-chip strong {
-    font-size: 0.95rem;
+    font-size: 1.16rem;
   }
 
   .production-player-info {

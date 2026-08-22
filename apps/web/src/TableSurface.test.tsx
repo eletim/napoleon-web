@@ -29,6 +29,9 @@ describe("TableSurface", () => {
     expect(html).toContain("自分 プレイヤー");
     expect(html).toContain("自分 プレイヤー 現在の手番");
     expect(html).toContain("production-player-info-current");
+    expect(html).toContain("production-riipai-sidebar production-riipai-sidebar-active");
+    expect(html).toContain(">理</span><strong>ON</strong>");
+    expect(html).not.toContain(">理牌</button>");
     expect(countOccurrences(html, "mock-projected-playing-card-opponent-hand")).toBe(34);
     expect(html).toContain("左側AIの裏向き手札 10枚");
     expect(html).toContain("奥左AIの裏向き手札 9枚");
@@ -123,9 +126,9 @@ describe("TableSurface", () => {
     );
 
     expect(html).toContain("契約と呼札");
-    expect(html).toContain(">契約</span>");
+    expect(html).toContain(">宣言</span>");
     expect(html).toContain(">♣13</strong>");
-    expect(html).toContain(">呼札</span>");
+    expect(html).toContain(">副官</span>");
     expect(html).toContain(">J♦</strong>");
     expect(html).toContain(`--mock-bidding-action-color:${fourColorSuitColors.clubs}`);
     expect(html).toContain(`--mock-bidding-action-color:${fourColorSuitColors.diamonds}`);
