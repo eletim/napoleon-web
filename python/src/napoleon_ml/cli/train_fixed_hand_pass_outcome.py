@@ -108,17 +108,20 @@ def _run(args: argparse.Namespace) -> int:
     output = args.output_dir
     q_result = train_empirical_q_model(dataset, q_config)
     q_artifact = save_empirical_q_artifact(output / "q", result=q_result, dataset=dataset)
+    final_fixed_hand_ids = q_result.split.final_fixed_hand_ids
 
     citizen_dataset = pass_role_margin_dataset(
         dataset,
         role="citizen",
         min_role_count=args.min_role_count,
+        final_fixed_hand_ids=final_fixed_hand_ids,
     )
     citizen_result = train_pass_role_margin_model(
         dataset,
         role="citizen",
         min_role_count=args.min_role_count,
         config=margin_config,
+        final_fixed_hand_ids=final_fixed_hand_ids,
     )
     citizen_artifact = save_fixed_hand_margin_artifact(
         output / "citizen-margin",
@@ -130,12 +133,14 @@ def _run(args: argparse.Namespace) -> int:
         dataset,
         role="adjutant",
         min_role_count=args.min_role_count,
+        final_fixed_hand_ids=final_fixed_hand_ids,
     )
     adjutant_result = train_pass_role_margin_model(
         dataset,
         role="adjutant",
         min_role_count=args.min_role_count,
         config=margin_config,
+        final_fixed_hand_ids=final_fixed_hand_ids,
     )
     adjutant_artifact = save_fixed_hand_margin_artifact(
         output / "adjutant-margin",

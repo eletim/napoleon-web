@@ -31,6 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--q-new-checkpoint", type=Path, required=True)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--seed", type=int, default=414)
+    parser.add_argument("--pass-reward-d", type=float, default=13.0)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="cpu")
     return parser
 
@@ -65,6 +66,7 @@ def _run(args: argparse.Namespace) -> int:
         q_new_checkpoint=args.q_new_checkpoint,
         device=args.device,
         seed=args.seed,
+        pass_reward_d=args.pass_reward_d,
     )
     text = json.dumps(report, indent=2, sort_keys=True) + "\n"
     if args.output is not None:

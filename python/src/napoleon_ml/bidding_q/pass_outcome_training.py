@@ -392,12 +392,17 @@ def pass_role_margin_dataset(
     *,
     role: Literal["citizen", "adjutant"],
     min_role_count: int = 2,
+    final_fixed_hand_ids: Iterable[str] = (),
 ) -> FixedHandMarginDataset:
     samples: list[FixedHandMarginSample] = []
+    final_id_set = set(final_fixed_hand_ids)
     for sample in dataset.samples:
         teacher = sample.citizen if role == "citizen" else sample.adjutant
         if teacher.count < min_role_count or teacher.mean is None or teacher.std is None:
             continue
+        split_hint = (
+            "final-diagnostic" if sample.fixed_hand_id in final_id_set else sample.split_hint
+        )
         samples.append(
             FixedHandMarginSample(
                 fixed_hand_id=sample.fixed_hand_id,
@@ -410,7 +415,7 @@ def pass_role_margin_dataset(
                 empirical_margin_mean=teacher.mean,
                 empirical_margin_std=max(teacher.std, 1e-6),
                 empirical_win_rate=teacher.win_rate or 0.0,
-                split_hint=sample.split_hint,
+                split_hint=split_hint,
             )
         )
     return FixedHandMarginDataset(
@@ -426,9 +431,15 @@ def train_pass_role_margin_model(
     role: Literal["citizen", "adjutant"],
     min_role_count: int,
     config: FixedHandMarginTrainConfig,
+    final_fixed_hand_ids: Iterable[str] = (),
 ):
     return train_fixed_hand_margin_model(
-        pass_role_margin_dataset(dataset, role=role, min_role_count=min_role_count),
+        pass_role_margin_dataset(
+            dataset,
+            role=role,
+            min_role_count=min_role_count,
+            final_fixed_hand_ids=final_fixed_hand_ids,
+        ),
         config,
     )
 
@@ -447,6 +458,7 @@ def evaluate_pass_ev_variants(
     q_old_checkpoint: Path | str,
     device: RequestedTorchDevice = "cpu",
     seed: int = 414,
+    pass_reward_d: float = 13.0,
 ) -> dict[str, object]:
     # Kept intentionally offline: joins fixedHandId-level PASS samples with fixedHandId BID panels.
     from .fixed_hand_margin_training import load_fixed_hand_margin_dataset
@@ -463,6 +475,14 @@ def evaluate_pass_ev_variants(
     bid_by_hand: dict[str, list[FixedHandMarginSample]] = defaultdict(list)
     for sample in bid_dataset.samples:
         bid_by_hand[sample.fixed_hand_id].append(sample)
+    missing_bid_hands = [
+        sample.fixed_hand_id for sample in pass_samples if not bid_by_hand.get(sample.fixed_hand_id)
+    ]
+    if missing_bid_hands:
+        preview = ", ".join(missing_bid_hands[:10])
+        raise ValueError(
+            f"BID panel is missing {len(missing_bid_hands)} final PASS hands: {preview}"
+        )
 
     bid_pred_old = _bid_predictions_from_legacy_margin(
         bid_dataset.samples,
@@ -511,7 +531,12 @@ def evaluate_pass_ev_variants(
             ("E2", "newOldQ", bid_pred_new),
             ("E3", "new", bid_pred_new),
         ):
-            pass_ev = _pass_ev(pass_sample, predictions[pass_source], pass_index)
+            pass_ev = _pass_score_ev(
+                pass_sample,
+                predictions[pass_source],
+                pass_index,
+                reward_d=pass_reward_d,
+            )
             candidates: list[dict[str, float | str | int]] = [
                 {
                     "actionIndex": 0,
@@ -573,6 +598,9 @@ def evaluate_pass_ev_variants(
         "split": {
             "finalHands": len(split.final_fixed_hand_ids),
             "finalSamples": len(pass_samples),
+            "evaluatedHands": len(
+                {str(row["fixedHandId"]) for rows in variants.values() for row in rows}
+            ),
         },
         "variants": {name: _ev_report(rows) for name, rows in variants.items()},
         "representative": {name: rows[:20] for name, rows in variants.items()},
@@ -847,14 +875,17 @@ def _raw_float(raw: dict[str, object], key: str, fallback: float) -> float:
     return float(value)
 
 
-def _pass_ev(sample: PassOutcomeSample, pred: dict[str, np.ndarray], index: int) -> float:
+def _pass_score_ev(
+    sample: PassOutcomeSample,
+    pred: dict[str, np.ndarray],
+    index: int,
+    *,
+    reward_d: float,
+) -> float:
     q = float(pred["q"][index])
-    d_adj = sample.adjutant.target_mean or 13.0
-    d_cit = sample.citizen.target_mean or 13.0
-    ev_a = float(pred["adjutantPWin"][index]) * d_adj
-    ev_c = (1.0 - float(pred["citizenPWin"][index])) * d_cit
-    labeled_mass = sample.p_no_contract
-    return (1.0 - labeled_mass) * (q * ev_a + (1.0 - q) * ev_c)
+    ev_a = float(pred["adjutantPWin"][index]) * reward_d
+    ev_c = (1.0 - float(pred["citizenPWin"][index])) * reward_d
+    return q * ev_a + (1.0 - q) * ev_c
 
 
 def _pass_teacher_reward(sample: PassOutcomeSample) -> float:
@@ -863,7 +894,8 @@ def _pass_teacher_reward(sample: PassOutcomeSample) -> float:
     d_cit = sample.citizen.target_mean or 13.0
     p_adj = sample.adjutant.win_rate or 0.0
     p_cit = sample.citizen.win_rate or 0.0
-    return (1.0 - sample.p_no_contract) * (
+    citizen_adjutant_mass = (sample.n_citizen + sample.n_adjutant) / sample.rollout_count
+    return citizen_adjutant_mass * (
         q * (p_adj * d_adj) + (1.0 - q) * ((1.0 - p_cit) * d_cit)
     )
 

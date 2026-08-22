@@ -4,9 +4,14 @@ import json
 from pathlib import Path
 from typing import cast
 
+import numpy as np
+import pytest
+
 from napoleon_ml.bidding_q.pass_outcome_training import (
     EmpiricalQTrainConfig,
     PassOutcomeDataset,
+    _pass_score_ev,
+    _pass_teacher_reward,
     create_pass_outcome_split,
     load_pass_outcome_dataset,
     pass_role_margin_dataset,
@@ -50,6 +55,43 @@ def test_role_margin_dataset_masks_low_count_role_teacher(tmp_path: Path) -> Non
     assert len(adjutant.samples) == 0
     assert citizen.samples[0].forced_action_index == 0
     assert citizen.samples[0].empirical_margin_mean == -1.5
+
+
+def test_role_margin_dataset_can_force_pass_final_ids(tmp_path: Path) -> None:
+    dataset = write_pass_dataset(tmp_path, hand_count=3)
+    citizen = pass_role_margin_dataset(
+        dataset,
+        role="citizen",
+        min_role_count=2,
+        final_fixed_hand_ids=("hand-1",),
+    )
+    by_hand = {sample.fixed_hand_id: sample for sample in citizen.samples}
+    assert by_hand["hand-1"].split_hint == "final-diagnostic"
+    assert by_hand["hand-2"].split_hint is None
+
+
+def test_pass_score_does_not_read_empirical_teacher_fields(tmp_path: Path) -> None:
+    dataset = write_pass_dataset(tmp_path, hand_count=2)
+    left, right = dataset.samples
+    pred = {
+        "q": np.asarray([0.25, 0.25]),
+        "citizenPWin": np.asarray([0.2, 0.2]),
+        "adjutantPWin": np.asarray([0.6, 0.6]),
+    }
+    assert _pass_score_ev(left, pred, 0, reward_d=13.0) == _pass_score_ev(
+        right,
+        pred,
+        1,
+        reward_d=13.0,
+    )
+
+
+def test_pass_teacher_reward_uses_citizen_adjutant_mass(tmp_path: Path) -> None:
+    dataset = write_pass_dataset(tmp_path, hand_count=1)
+    sample = dataset.samples[0]
+    assert _pass_teacher_reward(sample) == pytest.approx(0.8 * (
+        0.25 * (0.75 * 14.0) + 0.75 * ((1.0 - 0.25) * 13.0)
+    ))
 
 
 def test_empirical_q_training_accepts_soft_targets(tmp_path: Path) -> None:
