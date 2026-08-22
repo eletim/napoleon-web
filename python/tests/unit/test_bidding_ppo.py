@@ -952,7 +952,7 @@ def _write_rl_dataset(
     (directory / "shard-00000.jsonl").write_text(shard, encoding="utf-8")
     manifest = {
         "datasetSchemaVersion": 4,
-        "generatorVersion": 5,
+        "generatorVersion": 6,
         "format": "jsonl",
         "sampleType": "non-playing-bidding-rl-sample",
         "sampleSchemaVersion": 4,
@@ -982,13 +982,13 @@ def _write_rl_dataset(
         "temperature": 1.0,
         "reward": {
             "type": "non-playing-bidding-contract-result-reward",
-            "version": 1,
+            "version": 2,
             "id": NON_PLAYING_RL_REWARD_ID,
             "sourceRewardId": "non-playing-terminal-role-reward-v3",
             "appliesTo": "bidding",
             "napoleonWinMultiplier": 2,
             "napoleonAdjutantWinMultiplier": 3,
-            "contractLossReward": -5,
+            "contractLossReward": 0,
             "nonContractReward": 0,
         },
         "terminalRewardTransform": _terminal_reward_transform(),

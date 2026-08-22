@@ -61,7 +61,7 @@ export const NON_PLAYING_EXCHANGE_RL_DATASET_SAMPLE_TYPE = "non-playing-exchange
 export const NON_PLAYING_RL_DATASET_SAMPLE_TYPE = NON_PLAYING_BIDDING_RL_DATASET_SAMPLE_TYPE;
 export const NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION = 4 as const;
 export const NON_PLAYING_RL_DATASET_SCHEMA_VERSION = 4 as const;
-export const NON_PLAYING_RL_DATASET_GENERATOR_VERSION = 5 as const;
+export const NON_PLAYING_RL_DATASET_GENERATOR_VERSION = 6 as const;
 export const NON_PLAYING_RL_ROLLOUT_POLICY_TOPOLOGY = "candidate-x1-frozen-x4-v1" as const;
 export const NON_PLAYING_RL_GAME_COUNT_UNIT = "logical-seeds" as const;
 export const NON_PLAYING_RL_ROTATION_OFFSETS = [0, 1, 2, 3, 4] as const;
@@ -79,13 +79,13 @@ export const NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID =
   "non-playing-terminal-role-reward-v3-minus-game-player-mean-v1" as const;
 export const NON_PLAYING_BIDDING_RL_REWARD_TYPE =
   "non-playing-bidding-contract-result-reward" as const;
-export const NON_PLAYING_BIDDING_RL_REWARD_VERSION = 1 as const;
+export const NON_PLAYING_BIDDING_RL_REWARD_VERSION = 2 as const;
 export const NON_PLAYING_BIDDING_RL_REWARD_ID =
-  "non-playing-bidding-contract-result-reward-v1" as const;
+  "non-playing-bidding-contract-result-reward-v2" as const;
 export const NON_PLAYING_BIDDING_RL_TERMINAL_REWARD_TRANSFORM_TYPE = "identity" as const;
 export const NON_PLAYING_BIDDING_RL_TERMINAL_REWARD_TRANSFORM_VERSION = 1 as const;
 export const NON_PLAYING_BIDDING_RL_TERMINAL_REWARD_TRANSFORM_ID =
-  "non-playing-bidding-contract-result-reward-v1-identity-v1" as const;
+  "non-playing-bidding-contract-result-reward-v2-identity-v1" as const;
 export const NON_PLAYING_RL_ALL_PASS_RULE_ID = "all-pass-immediate-zero-raw-terminal-reward-v1" as const;
 export const NON_PLAYING_RL_SAMPLING_ALGORITHM = "masked-categorical" as const;
 export const DEFAULT_NON_PLAYING_RL_TEMPERATURE = 1.0 as const;
@@ -323,7 +323,7 @@ export interface NonPlayingRlDatasetManifest {
     appliesTo: "bidding";
     napoleonWinMultiplier: 2;
     napoleonAdjutantWinMultiplier: 3;
-    contractLossReward: -5;
+    contractLossReward: 0;
     nonContractReward: 0;
   };
   terminalRewardTransform: {
@@ -825,7 +825,7 @@ function createBiddingRewardMetadata(): NonPlayingRlDatasetManifest["reward"] {
     appliesTo: "bidding",
     napoleonWinMultiplier: 2,
     napoleonAdjutantWinMultiplier: 3,
-    contractLossReward: -5,
+    contractLossReward: 0,
     nonContractReward: 0
   };
 }
@@ -1717,6 +1717,9 @@ export function calculateNonPlayingBiddingTrainingReward(
     return 0;
   }
   if (outcome.actingPlayerRole !== "napoleon" && outcome.actingPlayerRole !== "napoleon-adjutant") {
+    return 0;
+  }
+  if (outcome.winner !== "napoleon-team") {
     return 0;
   }
   return calculateNonPlayingTerminalRoleReward(outcome);

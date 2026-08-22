@@ -153,7 +153,7 @@ describe("generateNonPlayingBiddingRlDataset", () => {
         appliesTo: "bidding",
         napoleonWinMultiplier: 2,
         napoleonAdjutantWinMultiplier: 3,
-        contractLossReward: -5,
+        contractLossReward: 0,
         nonContractReward: 0
       });
       expect(manifest.terminalRewardTransform).toEqual({
@@ -471,52 +471,92 @@ describe("generateNonPlayingBiddingRlDataset", () => {
     ).toBe(0);
   });
 
-  it("assigns bidding training reward only to Napoleon contract outcomes", () => {
+  it("assigns bidding reward v2 only to successful Napoleon contract outcomes", () => {
     expectBiddingReward(
       {
         outcomeType: "standard",
         winner: "napoleon-team",
-        targetPointCards: 16,
+        targetPointCards: 13,
         napoleonPlayerId: "player-0",
         actingPlayerRole: "napoleon"
       },
-      32
+      26
     );
     expectBiddingReward(
       {
         outcomeType: "standard",
         winner: "alliance",
-        targetPointCards: 16,
+        targetPointCards: 13,
         napoleonPlayerId: "player-0",
         actingPlayerRole: "napoleon"
       },
-      -5
+      0
     );
     expectBiddingReward(
       {
         outcomeType: "standard",
         winner: "napoleon-team",
-        targetPointCards: 16,
+        targetPointCards: 13,
         napoleonPlayerId: "player-0",
         actingPlayerRole: "napoleon-adjutant"
       },
-      48
+      39
     );
     expectBiddingReward(
       {
         outcomeType: "standard",
         winner: "alliance",
-        targetPointCards: 16,
+        targetPointCards: 13,
         napoleonPlayerId: "player-0",
         actingPlayerRole: "napoleon-adjutant"
       },
-      -5
+      0
+    );
+    expectBiddingReward(
+      {
+        outcomeType: "standard",
+        winner: "napoleon-team",
+        targetPointCards: 19,
+        napoleonPlayerId: "player-0",
+        actingPlayerRole: "napoleon"
+      },
+      38
     );
     expectBiddingReward(
       {
         outcomeType: "standard",
         winner: "alliance",
-        targetPointCards: 16,
+        targetPointCards: 19,
+        napoleonPlayerId: "player-0",
+        actingPlayerRole: "napoleon"
+      },
+      0
+    );
+    expectBiddingReward(
+      {
+        outcomeType: "standard",
+        winner: "napoleon-team",
+        targetPointCards: 19,
+        napoleonPlayerId: "player-0",
+        actingPlayerRole: "napoleon-adjutant"
+      },
+      57
+    );
+    expectBiddingReward(
+      {
+        outcomeType: "standard",
+        winner: "alliance",
+        targetPointCards: 19,
+        napoleonPlayerId: "player-0",
+        actingPlayerRole: "napoleon-adjutant"
+      },
+      0
+    );
+    expectBiddingReward(
+      {
+        outcomeType: "standard",
+        winner: "alliance",
+        targetPointCards: 13,
         napoleonPlayerId: "player-1",
         actingPlayerRole: "citizen"
       },
@@ -526,7 +566,7 @@ describe("generateNonPlayingBiddingRlDataset", () => {
       {
         outcomeType: "standard",
         winner: "napoleon-team",
-        targetPointCards: 16,
+        targetPointCards: 13,
         napoleonPlayerId: "player-1",
         actingPlayerRole: "adjutant"
       },
@@ -545,7 +585,7 @@ describe("generateNonPlayingBiddingRlDataset", () => {
       {
         outcomeType: "standard",
         winner: "napoleon-team",
-        targetPointCards: 16,
+        targetPointCards: 13,
         napoleonPlayerId: "player-1",
         actingPlayerRole: "citizen"
       },
@@ -589,6 +629,20 @@ describe("generateNonPlayingBiddingRlDataset", () => {
       expect(reward.terminalReward).toBe(0);
     }
     expect(sum(allPassRewards.map((reward) => reward.terminalReward))).toBeCloseTo(0, 12);
+
+    const contractLossResult = {
+      resultType: "standard",
+      winner: "alliance",
+      napoleonTeamPointCards: 12,
+      alliancePointCards: 8,
+      targetPointCards: 13,
+      napoleonPlayerId: "player-0",
+      adjutantPlayerId: "player-1"
+    } as const;
+    const lossRewards = playerIds.map((playerId) =>
+      calculateNonPlayingLearningTerminalReward(contractLossResult, playerId, playerIds)
+    );
+    expect(lossRewards.map((reward) => reward.rawTerminalReward)).toEqual([-5, 0, 0, 0, 0]);
   });
 
   it("assigns all-pass bidding rewards and emits no adjutant or exchange samples", () => {

@@ -988,11 +988,16 @@ def test_iterative_resume_rejects_legacy_bidding_reward_attribution(
     ).file_dict()
     legacy_config = dict(requested_config)
     legacy_config["biddingReward"] = {
-        "type": NONPLAYING_REWARD_TYPE,
-        "version": NONPLAYING_REWARD_VERSION,
-        "id": NONPLAYING_REWARD_ID,
+        "type": NONPLAYING_BIDDING_REWARD_TYPE,
+        "version": 1,
+        "id": "non-playing-bidding-contract-result-reward-v1",
+        "sourceRewardId": NONPLAYING_REWARD_ID,
+        "appliesTo": "bidding",
+        "napoleonWinMultiplier": 2,
+        "napoleonAdjutantWinMultiplier": 3,
+        "contractLossReward": -5,
+        "nonContractReward": 0,
     }
-    legacy_config["biddingTerminalRewardTransform"] = _terminal_reward_transform()
 
     with pytest.raises(NonPlayingRlOrchestratorError, match="biddingReward"):
         _validate_iterative_resume_config(
@@ -1385,7 +1390,7 @@ def _bidding_reward() -> dict[str, object]:
         "appliesTo": "bidding",
         "napoleonWinMultiplier": 2,
         "napoleonAdjutantWinMultiplier": 3,
-        "contractLossReward": -5,
+        "contractLossReward": 0,
         "nonContractReward": 0,
     }
 
