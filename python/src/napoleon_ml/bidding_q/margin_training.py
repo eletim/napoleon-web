@@ -333,9 +333,10 @@ def predict_margin_samples(
     mean_standard = np.concatenate(mean_batches, axis=0)
     log_variance = np.concatenate(log_variance_batches, axis=0)
     sigma_standard = np.exp(0.5 * log_variance)
+    sigma_scale = standardization.std if standardization.enabled else 1.0
     return {
         "mean": standardization.decode_array(mean_standard),
-        "sigma": sigma_standard * standardization.std,
+        "sigma": sigma_standard * sigma_scale,
         "logVariance": log_variance,
     }
 
@@ -433,7 +434,7 @@ def sigma_baselines(
 ) -> dict[str, object]:
     train_contract = tuple(sample for sample in train_samples if _contract_mask(sample))
     truth = np.asarray([_contract_margin(sample) for sample in validation_samples])
-    baselines = {
+    baselines: dict[str, object] = {
         "globalResidualStd": _baseline_sigma(
             train_contract,
             validation_samples,
@@ -476,7 +477,7 @@ def risk_aware_ranking(
     mean: np.ndarray,
     sigma: np.ndarray,
 ) -> dict[str, object]:
-    result = {}
+    result: dict[str, object] = {}
     for penalty in (0.0, 0.25, 0.5, 1.0):
         score = mean - penalty * sigma
         result[str(penalty)] = _ranking_for_score(
