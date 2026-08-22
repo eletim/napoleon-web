@@ -4,10 +4,12 @@ import {
   TableDesignMock,
   createCurrentTrickCardPlane,
   createCurrentTrickCardSize,
+  createCurrentTrickReferenceRiverGeometry,
   createCurrentTrickZoneGeometry,
   createOpponentHandCardMetrics,
   createOpponentHandGeometry,
   createOpponentHandsGeometry,
+  createPlayerInfoLayouts,
   createProjectedBoardFit,
   createProjectedTableBoundingBox,
   createRiverFaceMetrics,
@@ -20,6 +22,7 @@ import {
   createSelfHandViewportMetrics,
   createTableSurfaceEdgeGeometry,
   opponentHandWidth,
+  projectTableCard,
   projectVerticalCard,
   projectTablePoint,
   projectTablePolygon,
@@ -57,7 +60,8 @@ describe("TableDesignMock", () => {
     expect(html).toContain("--mock-trick-zone-width:384.092px");
     expect(html).toContain("--mock-trick-zone-height:537.729px");
     expect(html).not.toContain("--mock-river-card-width:56px");
-    expect(html).not.toContain("mock-player-label");
+    expect(html).not.toContain("mock-avatar");
+    expect((html.match(/mock-player-info mock-player-info-/g) ?? [])).toHaveLength(5);
     expect(html).toContain("mock-table-surface-world");
     expect(html).toContain("1120,-350 2318.331,520.639 1860.609,1929.361 379.391,1929.361 -78.331,520.639");
     expect(tableDesignMockLayout.tabletopWorld).toMatchObject({
@@ -84,6 +88,7 @@ describe("TableDesignMock", () => {
     expect(tableDesignMockLayout.seats.some((seat) => "trickZone" in seat)).toBe(false);
     expect(tableDesignMockLayout.riverGrid).toMatchObject({
       cardExposureRatio: 0.25,
+      cellHeightRatio: 1.5,
       maxColumns: 10,
       maxRows: 2
     });
@@ -149,7 +154,8 @@ describe("TableDesignMock", () => {
     expect(html).toContain("北西の裏向き手札");
     expect(html).toContain("自分の表向き手札");
     expect((html.match(/mock-self-hand-card/g) ?? [])).toHaveLength(13);
-    expect(html).toContain('aria-label="自分 プレイヤー" class="mock-avatar mock-avatar-self" style="--mock-x:808px;--mock-y:1492px');
+    expect((html.match(/mock-player-info mock-player-info-/g) ?? [])).toHaveLength(5);
+    expect(html).toContain('aria-label="自分 プレイヤー" class="mock-player-info mock-player-info-self"');
   });
 
   it("lays out the self hand as viewport-width 2D UI for up to thirteen cards", () => {
@@ -247,6 +253,133 @@ describe("TableDesignMock", () => {
     expect(createSelfHandViewportLayout(cameraChangedLayout, 13)).toEqual(baseline);
   });
 
+  it("places player name and avatar units outside the hands", () => {
+    const viewport = { width: 1920, height: 1080 };
+    const projectedInfos = createPlayerInfoLayouts(tableDesignMockLayout, viewport, true);
+    const worldInfos = createPlayerInfoLayouts(tableDesignMockLayout);
+    const projectedFit = createProjectedBoardFit(tableDesignMockLayout, viewport);
+    const selfInfo = projectedInfos.find((info) => info.seatId === "self");
+    const selfHand = createSelfHandViewportLayout(tableDesignMockLayout, 13, viewport);
+    const compactProjectedInfos = createPlayerInfoLayouts(tableDesignMockLayout, { width: 1366, height: 768 }, true);
+    const fixtureRiverCardCounts = { "top-left": 2, "top-right": 20, right: 3, left: 2 } as const;
+
+    expect(projectedInfos.map((info) => info.seatId)).toEqual(["top-left", "top-right", "right", "left", "self"]);
+    expect(worldInfos.map((info) => info.seatId)).toEqual(["top-left", "top-right", "right", "left", "self"]);
+    expect(selfInfo).toBeDefined();
+
+    const hudBox = boxFromTopLeft(tableDesignMockLayout.hud);
+
+    for (const info of worldInfos) {
+      expect(boxesOverlap(boxFromCenter(info), hudBox)).toBe(false);
+    }
+
+    for (const info of compactProjectedInfos) {
+      expect(boxesOverlap(boxFromCenter(info), hudBox)).toBe(false);
+    }
+
+    for (const seatId of ["top-left", "top-right", "right", "left"] as const) {
+      const info = worldInfos.find((entry) => entry.seatId === seatId);
+      const hand = createOpponentHandGeometry(tableDesignMockLayout, seatId);
+      const halfThickness = tableDesignMockLayout.opponentHand.cardThickness / 2;
+      const handBox = boundingTestBox(
+        hand.cards.flatMap((card) => [
+          {
+            x: card.leftBottom.x - hand.edge.normal.x * halfThickness,
+            y: card.leftBottom.y - hand.edge.normal.y * halfThickness
+          },
+          {
+            x: card.rightBottom.x - hand.edge.normal.x * halfThickness,
+            y: card.rightBottom.y - hand.edge.normal.y * halfThickness
+          },
+          {
+            x: card.rightBottom.x + hand.edge.normal.x * halfThickness,
+            y: card.rightBottom.y + hand.edge.normal.y * halfThickness
+          },
+          {
+            x: card.leftBottom.x + hand.edge.normal.x * halfThickness,
+            y: card.leftBottom.y + hand.edge.normal.y * halfThickness
+          }
+        ])
+      );
+
+      expect(info).toBeDefined();
+
+      if (info === undefined) {
+        throw new Error(`Expected world player info for ${seatId}`);
+      }
+
+      expect(boxesOverlap(boxFromCenter(info), handBox)).toBe(false);
+      expect(boxesOverlap(boxFromCenter(info), riverCardsTestBox(seatId, fixtureRiverCardCounts[seatId]))).toBe(false);
+    }
+
+    if (selfInfo === undefined) {
+      throw new Error("Expected self player info");
+    }
+
+    const selfBox = boxFromCenter(selfInfo);
+
+    expect(selfBox.left).toBeGreaterThanOrEqual(tableDesignMockLayout.playerInfo.viewportMargin);
+    expect(selfBox.left).toBeLessThan(selfHand.left + selfHand.cardSize.width);
+    expect(selfBox.bottom).toBeLessThanOrEqual(selfHand.top - tableDesignMockLayout.playerInfo.selfGap);
+    expect(selfBox.bottom).toBeLessThan(selfHand.top);
+    expect(selfBox.top).toBeGreaterThan(projectedFit.transformedTableBox.bottom);
+
+    for (const seatId of ["top-left", "top-right", "right", "left"] as const) {
+      const info = projectedInfos.find((entry) => entry.seatId === seatId);
+      const hand = createOpponentHandGeometry(tableDesignMockLayout, seatId);
+      const handBox = transformTestBox(
+        boundingTestBox(hand.cards.flatMap((card) => projectVerticalCard(card))),
+        projectedFit.scale,
+        projectedFit.translate
+      );
+
+      expect(info).toBeDefined();
+
+      if (info === undefined) {
+        throw new Error(`Expected player info for ${seatId}`);
+      }
+
+      const infoBox = boxFromCenter(info);
+      const outward = normalizeTestVector({
+        x: handBox.x - projectedFit.transformedTableBox.x,
+        y: handBox.y - projectedFit.transformedTableBox.y
+      });
+
+      expect(boxesOverlap(infoBox, handBox)).toBe(false);
+      expect((info.x - handBox.x) * outward.x + (info.y - handBox.y) * outward.y).toBeGreaterThan(0);
+      expect(infoBox.left).toBeGreaterThanOrEqual(tableDesignMockLayout.playerInfo.viewportMargin);
+      expect(infoBox.right).toBeLessThanOrEqual(viewport.width - tableDesignMockLayout.playerInfo.viewportMargin);
+      expect(infoBox.top).toBeGreaterThanOrEqual(tableDesignMockLayout.playerInfo.viewportMargin);
+      expect(infoBox.bottom).toBeLessThanOrEqual(viewport.height - tableDesignMockLayout.playerInfo.viewportMargin);
+    }
+
+    const compactProjectedFit = createProjectedBoardFit(tableDesignMockLayout, { width: 1366, height: 768 });
+
+    for (const seatId of ["top-left", "top-right", "right", "left"] as const) {
+      const info = compactProjectedInfos.find((entry) => entry.seatId === seatId);
+      const hand = createOpponentHandGeometry(tableDesignMockLayout, seatId);
+      const handBox = transformTestBox(
+        boundingTestBox(hand.cards.flatMap((card) => projectVerticalCard(card))),
+        compactProjectedFit.scale,
+        compactProjectedFit.translate
+      );
+      const riverBox = transformTestBox(
+        projectedRiverCardsTestBox(seatId, fixtureRiverCardCounts[seatId]),
+        compactProjectedFit.scale,
+        compactProjectedFit.translate
+      );
+
+      expect(info).toBeDefined();
+
+      if (info === undefined) {
+        throw new Error(`Expected compact projected player info for ${seatId}`);
+      }
+
+      expect(boxesOverlap(boxFromCenter(info), handBox)).toBe(false);
+      expect(boxesOverlap(boxFromCenter(info), riverBox)).toBe(false);
+    }
+  });
+
   it("projects table points through the shared camera so closer geometry is larger", () => {
     const projectedTable = projectTablePolygon(tableDesignMockLayout.tableSurface);
     const projectedTableTop = Math.min(...projectedTable.map((point) => point.y));
@@ -292,6 +425,8 @@ describe("TableDesignMock", () => {
       const expectedCardWidth =
         (river.width - tableDesignMockLayout.riverGrid.columnGap * (tableDesignMockLayout.riverGrid.maxColumns - 1)) /
         tableDesignMockLayout.riverGrid.maxColumns;
+      const oldCellHeight = river.cardSize.height * tableDesignMockLayout.riverGrid.cardExposureRatio;
+      const newCellHeight = oldCellHeight * tableDesignMockLayout.riverGrid.cellHeightRatio;
 
       expect(river.d).toBeCloseTo(edge.d);
       expect(river.d).toBeCloseTo(expected[seatId].d);
@@ -299,9 +434,9 @@ describe("TableDesignMock", () => {
       expect(river.width).toBeCloseTo(expectedGridWidth);
       expect(river.cardSize.width).toBeCloseTo(expectedCardWidth);
       expect(river.cardSize.height).toBeCloseTo(river.cardSize.width * 7 / 5);
-      expect(river.visibleCardSize.height).toBeCloseTo(
-        river.cardSize.height * tableDesignMockLayout.riverGrid.cardExposureRatio
-      );
+      expect(river.visibleCardSize.height).toBeCloseTo(newCellHeight);
+      expect(river.visibleCardSize.height / oldCellHeight).toBeCloseTo(1.5);
+      expect(river.rowPitch).toBeCloseTo(river.visibleCardSize.height + tableDesignMockLayout.riverGrid.rowGap);
       const face = createRiverFaceMetrics(river.visibleCardSize);
 
       expect(face.rankFontSize).toBeCloseTo(river.visibleCardSize.height * tableDesignMockLayout.riverFace.rankFontRatio);
@@ -500,11 +635,16 @@ describe("TableDesignMock", () => {
       const edge = createTableSurfaceEdgeGeometry(tableDesignMockLayout, seatId);
       const roleEdge = createRoleBoardEdgeGeometry(tableDesignMockLayout.center, seatId);
       const river = createRiverGeometry(tableDesignMockLayout, seatId);
+      const currentTrickReferenceRiver = createCurrentTrickReferenceRiverGeometry(tableDesignMockLayout, seatId);
       const zone = createCurrentTrickZoneGeometry(tableDesignMockLayout, seatId, riverCardCounts[seatId]);
       const cardSize = createCurrentTrickCardSize(tableDesignMockLayout, seatId);
       const cardPlane = createCurrentTrickCardPlane(tableDesignMockLayout, seatId);
       const roleEdgeCenter = midpointBetween(roleEdge.start, roleEdge.end);
       const riverInnerEdgeCenter = {
+        x: currentTrickReferenceRiver.x + currentTrickReferenceRiver.direction.x * (currentTrickReferenceRiver.width / 2),
+        y: currentTrickReferenceRiver.y + currentTrickReferenceRiver.direction.y * (currentTrickReferenceRiver.width / 2)
+      };
+      const actualRiverInnerEdgeCenter = {
         x: river.x + river.direction.x * (river.width / 2),
         y: river.y + river.direction.y * (river.width / 2)
       };
@@ -529,6 +669,8 @@ describe("TableDesignMock", () => {
         distanceAlongNormal(edge, zoneInnerEdgeCenter) - distanceAlongNormal(edge, roleEdgeCenter);
       const riverGap =
         distanceAlongNormal(edge, riverInnerEdgeCenter) - distanceAlongNormal(edge, zoneOuterEdgeCenter);
+      const actualRiverGap =
+        distanceAlongNormal(edge, actualRiverInnerEdgeCenter) - distanceAlongNormal(edge, zoneOuterEdgeCenter);
 
       expect(zone.rotation).toBeCloseTo(edge.rotation);
       expect(zone.rotation).toBeCloseTo(expected[seatId].rotation);
@@ -548,6 +690,7 @@ describe("TableDesignMock", () => {
       expect(zone.width).toBeGreaterThan(roleEdge.d);
       expect(roleGap).toBeGreaterThan(0);
       expect(riverGap).toBeGreaterThan(0);
+      expect(actualRiverGap).toBeGreaterThan(0);
       expect(roleGap).toBeCloseTo(riverGap);
       expect(roleGap).toBeCloseTo((availableDepth - zone.height) / 2);
       expect(cardPlane.width).toBe(cardSize.width);
@@ -620,5 +763,190 @@ function midpointBetween(a: { x: number; y: number }, b: { x: number; y: number 
   return {
     x: (a.x + b.x) / 2,
     y: (a.y + b.y) / 2
+  };
+}
+
+function boxFromCenter(box: {
+  height: number;
+  width: number;
+  x: number;
+  y: number;
+}): { bottom: number; height: number; left: number; right: number; top: number; width: number; x: number; y: number } {
+  return {
+    bottom: box.y + box.height / 2,
+    height: box.height,
+    left: box.x - box.width / 2,
+    right: box.x + box.width / 2,
+    top: box.y - box.height / 2,
+    width: box.width,
+    x: box.x,
+    y: box.y
+  };
+}
+
+function boxFromTopLeft(box: {
+  height: number;
+  width: number;
+  x: number;
+  y: number;
+}): { bottom: number; height: number; left: number; right: number; top: number; width: number; x: number; y: number } {
+  return {
+    bottom: box.y + box.height,
+    height: box.height,
+    left: box.x,
+    right: box.x + box.width,
+    top: box.y,
+    width: box.width,
+    x: box.x + box.width / 2,
+    y: box.y + box.height / 2
+  };
+}
+
+function boxesOverlap(
+  a: { bottom: number; left: number; right: number; top: number },
+  b: { bottom: number; left: number; right: number; top: number }
+): boolean {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+
+function boundingTestBox(points: readonly { x: number; y: number }[]): {
+  bottom: number;
+  height: number;
+  left: number;
+  right: number;
+  top: number;
+  width: number;
+  x: number;
+  y: number;
+} {
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  const left = Math.min(...xs);
+  const right = Math.max(...xs);
+  const top = Math.min(...ys);
+  const bottom = Math.max(...ys);
+  const width = right - left;
+  const height = bottom - top;
+
+  return {
+    bottom,
+    height,
+    left,
+    right,
+    top,
+    width,
+    x: left + width / 2,
+    y: top + height / 2
+  };
+}
+
+function transformTestBox(
+  box: { bottom: number; left: number; right: number; top: number },
+  scale: number,
+  translate: { x: number; y: number }
+): {
+  bottom: number;
+  height: number;
+  left: number;
+  right: number;
+  top: number;
+  width: number;
+  x: number;
+  y: number;
+} {
+  const left = box.left * scale + translate.x;
+  const right = box.right * scale + translate.x;
+  const top = box.top * scale + translate.y;
+  const bottom = box.bottom * scale + translate.y;
+  const width = right - left;
+  const height = bottom - top;
+
+  return {
+    bottom,
+    height,
+    left,
+    right,
+    top,
+    width,
+    x: left + width / 2,
+    y: top + height / 2
+  };
+}
+
+function riverCardsTestBox(seatId: "left" | "right" | "top-left" | "top-right", cardCount: number): {
+  bottom: number;
+  height: number;
+  left: number;
+  right: number;
+  top: number;
+  width: number;
+  x: number;
+  y: number;
+} {
+  const river = createRiverGeometry(tableDesignMockLayout, seatId);
+  const placements = createRiverPlacements(cardCount, tableDesignMockLayout, seatId);
+
+  return boundingTestBox(placements.flatMap((placement) => tableCardTestCorners({
+    direction: river.direction,
+    height: river.visibleCardSize.height,
+    normal: river.normal,
+    width: river.visibleCardSize.width,
+    x: river.x + river.direction.x * placement.x + river.normal.x * placement.y,
+    y: river.y + river.direction.y * placement.x + river.normal.y * placement.y
+  })));
+}
+
+function projectedRiverCardsTestBox(seatId: "left" | "right" | "top-left" | "top-right", cardCount: number): {
+  bottom: number;
+  height: number;
+  left: number;
+  right: number;
+  top: number;
+  width: number;
+  x: number;
+  y: number;
+} {
+  const river = createRiverGeometry(tableDesignMockLayout, seatId);
+  const placements = createRiverPlacements(cardCount, tableDesignMockLayout, seatId);
+
+  return boundingTestBox(placements.flatMap((placement) => projectTableCard({
+    direction: river.direction,
+    height: river.visibleCardSize.height,
+    normal: river.normal,
+    width: river.visibleCardSize.width,
+    x: river.x + river.direction.x * placement.x + river.normal.x * placement.y,
+    y: river.y + river.direction.y * placement.x + river.normal.y * placement.y
+  }, tableDesignMockLayout.camera, "top-left")));
+}
+
+function tableCardTestCorners(card: {
+  direction: { x: number; y: number };
+  height: number;
+  normal: { x: number; y: number };
+  width: number;
+  x: number;
+  y: number;
+}): Array<{ x: number; y: number }> {
+  return [
+    { x: card.x, y: card.y },
+    { x: card.x + card.direction.x * card.width, y: card.y + card.direction.y * card.width },
+    {
+      x: card.x + card.direction.x * card.width + card.normal.x * card.height,
+      y: card.y + card.direction.y * card.width + card.normal.y * card.height
+    },
+    { x: card.x + card.normal.x * card.height, y: card.y + card.normal.y * card.height }
+  ];
+}
+
+function normalizeTestVector(vector: { x: number; y: number }): { x: number; y: number } {
+  const length = Math.hypot(vector.x, vector.y);
+
+  if (length === 0) {
+    return { x: 0, y: -1 };
+  }
+
+  return {
+    x: vector.x / length,
+    y: vector.y / length
   };
 }
