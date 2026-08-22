@@ -75,6 +75,10 @@ html:has(.card-design-page) {
   grid-column: span 2;
 }
 
+.card-design-candidate-section {
+  grid-column: 1 / -1;
+}
+
 .card-design-section-title {
   align-items: center;
   display: flex;
@@ -157,7 +161,153 @@ html:has(.card-design-page) {
 .card-design-letele-grid {
   display: grid;
   gap: 8px;
-  grid-template-columns: repeat(8, 1fr);
+  grid-template-columns: repeat(11, 1fr);
+}
+
+.card-design-candidate-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.card-design-candidate-card {
+  background: #f8fafc;
+  border: 1px solid #d7dee8;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+}
+
+.card-design-candidate-heading {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.card-design-candidate-heading h3 {
+  font-size: 0.86rem;
+  letter-spacing: 0;
+  line-height: 1.1;
+  margin: 0;
+}
+
+.card-design-candidate-heading span {
+  background: #e2e8f0;
+  border-radius: 6px;
+  color: #334155;
+  font-size: 0.68rem;
+  font-weight: 900;
+  padding: 3px 6px;
+  white-space: nowrap;
+}
+
+.card-design-candidate-meta {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+}
+
+.card-design-candidate-meta div {
+  display: grid;
+  gap: 5px;
+  grid-template-columns: 42px minmax(0, 1fr);
+}
+
+.card-design-candidate-meta dt,
+.card-design-candidate-meta dd {
+  font-size: 0.62rem;
+  line-height: 1.15;
+  margin: 0;
+}
+
+.card-design-candidate-meta dt {
+  color: #64748b;
+  font-weight: 900;
+}
+
+.card-design-candidate-meta dd {
+  color: #26364f;
+  font-weight: 700;
+}
+
+.card-design-candidate-mode {
+  display: grid;
+  gap: 5px;
+}
+
+.card-design-candidate-mode-title {
+  align-items: baseline;
+  display: flex;
+  gap: 6px;
+  justify-content: space-between;
+}
+
+.card-design-candidate-mode-title strong {
+  color: #172033;
+  font-size: 0.68rem;
+  line-height: 1;
+}
+
+.card-design-candidate-mode-title span {
+  color: #64748b;
+  font-size: 0.6rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.card-design-candidate-strip {
+  align-items: start;
+  display: flex;
+  gap: 5px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+
+.card-design-candidate-card-frame {
+  flex: 0 0 auto;
+  height: var(--card-design-candidate-card-visible-height);
+  overflow: visible;
+  width: var(--card-design-candidate-card-width);
+}
+
+.card-design-candidate-card-frame-clipped {
+  background: #e6f8e8;
+  border: 1px solid rgb(21 128 61 / 22%);
+  overflow: hidden;
+}
+
+.card-design-candidate-card-clip {
+  height: var(--card-design-candidate-card-height);
+  width: var(--card-design-candidate-card-width);
+}
+
+.card-design-candidate-image,
+.card-design-cardmeister-element,
+.card-design-candidate-card-frame .card-design-letele-card,
+.card-design-candidate-card-frame .card-design-letele-svg {
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+.card-design-cardmeister-element img {
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+.card-design-candidate-summary {
+  color: #334155;
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.25;
+  margin: 0;
 }
 
 .card-design-card {
@@ -297,9 +447,19 @@ html:has(.card-design-page) {
     grid-template-columns: 1fr;
   }
 
+  .card-design-candidate-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .card-design-section-primary,
   .card-design-section-wide {
     grid-column: auto;
     grid-row: auto;
+  }
+}
+
+@media (max-width: 760px) {
+  .card-design-candidate-grid {
+    grid-template-columns: 1fr;
   }
 }

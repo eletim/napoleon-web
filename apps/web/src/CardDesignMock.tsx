@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { createElement, useEffect, type CSSProperties } from "react";
 import {
   CardDesignPrototypeCard,
   cardDesignCardHeight,
@@ -19,13 +19,39 @@ import {
   type MockPlayingCard,
   type MockPlayingCardSuit
 } from "./mockPlayingCardAdapter";
+import { resolveAppPath } from "./appPath";
 import "./CardDesignMock.css";
+
+type CandidateCardSource = "cardmeister" | "letele" | "svgcards";
+
+interface CardDesignCandidate {
+  assetFolder?: string;
+  aspectRatio: number;
+  id: string;
+  license: string;
+  npm: string;
+  source: CandidateCardSource;
+  sourceLabel: string;
+  summary: string;
+  title: string;
+  vendor: string;
+}
+
+interface CandidateComparisonMode {
+  cards: readonly MockPlayingCard[];
+  className: string;
+  displayWidth: number;
+  metric: string;
+  title: string;
+  sourceWidth: number;
+  clipped?: boolean;
+}
 
 const focusCards = createCardDesignDeck(cardDesignComparisonRanks);
 const fullDeckCards = createCardDesignDeck();
 const tenExposureCards = cardDesignSuitOrder.map((suit) => ({ rank: "10", suit })) satisfies readonly MockPlayingCard[];
 const faceComparisonCards = createCardDesignDeck(["J", "Q", "K"]);
-const leteleComparisonCards: readonly MockPlayingCard[] = [
+const fourColorComparisonCards: readonly MockPlayingCard[] = [
   { rank: "A", suit: "spades" },
   { rank: "A", suit: "clubs" },
   { rank: "A", suit: "hearts" },
@@ -33,8 +59,107 @@ const leteleComparisonCards: readonly MockPlayingCard[] = [
   { rank: "10", suit: "spades" },
   { rank: "10", suit: "clubs" },
   { rank: "10", suit: "hearts" },
-  { rank: "10", suit: "diamonds" }
+  { rank: "10", suit: "diamonds" },
+  { rank: "J", suit: "spades" },
+  { rank: "Q", suit: "hearts" },
+  { rank: "K", suit: "diamonds" }
 ];
+const currentTrickComparisonCards = fourColorComparisonCards.slice(8);
+const currentTrickEquivalent = { width: 342.939, height: 480.115 };
+const selfHandEquivalent = { width: 118.154, height: 165.415 };
+const riverEquivalent = { width: 126.675, visibleHeight: 44.336 };
+const leteleAspectRatio = 7 / 5;
+const svgCardsPngAspectRatio = 113 / 75;
+const cardmeisterSuitColor = "#111827,#dc2626,#2563eb,#15803d";
+
+const cardDesignCandidates = [
+  {
+    id: "letele",
+    title: "Current @letele",
+    source: "letele",
+    sourceLabel: "@letele/playing-cards",
+    license: "CC0-1.0",
+    npm: "installed npm dependency",
+    vendor: "none",
+    aspectRatio: leteleAspectRatio,
+    summary: "Baseline two-color deck; court art is familiar but club/spade and heart/diamond depend mostly on shape."
+  },
+  {
+    id: "svgcards-vertical4",
+    title: "SVGCards Vertical4",
+    source: "svgcards",
+    sourceLabel: "saulspatz/SVGCards Decks/Vertical4",
+    license: "Public Domain",
+    npm: "not needed for this fixture",
+    vendor: "11 PNG fixtures",
+    assetFolder: "vertical4",
+    aspectRatio: svgCardsPngAspectRatio,
+    summary: "Traditional stacked index with four-color suits; good large-card readability."
+  },
+  {
+    id: "svgcards-horizontal4",
+    title: "SVGCards Horizontal4",
+    source: "svgcards",
+    sourceLabel: "saulspatz/SVGCards Decks/Horizontal4",
+    license: "Public Domain",
+    npm: "not needed for this fixture",
+    vendor: "11 PNG fixtures",
+    assetFolder: "horizontal4",
+    aspectRatio: svgCardsPngAspectRatio,
+    summary: "Side-by-side rank and suit index; strongest SVGCards option for river 25% clipping."
+  },
+  {
+    id: "svgcards-accessible-horizontal",
+    title: "SVGCards Accessible",
+    source: "svgcards",
+    sourceLabel: "saulspatz/SVGCards Decks/Accessible/Horizontal",
+    license: "Public Domain",
+    npm: "not needed for this fixture",
+    vendor: "11 PNG fixtures",
+    assetFolder: "accessible-horizontal",
+    aspectRatio: svgCardsPngAspectRatio,
+    summary: "Higher-contrast four-color palette; river clipping remains readable."
+  },
+  {
+    id: "cardmeister",
+    title: "cardmeister 4-color",
+    source: "cardmeister",
+    sourceLabel: "cardmeister/cardmeister.github.io",
+    license: "Unlicense",
+    npm: "no npm package found",
+    vendor: "elements.cardmeister.full.js",
+    aspectRatio: leteleAspectRatio,
+    summary: "Configurable web component using suitcolor/rankcolor; easy palette iteration, but custom element integration is separate from React."
+  }
+] as const satisfies readonly CardDesignCandidate[];
+
+const comparisonModes = [
+  {
+    title: "CurrentTrick",
+    metric: `${currentTrickEquivalent.width} x ${currentTrickEquivalent.height}`,
+    className: "current",
+    cards: currentTrickComparisonCards,
+    displayWidth: 82,
+    sourceWidth: currentTrickEquivalent.width
+  },
+  {
+    title: "Self hand",
+    metric: `${selfHandEquivalent.width} x ${selfHandEquivalent.height}`,
+    className: "self",
+    cards: fourColorComparisonCards,
+    displayWidth: 42,
+    sourceWidth: selfHandEquivalent.width
+  },
+  {
+    title: "River 25%",
+    metric: `${riverEquivalent.width}w / ${riverEquivalent.visibleHeight}h`,
+    className: "river",
+    cards: tenExposureCards,
+    displayWidth: 64,
+    sourceWidth: riverEquivalent.width,
+    clipped: true
+  }
+] as const satisfies readonly CandidateComparisonMode[];
 
 export function CardDesignMock() {
   const normalWidth = cardDesignConfig.sizes.normalWidth;
@@ -43,15 +168,26 @@ export function CardDesignMock() {
   const identificationGuideX = cardDesignIdentificationGuideX(overlapWidth);
   const exposureOffset = cardDesignExposureOffset(overlapWidth);
 
+  useCardmeisterScript();
+
   return (
-    <main aria-label="Issue 355 card design mock" className="card-design-page">
+    <main aria-label="Issue 392 card design mock" className="card-design-page">
       <header className="card-design-header">
         <div>
           <p className="card-design-eyebrow">/mock/card-design</p>
-          <h1>Card Design Sandbox</h1>
+          <h1>Four-Color Card Design Sandbox</h1>
         </div>
         <ConfigSwatches />
       </header>
+
+      <section aria-label="4色カード候補比較" className="card-design-section card-design-section-wide card-design-candidate-section">
+        <SectionTitle metric={`${cardDesignCandidates.length} candidates / 11 cards`} title="Four-color candidates" />
+        <div className="card-design-candidate-grid">
+          {cardDesignCandidates.map((candidate) => (
+            <CandidatePanel candidate={candidate} key={candidate.id} />
+          ))}
+        </div>
+      </section>
 
       <section aria-label="通常サイズ" className="card-design-section card-design-section-primary">
         <SectionTitle metric={`${normalWidth} x ${cardDesignCardHeight(normalWidth).toFixed(1)}px`} title="Normal" />
@@ -147,13 +283,131 @@ export function CardDesignMock() {
       <section aria-label="@letele/playing-cards比較" className="card-design-section card-design-section-wide">
         <SectionTitle metric="current" title="@letele comparison" />
         <div className="card-design-letele-grid">
-          {leteleComparisonCards.map((card) => (
+          {fourColorComparisonCards.map((card) => (
             <LeteleCard card={card} key={`${card.rank}-${card.suit}`} />
           ))}
         </div>
       </section>
     </main>
   );
+}
+
+function CandidatePanel({ candidate }: { candidate: CardDesignCandidate }) {
+  return (
+    <article aria-label={`${candidate.title} comparison`} className="card-design-candidate-card">
+      <div className="card-design-candidate-heading">
+        <h3>{candidate.title}</h3>
+        <span>{candidate.license}</span>
+      </div>
+      <dl className="card-design-candidate-meta">
+        <div>
+          <dt>source</dt>
+          <dd>{candidate.sourceLabel}</dd>
+        </div>
+        <div>
+          <dt>npm</dt>
+          <dd>{candidate.npm}</dd>
+        </div>
+        <div>
+          <dt>vendor</dt>
+          <dd>{candidate.vendor}</dd>
+        </div>
+      </dl>
+      {comparisonModes.map((mode) => (
+        <CandidateModeRow candidate={candidate} key={mode.title} mode={mode} />
+      ))}
+      <p className="card-design-candidate-summary">{candidate.summary}</p>
+    </article>
+  );
+}
+
+function CandidateModeRow({
+  candidate,
+  mode
+}: {
+  candidate: CardDesignCandidate;
+  mode: CandidateComparisonMode;
+}) {
+  return (
+    <div className={`card-design-candidate-mode card-design-candidate-mode-${mode.className}`}>
+      <div className="card-design-candidate-mode-title">
+        <strong>{mode.title}</strong>
+        <span>{mode.metric}</span>
+      </div>
+      <div className="card-design-candidate-strip">
+        {mode.cards.map((card) => (
+          <CandidateCard
+            card={card}
+            candidate={candidate}
+            clipped={mode.clipped}
+            key={`${candidate.id}-${mode.title}-${card.rank}-${card.suit}`}
+            sourceWidth={mode.sourceWidth}
+            width={mode.displayWidth}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CandidateCard({
+  candidate,
+  card,
+  clipped = false,
+  sourceWidth,
+  width
+}: {
+  candidate: CardDesignCandidate;
+  card: MockPlayingCard;
+  clipped?: boolean;
+  sourceWidth: number;
+  width: number;
+}) {
+  const height = width * candidate.aspectRatio;
+  const visibleHeight = clipped ? height * cardDesignConfig.layout.identificationAreaRatio : height;
+
+  return (
+    <div
+      aria-label={`${candidate.title} ${card.rank}${cardDesignSuitSymbols[card.suit]}`}
+      className={[
+        "card-design-candidate-card-frame",
+        clipped ? "card-design-candidate-card-frame-clipped" : ""
+      ].filter(Boolean).join(" ")}
+      style={
+        {
+          "--card-design-candidate-card-height": `${height}px`,
+          "--card-design-candidate-card-source-width": `${sourceWidth}px`,
+          "--card-design-candidate-card-visible-height": `${visibleHeight}px`,
+          "--card-design-candidate-card-width": `${width}px`
+        } as CSSProperties
+      }
+    >
+      <div className="card-design-candidate-card-clip">
+        {candidate.source === "letele" ? <LeteleCard card={card} /> : null}
+        {candidate.source === "svgcards" ? <SvgCardsImageCard assetFolder={candidate.assetFolder ?? ""} card={card} /> : null}
+        {candidate.source === "cardmeister" ? <CardmeisterCard card={card} /> : null}
+      </div>
+    </div>
+  );
+}
+
+function SvgCardsImageCard({ assetFolder, card }: { assetFolder: string; card: MockPlayingCard }) {
+  return (
+    <img
+      alt=""
+      className="card-design-candidate-image"
+      src={resolveAppPath(`/vendor/card-design/svgcards/${assetFolder}/${svgCardsFileName(card)}`)}
+    />
+  );
+}
+
+function CardmeisterCard({ card }: { card: MockPlayingCard }) {
+  return createElement("playing-card", {
+    cid: cardmeisterCardId(card),
+    className: "card-design-cardmeister-element",
+    rankcolor: cardmeisterSuitColor,
+    suitcolor: cardmeisterSuitColor
+  });
 }
 
 function SectionTitle({ metric, title }: { metric: string; title: string }) {
@@ -217,4 +471,48 @@ function LeteleCard({ card }: { card: MockPlayingCard }) {
       <CardComponent className="card-design-letele-svg" title={componentName} />
     </article>
   );
+}
+
+function useCardmeisterScript() {
+  useEffect(() => {
+    if (document.querySelector("script[data-card-design-cardmeister]") !== null) {
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.dataset.cardDesignCardmeister = "true";
+    script.src = resolveAppPath("/vendor/card-design/cardmeister/elements.cardmeister.full.js");
+    script.async = true;
+    document.head.append(script);
+  }, []);
+}
+
+function svgCardsFileName(card: MockPlayingCard): string {
+  const rankNames: Partial<Record<MockPlayingCard["rank"], string>> = {
+    A: "Ace",
+    J: "Jack",
+    Q: "Queen",
+    K: "King"
+  };
+  const rankName = rankNames[card.rank] ?? card.rank;
+  const suitName = {
+    spades: "spade",
+    clubs: "club",
+    hearts: "heart",
+    diamonds: "diamond"
+  }[card.suit];
+
+  return `${suitName}${rankName}.png`;
+}
+
+function cardmeisterCardId(card: MockPlayingCard): string {
+  const rank = card.rank === "10" ? "T" : card.rank;
+  const suit = {
+    spades: "s",
+    hearts: "h",
+    diamonds: "d",
+    clubs: "c"
+  }[card.suit];
+
+  return `${rank}${suit}`;
 }

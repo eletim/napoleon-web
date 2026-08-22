@@ -25,7 +25,7 @@ afterEach(() => {
 });
 
 describe("CardDesignMock", () => {
-  it("renders the issue 355 card design sandbox at /mock/card-design", () => {
+  it("renders the issue 392 card design sandbox at /mock/card-design", () => {
     Object.defineProperty(globalThis, "window", {
       configurable: true,
       value: {
@@ -37,7 +37,7 @@ describe("CardDesignMock", () => {
 
     const html = renderToStaticMarkup(<App />);
 
-    expect(html).toContain("Issue 355 card design mock");
+    expect(html).toContain("Issue 392 card design mock");
     expect(html).toContain("/mock/card-design");
     expect(html).not.toContain("Issue 348 table design");
   });
@@ -47,6 +47,7 @@ describe("CardDesignMock", () => {
 
     expect(cardDesignSuitOrder).toEqual(["spades", "clubs", "hearts", "diamonds"]);
     expect(cardDesignComparisonRanks).toEqual(["A", "2", "5", "10", "J", "Q", "K"]);
+    expect(html).toContain("Four-color candidates");
     expect(html).toContain("Normal");
     expect(html).toContain("Small");
     expect(html).toContain("J / Q / K");
@@ -59,8 +60,38 @@ describe("CardDesignMock", () => {
     expect(html).toContain('aria-label="10♥"');
     expect(html).toContain('aria-label="10♦"');
     expect(html).toContain('aria-label="J♠"');
-    expect(html).toContain('aria-label="Q♦"');
-    expect(html).toContain('aria-label="K♣"');
+    expect(html).toContain('aria-label="Q♥"');
+    expect(html).toContain('aria-label="K♦"');
+  });
+
+  it("compares five four-color candidates at current trick, self hand, and river clip sizes", () => {
+    const html = renderToStaticMarkup(<CardDesignMock />);
+
+    expect((html.match(/class="card-design-candidate-card"/g) ?? [])).toHaveLength(5);
+    expect(html).toContain("Current @letele");
+    expect(html).toContain("SVGCards Vertical4");
+    expect(html).toContain("SVGCards Horizontal4");
+    expect(html).toContain("SVGCards Accessible");
+    expect(html).toContain("cardmeister 4-color");
+    expect(html).toContain("CC0-1.0");
+    expect(html).toContain("Public Domain");
+    expect(html).toContain("Unlicense");
+    expect(html).toContain("CurrentTrick");
+    expect(html).toContain("342.939 x 480.115");
+    expect(html).toContain("Self hand");
+    expect(html).toContain("118.154 x 165.415");
+    expect(html).toContain("River 25%");
+    expect(html).toContain("126.675w / 44.336h");
+    expect(html).toContain("/vendor/card-design/svgcards/vertical4/spadeAce.png");
+    expect(html).toContain("/vendor/card-design/svgcards/horizontal4/club10.png");
+    expect(html).toContain("/vendor/card-design/svgcards/accessible-horizontal/diamondKing.png");
+    expect(html).toContain("<playing-card");
+    expect(html).toContain("suitcolor=\"#111827,#dc2626,#2563eb,#15803d\"");
+    expect(html).toContain("rankcolor=\"#111827,#dc2626,#2563eb,#15803d\"");
+    expect((html.match(/card-design-candidate-card-frame-clipped/g) ?? [])).toHaveLength(20);
+    expect((html.match(/card-design-candidate-mode-current/g) ?? [])).toHaveLength(5);
+    expect((html.match(/card-design-candidate-mode-self/g) ?? [])).toHaveLength(5);
+    expect((html.match(/card-design-candidate-mode-river/g) ?? [])).toHaveLength(5);
   });
 
   it("keeps card design settings centralized in config", () => {
@@ -127,7 +158,7 @@ describe("CardDesignMock", () => {
 
     expect(createCardDesignDeck()).toHaveLength(52);
     expect((html.match(/class="card-design-card card-design-card-deck"/g) ?? [])).toHaveLength(52);
-    expect((html.match(/class="card-design-letele-card"/g) ?? [])).toHaveLength(8);
+    expect((html.match(/class="card-design-letele-card"/g) ?? [])).toHaveLength(29);
     expect(html).toContain("@letele comparison");
   });
 
