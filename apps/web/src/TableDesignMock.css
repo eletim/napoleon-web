@@ -24,7 +24,8 @@ html:has(.table-design-mock-page) {
   width: var(--mock-page-width);
 }
 
-.table-design-mock-page-projected .table-design-stage {
+.table-design-mock-page-projected .table-design-stage,
+.table-design-mock-page-bidding .table-design-stage {
   height: 100vh;
   height: 100dvh;
   width: 100vw;
@@ -474,4 +475,171 @@ html:has(.table-design-mock-page) {
   color: #111827;
   min-height: 36px;
   padding: 0 18px;
+}
+
+.mock-bidding-overlay {
+  align-items: center;
+  background:
+    linear-gradient(180deg, rgb(15 23 42 / 94%), rgb(17 24 39 / 96%));
+  border: 2px solid rgb(255 255 255 / 28%);
+  border-radius: 18px;
+  box-shadow:
+    0 22px 60px rgb(0 0 0 / 42%),
+    inset 0 1px 0 rgb(255 255 255 / 18%);
+  box-sizing: border-box;
+  color: #f8fafc;
+  display: grid;
+  gap: 22px;
+  height: var(--mock-bidding-overlay-height);
+  justify-items: center;
+  left: var(--mock-x);
+  padding: 28px 42px;
+  position: absolute;
+  top: var(--mock-y);
+  transform: translate(-50%, -50%);
+  width: var(--mock-bidding-overlay-width);
+  z-index: 7;
+}
+
+.mock-bidding-highest {
+  align-items: center;
+  display: flex;
+  gap: 26px;
+}
+
+.mock-bidding-label {
+  color: #cbd5e1;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.mock-bidding-highest-value {
+  background: #fffef6;
+  border: 4px solid var(--mock-bidding-action-color);
+  border-radius: 14px;
+  box-shadow: 0 5px 0 rgb(0 0 0 / 34%);
+  box-sizing: border-box;
+  color: var(--mock-bidding-action-color);
+  display: inline-flex;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 82px;
+  font-weight: 950;
+  justify-content: center;
+  letter-spacing: 0;
+  line-height: 0.92;
+  min-width: 190px;
+  padding: 8px 20px 10px;
+  text-shadow: none;
+}
+
+.mock-bidding-suit-selector {
+  display: flex;
+  gap: 18px;
+}
+
+.mock-bidding-suit-button,
+.mock-bidding-step-button,
+.mock-bidding-declare-button,
+.mock-bidding-pass-button {
+  border: 2px solid rgb(255 255 255 / 42%);
+  border-radius: 12px;
+  box-shadow: 0 5px 0 rgb(0 0 0 / 34%);
+  box-sizing: border-box;
+  color: #ffffff;
+  cursor: default;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.mock-bidding-suit-button {
+  background: var(--mock-bidding-suit-color);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 56px;
+  height: 78px;
+  line-height: 1;
+  width: 92px;
+}
+
+.mock-bidding-suit-button[aria-pressed="true"] {
+  outline: 5px solid rgb(255 255 255 / 86%);
+  outline-offset: 3px;
+}
+
+.mock-bidding-number-selector {
+  align-items: center;
+  display: grid;
+  gap: 28px;
+  grid-template-columns: 92px 130px 92px;
+}
+
+.mock-bidding-step-button {
+  background: #334155;
+  font-size: 52px;
+  height: 76px;
+  line-height: 1;
+}
+
+.mock-bidding-number-value {
+  color: #ffffff;
+  font-size: 82px;
+  font-weight: 950;
+  line-height: 0.9;
+  text-align: center;
+}
+
+.mock-bidding-actions {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: 1fr 1fr;
+  width: min(560px, 100%);
+}
+
+.mock-bidding-declare-button,
+.mock-bidding-pass-button {
+  font-size: 34px;
+  height: 74px;
+}
+
+.mock-bidding-declare-button {
+  background: #f8fafc;
+  color: #111827;
+}
+
+.mock-bidding-pass-button {
+  background: #64748b;
+}
+
+.mock-bidding-bubble-layer {
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 10;
+}
+
+.mock-bidding-bubble {
+  align-items: center;
+  background: #fffef6;
+  border: 4px solid var(--mock-bidding-action-color);
+  border-radius: 16px;
+  box-shadow:
+    0 7px 0 rgb(0 0 0 / 30%),
+    0 18px 34px rgb(0 0 0 / 24%);
+  box-sizing: border-box;
+  color: var(--mock-bidding-action-color);
+  display: flex;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 45px;
+  font-weight: 950;
+  height: var(--mock-bidding-bubble-height);
+  justify-content: center;
+  left: var(--mock-x);
+  letter-spacing: 0;
+  line-height: 0.95;
+  padding: 8px 12px;
+  position: absolute;
+  top: var(--mock-y);
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  width: var(--mock-bidding-bubble-width);
 }

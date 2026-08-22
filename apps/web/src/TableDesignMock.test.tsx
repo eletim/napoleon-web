@@ -2,6 +2,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
   TableDesignMock,
+  createBiddingBubbleLayouts,
+  createBiddingOverlayGeometry,
   createCurrentTrickCardPlane,
   createCurrentTrickCardSize,
   createCurrentTrickReferenceRiverGeometry,
@@ -156,6 +158,112 @@ describe("TableDesignMock", () => {
     expect((html.match(/mock-self-hand-card/g) ?? [])).toHaveLength(13);
     expect((html.match(/mock-player-info mock-player-info-/g) ?? [])).toHaveLength(5);
     expect(html).toContain('aria-label="自分 プレイヤー" class="mock-player-info mock-player-info-self"');
+  });
+
+  it("renders the bidding mock as a projected table variant with bidding-only UI", () => {
+    const html = renderToStaticMarkup(<TableDesignMock variant="bidding" />);
+
+    expect(html).toContain("Issue 348 table design bidding mock");
+    expect(html).toContain("投影後の卓上Geometry");
+    expect(html).toContain("競り操作Overlay");
+    expect(html).toContain("現在の最高入札");
+    expect(html).toContain("スート選択");
+    expect(html).toContain("入札数値選択");
+    expect(html).toContain("宣言");
+    expect(html).toContain("PASS");
+    expect(html).toContain("各プレイヤーの最新競り宣言");
+    expect((html.match(/mock-bidding-bubble mock-bidding-bubble-/g) ?? [])).toHaveLength(5);
+    expect(html).toContain("北西 最新宣言 PASS");
+    expect(html).toContain("北東 最新宣言 ♦14");
+    expect(html).toContain("右席 最新宣言 ♠15");
+    expect(html).toContain("左席 最新宣言 ♥14");
+    expect(html).toContain("自分 最新宣言 ♣13");
+    expect(html).toContain(`--mock-bidding-action-color:${fourColorSuitColors.spades}`);
+    expect(html).toContain(`--mock-bidding-suit-color:${fourColorSuitColors.diamonds}`);
+    expect((html.match(/mock-projected-current-trick-zone mock-projected-current-trick-zone-/g) ?? [])).toHaveLength(5);
+    expect((html.match(/mock-projected-river-card-face/g) ?? [])).toHaveLength(32);
+    expect((html.match(/mock-self-hand-card/g) ?? [])).toHaveLength(13);
+    expect((html.match(/mock-player-info mock-player-info-/g) ?? [])).toHaveLength(5);
+  });
+
+  it("does not render bidding UI on the existing world or projected mock routes", () => {
+    const world = renderToStaticMarkup(<TableDesignMock variant="world" />);
+    const projected = renderToStaticMarkup(<TableDesignMock variant="projected" />);
+
+    expect(world).not.toContain("mock-bidding-overlay");
+    expect(world).not.toContain("mock-bidding-bubble");
+    expect(projected).not.toContain("mock-bidding-overlay");
+    expect(projected).not.toContain("mock-bidding-bubble");
+  });
+
+  it("places the bidding overlay over the table without covering the self hand at 1920x1080", () => {
+    const viewport = { width: 1920, height: 1080 };
+    const overlay = createBiddingOverlayGeometry(tableDesignMockLayout, viewport);
+    const overlayBox = boxFromCenter(overlay);
+    const selfHand = createSelfHandViewportLayout(tableDesignMockLayout, 13, viewport);
+    const selfHandBox = boxFromTopLeft({
+      height: selfHand.cardSize.height,
+      width: selfHand.handWidth,
+      x: selfHand.left,
+      y: selfHand.top
+    });
+    const projectedFit = createProjectedBoardFit(tableDesignMockLayout, viewport);
+
+    expect(overlay.width).toBe(820);
+    expect(overlay.height).toBe(430);
+    expect(overlay.x).toBeCloseTo(projectedFit.transformedTableBox.x);
+    expect(overlay.y).toBeGreaterThan(projectedFit.transformedTableBox.y);
+    expect(overlayBox.top).toBeGreaterThanOrEqual(tableDesignMockLayout.bidding.overlay.viewportMargin);
+    expect(overlayBox.bottom).toBeLessThanOrEqual(
+      selfHand.top - tableDesignMockLayout.bidding.overlay.gapFromSelfHand
+    );
+    expect(boxesOverlap(overlayBox, selfHandBox)).toBe(false);
+  });
+
+  it("places all bidding bubbles near player info without covering hands or viewport edges", () => {
+    const viewport = { width: 1920, height: 1080 };
+    const bubbles = createBiddingBubbleLayouts(tableDesignMockLayout, viewport);
+    const playerInfos = createPlayerInfoLayouts(tableDesignMockLayout, viewport, true);
+    const projectedFit = createProjectedBoardFit(tableDesignMockLayout, viewport);
+    const selfHand = createSelfHandViewportLayout(tableDesignMockLayout, 13, viewport);
+    const selfHandBox = boxFromTopLeft({
+      height: selfHand.cardSize.height,
+      width: selfHand.handWidth,
+      x: selfHand.left,
+      y: selfHand.top
+    });
+    const opponentHandBoxes = (["top-left", "top-right", "right", "left"] as const).map((seatId) => {
+      const hand = createOpponentHandGeometry(tableDesignMockLayout, seatId);
+
+      return transformTestBox(
+        boundingTestBox(hand.cards.flatMap((card) => projectVerticalCard(card))),
+        projectedFit.scale,
+        projectedFit.translate
+      );
+    });
+
+    expect(bubbles.map((bubble) => bubble.seatId)).toEqual(["top-left", "top-right", "right", "left", "self"]);
+    expect(new Set(bubbles.map((bubble) => `${bubble.x}:${bubble.y}`)).size).toBe(5);
+
+    for (const bubble of bubbles) {
+      const bubbleBox = boxFromCenter(bubble);
+
+      expect(bubble.width).toBe(tableDesignMockLayout.bidding.bubble.width);
+      expect(bubble.height).toBe(tableDesignMockLayout.bidding.bubble.height);
+      expect(bubbleBox.left).toBeGreaterThanOrEqual(tableDesignMockLayout.bidding.bubble.viewportMargin);
+      expect(bubbleBox.right).toBeLessThanOrEqual(viewport.width - tableDesignMockLayout.bidding.bubble.viewportMargin);
+      expect(bubbleBox.top).toBeGreaterThanOrEqual(tableDesignMockLayout.bidding.bubble.viewportMargin);
+      expect(bubbleBox.bottom).toBeLessThanOrEqual(viewport.height - tableDesignMockLayout.bidding.bubble.viewportMargin);
+      expect(boxesOverlap(bubbleBox, selfHandBox)).toBe(false);
+
+      for (const info of playerInfos) {
+        expect(boxesOverlap(bubbleBox, boxFromCenter(info))).toBe(false);
+      }
+
+      for (const handBox of opponentHandBoxes) {
+        expect(boxesOverlap(bubbleBox, handBox)).toBe(false);
+      }
+    }
   });
 
   it("lays out the self hand as viewport-width 2D UI for up to thirteen cards", () => {
