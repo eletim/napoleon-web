@@ -58,6 +58,10 @@ export function App() {
     return <CardDesignMock />;
   }
 
+  if (window.location.pathname.endsWith("/mock/table-design-bidding")) {
+    return <TableDesignMock variant="bidding" />;
+  }
+
   if (window.location.pathname.endsWith("/mock/table-design-projected")) {
     return <TableDesignMock variant="projected" />;
   }

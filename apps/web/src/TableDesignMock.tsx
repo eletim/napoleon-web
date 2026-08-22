@@ -15,7 +15,7 @@ import "./TableDesignMock.css";
 
 type SeatId = "top-left" | "top-right" | "right" | "self" | "left";
 type OpponentSeatId = Exclude<SeatId, "self">;
-type TableDesignMockVariant = "projected" | "world";
+type TableDesignMockVariant = "bidding" | "projected" | "world";
 
 interface Point {
   x: number;
@@ -98,6 +98,23 @@ interface TableDesignMockLayout {
     unitHeight: number;
     unitWidth: number;
     viewportMargin: number;
+  };
+  bidding: {
+    bubble: {
+      gap: number;
+      height: number;
+      viewportMargin: number;
+      width: number;
+    };
+    overlay: {
+      gapFromSelfHand: number;
+      height: number;
+      maxWidth: number;
+      minWidth: number;
+      viewportMargin: number;
+      widthRatio: number;
+      yOffsetFromTableCenter: number;
+    };
   };
   selfHandUi: {
     bottomInset: number;
@@ -210,6 +227,23 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
     unitHeight: 52,
     unitWidth: 210,
     viewportMargin: 18
+  },
+  bidding: {
+    bubble: {
+      gap: 18,
+      height: 92,
+      viewportMargin: 18,
+      width: 168
+    },
+    overlay: {
+      gapFromSelfHand: 36,
+      height: 430,
+      maxWidth: 820,
+      minWidth: 680,
+      viewportMargin: 24,
+      widthRatio: 0.48,
+      yOffsetFromTableCenter: 34
+    }
   },
   selfHandUi: {
     bottomInset: 16,
@@ -354,9 +388,26 @@ const roleMarkers: Record<SeatId, string> = {
 const roleMarkerSeatOrder = ["top-left", "top-right", "right", "self", "left"] as const satisfies readonly SeatId[];
 const opponentSeatOrder = ["top-left", "top-right", "right", "left"] as const satisfies readonly OpponentSeatId[];
 
+type BiddingMockAction =
+  | { type: "bid"; suit: MockPlayingCard["suit"]; value: number }
+  | { type: "pass" };
+
+const biddingMockActions: Readonly<Record<SeatId, BiddingMockAction>> = {
+  "top-left": { type: "pass" },
+  "top-right": { type: "bid", suit: "diamonds", value: 14 },
+  right: { type: "bid", suit: "spades", value: 15 },
+  left: { type: "bid", suit: "hearts", value: 14 },
+  self: { type: "bid", suit: "clubs", value: 13 }
+};
+
+const biddingMockCurrentHighest = { type: "bid", suit: "spades", value: 15 } as const satisfies BiddingMockAction;
+const biddingMockSelectedBid = { type: "bid", suit: "spades", value: 16 } as const satisfies BiddingMockAction;
+const biddingSuitOptions = ["spades", "hearts", "diamonds", "clubs"] as const satisfies readonly MockPlayingCard["suit"][];
+
 export function TableDesignMock({ variant = "world" }: { variant?: TableDesignMockVariant }) {
   const layout = tableDesignMockLayout;
-  const isProjected = variant === "projected";
+  const isProjected = variant === "projected" || variant === "bidding";
+  const isBidding = variant === "bidding";
   const viewportSize = useViewportSize(layout.page);
 
   useCardmeisterScript();
@@ -390,7 +441,9 @@ export function TableDesignMock({ variant = "world" }: { variant?: TableDesignMo
             <RoleBoard layout={layout.center} />
           </>
         )}
+        {isBidding ? <BiddingMockOverlay layout={layout} viewportSize={viewportSize} /> : null}
         <PlayerInfoOverlay isProjected={isProjected} layout={layout} viewportSize={viewportSize} />
+        {isBidding ? <BiddingBubbleOverlay layout={layout} viewportSize={viewportSize} /> : null}
         <SelfHand cards={selfCards} layout={layout} viewportSize={viewportSize} />
       </div>
     </main>
@@ -449,6 +502,86 @@ function PlayerInfoUnit({ info }: { info: PlayerInfoGeometry }) {
         <span className="mock-player-info-avatar-body" />
       </span>
       <span className="mock-player-info-label">{info.label}</span>
+    </div>
+  );
+}
+
+function BiddingMockOverlay({
+  layout,
+  viewportSize
+}: {
+  layout: TableDesignMockLayout;
+  viewportSize: ViewportSize;
+}) {
+  const geometry = createBiddingOverlayGeometry(layout, viewportSize);
+  const selectedSuit = biddingMockSelectedBid.suit;
+
+  return (
+    <section
+      aria-label="競り操作Overlay"
+      className="mock-bidding-overlay"
+      style={biddingOverlayStyle(geometry)}
+    >
+      <div className="mock-bidding-highest">
+        <span className="mock-bidding-label">現在の最高入札</span>
+        <strong
+          className="mock-bidding-highest-value"
+          style={biddingActionColorStyle(biddingMockCurrentHighest)}
+        >
+          {biddingActionLabel(biddingMockCurrentHighest)}
+        </strong>
+      </div>
+      <div aria-label="スート選択" className="mock-bidding-suit-selector">
+        {biddingSuitOptions.map((suit) => (
+          <button
+            aria-pressed={suit === selectedSuit}
+            className="mock-bidding-suit-button"
+            key={suit}
+            style={
+              {
+                "--mock-bidding-suit-color": fourColorSuitColors[suit]
+              } as CSSProperties
+            }
+            type="button"
+          >
+            {cardDesignSuitSymbols[suit]}
+          </button>
+        ))}
+      </div>
+      <div aria-label="入札数値選択" className="mock-bidding-number-selector">
+        <button className="mock-bidding-step-button" type="button">-</button>
+        <strong className="mock-bidding-number-value">{biddingMockSelectedBid.value}</strong>
+        <button className="mock-bidding-step-button" type="button">+</button>
+      </div>
+      <div className="mock-bidding-actions">
+        <button className="mock-bidding-declare-button" type="button">宣言</button>
+        <button className="mock-bidding-pass-button" type="button">PASS</button>
+      </div>
+    </section>
+  );
+}
+
+function BiddingBubbleOverlay({
+  layout,
+  viewportSize
+}: {
+  layout: TableDesignMockLayout;
+  viewportSize: ViewportSize;
+}) {
+  const bubbles = createBiddingBubbleLayouts(layout, viewportSize);
+
+  return (
+    <div aria-label="各プレイヤーの最新競り宣言" className="mock-bidding-bubble-layer">
+      {bubbles.map((bubble) => (
+        <output
+          aria-label={`${bubble.label} 最新宣言 ${biddingActionLabel(bubble.action)}`}
+          className={`mock-bidding-bubble mock-bidding-bubble-${bubble.seatId}`}
+          key={bubble.seatId}
+          style={biddingBubbleStyle(bubble)}
+        >
+          {biddingActionLabel(bubble.action)}
+        </output>
+      ))}
     </div>
   );
 }
@@ -1059,6 +1192,12 @@ interface ProjectedBoardFit {
   viewport: ViewportSize;
 }
 
+interface BiddingBubbleLayout extends Box {
+  action: BiddingMockAction;
+  label: string;
+  seatId: SeatId;
+}
+
 const roleBoardEdges: Record<SeatId, { end: Point; start: Point }> = {
   "top-left": { start: roleBoardPentagon.top, end: roleBoardPentagon.topLeft },
   "top-right": { start: roleBoardPentagon.topRight, end: roleBoardPentagon.top },
@@ -1424,6 +1563,175 @@ export function createPlayerInfoLayouts(
     ...opponents,
     createSelfPlayerInfoLayout(layout, selfHandLayout, viewport)
   ];
+}
+
+export function createBiddingOverlayGeometry(
+  layout: TableDesignMockLayout,
+  viewport: ViewportSize = layout.page
+): Box {
+  const fit = createProjectedBoardFit(layout, viewport);
+  const selfHand = createSelfHandViewportLayout(layout, selfCards.length, viewport);
+  const config = layout.bidding.overlay;
+  const width = toLayoutPrecision(Math.min(
+    viewport.width - config.viewportMargin * 2,
+    clamp(viewport.width * config.widthRatio, config.minWidth, config.maxWidth)
+  ));
+  const height = toLayoutPrecision(Math.min(
+    config.height,
+    Math.max(240, selfHand.top - config.gapFromSelfHand - config.viewportMargin * 2)
+  ));
+  const x = toLayoutPrecision(clamp(
+    fit.transformedTableBox.x,
+    config.viewportMargin + width / 2,
+    viewport.width - config.viewportMargin - width / 2
+  ));
+  const y = toLayoutPrecision(clamp(
+    fit.transformedTableBox.y + config.yOffsetFromTableCenter,
+    config.viewportMargin + height / 2,
+    selfHand.top - config.gapFromSelfHand - height / 2
+  ));
+
+  return {
+    height,
+    width,
+    x,
+    y
+  };
+}
+
+export function createBiddingBubbleLayouts(
+  layout: TableDesignMockLayout,
+  viewport: ViewportSize = layout.page
+): BiddingBubbleLayout[] {
+  const fit = createProjectedBoardFit(layout, viewport);
+  const playerInfos = createPlayerInfoLayouts(layout, viewport, true);
+  const selfHand = createSelfHandViewportLayout(layout, selfCards.length, viewport);
+  const selfHandBox = boundingBoxFromTopLeft({
+    height: selfHand.cardSize.height,
+    width: selfHand.handWidth,
+    x: selfHand.left,
+    y: selfHand.top
+  });
+  const opponentHandBoxes = opponentSeatOrder.map((seatId) =>
+    createProjectedOpponentHandBoundingBox(layout, seatId, fit)
+  );
+  const overlayBox = boundingBoxFromCenter(createBiddingOverlayGeometry(layout, viewport));
+  const hudBox = boundingBoxFromTopLeft(layout.hud);
+  const staticAvoidBoxes = [
+    ...playerInfos.map((info) => boundingBoxFromCenter(info)),
+    hudBox,
+    selfHandBox,
+    ...opponentHandBoxes,
+    overlayBox
+  ];
+  const placedBubbleBoxes: BoundingBox[] = [];
+
+  return playerInfos.map((info) => {
+    const action = biddingMockActions[info.seatId];
+    const bubble = chooseBiddingBubbleBox(
+      info,
+      fit.transformedTableBox,
+      [...staticAvoidBoxes, ...placedBubbleBoxes],
+      viewport,
+      layout.bidding.bubble
+    );
+
+    placedBubbleBoxes.push(boundingBoxFromCenter(bubble));
+
+    return {
+      ...bubble,
+      action,
+      label: info.label,
+      seatId: info.seatId
+    };
+  });
+}
+
+function chooseBiddingBubbleBox(
+  info: PlayerInfoGeometry,
+  tableBox: BoundingBox,
+  avoidBoxes: readonly BoundingBox[],
+  viewport: ViewportSize,
+  config: TableDesignMockLayout["bidding"]["bubble"]
+): Box {
+  const size = { width: config.width, height: config.height };
+  const outward = normalizeVector({ x: info.x - tableBox.x, y: info.y - tableBox.y });
+  const tangent = { x: -outward.y, y: outward.x };
+  const directions = [
+    outward,
+    tangent,
+    { x: -tangent.x, y: -tangent.y },
+    { x: -outward.x, y: -outward.y },
+    { x: 0, y: -1 },
+    { x: 1, y: 0 },
+    { x: 0, y: 1 },
+    { x: -1, y: 0 }
+  ];
+  const candidates = uniquePoints(
+    directions.map((direction) => {
+      const offset =
+        rectHalfExtentAlong(info, direction) +
+        rectHalfExtentAlong(size, direction) +
+        config.gap;
+
+      return clampBiddingBubbleCenter({
+        x: toLayoutPrecision(info.x + direction.x * offset),
+        y: toLayoutPrecision(info.y + direction.y * offset)
+      }, size, viewport, config.viewportMargin);
+    })
+  ).map((center) => ({ ...center, ...size }));
+  const nonOverlapping = candidates.filter((candidate) =>
+    avoidBoxes.every((avoidBox) => !boxesOverlap(boundingBoxFromCenter(candidate), avoidBox))
+  );
+
+  if (nonOverlapping.length > 0) {
+    return nonOverlapping[0] ?? candidates[0];
+  }
+
+  return [...candidates].sort((a, b) => {
+    const overlapA = totalOverlapArea(boundingBoxFromCenter(a), avoidBoxes);
+    const overlapB = totalOverlapArea(boundingBoxFromCenter(b), avoidBoxes);
+
+    if (overlapA !== overlapB) {
+      return overlapA - overlapB;
+    }
+
+    return distance(a, info) - distance(b, info);
+  })[0] ?? {
+    ...size,
+    x: info.x,
+    y: info.y
+  };
+}
+
+function clampBiddingBubbleCenter(
+  center: Point,
+  size: Pick<Box, "height" | "width">,
+  viewport: ViewportSize,
+  margin: number
+): Point {
+  return {
+    x: toLayoutPrecision(clamp(center.x, margin + size.width / 2, viewport.width - margin - size.width / 2)),
+    y: toLayoutPrecision(clamp(center.y, margin + size.height / 2, viewport.height - margin - size.height / 2))
+  };
+}
+
+function createProjectedOpponentHandBoundingBox(
+  layout: TableDesignMockLayout,
+  seatId: OpponentSeatId,
+  fit: ProjectedBoardFit
+): BoundingBox {
+  const hand = createOpponentHandGeometry(layout, seatId);
+
+  return transformBoundingBox(
+    boundingBox(hand.cards.flatMap((card) => projectVerticalCard(card, layout.camera))),
+    fit.scale,
+    fit.translate
+  );
+}
+
+function totalOverlapArea(box: BoundingBox, avoidBoxes: readonly BoundingBox[]): number {
+  return avoidBoxes.reduce((total, avoidBox) => total + overlapArea(box, avoidBox), 0);
 }
 
 function createWorldOpponentPlayerInfoLayout(
@@ -1805,6 +2113,39 @@ function playerInfoStyle(info: PlayerInfoGeometry): CSSProperties {
     "--mock-x": `${info.x}px`,
     "--mock-y": `${info.y}px`
   } as CSSProperties;
+}
+
+function biddingOverlayStyle(geometry: Box): CSSProperties {
+  return {
+    "--mock-bidding-overlay-height": `${geometry.height}px`,
+    "--mock-bidding-overlay-width": `${geometry.width}px`,
+    "--mock-x": `${geometry.x}px`,
+    "--mock-y": `${geometry.y}px`
+  } as CSSProperties;
+}
+
+function biddingBubbleStyle(bubble: BiddingBubbleLayout): CSSProperties {
+  return {
+    ...biddingActionColorStyle(bubble.action),
+    "--mock-bidding-bubble-height": `${bubble.height}px`,
+    "--mock-bidding-bubble-width": `${bubble.width}px`,
+    "--mock-x": `${bubble.x}px`,
+    "--mock-y": `${bubble.y}px`
+  } as CSSProperties;
+}
+
+function biddingActionColorStyle(action: BiddingMockAction): CSSProperties {
+  return {
+    "--mock-bidding-action-color": action.type === "bid" ? fourColorSuitColors[action.suit] : "#64748b"
+  } as CSSProperties;
+}
+
+function biddingActionLabel(action: BiddingMockAction): string {
+  if (action.type === "pass") {
+    return "PASS";
+  }
+
+  return `${cardDesignSuitSymbols[action.suit]}${action.value}`;
 }
 
 function verticalCardTopDownThicknessPolygon(
@@ -2270,6 +2611,13 @@ function boundingBoxFromTopLeft(box: Box): BoundingBox {
 
 function boxesOverlap(a: BoundingBox, b: BoundingBox): boolean {
   return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+
+function overlapArea(a: BoundingBox, b: BoundingBox): number {
+  const width = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
+  const height = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+
+  return width * height;
 }
 
 function clamp(value: number, min: number, max: number): number {
