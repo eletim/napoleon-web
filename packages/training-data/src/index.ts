@@ -138,6 +138,31 @@ export {
   validateNonPlayingRlDatasetManifest
 } from "./generateNonPlayingRlDataset.js";
 export {
+  FIXED_HAND_BIDDING_MARGIN_DATASET_GENERATOR_VERSION,
+  FIXED_HAND_BIDDING_MARGIN_DATASET_SAMPLE_TYPE,
+  FIXED_HAND_BIDDING_MARGIN_DATASET_SCHEMA_VERSION,
+  FIXED_HAND_BIDDING_MARGIN_SAMPLE_SCHEMA_VERSION,
+  FIXED_HAND_BIDDING_MARGIN_TEACHER_ID,
+  aggregateFixedHandBidRollouts,
+  assertDeckConservation,
+  createFixedHandActionPlan,
+  createFixedHandInitialState,
+  createRandomFixedHands,
+  generateFixedHandBiddingMarginDataset,
+  stableUint32,
+  summarizeFixedHandBiddingMarginSamples,
+  validateGenerateFixedHandBiddingMarginDatasetOptions
+} from "./generateFixedHandBiddingMarginDataset.js";
+export type {
+  FixedHandBiddingActionSpec,
+  FixedHandBiddingMarginDatasetManifest,
+  FixedHandBiddingMarginDatasetSummary,
+  FixedHandBiddingMarginSample,
+  FixedHandSpec,
+  GenerateFixedHandBiddingMarginDatasetOptions,
+  NumericSummary
+} from "./generateFixedHandBiddingMarginDataset.js";
+export {
   calculateCardIdsSha256,
   serializeManifest,
   serializePlayingTrainingSample,
