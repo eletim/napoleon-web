@@ -41,6 +41,7 @@ export {
   advanceToNextTrick,
   applyAction,
   clearLatestEvent,
+  createContractEstablishedState,
   createInitialGame,
   createPlayerView,
   getLegalActions

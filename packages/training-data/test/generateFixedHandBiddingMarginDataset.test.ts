@@ -5,11 +5,13 @@ import { describe, expect, it } from "vitest";
 import { createDeck } from "@napoleon/game-core";
 import {
   FIXED_HAND_BIDDING_MARGIN_DATASET_SAMPLE_TYPE,
+  NAPOLEON_FIXED_MARGIN_DATASET_SAMPLE_TYPE,
   aggregateFixedHandBidRollouts,
   assertDeckConservation,
   createFixedHandInitialState,
   createRandomFixedHands,
   generateFixedHandBiddingMarginDataset,
+  generateNapoleonFixedMarginDataset,
   stableUint32,
   summarizeFixedHandBiddingMarginSamples
 } from "../src/index.js";
@@ -107,6 +109,91 @@ describe("generateFixedHandBiddingMarginDataset", () => {
         randomSeed: 900,
         candidateSeatIndex: 0
       }));
+    });
+  });
+
+  it("starts Napoleon-fixed rollouts after contract establishment without downstream bidding", async () => {
+    await withTempDir(async (directory) => {
+      const spec = fixedSpec();
+      const result = await generateNapoleonFixedMarginDataset({
+        outputDirectory: join(directory, "napoleon-fixed"),
+        pairCount: 1,
+        repeats: 3,
+        randomSeed: 423,
+        reservedHands: [spec],
+        gamesPerShard: 10
+      });
+      expect(result.samples).toHaveLength(1);
+      const sample = result.samples[0];
+      expect(sample.sampleType).toBe(NAPOLEON_FIXED_MARGIN_DATASET_SAMPLE_TYPE);
+      expect(sample.fixedHandId).toBe(spec.fixedHandId);
+      expect(sample.forcedTargetPointCards).toBe(13);
+      expect(sample.forcedSuit).toBe("spades");
+      expect(sample.rolloutCount).toBe(3);
+      expect(sample.empiricalWinRate).toBeGreaterThanOrEqual(0);
+      expect(sample.empiricalWinRate).toBeLessThanOrEqual(1);
+      expect(sample.empiricalMarginStd).toBeGreaterThanOrEqual(0);
+      expect(sample.invariantFailures).toEqual({});
+      expect(result.rawRollouts).toHaveLength(3);
+      for (const raw of result.rawRollouts) {
+        expect(raw.candidatePlayerId).toBe("player-0");
+        expect(raw.forcedTargetPointCards).toBe(13);
+        expect(raw.forcedSuit).toBe("spades");
+        expect(raw.handIds).toEqual(spec.handIds);
+        expect(raw.invariantChecks).toEqual({
+          candidateRoleNapoleon: true,
+          contractOwnerCandidate: true,
+          targetMatches: true,
+          suitMatches: true,
+          downstreamBiddingActionCount: 0,
+          candidateHandFixedAtStart: true,
+          deckConservation: true
+        });
+        expect(["napoleon", "napoleon-adjutant"]).toContain(raw.finalRole);
+      }
+      const manifest = JSON.parse(
+        await readFile(join(directory, "napoleon-fixed", "manifest.json"), "utf8")
+      ) as {
+        sampleType: string;
+        rawRolloutShards: Array<{ file: string; sampleCount: number }>;
+        fixedCondition: { fixed: string[]; varied: string[] };
+      };
+      expect(manifest.sampleType).toBe(NAPOLEON_FIXED_MARGIN_DATASET_SAMPLE_TYPE);
+      expect(manifest.rawRolloutShards[0]).toEqual({
+        file: "raw-rollouts-00000.jsonl",
+        startSeed: 0,
+        endSeed: 0,
+        gameCount: 3,
+        sampleCount: 3,
+        byteLength: expect.any(Number),
+        sha256: expect.any(String)
+      });
+      expect(manifest.fixedCondition.fixed).toContain("candidate role = Napoleon");
+      expect(manifest.fixedCondition.varied).not.toContain("downstream bidding");
+    });
+  });
+
+  it("deterministically reshuffles only hidden deal for Napoleon-fixed repeats", async () => {
+    await withTempDir(async (directory) => {
+      const spec = fixedSpec();
+      const first = await generateNapoleonFixedMarginDataset({
+        outputDirectory: join(directory, "first-napoleon-fixed"),
+        pairCount: 1,
+        repeats: 2,
+        randomSeed: 424,
+        reservedHands: [spec]
+      });
+      const second = await generateNapoleonFixedMarginDataset({
+        outputDirectory: join(directory, "second-napoleon-fixed"),
+        pairCount: 1,
+        repeats: 2,
+        randomSeed: 424,
+        reservedHands: [spec]
+      });
+      expect(second.samples).toEqual(first.samples);
+      expect(second.rawRollouts).toEqual(first.rawRollouts);
+      expect(new Set(first.rawRollouts.map((raw) => raw.hiddenDealSeed)).size).toBe(2);
+      expect(new Set(first.rawRollouts.map((raw) => raw.handIds.join(","))).size).toBe(1);
     });
   });
 });

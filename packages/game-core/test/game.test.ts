@@ -4,6 +4,7 @@ import {
   applyAction,
   calculateGameResult,
   compareBids,
+  createContractEstablishedState,
   createDeck,
   createInitialGame,
   createPlayerView,
@@ -857,6 +858,30 @@ describe("game-core", () => {
       playerId: "player-2",
       cardId: "joker"
     });
+  });
+
+  it("creates a contract-established state without applying downstream bidding", () => {
+    const initial = createInitialGame({ rng: noShuffle });
+    const state = createContractEstablishedState(initial, {
+      napoleonPlayerId: "player-3",
+      trumpSuit: "diamonds",
+      targetPointCards: 15
+    });
+
+    expect(state.phase).toBe("choosing-adjutant");
+    expect(state.currentPlayerId).toBe("player-3");
+    expect(state.bidding).toBeNull();
+    expect(state.contract).toEqual({
+      napoleonPlayerId: "player-3",
+      trumpSuit: "diamonds",
+      targetPointCards: 15
+    });
+    expect(state.trumpSuit).toBe("diamonds");
+    expect(state.players.find((player) => player.id === "player-3")?.hand).toEqual(
+      initial.players.find((player) => player.id === "player-3")?.hand
+    );
+    expect(state.unusedCards).toEqual(initial.unusedCards);
+    expect(countKnownCards(state)).toBe(53);
   });
 
   it("finishes immediately with starter payoff when everyone passes", () => {

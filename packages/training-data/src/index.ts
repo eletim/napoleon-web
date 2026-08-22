@@ -143,12 +143,18 @@ export {
   FIXED_HAND_BIDDING_MARGIN_DATASET_SCHEMA_VERSION,
   FIXED_HAND_BIDDING_MARGIN_SAMPLE_SCHEMA_VERSION,
   FIXED_HAND_BIDDING_MARGIN_TEACHER_ID,
+  NAPOLEON_FIXED_MARGIN_DATASET_GENERATOR_VERSION,
+  NAPOLEON_FIXED_MARGIN_DATASET_SAMPLE_TYPE,
+  NAPOLEON_FIXED_MARGIN_DATASET_SCHEMA_VERSION,
+  NAPOLEON_FIXED_MARGIN_SAMPLE_SCHEMA_VERSION,
+  NAPOLEON_FIXED_MARGIN_TEACHER_ID,
   aggregateFixedHandBidRollouts,
   assertDeckConservation,
   createFixedHandActionPlan,
   createFixedHandInitialState,
   createRandomFixedHands,
   generateFixedHandBiddingMarginDataset,
+  generateNapoleonFixedMarginDataset,
   stableUint32,
   summarizeFixedHandBiddingMarginSamples,
   validateGenerateFixedHandBiddingMarginDatasetOptions
@@ -160,6 +166,10 @@ export type {
   FixedHandBiddingMarginSample,
   FixedHandSpec,
   GenerateFixedHandBiddingMarginDatasetOptions,
+  GenerateNapoleonFixedMarginDatasetOptions,
+  NapoleonFixedMarginDatasetManifest,
+  NapoleonFixedMarginRawRollout,
+  NapoleonFixedMarginSample,
   NumericSummary
 } from "./generateFixedHandBiddingMarginDataset.js";
 export {

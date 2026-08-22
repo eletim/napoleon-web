@@ -38,6 +38,30 @@ def test_fixed_hand_split_has_no_hand_leakage(tmp_path: Path) -> None:
     assert "hand-0" in final
 
 
+def test_napoleon_fixed_sample_type_loads_with_hand_level_split(tmp_path: Path) -> None:
+    dataset = write_dataset(
+        tmp_path,
+        hand_count=5,
+        actions_per_hand=3,
+        sample_type="napoleon-fixed-contract-margin-sample",
+    )
+    assert dataset.manifest["sampleType"] == "napoleon-fixed-contract-margin-sample"
+    assert len(dataset.samples) == 15
+    split = create_fixed_hand_margin_split(
+        dataset,
+        FixedHandMarginTrainConfig(seed=423, validation_ratio=0.2, final_ratio=0.2),
+    )
+    train = set(split.train_fixed_hand_ids)
+    validation = set(split.validation_fixed_hand_ids)
+    final = set(split.final_fixed_hand_ids)
+    assert train.isdisjoint(validation)
+    assert train.isdisjoint(final)
+    assert validation.isdisjoint(final)
+    assert {sample.fixed_hand_id for sample in split.train_samples} == train
+    assert {sample.fixed_hand_id for sample in split.validation_samples} == validation
+    assert {sample.fixed_hand_id for sample in split.final_samples} == final
+
+
 def test_selected_action_only_mean_loss_fixture() -> None:
     mean = torch.zeros((2, 29), dtype=torch.float32)
     log_variance = torch.zeros((2, 29), dtype=torch.float32)
@@ -129,6 +153,16 @@ def test_empirical_probability_metric_fixture() -> None:
     assert win_probability["brier"] == 0.0625
 
 
+def test_selected_contract_loss_fixture_reports_negative_sign() -> None:
+    samples = (sample("losing-hand", 4, -3.0, 1.0, 0.0),)
+    mean = np.zeros((1, 29), dtype=np.float64)
+    sigma = np.ones((1, 29), dtype=np.float64)
+    mean[0, 4] = -2.0
+    report = fixed_hand_margin_evaluation_report(samples, mean=mean, sigma=sigma)
+    assert cast(dict[str, object], report["mean"])["bias"] == 1.0
+    assert cast(dict[str, object], report["winProbability"])["mae"] < 0.05
+
+
 def test_same_hand_ranking_fixture() -> None:
     samples = (
         sample("hand-a", 1, 1.0, 2.0, 0.6),
@@ -149,18 +183,19 @@ def write_dataset(
     *,
     hand_count: int,
     actions_per_hand: int,
+    sample_type: str = "fixed-hand-bidding-margin-sample",
 ) -> FixedHandMarginDataset:
     directory.mkdir(parents=True, exist_ok=True)
     rows: list[dict[str, object]] = []
     for hand_index in range(hand_count):
         for action_offset in range(actions_per_hand):
             action_index = 1 + action_offset
-            rows.append(sample_dict(hand_index, action_index))
+            rows.append(sample_dict(hand_index, action_index, sample_type=sample_type))
     body = "".join(f"{json.dumps(row)}\n" for row in rows)
     (directory / "shard-00000.jsonl").write_text(body, encoding="utf-8")
     manifest = {
         "format": "jsonl-shards-v1",
-        "sampleType": "fixed-hand-bidding-margin-sample",
+        "sampleType": sample_type,
         "pairCount": len(rows),
         "rolloutCount": sum(cast(int, row["rolloutCount"]) for row in rows),
         "shards": [{"file": "shard-00000.jsonl", "sampleCount": len(rows)}],
@@ -169,9 +204,9 @@ def write_dataset(
     return load_fixed_hand_margin_dataset(directory)
 
 
-def sample_dict(hand_index: int, action_index: int) -> dict[str, object]:
+def sample_dict(hand_index: int, action_index: int, *, sample_type: str) -> dict[str, object]:
     return {
-        "sampleType": "fixed-hand-bidding-margin-sample",
+        "sampleType": sample_type,
         "schemaVersion": 1,
         "fixedHandId": f"hand-{hand_index}",
         "handIds": [f"card-{index}" for index in range(10)],
