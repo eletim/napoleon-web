@@ -1552,17 +1552,40 @@ export function createPlayerInfoLayouts(
   viewport: ViewportSize = layout.page,
   isProjected = false
 ): PlayerInfoGeometry[] {
-  const selfHandLayout = createSelfHandViewportLayout(layout, selfCards.length, viewport);
+  const effectiveLayout = createViewportPlayerInfoLayout(layout, viewport);
+  const selfHandLayout = createSelfHandViewportLayout(effectiveLayout, selfCards.length, viewport);
   const opponents = opponentSeatOrder.map((seatId) =>
     isProjected
-      ? createProjectedOpponentPlayerInfoLayout(layout, seatId, viewport)
-      : createWorldOpponentPlayerInfoLayout(layout, seatId)
+      ? createProjectedOpponentPlayerInfoLayout(effectiveLayout, seatId, viewport)
+      : createWorldOpponentPlayerInfoLayout(effectiveLayout, seatId)
   );
 
   return [
     ...opponents,
-    createSelfPlayerInfoLayout(layout, selfHandLayout, viewport)
+    createSelfPlayerInfoLayout(effectiveLayout, selfHandLayout, viewport)
   ];
+}
+
+function createViewportPlayerInfoLayout(
+  layout: TableDesignMockLayout,
+  viewport: ViewportSize
+): TableDesignMockLayout {
+  if (viewport.height > 520 || viewport.width <= viewport.height) {
+    return layout;
+  }
+
+  return {
+    ...layout,
+    playerInfo: {
+      ...layout.playerInfo,
+      avatarSize: 24,
+      gap: 7,
+      offsetFromHand: 12,
+      selfGap: 16,
+      unitHeight: 36,
+      unitWidth: 138
+    }
+  };
 }
 
 export function createBiddingOverlayGeometry(
@@ -1572,13 +1595,18 @@ export function createBiddingOverlayGeometry(
   const fit = createProjectedBoardFit(layout, viewport);
   const selfHand = createSelfHandViewportLayout(layout, selfCards.length, viewport);
   const config = layout.bidding.overlay;
+  const isCompactLandscape = viewport.height <= 520 && viewport.width > viewport.height;
+  const minimumHeight = isCompactLandscape ? 150 : 240;
+  const desiredHeight = isCompactLandscape
+    ? Math.min(config.height, viewport.height * 0.46)
+    : config.height;
   const width = toLayoutPrecision(Math.min(
     viewport.width - config.viewportMargin * 2,
     clamp(viewport.width * config.widthRatio, config.minWidth, config.maxWidth)
   ));
   const height = toLayoutPrecision(Math.min(
-    config.height,
-    Math.max(240, selfHand.top - config.gapFromSelfHand - config.viewportMargin * 2)
+    desiredHeight,
+    Math.max(minimumHeight, selfHand.top - config.gapFromSelfHand - config.viewportMargin * 2)
   ));
   const x = toLayoutPrecision(clamp(
     fit.transformedTableBox.x,
@@ -1654,10 +1682,30 @@ function chooseBiddingBubbleBox(
   viewport: ViewportSize,
   config: TableDesignMockLayout["bidding"]["bubble"]
 ): Box {
-  const size = { width: config.width, height: config.height };
+  const compactScale = viewport.height <= 520 && viewport.width > viewport.height ? 0.58 : 1;
+  const size = {
+    width: toLayoutPrecision(config.width * compactScale),
+    height: toLayoutPrecision(config.height * compactScale)
+  };
   const outward = normalizeVector({ x: info.x - tableBox.x, y: info.y - tableBox.y });
   const tangent = { x: -outward.y, y: outward.x };
-  const directions = [
+  const compactSelfDirections = [
+    { x: 0, y: -1 },
+    { x: -1, y: 0 },
+    { x: 1, y: 0 }
+  ];
+  const selfDirections = compactScale < 1
+    ? compactSelfDirections
+    : [
+        { x: 0, y: -1 },
+        { x: -1, y: 0 },
+        { x: 1, y: 0 },
+        outward,
+        { x: -outward.x, y: -outward.y },
+        tangent,
+        { x: -tangent.x, y: -tangent.y }
+      ];
+  const opponentDirections = [
     outward,
     tangent,
     { x: -tangent.x, y: -tangent.y },
@@ -1667,6 +1715,7 @@ function chooseBiddingBubbleBox(
     { x: 0, y: 1 },
     { x: -1, y: 0 }
   ];
+  const directions = info.seatId === "self" ? selfDirections : opponentDirections;
   const candidates = uniquePoints(
     directions.map((direction) => {
       const offset =
@@ -1783,13 +1832,20 @@ function createProjectedOpponentPlayerInfoLayout(
   const clampedCenter = clampPlayerInfoCenter(center, viewport, layout.playerInfo);
   const hudBox = boundingBoxFromTopLeft(layout.hud);
   const riverBox = createProjectedRiverCardsBoundingBox(layout, seatId, fit);
+  const selfHand = createSelfHandViewportLayout(layout, selfCards.length, viewport);
+  const selfHandBox = boundingBoxFromTopLeft({
+    height: selfHand.cardSize.height,
+    width: selfHand.handWidth,
+    x: selfHand.left,
+    y: selfHand.top
+  });
 
   return createPlayerInfoGeometry(
     layout,
     seatId,
     avoidPlayerInfoOverlaps(
       clampedCenter,
-      [handBox, hudBox, ...optionalBox(riverBox)],
+      [handBox, hudBox, selfHandBox, ...optionalBox(riverBox)],
       handBox,
       outward,
       viewport,
@@ -1931,7 +1987,7 @@ export function createRoleSectorGeometry(
   };
 }
 
-function createRoleBoardSectorLines(
+export function createRoleBoardSectorLines(
   layout: Box,
   innerScale = tableDesignMockLayout.roleBoard.innerPentagonScale
 ): Array<{ inner: Point; outer: Point }> {
@@ -2004,7 +2060,7 @@ export function projectVerticalCard(
   ];
 }
 
-function projectiveTransformForRectangle(corners: readonly Point[], width: number, height: number): string {
+export function projectiveTransformForRectangle(corners: readonly Point[], width: number, height: number): string {
   const sourceCorners = [
     { x: 0, y: 0 },
     { x: width, y: 0 },
@@ -2306,7 +2362,7 @@ function seatLabel(seatId: SeatId): string {
   return tableDesignMockLayout.seats.find((seat) => seat.id === seatId)?.label ?? seatId;
 }
 
-function roleBoardLocalToAbsolute(layout: Box, point: Point): Point {
+export function roleBoardLocalToAbsolute(layout: Box, point: Point): Point {
   return {
     x: toLayoutPrecision(layout.x - layout.width / 2 + point.x),
     y: toLayoutPrecision(layout.y - layout.height / 2 + point.y)
@@ -2343,11 +2399,11 @@ function roleBoardInnerPolygonPoints(
     .join(" ");
 }
 
-function roleBoardOuterPolygon(layout: Box): Point[] {
+export function roleBoardOuterPolygon(layout: Box): Point[] {
   return roleBoardVertexOrder.map((vertexId) => roleBoardAbsolutePoint(layout, roleBoardPentagon[vertexId]));
 }
 
-function roleBoardInnerPolygon(
+export function roleBoardInnerPolygon(
   layout: Box,
   innerScale = tableDesignMockLayout.roleBoard.innerPentagonScale
 ): Point[] {
