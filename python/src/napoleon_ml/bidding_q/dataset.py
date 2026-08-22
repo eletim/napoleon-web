@@ -26,8 +26,10 @@ from napoleon_ml.dataset.tensors import (
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 
 BIDDING_Q_DATASET_SAMPLE_TYPE = "bidding-q-monte-carlo-counterfactual-sample"
-BIDDING_Q_DATASET_SCHEMA_VERSION = 1
-BIDDING_Q_SAMPLE_SCHEMA_VERSION = 1
+BIDDING_Q_DATASET_SCHEMA_VERSION = 2
+BIDDING_Q_SUPPORTED_DATASET_SCHEMA_VERSIONS = (1, 2)
+BIDDING_Q_SAMPLE_SCHEMA_VERSION = 2
+BIDDING_Q_SUPPORTED_SAMPLE_SCHEMA_VERSIONS = (1, 2)
 BIDDING_Q_ACTION_MAPPING_ID = (
     "bidding-action-index-v1-pass-then-13-19-spades-hearts-diamonds-clubs"
 )
@@ -86,6 +88,16 @@ class BiddingQRawSample:
     terminal_role: str
     contract_success: bool
     result_type: str
+    final_role: str
+    candidate_final_team: str | None
+    napoleon_side_point_cards: int | None
+    coalition_side_point_cards: int | None
+    candidate_team_point_cards: int | None
+    team_point_cards_regression_mask: bool
+    final_declared_target: int | None
+    final_declared_suit: SuitName | None
+    contract_margin: int | None
+    opponent_configuration_key: str | None
 
 
 @dataclass(frozen=True)
@@ -293,11 +305,17 @@ def _parse_manifest(
     dataset_directory: Path,
     manifest_sha256: str,
 ) -> BiddingQDatasetManifest:
-    if raw.get("datasetSchemaVersion") != BIDDING_Q_DATASET_SCHEMA_VERSION:
+    dataset_schema_version = _require_int(
+        raw.get("datasetSchemaVersion"), "manifest.datasetSchemaVersion"
+    )
+    if dataset_schema_version not in BIDDING_Q_SUPPORTED_DATASET_SCHEMA_VERSIONS:
         raise BiddingQDatasetError("bidding Q dataset schema version mismatch.")
     if raw.get("sampleType") != BIDDING_Q_DATASET_SAMPLE_TYPE:
         raise BiddingQDatasetError("bidding Q sample type mismatch.")
-    if raw.get("sampleSchemaVersion") != BIDDING_Q_SAMPLE_SCHEMA_VERSION:
+    sample_schema_version = _require_int(
+        raw.get("sampleSchemaVersion"), "manifest.sampleSchemaVersion"
+    )
+    if sample_schema_version not in BIDDING_Q_SUPPORTED_SAMPLE_SCHEMA_VERSIONS:
         raise BiddingQDatasetError("bidding Q sample schema version mismatch.")
     compact = _require_dict(raw.get("compactObservation"), "manifest.compactObservation")
     if compact.get("phase") != "bidding":
@@ -318,9 +336,9 @@ def _parse_manifest(
         raise BiddingQDatasetError("bidding Q card id hash mismatch.")
     return BiddingQDatasetManifest(
         dataset_directory=dataset_directory,
-        dataset_schema_version=BIDDING_Q_DATASET_SCHEMA_VERSION,
+        dataset_schema_version=dataset_schema_version,
         sample_type=BIDDING_Q_DATASET_SAMPLE_TYPE,
-        sample_schema_version=BIDDING_Q_SAMPLE_SCHEMA_VERSION,
+        sample_schema_version=sample_schema_version,
         sample_count=_require_int(raw.get("sampleCount"), "manifest.sampleCount"),
         source_states=_require_int(raw.get("sourceStates"), "manifest.sourceStates"),
         forced_state_action_pairs=_require_int(
@@ -404,7 +422,8 @@ def _iter_shard(
 def _parse_sample(raw: dict[str, object], *, context: str) -> BiddingQRawSample:
     if raw.get("sampleType") != BIDDING_Q_DATASET_SAMPLE_TYPE:
         raise BiddingQDatasetError(f"{context}: sampleType mismatch.")
-    if raw.get("schemaVersion") != BIDDING_Q_SAMPLE_SCHEMA_VERSION:
+    sample_schema_version = _require_int(raw.get("schemaVersion"), f"{context}.schemaVersion")
+    if sample_schema_version not in BIDDING_Q_SUPPORTED_SAMPLE_SCHEMA_VERSIONS:
         raise BiddingQDatasetError(f"{context}: schemaVersion mismatch.")
     model_input = np.asarray(
         _require_number_list(raw.get("modelInput"), f"{context}.modelInput"),
@@ -449,6 +468,27 @@ def _parse_sample(raw: dict[str, object], *, context: str) -> BiddingQRawSample:
         raise BiddingQDatasetError(f"{context}: replay legalBidMask parity missing.")
     if provenance.get("forcedOnce") is not True:
         raise BiddingQDatasetError(f"{context}: forcedOnce missing.")
+    terminal_role = _require_str(raw.get("terminalRole"), f"{context}.terminalRole")
+    final_role = (
+        _require_str(raw.get("finalRole"), f"{context}.finalRole")
+        if sample_schema_version >= 2
+        else terminal_role
+    )
+    if final_role != terminal_role:
+        raise BiddingQDatasetError(f"{context}: finalRole must match terminalRole.")
+    candidate_final_team = (
+        _require_str(raw.get("candidateFinalTeam"), f"{context}.candidateFinalTeam")
+        if sample_schema_version >= 2
+        else None
+    )
+    team_point_cards_regression_mask = (
+        _require_bool(
+            raw.get("teamPointCardsRegressionMask"),
+            f"{context}.teamPointCardsRegressionMask",
+        )
+        if sample_schema_version >= 2
+        else False
+    )
     return BiddingQRawSample(
         state_key=_require_str(raw.get("stateKey"), f"{context}.stateKey"),
         model_input=model_input,
@@ -474,9 +514,35 @@ def _parse_sample(raw: dict[str, object], *, context: str) -> BiddingQRawSample:
         forced_action_type=action_type,  # type: ignore[arg-type]
         forced_target_point_cards=semantic_target,
         forced_suit=semantic_suit,
-        terminal_role=_require_str(raw.get("terminalRole"), f"{context}.terminalRole"),
+        terminal_role=terminal_role,
         contract_success=_require_bool(raw.get("contractSuccess"), f"{context}.contractSuccess"),
         result_type=_require_str(raw.get("resultType"), f"{context}.resultType"),
+        final_role=final_role,
+        candidate_final_team=candidate_final_team,
+        napoleon_side_point_cards=_optional_int(
+            raw.get("napoleonSidePointCards"), f"{context}.napoleonSidePointCards"
+        ),
+        coalition_side_point_cards=_optional_int(
+            raw.get("coalitionSidePointCards"), f"{context}.coalitionSidePointCards"
+        ),
+        candidate_team_point_cards=_optional_int(
+            raw.get("candidateTeamPointCards"), f"{context}.candidateTeamPointCards"
+        ),
+        team_point_cards_regression_mask=team_point_cards_regression_mask,
+        final_declared_target=_optional_int(
+            raw.get("finalDeclaredTarget"), f"{context}.finalDeclaredTarget"
+        ),
+        final_declared_suit=_optional_suit(
+            raw.get("finalDeclaredSuit"), f"{context}.finalDeclaredSuit"
+        ),
+        contract_margin=_optional_int(raw.get("contractMargin"), f"{context}.contractMargin"),
+        opponent_configuration_key=(
+            _require_str(
+                raw.get("opponentConfigurationKey"), f"{context}.opponentConfigurationKey"
+            )
+            if sample_schema_version >= 2
+            else None
+        ),
     )
 
 
@@ -517,6 +583,12 @@ def _require_int(value: object, path: str) -> int:
     return value
 
 
+def _optional_int(value: object, path: str) -> int | None:
+    if value is None:
+        return None
+    return _require_int(value, path)
+
+
 def _require_float(value: object, path: str) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
         raise BiddingQDatasetError(f"{path} must be a finite number.")
@@ -539,3 +611,9 @@ def _require_suit(value: object, path: str) -> SuitName:
     if value not in BIDDING_Q_SUITS:
         raise BiddingQDatasetError(f"{path} must be one of {BIDDING_Q_SUITS}.")
     return value  # type: ignore[return-value]
+
+
+def _optional_suit(value: object, path: str) -> SuitName | None:
+    if value is None:
+        return None
+    return _require_suit(value, path)

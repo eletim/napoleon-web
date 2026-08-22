@@ -19,9 +19,11 @@ import {
   BIDDING_Q_COUNTERFACTUAL_REWARD_VERSION,
   BIDDING_Q_COUNTERFACTUAL_SAMPLE_SCHEMA_VERSION,
   calculateBiddingQCounterfactualTerminalReward,
+  createBiddingQFrozenOpponentMixMetadata,
   decodeBiddingQActionIndex,
   encodeBiddingQActionIndex,
   generateBiddingQCounterfactualDataset,
+  selectBiddingQFrozenOpponentPolicy,
   serializeBiddingQCounterfactualSample,
   validateBiddingQCounterfactualDatasetManifest,
   validateBiddingQCounterfactualSample
@@ -111,6 +113,41 @@ describe("generateBiddingQCounterfactualDataset", () => {
     }).reward).toBe(0);
   });
 
+  it("selects RuleBased / Conservative frozen bidding opponents independently and deterministically", () => {
+    const first = [1, 2, 3, 4].map((playerIndex) =>
+      selectBiddingQFrozenOpponentPolicy({
+        seed: 1,
+        candidateSeatIndex: 0,
+        playerIndex
+      })
+    );
+    const second = [1, 2, 3, 4].map((playerIndex) =>
+      selectBiddingQFrozenOpponentPolicy({
+        seed: 1,
+        candidateSeatIndex: 0,
+        playerIndex
+      })
+    );
+    expect(second).toEqual(first);
+    expect(new Set(first.map((policy) => policy.type))).toEqual(
+      new Set(["rule-based", "conservative-bidding"])
+    );
+    expect(() =>
+      selectBiddingQFrozenOpponentPolicy({
+        seed: 375,
+        candidateSeatIndex: 0,
+        playerIndex: 0
+      })
+    ).toThrow("candidate seat");
+    expect(createBiddingQFrozenOpponentMixMetadata()).toMatchObject({
+      mixingRuleVersion: "per-seat-seeded-rule-based-conservative-50-50-v1",
+      topology: "candidate-x1-frozen-x4-v1",
+      selectionSeed: "sourceSeed",
+      ruleBasedWeight: 0.5,
+      conservativeWeight: 0.5
+    });
+  });
+
   it("generates deterministic raw counterfactual samples with coverage summary", async () => {
     await withTempDir(async (directory) => {
       const artifacts = await createArtifactFiles(directory);
@@ -169,6 +206,8 @@ describe("generateBiddingQCounterfactualDataset", () => {
       expect(manifest.summary.totalForcedStateActionPairs * 2).toBe(samples.length);
       expect(manifest.summary.fallbackCount).toBe(0);
       expect(manifest.summary.illegalActionCount).toBe(0);
+      expect(manifest.opponentMix.mixingRuleVersion)
+        .toBe("per-seat-seeded-rule-based-conservative-50-50-v1");
       expect(manifest.summary.passCount).toBeGreaterThan(0);
       for (const suit of ["spades", "hearts", "diamonds", "clubs"] as const) {
         expect(manifest.summary.suitCounts[suit]).toBeGreaterThan(0);
@@ -180,6 +219,13 @@ describe("generateBiddingQCounterfactualDataset", () => {
           .some(([, count]) => count > 0)
       ).toBe(true);
       expect(manifest.summary.actionIndexCounts["0"]).toBe(manifest.summary.passCount);
+      expect(manifest.summary.finalRoleByForcedActionType.pass["all-pass-starter"] +
+        manifest.summary.finalRoleByForcedActionType.pass["all-pass-other"] +
+        manifest.summary.finalRoleByForcedActionType.pass.napoleon +
+        manifest.summary.finalRoleByForcedActionType.pass.adjutant +
+        manifest.summary.finalRoleByForcedActionType.pass.citizen +
+        manifest.summary.finalRoleByForcedActionType.pass["napoleon-adjutant"])
+        .toBe(manifest.summary.passCount);
       expect(Object.values(manifest.summary.strongestSuitCounts).reduce((a, b) => a + b, 0))
         .toBe(manifest.sourceStates);
       expect(samples.every((sample) => sample.provenance.forcedOnce)).toBe(true);
@@ -202,6 +248,19 @@ describe("generateBiddingQCounterfactualDataset", () => {
         const key = `${sample.stateKey}:${sample.forcedActionIndex}`;
         repeatGroups.set(key, [...(repeatGroups.get(key) ?? []), sample.repeatIndex]);
         expect(sample.rawTerminalReward).toBe(sample.terminalReward);
+        expect(sample.finalRole).toBe(sample.terminalRole);
+        if (sample.resultType === "all-pass") {
+          expect(sample.teamPointCardsRegressionMask).toBe(false);
+          expect(sample.candidateTeamPointCards).toBeNull();
+        } else {
+          expect(sample.teamPointCardsRegressionMask).toBe(true);
+          expect(sample.candidateTeamPointCards).not.toBeNull();
+          expect(sample.napoleonSidePointCards! + sample.coalitionSidePointCards!).toBe(20);
+          expect(sample.finalDeclaredTarget).toBeGreaterThanOrEqual(13);
+          expect(sample.finalDeclaredSuit).not.toBeNull();
+        }
+        expect(sample.frozenBiddingOpponentCounts.ruleBased +
+          sample.frozenBiddingOpponentCounts.conservative).toBe(4);
         expect(sample.provenance.replayMatchedModelInput).toBe(true);
         expect(sample.provenance.replayMatchedLegalBidMask).toBe(true);
         expect(serializeBiddingQCounterfactualSample(sample)).toContain(sample.stateKey);
@@ -344,6 +403,17 @@ function createValidSample(): BiddingQCounterfactualSample {
     terminalRole: "all-pass-starter",
     contractSuccess: false,
     resultType: "all-pass",
+    finalRole: "all-pass-starter",
+    candidateFinalTeam: "no-contract",
+    napoleonSidePointCards: null,
+    coalitionSidePointCards: null,
+    candidateTeamPointCards: null,
+    teamPointCardsRegressionMask: false,
+    finalDeclaredTarget: null,
+    finalDeclaredSuit: null,
+    contractMargin: null,
+    frozenBiddingOpponentCounts: { ruleBased: 2, conservative: 2 },
+    opponentConfigurationKey: "ruleBased=2,conservative=2",
     result: { starterPlayerId: "player-0" },
     provenance: {
       sourceStateKey: "state",
@@ -407,11 +477,56 @@ function createValidManifest(
       "napoleon-adjutant": 0,
       "all-pass-starter": 1,
       "all-pass-other": 0
-    }
+    },
+    finalRoleByForcedActionType: {
+      pass: {
+        napoleon: 0,
+        adjutant: 0,
+        citizen: 0,
+        "napoleon-adjutant": 0,
+        "all-pass-starter": 1,
+        "all-pass-other": 0
+      },
+      bid: {
+        napoleon: 0,
+        adjutant: 0,
+        citizen: 0,
+        "napoleon-adjutant": 0,
+        "all-pass-starter": 0,
+        "all-pass-other": 0
+      }
+    },
+    finalRoleBySuit: {
+      spades: { napoleon: 0, adjutant: 0, citizen: 0, "napoleon-adjutant": 0, "all-pass-starter": 0, "all-pass-other": 0 },
+      hearts: { napoleon: 0, adjutant: 0, citizen: 0, "napoleon-adjutant": 0, "all-pass-starter": 0, "all-pass-other": 0 },
+      diamonds: { napoleon: 0, adjutant: 0, citizen: 0, "napoleon-adjutant": 0, "all-pass-starter": 0, "all-pass-other": 0 },
+      clubs: { napoleon: 0, adjutant: 0, citizen: 0, "napoleon-adjutant": 0, "all-pass-starter": 0, "all-pass-other": 0 }
+    },
+    finalRoleByTarget: {
+      "13": { napoleon: 0, adjutant: 0, citizen: 0, "napoleon-adjutant": 0, "all-pass-starter": 0, "all-pass-other": 0 },
+      "14": { napoleon: 0, adjutant: 0, citizen: 0, "napoleon-adjutant": 0, "all-pass-starter": 0, "all-pass-other": 0 },
+      "15": { napoleon: 0, adjutant: 0, citizen: 0, "napoleon-adjutant": 0, "all-pass-starter": 0, "all-pass-other": 0 },
+      "16": { napoleon: 0, adjutant: 0, citizen: 0, "napoleon-adjutant": 0, "all-pass-starter": 0, "all-pass-other": 0 },
+      "17": { napoleon: 0, adjutant: 0, citizen: 0, "napoleon-adjutant": 0, "all-pass-starter": 0, "all-pass-other": 0 },
+      "18": { napoleon: 0, adjutant: 0, citizen: 0, "napoleon-adjutant": 0, "all-pass-starter": 0, "all-pass-other": 0 },
+      "19": { napoleon: 0, adjutant: 0, citizen: 0, "napoleon-adjutant": 0, "all-pass-starter": 0, "all-pass-other": 0 }
+    },
+    finalRoleByOpponentConfiguration: {
+      "ruleBased=2,conservative=2": {
+        napoleon: 0,
+        adjutant: 0,
+        citizen: 0,
+        "napoleon-adjutant": 0,
+        "all-pass-starter": 1,
+        "all-pass-other": 0
+      }
+    },
+    candidateTeamPointCards: { count: 0, mean: null, std: null, min: null, max: null },
+    contractMargin: { count: 0, mean: null, std: null, min: null, max: null }
   };
   return {
     datasetSchemaVersion: BIDDING_Q_COUNTERFACTUAL_DATASET_SCHEMA_VERSION,
-    generatorVersion: 1,
+    generatorVersion: 2,
     format: "jsonl",
     sampleType: BIDDING_Q_COUNTERFACTUAL_DATASET_SAMPLE_TYPE,
     sampleSchemaVersion: BIDDING_Q_COUNTERFACTUAL_SAMPLE_SCHEMA_VERSION,
@@ -448,6 +563,20 @@ function createValidManifest(
       version: 1,
       randomLegalBidCount: 2
     },
+    predictionTarget: {
+      id: "bidding-q-final-role-team-point-cards-v1",
+      version: 1,
+      roleLabel: "finalRole",
+      valueLabel: "candidate-team-point-card-count",
+      noContractHandling: "masked-null",
+      candidateTeamDefinition: {
+        napoleon: "napoleon-side",
+        adjutant: "napoleon-side",
+        citizen: "coalition-side",
+        "napoleon-adjutant": "napoleon-side",
+        noContract: "masked"
+      }
+    },
     repeats: 1,
     sourceStates: 1,
     forcedStateActionPairs: 1,
@@ -464,17 +593,7 @@ function createValidManifest(
     cardIds: CARD_IDS,
     cardIdsSha256: "7ea0fdb58078f835bc5f7e6307a2a0c869430db343dd9e50ed1226f0452aaf38",
     simulation: { backend: "typescript" },
-    opponentMix: {
-      type: "mixed-frozen-bidding",
-      mixingRuleVersion: "per-seat-seeded-conservative-all-pass-50-50-v1",
-      selectionUnit: "game-seat",
-      conservativeWeight: 0.5,
-      allPassWeight: 0.5,
-      policies: {
-        conservative: { type: "conservative-bidding", id: "conservative-bidding-v1" },
-        allPass: { type: "all-pass-bidding", id: "all-pass-bidding-v1" }
-      }
-    },
+    opponentMix: createBiddingQFrozenOpponentMixMetadata(),
     behaviorPolicy: {
       type: "bidding-onnx",
       artifactId: "bidding",

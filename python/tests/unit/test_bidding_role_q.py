@@ -97,6 +97,25 @@ def test_role_losses_are_selected_action_and_selected_cell_only() -> None:
     assert role_values.grad is not None
     assert role_values.grad.nonzero().tolist() == [[0, 1, 0], [1, 0, 4]]
 
+    role_values_masked = torch.zeros(
+        (2, BIDDING_ACTION_COUNT, BIDDING_ROLE_COUNT),
+        dtype=torch.float32,
+        requires_grad=True,
+    )
+    _role_loss, masked_value_loss = bidding_role_q_losses(
+        role_logits.detach(),
+        role_values_masked,
+        action_index,
+        role_index,
+        torch.tensor([2.0, 100.0], dtype=torch.float32),
+        value_loss_type="huber",
+        value_mask=torch.tensor([True, False], dtype=torch.bool),
+    )
+    assert masked_value_loss.item() == pytest.approx(1.5)
+    masked_value_loss.backward()  # type: ignore[no-untyped-call]
+    assert role_values_masked.grad is not None
+    assert role_values_masked.grad.nonzero().tolist() == [[0, 1, 0]]
+
 
 def test_role_q_composition() -> None:
     logits = torch.zeros((1, BIDDING_ACTION_COUNT, BIDDING_ROLE_COUNT), dtype=torch.float32)
@@ -152,6 +171,27 @@ def test_role_q_split_diagnostics_and_training(tmp_path: Path) -> None:
     assert baselines["majorityRole"]["accuracy"] is not None
     assert baselines["actionIndexRoleFrequency"]["accuracy"] is not None
     assert ranking["bestActionHitRate"] is not None
+
+    team_config = BiddingRoleQTrainConfig(
+        seed=375,
+        epochs=2,
+        batch_size=8,
+        learning_rate=5e-3,
+        hidden_dims=(16, 8),
+        train_ratio=0.75,
+        value_target="team-point-cards",
+        device="cpu",
+    )
+    team_result = train_bidding_role_q_model(dataset, team_config)
+    team_validation = team_result.validation_report
+    team_value = cast(dict[str, object], team_validation["roleValue"])
+    assert team_value["valueTarget"] == "team-point-cards"
+    assert cast(int, team_value["maskedSampleCount"]) > 0
+    assert cast(dict[str, object], team_validation["ranking"])["skipped"] is True
+    team_signal = cast(dict[str, object], team_validation["teamPointCardsActionSignal"])
+    assert team_signal["bestActionHitRate"] is not None
+    value_baselines = cast(dict[str, object], team_validation["baselines"])["value"]
+    assert cast(dict[str, object], value_baselines)["roleActionIndexMean"] is not None
 
 
 def test_role_q_checkpoint_and_onnx_parity(tmp_path: Path) -> None:
@@ -218,11 +258,11 @@ def _write_role_q_dataset(
     (directory / "shard-00000.jsonl").write_bytes(shard_bytes)
     (directory / "summary.json").write_text("{}\n", encoding="utf-8")
     manifest = {
-        "datasetSchemaVersion": 1,
-        "generatorVersion": 1,
+        "datasetSchemaVersion": 2,
+        "generatorVersion": 2,
         "format": "jsonl",
         "sampleType": "bidding-q-monte-carlo-counterfactual-sample",
-        "sampleSchemaVersion": 1,
+        "sampleSchemaVersion": 2,
         "compactObservation": {
             "phase": "bidding",
             "encoderSchemaVersion": 1,
@@ -260,7 +300,32 @@ def _write_role_q_dataset(
         "cardCount": 53,
         "cardIdsSha256": calculate_card_ids_sha256(),
         "simulation": {"backend": "typescript", "inferenceDevice": "cpu"},
-        "opponentMix": {},
+        "predictionTarget": {
+            "id": "bidding-q-final-role-team-point-cards-v1",
+            "version": 1,
+            "roleLabel": "finalRole",
+            "valueLabel": "candidate-team-point-card-count",
+            "noContractHandling": "masked-null",
+            "candidateTeamDefinition": {
+                "napoleon": "napoleon-side",
+                "napoleon-adjutant": "napoleon-side",
+                "adjutant": "napoleon-side",
+                "citizen": "coalition-side",
+                "noContract": "masked",
+            },
+        },
+        "opponentMix": {
+            "id": "rule-based-conservative-50-50-per-seat-v1",
+            "topology": "candidate-x1-frozen-x4",
+            "selectionScope": "frozen-seat",
+            "selectionDeterminism": "seeded",
+            "mixingRuleVersion": "per-seat-seeded-rule-based-conservative-50-50-v1",
+            "selectionSeedSource": "sourceSeed,candidateSeatIndex,playerIndex",
+            "frozenSeatPolicies": [
+                {"id": "rule-based-bidding-v1", "type": "rule-based", "weight": 0.5},
+                {"id": "conservative-bidding-v1", "type": "conservative-bidding", "weight": 0.5},
+            ],
+        },
         "behaviorPolicy": {},
         "fixedPlayingPolicy": {},
         "sourceCommit": "fixture",
@@ -293,7 +358,7 @@ def _sample(
     forced_action = _forced_action(action_index)
     return {
         "sampleType": "bidding-q-monte-carlo-counterfactual-sample",
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "stateKey": f"state-{state_index}",
         "sourceSeed": 1000 + state_index,
         "sourceGameSeed": 1000 + state_index,
@@ -315,6 +380,7 @@ def _sample(
         "terminalReward": reward,
         "rawTerminalReward": reward,
         "terminalRole": role,
+        **_team_point_card_fields(role=role, forced_action=forced_action),
         "contractSuccess": role in ("napoleon", "napoleon-adjutant") and reward > 0,
         "resultType": "all-pass" if role.startswith("all-pass") else "standard",
         "result": {},
@@ -327,6 +393,40 @@ def _sample(
             "replayMatchedLegalBidMask": True,
             "forcedOnce": True,
         },
+    }
+
+
+def _team_point_card_fields(*, role: str, forced_action: dict[str, Any]) -> dict[str, Any]:
+    if role.startswith("all-pass"):
+        return {
+            "finalRole": role,
+            "candidateFinalTeam": "no-contract",
+            "napoleonSidePointCards": None,
+            "coalitionSidePointCards": None,
+            "candidateTeamPointCards": None,
+            "teamPointCardsRegressionMask": False,
+            "finalDeclaredTarget": None,
+            "finalDeclaredSuit": None,
+            "contractMargin": None,
+            "frozenBiddingOpponentCounts": {"ruleBased": 2, "conservative": 2},
+            "opponentConfigurationKey": "ruleBased=2,conservative=2",
+        }
+    napoleon_cards = 16 if role in ("napoleon", "napoleon-adjutant", "adjutant") else 8
+    coalition_cards = 20 - napoleon_cards
+    candidate_team = "alliance" if role == "citizen" else "napoleon-team"
+    candidate_cards = coalition_cards if candidate_team == "alliance" else napoleon_cards
+    return {
+        "finalRole": role,
+        "candidateFinalTeam": candidate_team,
+        "napoleonSidePointCards": napoleon_cards,
+        "coalitionSidePointCards": coalition_cards,
+        "candidateTeamPointCards": candidate_cards,
+        "teamPointCardsRegressionMask": True,
+        "finalDeclaredTarget": 13,
+        "finalDeclaredSuit": forced_action.get("suit", "spades"),
+        "contractMargin": napoleon_cards - 13 if candidate_team == "napoleon-team" else None,
+        "frozenBiddingOpponentCounts": {"ruleBased": 2, "conservative": 2},
+        "opponentConfigurationKey": "ruleBased=2,conservative=2",
     }
 
 

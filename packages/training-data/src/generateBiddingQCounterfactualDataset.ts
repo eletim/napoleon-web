@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import {
-  AllPassBiddingAgent,
   ConservativeBiddingAgent,
   RuleBasedAgent,
   createSeededRandom,
@@ -54,19 +53,17 @@ import {
   type NonPlayingExchangeRlPolicy,
   type NonPlayingRlPolicyArtifactManifest,
   type NonPlayingRlPolicyArtifactOptions,
-  type PolicyRuntimeInfo,
-  createFrozenBiddingOpponentMixMetadata,
-  selectFrozenBiddingOpponentPolicy
+  type PolicyRuntimeInfo
 } from "./generateNonPlayingRlDataset.js";
-import { DATASET_FORMAT } from "./schema.js";
+import { DATASET_FORMAT, RULE_BASED_AGENT_VERSION } from "./schema.js";
 import type { DatasetGenerationProgress, DatasetShardManifest } from "./types.js";
 import { calculateCardIdsSha256, serializeManifest } from "./serialization.js";
 
 export const BIDDING_Q_COUNTERFACTUAL_DATASET_SAMPLE_TYPE =
   "bidding-q-monte-carlo-counterfactual-sample" as const;
-export const BIDDING_Q_COUNTERFACTUAL_SAMPLE_SCHEMA_VERSION = 1 as const;
-export const BIDDING_Q_COUNTERFACTUAL_DATASET_SCHEMA_VERSION = 1 as const;
-export const BIDDING_Q_COUNTERFACTUAL_DATASET_GENERATOR_VERSION = 1 as const;
+export const BIDDING_Q_COUNTERFACTUAL_SAMPLE_SCHEMA_VERSION = 2 as const;
+export const BIDDING_Q_COUNTERFACTUAL_DATASET_SCHEMA_VERSION = 2 as const;
+export const BIDDING_Q_COUNTERFACTUAL_DATASET_GENERATOR_VERSION = 2 as const;
 export const BIDDING_Q_COUNTERFACTUAL_ACTION_MAPPING_ID =
   "bidding-action-index-v1-pass-then-13-19-spades-hearts-diamonds-clubs" as const;
 export const BIDDING_Q_COUNTERFACTUAL_ACTION_PLAN_ID =
@@ -80,6 +77,11 @@ export const BIDDING_Q_COUNTERFACTUAL_REWARD_VERSION = 1 as const;
 export const BIDDING_Q_COUNTERFACTUAL_TERMINAL_REWARD_TRANSFORM_ID =
   "bidding-q-contract-result-loss-minus-one-identity-v1" as const;
 export const BIDDING_Q_COUNTERFACTUAL_SIMULATION_BACKEND = "typescript" as const;
+export const BIDDING_Q_COUNTERFACTUAL_TEAM_POINT_CARDS_TARGET_ID =
+  "bidding-q-final-role-team-point-cards-v1" as const;
+export const BIDDING_Q_COUNTERFACTUAL_OPPONENT_MIX_RULE_VERSION =
+  "per-seat-seeded-rule-based-conservative-50-50-v1" as const;
+export const RULE_BASED_BIDDING_BASELINE_ID = "rule-based-bidding-v1" as const;
 
 const PLAYER_COUNT = 5;
 const DEFAULT_GAMES_PER_SHARD = 100;
@@ -170,6 +172,17 @@ export interface BiddingQCounterfactualSample {
   terminalRole: BiddingQTerminalRole;
   contractSuccess: boolean;
   resultType: GameResult["resultType"];
+  finalRole: BiddingQTerminalRole;
+  candidateFinalTeam: "napoleon-team" | "alliance" | "no-contract";
+  napoleonSidePointCards: number | null;
+  coalitionSidePointCards: number | null;
+  candidateTeamPointCards: number | null;
+  teamPointCardsRegressionMask: boolean;
+  finalDeclaredTarget: number | null;
+  finalDeclaredSuit: Suit | null;
+  contractMargin: number | null;
+  frozenBiddingOpponentCounts: BiddingQOpponentCounts;
+  opponentConfigurationKey: string;
   result: BiddingQResultSummary;
   provenance: BiddingQSampleProvenance;
 }
@@ -184,6 +197,11 @@ export interface BiddingQResultSummary {
   starterPlayerId?: PlayerId;
 }
 
+export interface BiddingQOpponentCounts {
+  ruleBased: number;
+  conservative: number;
+}
+
 export interface BiddingQSampleProvenance {
   sourceStateKey: string;
   sourceSeed: number;
@@ -192,6 +210,33 @@ export interface BiddingQSampleProvenance {
   replayMatchedModelInput: true;
   replayMatchedLegalBidMask: true;
   forcedOnce: true;
+}
+
+export interface BiddingQFrozenOpponentMixMetadata {
+  type: "mixed-frozen-bidding";
+  mixingRuleVersion: typeof BIDDING_Q_COUNTERFACTUAL_OPPONENT_MIX_RULE_VERSION;
+  selectionUnit: "game-seat";
+  topology: "candidate-x1-frozen-x4-v1";
+  selectionSeed: "sourceSeed";
+  ruleBasedWeight: 0.5;
+  conservativeWeight: 0.5;
+  policies: {
+    ruleBased: {
+      type: "rule-based";
+      id: typeof RULE_BASED_BIDDING_BASELINE_ID;
+      version: typeof RULE_BASED_AGENT_VERSION;
+    };
+    conservative: {
+      type: "conservative-bidding";
+      id: "conservative-bidding-v1";
+    };
+  };
+}
+
+export interface BiddingQFrozenOpponentPolicyMetadata {
+  type: "rule-based" | "conservative-bidding";
+  id: typeof RULE_BASED_BIDDING_BASELINE_ID | "conservative-bidding-v1";
+  version?: typeof RULE_BASED_AGENT_VERSION;
 }
 
 export interface BiddingQCounterfactualDatasetManifest {
@@ -233,6 +278,20 @@ export interface BiddingQCounterfactualDatasetManifest {
     version: typeof BIDDING_Q_COUNTERFACTUAL_ACTION_PLAN_VERSION;
     randomLegalBidCount: number;
   };
+  predictionTarget: {
+    id: typeof BIDDING_Q_COUNTERFACTUAL_TEAM_POINT_CARDS_TARGET_ID;
+    version: 1;
+    roleLabel: "finalRole";
+    valueLabel: "candidate-team-point-card-count";
+    noContractHandling: "masked-null";
+    candidateTeamDefinition: {
+      napoleon: "napoleon-side";
+      adjutant: "napoleon-side";
+      citizen: "coalition-side";
+      "napoleon-adjutant": "napoleon-side";
+      noContract: "masked";
+    };
+  };
   repeats: number;
   sourceStates: number;
   forcedStateActionPairs: number;
@@ -252,7 +311,7 @@ export interface BiddingQCounterfactualDatasetManifest {
     backend: typeof BIDDING_Q_COUNTERFACTUAL_SIMULATION_BACKEND;
     inferenceDevice?: "cpu" | "auto" | "cuda";
   };
-  opponentMix: ReturnType<typeof createFrozenBiddingOpponentMixMetadata>;
+  opponentMix: BiddingQFrozenOpponentMixMetadata;
   behaviorPolicy: NonPlayingRlPolicyArtifactManifest;
   fixedPlayingPolicy: NonPlayingRlPolicyArtifactManifest;
   fixedAdjutantPolicy?: NonPlayingRlPolicyArtifactManifest;
@@ -287,6 +346,27 @@ export interface BiddingQCounterfactualDatasetSummary {
   contractSuccessByTarget: Record<string, BiddingQRateSummary>;
   resultTypeCounts: Record<GameResult["resultType"], number>;
   terminalRoleCounts: Record<BiddingQTerminalRole, number>;
+  finalRoleByForcedActionType: {
+    pass: Record<BiddingQTerminalRole, number>;
+    bid: Record<BiddingQTerminalRole, number>;
+  };
+  finalRoleBySuit: Record<Suit, Record<BiddingQTerminalRole, number>>;
+  finalRoleByTarget: Record<string, Record<BiddingQTerminalRole, number>>;
+  finalRoleByOpponentConfiguration: Record<string, Record<BiddingQTerminalRole, number>>;
+  candidateTeamPointCards: {
+    count: number;
+    mean: number | null;
+    std: number | null;
+    min: number | null;
+    max: number | null;
+  };
+  contractMargin: {
+    count: number;
+    mean: number | null;
+    std: number | null;
+    min: number | null;
+    max: number | null;
+  };
 }
 
 export interface BiddingQRateSummary {
@@ -500,9 +580,17 @@ export function validateBiddingQCounterfactualDatasetManifest(
   ) {
     throw new Error("Bidding Q counterfactual manifest action plan mismatch.");
   }
+  if (
+    manifest.predictionTarget.id !== BIDDING_Q_COUNTERFACTUAL_TEAM_POINT_CARDS_TARGET_ID ||
+    manifest.predictionTarget.version !== 1 ||
+    manifest.predictionTarget.noContractHandling !== "masked-null"
+  ) {
+    throw new Error("Bidding Q counterfactual manifest prediction target mismatch.");
+  }
   if (manifest.simulation.backend !== BIDDING_Q_COUNTERFACTUAL_SIMULATION_BACKEND) {
     throw new Error("Bidding Q counterfactual manifest simulation backend mismatch.");
   }
+  validateBiddingQFrozenOpponentMixMetadata(manifest.opponentMix);
   if (manifest.sampleCount !== manifest.summary.totalRolloutSamples) {
     throw new Error("Bidding Q counterfactual manifest sample count mismatch.");
   }
@@ -547,6 +635,35 @@ export function validateBiddingQCounterfactualSample(
   }
   if (!Number.isFinite(sample.terminalReward)) {
     throw new Error("Bidding Q counterfactual sample terminalReward must be finite.");
+  }
+  if (sample.finalRole !== sample.terminalRole) {
+    throw new Error("Bidding Q counterfactual sample finalRole must match terminalRole.");
+  }
+  if (sample.resultType === "all-pass") {
+    if (
+      sample.candidateFinalTeam !== "no-contract" ||
+      sample.teamPointCardsRegressionMask ||
+      sample.candidateTeamPointCards !== null ||
+      sample.napoleonSidePointCards !== null ||
+      sample.coalitionSidePointCards !== null ||
+      sample.finalDeclaredTarget !== null ||
+      sample.finalDeclaredSuit !== null ||
+      sample.contractMargin !== null
+    ) {
+      throw new Error("Bidding Q counterfactual all-pass point-card target must be masked.");
+    }
+  } else {
+    if (
+      sample.candidateFinalTeam === "no-contract" ||
+      !sample.teamPointCardsRegressionMask ||
+      sample.candidateTeamPointCards === null ||
+      sample.napoleonSidePointCards === null ||
+      sample.coalitionSidePointCards === null ||
+      sample.finalDeclaredTarget === null ||
+      sample.finalDeclaredSuit === null
+    ) {
+      throw new Error("Bidding Q counterfactual standard result is missing point-card target.");
+    }
   }
   if (sample.rawTerminalReward !== sample.terminalReward) {
     throw new Error("Bidding Q counterfactual sample uses identity reward transform.");
@@ -649,18 +766,24 @@ export function summarizeBiddingQCounterfactualSamples(
     standard: 0,
     "all-pass": 0
   };
-  const terminalRoleCounts: Record<BiddingQTerminalRole, number> = {
-    napoleon: 0,
-    adjutant: 0,
-    citizen: 0,
-    "napoleon-adjutant": 0,
-    "all-pass-starter": 0,
-    "all-pass-other": 0
+  const terminalRoleCounts = emptyTerminalRoleCounts();
+  const finalRoleByForcedActionType = {
+    pass: emptyTerminalRoleCounts(),
+    bid: emptyTerminalRoleCounts()
   };
+  const finalRoleBySuit = Object.fromEntries(
+    SUITS.map((suit) => [suit, emptyTerminalRoleCounts()])
+  ) as Record<Suit, Record<BiddingQTerminalRole, number>>;
+  const finalRoleByTarget = Object.fromEntries(
+    TARGETS.map((target) => [String(target), emptyTerminalRoleCounts()])
+  ) as Record<string, Record<BiddingQTerminalRole, number>>;
+  const finalRoleByOpponentConfiguration: Record<string, Record<BiddingQTerminalRole, number>> = {};
   const legalActionsSeen = new Set<number>();
   let passCount = 0;
   let bidCount = 0;
   const rewards: number[] = [];
+  const candidateTeamPointCards: number[] = [];
+  const contractMargins: number[] = [];
 
   for (const source of context.sourceStates) {
     for (const [index, value] of source.legalBidMask.entries()) {
@@ -678,7 +801,21 @@ export function summarizeBiddingQCounterfactualSamples(
     sampledActions.add(sample.forcedActionIndex);
     resultTypeCounts[sample.resultType] += 1;
     terminalRoleCounts[sample.terminalRole] += 1;
+    finalRoleByForcedActionType[sample.forcedAction.type][sample.finalRole] += 1;
+    const opponentCounts =
+      finalRoleByOpponentConfiguration[sample.opponentConfigurationKey] ?? emptyTerminalRoleCounts();
+    opponentCounts[sample.finalRole] += 1;
+    finalRoleByOpponentConfiguration[sample.opponentConfigurationKey] = opponentCounts;
     rewards.push(sample.terminalReward);
+    if (sample.teamPointCardsRegressionMask) {
+      if (sample.candidateTeamPointCards === null) {
+        throw new Error("Regression sample is missing candidateTeamPointCards.");
+      }
+      candidateTeamPointCards.push(sample.candidateTeamPointCards);
+    }
+    if (sample.contractMargin !== null) {
+      contractMargins.push(sample.contractMargin);
+    }
     const action = sample.forcedAction;
     if (action.type === "pass") {
       passCount += 1;
@@ -690,6 +827,8 @@ export function summarizeBiddingQCounterfactualSamples(
     }
     suitCounts[action.suit] += 1;
     targetCounts[String(action.targetPointCards)] += 1;
+    finalRoleBySuit[action.suit][sample.finalRole] += 1;
+    finalRoleByTarget[String(action.targetPointCards)][sample.finalRole] += 1;
     strongestByForcedSuitCounts[sample.strongestSuit][action.suit] += 1;
     const suitRate = contractSuccessBySuit[action.suit];
     suitRate.count += 1;
@@ -727,7 +866,19 @@ export function summarizeBiddingQCounterfactualSamples(
     contractSuccessBySuit,
     contractSuccessByTarget,
     resultTypeCounts,
-    terminalRoleCounts
+    terminalRoleCounts,
+    finalRoleByForcedActionType,
+    finalRoleBySuit,
+    finalRoleByTarget,
+    finalRoleByOpponentConfiguration,
+    candidateTeamPointCards: {
+      count: candidateTeamPointCards.length,
+      ...summarizeNumbers(candidateTeamPointCards)
+    },
+    contractMargin: {
+      count: contractMargins.length,
+      ...summarizeNumbers(contractMargins)
+    }
   };
 }
 
@@ -895,6 +1046,16 @@ async function runForcedRollout(input: {
     result: record.result,
     actingPlayerId: input.source.actingPlayerId
   });
+  const outcome = summarizeCandidatePointCardOutcome({
+    result: record.result,
+    decisions: record.decisions,
+    actingPlayerId: input.source.actingPlayerId,
+    terminalRole: reward.terminalRole
+  });
+  const opponentCounts = frozenOpponentCounts({
+    seed: input.source.sourceSeed,
+    candidateSeatIndex: input.source.candidateSeatIndex
+  });
   const sample: BiddingQCounterfactualSample = {
     sampleType: BIDDING_Q_COUNTERFACTUAL_DATASET_SAMPLE_TYPE,
     schemaVersion: BIDDING_Q_COUNTERFACTUAL_SAMPLE_SCHEMA_VERSION,
@@ -921,6 +1082,17 @@ async function runForcedRollout(input: {
     terminalRole: reward.terminalRole,
     contractSuccess: reward.contractSuccess,
     resultType: record.result.resultType,
+    finalRole: reward.terminalRole,
+    candidateFinalTeam: outcome.candidateFinalTeam,
+    napoleonSidePointCards: outcome.napoleonSidePointCards,
+    coalitionSidePointCards: outcome.coalitionSidePointCards,
+    candidateTeamPointCards: outcome.candidateTeamPointCards,
+    teamPointCardsRegressionMask: outcome.teamPointCardsRegressionMask,
+    finalDeclaredTarget: outcome.finalDeclaredTarget,
+    finalDeclaredSuit: outcome.finalDeclaredSuit,
+    contractMargin: outcome.contractMargin,
+    frozenBiddingOpponentCounts: opponentCounts,
+    opponentConfigurationKey: opponentConfigurationKey(opponentCounts),
     result: summarizeResult(record.result),
     provenance: {
       sourceStateKey: input.source.stateKey,
@@ -1105,18 +1277,16 @@ class ForcedCandidateAgent implements Agent {
 class FrozenCounterfactualAgent implements Agent {
   private readonly ruleBasedAgent: RuleBasedAgent;
   private readonly conservativeBiddingAgent: ConservativeBiddingAgent;
-  private readonly allPassBiddingAgent: AllPassBiddingAgent;
 
   constructor(
     private readonly input: {
       options: GenerateBiddingQCounterfactualDatasetOptions;
       rng: () => number;
-      biddingPolicyType: "conservative-bidding" | "all-pass-bidding";
+      biddingPolicyType: "rule-based" | "conservative-bidding";
     }
   ) {
     this.ruleBasedAgent = new RuleBasedAgent(input.rng);
     this.conservativeBiddingAgent = new ConservativeBiddingAgent(input.rng);
-    this.allPassBiddingAgent = new AllPassBiddingAgent(input.rng);
   }
 
   async selectAction(observation: PlayerObservation): Promise<GameAction> {
@@ -1131,7 +1301,7 @@ class FrozenCounterfactualAgent implements Agent {
       case "bidding":
         return this.input.biddingPolicyType === "conservative-bidding"
           ? this.conservativeBiddingAgent.selectAction(observation)
-          : this.allPassBiddingAgent.selectAction(observation);
+          : this.ruleBasedAgent.selectAction(observation);
       case "choosing-adjutant":
         return selectAdjutantAction({
           observation,
@@ -1163,7 +1333,7 @@ function createFrozenAgent(input: {
   candidateSeatIndex: number;
   playerIndex: number;
 }): Agent {
-  const policy = selectFrozenBiddingOpponentPolicy({
+  const policy = selectBiddingQFrozenOpponentPolicy({
     seed: input.sourceSeed,
     candidateSeatIndex: input.candidateSeatIndex,
     playerIndex: input.playerIndex
@@ -1173,6 +1343,82 @@ function createFrozenAgent(input: {
     rng: input.rng,
     biddingPolicyType: policy.type
   });
+}
+
+export function createBiddingQFrozenOpponentMixMetadata(): BiddingQFrozenOpponentMixMetadata {
+  return {
+    type: "mixed-frozen-bidding",
+    mixingRuleVersion: BIDDING_Q_COUNTERFACTUAL_OPPONENT_MIX_RULE_VERSION,
+    selectionUnit: "game-seat",
+    topology: "candidate-x1-frozen-x4-v1",
+    selectionSeed: "sourceSeed",
+    ruleBasedWeight: 0.5,
+    conservativeWeight: 0.5,
+    policies: {
+      ruleBased: {
+        type: "rule-based",
+        id: RULE_BASED_BIDDING_BASELINE_ID,
+        version: RULE_BASED_AGENT_VERSION
+      },
+      conservative: {
+        type: "conservative-bidding",
+        id: "conservative-bidding-v1"
+      }
+    }
+  };
+}
+
+export function selectBiddingQFrozenOpponentPolicy(input: {
+  seed: number;
+  candidateSeatIndex: number;
+  playerIndex: number;
+}): BiddingQFrozenOpponentPolicyMetadata {
+  if (input.playerIndex === input.candidateSeatIndex) {
+    throw new Error("candidate seat cannot be assigned a frozen bidding opponent policy.");
+  }
+  const digest = createHash("sha256")
+    .update(
+      `${BIDDING_Q_COUNTERFACTUAL_OPPONENT_MIX_RULE_VERSION}:${input.seed}:${input.candidateSeatIndex}:${input.playerIndex}`
+    )
+    .digest();
+  const bucket = digest.readUInt32BE(0) % 2;
+  return bucket === 0
+    ? {
+        type: "rule-based",
+        id: RULE_BASED_BIDDING_BASELINE_ID,
+        version: RULE_BASED_AGENT_VERSION
+      }
+    : {
+        type: "conservative-bidding",
+        id: "conservative-bidding-v1"
+      };
+}
+
+function frozenOpponentCounts(input: {
+  seed: number;
+  candidateSeatIndex: number;
+}): BiddingQOpponentCounts {
+  const counts: BiddingQOpponentCounts = { ruleBased: 0, conservative: 0 };
+  for (let playerIndex = 0; playerIndex < PLAYER_COUNT; playerIndex += 1) {
+    if (playerIndex === input.candidateSeatIndex) {
+      continue;
+    }
+    const policy = selectBiddingQFrozenOpponentPolicy({
+      seed: input.seed,
+      candidateSeatIndex: input.candidateSeatIndex,
+      playerIndex
+    });
+    if (policy.type === "rule-based") {
+      counts.ruleBased += 1;
+    } else {
+      counts.conservative += 1;
+    }
+  }
+  return counts;
+}
+
+function opponentConfigurationKey(counts: BiddingQOpponentCounts): string {
+  return `ruleBased=${counts.ruleBased},conservative=${counts.conservative}`;
 }
 
 async function selectAdjutantAction(input: {
@@ -1344,6 +1590,20 @@ async function createBiddingQCounterfactualManifest(input: {
       version: BIDDING_Q_COUNTERFACTUAL_ACTION_PLAN_VERSION,
       randomLegalBidCount: input.options.randomLegalBidCount ?? DEFAULT_RANDOM_LEGAL_BID_COUNT
     },
+    predictionTarget: {
+      id: BIDDING_Q_COUNTERFACTUAL_TEAM_POINT_CARDS_TARGET_ID,
+      version: 1,
+      roleLabel: "finalRole",
+      valueLabel: "candidate-team-point-card-count",
+      noContractHandling: "masked-null",
+      candidateTeamDefinition: {
+        napoleon: "napoleon-side",
+        adjutant: "napoleon-side",
+        citizen: "coalition-side",
+        "napoleon-adjutant": "napoleon-side",
+        noContract: "masked"
+      }
+    },
     repeats: input.options.repeats,
     sourceStates: input.sourceStates.length,
     forcedStateActionPairs: input.plannedActions.length,
@@ -1363,7 +1623,7 @@ async function createBiddingQCounterfactualManifest(input: {
       backend: BIDDING_Q_COUNTERFACTUAL_SIMULATION_BACKEND,
       inferenceDevice: input.options.inferenceDevice
     },
-    opponentMix: createFrozenBiddingOpponentMixMetadata(),
+    opponentMix: createBiddingQFrozenOpponentMixMetadata(),
     behaviorPolicy,
     fixedPlayingPolicy,
     ...(fixedAdjutantPolicy === undefined ? {} : { fixedAdjutantPolicy }),
@@ -1462,6 +1722,72 @@ function terminalRoleForResult(result: GameResult, actingPlayerId: PlayerId): Bi
     return "adjutant";
   }
   return "citizen";
+}
+
+function summarizeCandidatePointCardOutcome(input: {
+  result: GameResult;
+  decisions: readonly { phase: string; action: GameAction }[];
+  actingPlayerId: PlayerId;
+  terminalRole: BiddingQTerminalRole;
+}): {
+  candidateFinalTeam: "napoleon-team" | "alliance" | "no-contract";
+  napoleonSidePointCards: number | null;
+  coalitionSidePointCards: number | null;
+  candidateTeamPointCards: number | null;
+  teamPointCardsRegressionMask: boolean;
+  finalDeclaredTarget: number | null;
+  finalDeclaredSuit: Suit | null;
+  contractMargin: number | null;
+} {
+  if (input.result.resultType === "all-pass") {
+    return {
+      candidateFinalTeam: "no-contract",
+      napoleonSidePointCards: null,
+      coalitionSidePointCards: null,
+      candidateTeamPointCards: null,
+      teamPointCardsRegressionMask: false,
+      finalDeclaredTarget: null,
+      finalDeclaredSuit: null,
+      contractMargin: null
+    };
+  }
+  const candidateFinalTeam = input.terminalRole === "citizen" ? "alliance" : "napoleon-team";
+  const candidateTeamPointCards =
+    candidateFinalTeam === "napoleon-team"
+      ? input.result.napoleonTeamPointCards
+      : input.result.alliancePointCards;
+  const finalBid = finalDeclaredBid(input.decisions);
+  if (finalBid === null) {
+    throw new Error("Standard result must have a final bid.");
+  }
+  return {
+    candidateFinalTeam,
+    napoleonSidePointCards: input.result.napoleonTeamPointCards,
+    coalitionSidePointCards: input.result.alliancePointCards,
+    candidateTeamPointCards,
+    teamPointCardsRegressionMask: true,
+    finalDeclaredTarget: input.result.targetPointCards,
+    finalDeclaredSuit: finalBid.suit,
+    contractMargin:
+      candidateFinalTeam === "napoleon-team"
+        ? input.result.napoleonTeamPointCards - input.result.targetPointCards
+        : null
+  };
+}
+
+function finalDeclaredBid(
+  decisions: readonly { phase: string; action: GameAction }[]
+): { targetPointCards: number; suit: Suit } | null {
+  for (const decision of [...decisions].reverse()) {
+    if (decision.phase !== "bidding" || decision.action.type !== "bid") {
+      continue;
+    }
+    return {
+      targetPointCards: decision.action.targetPointCards,
+      suit: decision.action.suit
+    };
+  }
+  return null;
 }
 
 function summarizeResult(result: GameResult): BiddingQResultSummary {
@@ -1717,6 +2043,17 @@ function emptyTargetCounts(): Record<string, number> {
   return Object.fromEntries(TARGETS.map((target) => [String(target), 0]));
 }
 
+function emptyTerminalRoleCounts(): Record<BiddingQTerminalRole, number> {
+  return {
+    napoleon: 0,
+    adjutant: 0,
+    citizen: 0,
+    "napoleon-adjutant": 0,
+    "all-pass-starter": 0,
+    "all-pass-other": 0
+  };
+}
+
 function summarizeNumbers(values: readonly number[]): BiddingQCounterfactualDatasetSummary["terminalReward"] {
   if (values.length === 0) {
     return {
@@ -1734,6 +2071,27 @@ function summarizeNumbers(values: readonly number[]): BiddingQCounterfactualData
     min: Math.min(...values),
     max: Math.max(...values)
   };
+}
+
+function validateBiddingQFrozenOpponentMixMetadata(
+  metadata: BiddingQFrozenOpponentMixMetadata
+): void {
+  if (
+    metadata.type !== "mixed-frozen-bidding" ||
+    metadata.mixingRuleVersion !== BIDDING_Q_COUNTERFACTUAL_OPPONENT_MIX_RULE_VERSION ||
+    metadata.selectionUnit !== "game-seat" ||
+    metadata.topology !== "candidate-x1-frozen-x4-v1" ||
+    metadata.selectionSeed !== "sourceSeed" ||
+    metadata.ruleBasedWeight !== 0.5 ||
+    metadata.conservativeWeight !== 0.5 ||
+    metadata.policies.ruleBased.type !== "rule-based" ||
+    metadata.policies.ruleBased.id !== RULE_BASED_BIDDING_BASELINE_ID ||
+    metadata.policies.ruleBased.version !== RULE_BASED_AGENT_VERSION ||
+    metadata.policies.conservative.type !== "conservative-bidding" ||
+    metadata.policies.conservative.id !== "conservative-bidding-v1"
+  ) {
+    throw new Error("Bidding Q counterfactual frozen opponent mix mismatch.");
+  }
 }
 
 async function ensureOutputDoesNotExist(outputDirectory: string): Promise<void> {

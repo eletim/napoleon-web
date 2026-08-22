@@ -31,6 +31,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hidden-dims", default="512,512,256,256")
     parser.add_argument("--dropout", type=float, default=0.0)
     parser.add_argument("--value-loss-type", choices=("huber", "mse"), default="huber")
+    parser.add_argument(
+        "--value-target",
+        choices=("terminal-reward", "team-point-cards"),
+        default="terminal-reward",
+    )
     parser.add_argument("--value-loss-coefficient", type=float, default=1.0)
     parser.add_argument("--role-loss-coefficient", type=float, default=1.0)
     parser.add_argument("--train-ratio", type=float, default=0.8)
@@ -70,6 +75,7 @@ def _run(args: argparse.Namespace) -> int:
         hidden_dims=hidden_dims,
         dropout=args.dropout,
         value_loss_type=args.value_loss_type,
+        value_target=args.value_target,
         value_loss_coefficient=args.value_loss_coefficient,
         role_loss_coefficient=args.role_loss_coefficient,
         train_ratio=args.train_ratio,
@@ -111,7 +117,12 @@ def _run(args: argparse.Namespace) -> int:
         classifier = cast(dict[str, object], validation["roleClassifier"])
         value = cast(dict[str, object], validation["roleValue"])
         value_overall = cast(dict[str, object], value["overall"])
-        ranking = cast(dict[str, object], validation["ranking"])
+        ranking = cast(
+            dict[str, object],
+            validation["teamPointCardsActionSignal"]
+            if args.value_target == "team-point-cards"
+            else validation["ranking"],
+        )
         collapse = cast(dict[str, object], validation["qCollapseDiagnostics"])
         parity = cast(dict[str, object], artifact["onnxParity"])
         print(f"output: {args.output_dir}")
@@ -121,14 +132,18 @@ def _run(args: argparse.Namespace) -> int:
         print(f"validation states: {len(result.split.validation_state_keys)}")
         print(f"role accuracy: {classifier['accuracy']}")
         print(f"role cross entropy: {classifier['crossEntropy']}")
+        print(f"value target: {args.value_target}")
         print(f"value MAE: {value_overall['mae']}")
         print(f"value RMSE: {value_overall['rmse']}")
         print(f"best-action hit: {ranking['bestActionHitRate']}")
         print(f"top3 hit: {ranking['top3HitRate']}")
         print(f"pairwise ranking: {ranking['pairwiseRankingAccuracy']}")
-        print(f"PASS vs best-bid: {ranking['passVsBestBidAccuracy']}")
-        print(f"predicted PASS rate: {collapse['predictedPassRate']}")
-        print(f"strongest suit match: {collapse['strongestSuitMatchRate']}")
+        if args.value_target == "terminal-reward":
+            print(f"PASS vs best-bid: {ranking['passVsBestBidAccuracy']}")
+            print(f"predicted PASS rate: {collapse['predictedPassRate']}")
+            print(f"strongest suit match: {collapse['strongestSuitMatchRate']}")
+        else:
+            print(f"strongest suit match: {ranking['strongestSuitMatchRate']}")
         print(f"ONNX parity max abs diff: {parity['maxAbsDiff']}")
     return 0
 
