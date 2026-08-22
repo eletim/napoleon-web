@@ -19,6 +19,12 @@ from napoleon_ml.nonplaying_rl_orchestrator import (
     DEFAULT_BIDDING_MINIBATCH_STRATEGY,
     DEFAULT_ITERATIVE_BATCH_SIZE,
     DEFAULT_ITERATIVE_EVALUATION_GAMES,
+    NONPLAYING_BIDDING_REWARD_ID,
+    NONPLAYING_BIDDING_REWARD_TYPE,
+    NONPLAYING_BIDDING_REWARD_VERSION,
+    NONPLAYING_BIDDING_TERMINAL_REWARD_TRANSFORM_ID,
+    NONPLAYING_BIDDING_TERMINAL_REWARD_TRANSFORM_TYPE,
+    NONPLAYING_BIDDING_TERMINAL_REWARD_TRANSFORM_VERSION,
     NONPLAYING_ALL_PASS_RULE_ID,
     NONPLAYING_REWARD_ID,
     NONPLAYING_REWARD_TYPE,
@@ -215,6 +221,8 @@ def test_cpp_bidding_manifest_patch_preserves_rule_based_phase_metadata(
     assert non_learning["exchanging"] == {"type": "rule-based", "version": 1}
     assert non_learning["bidding"]["type"] == "mixed-frozen-bidding"
     assert non_learning["playing"]["artifactId"] == "ppo-separated-v1000"
+    assert patched["reward"] == _bidding_reward()
+    assert patched["terminalRewardTransform"] == _bidding_terminal_reward_transform()
 
 
 def test_iterative_nonplaying_rl_resumes_and_chains_checkpoints(
@@ -263,12 +271,20 @@ def test_iterative_nonplaying_rl_resumes_and_chains_checkpoints(
             "actualGameCount": 5,
             "rolloutPolicyTopology": "candidate-x1-frozen-x4-v1",
             "rotationOffsets": [0, 1, 2, 3, 4],
-            "reward": {
-                "type": NONPLAYING_REWARD_TYPE,
-                "version": NONPLAYING_REWARD_VERSION,
-                "id": NONPLAYING_REWARD_ID,
-            },
-            "terminalRewardTransform": _terminal_reward_transform(),
+            "reward": (
+                _bidding_reward()
+                if phase == "bidding"
+                else {
+                    "type": NONPLAYING_REWARD_TYPE,
+                    "version": NONPLAYING_REWARD_VERSION,
+                    "id": NONPLAYING_REWARD_ID,
+                }
+            ),
+            "terminalRewardTransform": (
+                _bidding_terminal_reward_transform()
+                if phase == "bidding"
+                else _terminal_reward_transform()
+            ),
             "allPassRule": {
                 "id": NONPLAYING_ALL_PASS_RULE_ID,
                 "starterPayoff": 0,
@@ -467,6 +483,8 @@ def test_iterative_nonplaying_rl_resumes_and_chains_checkpoints(
     assert stored_config["trainingDevice"] == "cpu"
     assert stored_config["biddingEntropyCoefficient"] == 0.01
     assert stored_config["biddingMinibatchStrategy"] == "random"
+    assert stored_config["biddingReward"] == _bidding_reward()
+    assert stored_config["biddingTerminalRewardTransform"] == _bidding_terminal_reward_transform()
     assert stored_config["biddingAdvantageNormalization"] == (
         advantage_normalization_metadata(DEFAULT_BIDDING_ADVANTAGE_NORMALIZATION)
     )
@@ -562,12 +580,8 @@ def test_iterative_bidding_only_freezes_downstream_artifacts_and_resumes(
                     "actualGameCount": 5,
                     "rolloutPolicyTopology": "candidate-x1-frozen-x4-v1",
                     "rotationOffsets": [0, 1, 2, 3, 4],
-                    "reward": {
-                        "type": NONPLAYING_REWARD_TYPE,
-                        "version": NONPLAYING_REWARD_VERSION,
-                        "id": NONPLAYING_REWARD_ID,
-                    },
-                    "terminalRewardTransform": _terminal_reward_transform(),
+                    "reward": _bidding_reward(),
+                    "terminalRewardTransform": _bidding_terminal_reward_transform(),
                     "allPassRule": {
                         "id": NONPLAYING_ALL_PASS_RULE_ID,
                         "starterPayoff": 0,
@@ -731,6 +745,8 @@ def test_iterative_bidding_only_freezes_downstream_artifacts_and_resumes(
     assert stored_config["trainMode"] == "bidding-only"
     assert stored_config["trainPhases"] == ["bidding"]
     assert stored_config["frozenPhases"] == ["adjutant", "exchange"]
+    assert stored_config["biddingReward"] == _bidding_reward()
+    assert stored_config["biddingTerminalRewardTransform"] == _bidding_terminal_reward_transform()
     assert set(stored_config["frozenArtifacts"]) == {"adjutant", "exchange"}
 
     iter0 = json.loads(
@@ -951,6 +967,34 @@ def test_iterative_resume_rejects_missing_terminal_reward_transform(
     legacy_config.pop("terminalRewardTransform")
 
     with pytest.raises(NonPlayingRlOrchestratorError, match="terminalRewardTransform"):
+        _validate_iterative_resume_config(
+            legacy_config,
+            requested_config,
+            provided_config_keys=set(),
+        )
+
+
+def test_iterative_resume_rejects_legacy_bidding_reward_attribution(
+    tmp_path: Path,
+) -> None:
+    playing_onnx = tmp_path / "playing.onnx"
+    playing_metadata = tmp_path / "playing.json"
+    playing_onnx.write_bytes(b"playing-onnx")
+    playing_metadata.write_text("{}\n", encoding="utf-8")
+    requested_config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    ).file_dict()
+    legacy_config = dict(requested_config)
+    legacy_config["biddingReward"] = {
+        "type": NONPLAYING_REWARD_TYPE,
+        "version": NONPLAYING_REWARD_VERSION,
+        "id": NONPLAYING_REWARD_ID,
+    }
+    legacy_config["biddingTerminalRewardTransform"] = _terminal_reward_transform()
+
+    with pytest.raises(NonPlayingRlOrchestratorError, match="biddingReward"):
         _validate_iterative_resume_config(
             legacy_config,
             requested_config,
@@ -1272,7 +1316,11 @@ def test_iterative_cli_honors_explicit_one_shot_default_values() -> None:
     assert "biddingMinibatchStrategy" in _provided_iterative_config_keys(argv)
 
 
-def test_iterative_cli_accepts_cpp_simulation_backend() -> None:
+def test_iterative_cli_accepts_cpp_simulation_backend(tmp_path: Path) -> None:
+    playing_onnx = tmp_path / "playing.onnx"
+    playing_metadata = tmp_path / "playing.json"
+    playing_onnx.write_bytes(b"playing-onnx")
+    playing_metadata.write_text("{}\n", encoding="utf-8")
     argv = [
         "--output-dir",
         "/tmp/non-playing",
@@ -1280,6 +1328,10 @@ def test_iterative_cli_accepts_cpp_simulation_backend() -> None:
         "10",
         "--simulation-backend",
         "cpp",
+        "--playing-policy-onnx",
+        str(playing_onnx),
+        "--playing-policy-metadata",
+        str(playing_metadata),
     ]
     args = build_parser().parse_args(argv)
     config = _iterative_config_from_args(
@@ -1321,4 +1373,29 @@ def _terminal_reward_transform() -> dict[str, object]:
         "sourceRewardId": NONPLAYING_REWARD_ID,
         "baseline": "meanRawRewardAllPlayers",
         "formula": "relative_reward_i = raw_reward_i - mean(raw_reward_all_players)",
+    }
+
+
+def _bidding_reward() -> dict[str, object]:
+    return {
+        "type": NONPLAYING_BIDDING_REWARD_TYPE,
+        "version": NONPLAYING_BIDDING_REWARD_VERSION,
+        "id": NONPLAYING_BIDDING_REWARD_ID,
+        "sourceRewardId": NONPLAYING_REWARD_ID,
+        "appliesTo": "bidding",
+        "napoleonWinMultiplier": 2,
+        "napoleonAdjutantWinMultiplier": 3,
+        "contractLossReward": -5,
+        "nonContractReward": 0,
+    }
+
+
+def _bidding_terminal_reward_transform() -> dict[str, object]:
+    return {
+        "type": NONPLAYING_BIDDING_TERMINAL_REWARD_TRANSFORM_TYPE,
+        "version": NONPLAYING_BIDDING_TERMINAL_REWARD_TRANSFORM_VERSION,
+        "id": NONPLAYING_BIDDING_TERMINAL_REWARD_TRANSFORM_ID,
+        "sourceRewardId": NONPLAYING_BIDDING_REWARD_ID,
+        "baseline": "none",
+        "formula": "bidding_training_reward_i = raw_bidding_reward_i",
     }

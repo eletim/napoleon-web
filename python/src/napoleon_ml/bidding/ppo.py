@@ -46,13 +46,14 @@ from .model import (
 )
 
 NON_PLAYING_RL_SAMPLE_TYPE = "non-playing-bidding-rl-sample"
-NON_PLAYING_RL_REWARD_ID = "non-playing-terminal-role-reward-v3"
-NON_PLAYING_RL_REWARD_TYPE = "non-playing-terminal-role-reward"
-NON_PLAYING_RL_REWARD_VERSION = 3
+NON_PLAYING_RL_REWARD_ID = "non-playing-bidding-contract-result-reward-v1"
+NON_PLAYING_RL_REWARD_TYPE = "non-playing-bidding-contract-result-reward"
+NON_PLAYING_RL_REWARD_VERSION = 1
+NON_PLAYING_RL_SOURCE_REWARD_ID = "non-playing-terminal-role-reward-v3"
 NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID = (
-    "non-playing-terminal-role-reward-v3-minus-game-player-mean-v1"
+    "non-playing-bidding-contract-result-reward-v1-identity-v1"
 )
-NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_TYPE = "raw-reward-minus-game-player-mean"
+NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_TYPE = "identity"
 NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_VERSION = 1
 NON_PLAYING_RL_ALL_PASS_RULE_ID = "all-pass-immediate-zero-raw-terminal-reward-v1"
 BIDDING_PPO_ALGORITHM = "bidding-ppo-separated-v1"
@@ -388,11 +389,7 @@ def load_non_playing_bidding_rl_manifest(
         raise BiddingPpoCompatibilityError("manifest cardIdsSha256 mismatch.")
 
     reward = _require_dict(raw.get("reward"), "manifest.reward")
-    if (
-        reward.get("type") != NON_PLAYING_RL_REWARD_TYPE
-        or reward.get("version") != NON_PLAYING_RL_REWARD_VERSION
-        or reward.get("id") != NON_PLAYING_RL_REWARD_ID
-    ):
+    if reward != _expected_reward_metadata():
         raise BiddingPpoCompatibilityError("manifest reward metadata mismatch.")
     all_pass_rule = _require_dict(raw.get("allPassRule"), "manifest.allPassRule")
     if (
@@ -1442,11 +1439,7 @@ def _validate_bidding_ppo_checkpoint(raw: dict[str, object]) -> None:
                 f"checkpoint {key} mismatch: expected {value!r}, got {raw.get(key)!r}."
             )
     reward = raw.get("reward")
-    expected_reward = {
-        "type": NON_PLAYING_RL_REWARD_TYPE,
-        "version": NON_PLAYING_RL_REWARD_VERSION,
-        "id": NON_PLAYING_RL_REWARD_ID,
-    }
+    expected_reward = _expected_reward_metadata()
     if not isinstance(reward, dict) or reward != expected_reward:
         raise BiddingPpoCompatibilityError("checkpoint reward metadata mismatch.")
     _require_terminal_reward_transform(
@@ -1600,12 +1593,26 @@ def _require_terminal_reward_transform(value: object, path: str) -> dict[str, ob
         "version": NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_VERSION,
         "id": NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID,
         "sourceRewardId": NON_PLAYING_RL_REWARD_ID,
-        "baseline": "meanRawRewardAllPlayers",
-        "formula": "relative_reward_i = raw_reward_i - mean(raw_reward_all_players)",
+        "baseline": "none",
+        "formula": "bidding_training_reward_i = raw_bidding_reward_i",
     }
     if transform != expected:
         raise BiddingPpoCompatibilityError(f"{path} metadata mismatch.")
     return transform
+
+
+def _expected_reward_metadata() -> dict[str, object]:
+    return {
+        "type": NON_PLAYING_RL_REWARD_TYPE,
+        "version": NON_PLAYING_RL_REWARD_VERSION,
+        "id": NON_PLAYING_RL_REWARD_ID,
+        "sourceRewardId": NON_PLAYING_RL_SOURCE_REWARD_ID,
+        "appliesTo": "bidding",
+        "napoleonWinMultiplier": 2,
+        "napoleonAdjutantWinMultiplier": 3,
+        "contractLossReward": -5,
+        "nonContractReward": 0,
+    }
 
 
 def _load_raw_checkpoint(path: Path) -> dict[str, object]:

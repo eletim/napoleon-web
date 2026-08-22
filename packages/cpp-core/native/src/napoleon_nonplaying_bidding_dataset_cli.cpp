@@ -16,7 +16,6 @@
 #include <limits>
 #include <map>
 #include <memory>
-#include <numeric>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -475,6 +474,17 @@ int raw_reward_for_player(const GameResult& result, int player_index) {
   return napoleon_won ? d : 0;
 }
 
+int bidding_training_reward_for_player(const GameResult& result, int player_index) {
+  if (result.result_type == "all-pass") {
+    return 0;
+  }
+  const bool is_napoleon = player_index == result.napoleon_player_index;
+  if (!is_napoleon) {
+    return 0;
+  }
+  return raw_reward_for_player(result, player_index);
+}
+
 std::string role_for_player(const GameResult& result, int player_index) {
   if (result.result_type == "all-pass") {
     return player_index == result.starter_player_index ? "all-pass-starter" : "all-pass-other";
@@ -513,12 +523,7 @@ void write_outcome(std::ostream& out, const GameResult& result, int player_index
 }
 
 void write_sample(std::ostream& out, const Draft& draft, const GameResult& result) {
-  std::array<int, kPlayerCount> raw_rewards{};
-  for (int player = 0; player < kPlayerCount; ++player) {
-    raw_rewards[static_cast<std::size_t>(player)] = raw_reward_for_player(result, player);
-  }
-  const double mean = std::accumulate(raw_rewards.begin(), raw_rewards.end(), 0.0) / kPlayerCount;
-  const int raw = raw_rewards[static_cast<std::size_t>(draft.acting_player_index)];
+  const int raw = bidding_training_reward_for_player(result, draft.acting_player_index);
 
   out << "{\"sampleType\":\"non-playing-bidding-rl-sample\",\"schemaVersion\":4";
   out << ",\"seed\":" << draft.seed;
@@ -542,8 +547,8 @@ void write_sample(std::ostream& out, const Draft& draft, const GameResult& resul
   out << ",\"selectedActionIndex\":" << draft.selected_action_index;
   out << ",\"behaviorLogProbability\":" << std::setprecision(17) << draft.behavior_log_probability;
   out << ",\"rawTerminalReward\":" << raw;
-  out << ",\"gameMeanRawTerminalReward\":" << mean;
-  out << ",\"terminalReward\":" << (static_cast<double>(raw) - mean);
+  out << ",\"gameMeanRawTerminalReward\":0";
+  out << ",\"terminalReward\":" << raw;
   out << ",\"outcome\":";
   write_outcome(out, result, draft.acting_player_index);
   out << "}\n";
@@ -901,9 +906,9 @@ int main(int argc, char** argv) {
     manifest << ",\n";
     manifest << "  \"samplingAlgorithm\":\"masked-categorical\",\n";
     manifest << "  \"temperature\":" << options.temperature << ",\n";
-    manifest << "  \"reward\":{\"type\":\"non-playing-terminal-role-reward\",\"version\":3,\"id\":\"non-playing-terminal-role-reward-v3\"},\n";
+    manifest << "  \"reward\":{\"type\":\"non-playing-bidding-contract-result-reward\",\"version\":1,\"id\":\"non-playing-bidding-contract-result-reward-v1\",\"sourceRewardId\":\"non-playing-terminal-role-reward-v3\",\"appliesTo\":\"bidding\",\"napoleonWinMultiplier\":2,\"napoleonAdjutantWinMultiplier\":3,\"contractLossReward\":-5,\"nonContractReward\":0},\n";
     manifest << "  \"allPassRule\":{\"id\":\"all-pass-immediate-zero-raw-terminal-reward-v1\",\"starterPayoff\":0,\"otherPayoff\":0},\n";
-    manifest << "  \"terminalRewardTransform\":{\"type\":\"raw-reward-minus-game-player-mean\",\"version\":1,\"id\":\"non-playing-terminal-role-reward-v3-minus-game-player-mean-v1\",\"sourceRewardId\":\"non-playing-terminal-role-reward-v3\",\"baseline\":\"meanRawRewardAllPlayers\",\"formula\":\"relative_reward_i = raw_reward_i - mean(raw_reward_all_players)\"},\n";
+    manifest << "  \"terminalRewardTransform\":{\"type\":\"identity\",\"version\":1,\"id\":\"non-playing-bidding-contract-result-reward-v1-identity-v1\",\"sourceRewardId\":\"non-playing-bidding-contract-result-reward-v1\",\"baseline\":\"none\",\"formula\":\"bidding_training_reward_i = raw_bidding_reward_i\"},\n";
     manifest << "  \"nonLearningAgents\":{\"bidding\":";
     write_frozen_bidding_mix_metadata(manifest);
     manifest << ",\"choosingAdjutant\":{\"type\":\"rule-based\",\"version\":1}"

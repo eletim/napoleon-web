@@ -77,6 +77,15 @@ export const NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_TYPE =
 export const NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_VERSION = 1 as const;
 export const NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID =
   "non-playing-terminal-role-reward-v3-minus-game-player-mean-v1" as const;
+export const NON_PLAYING_BIDDING_RL_REWARD_TYPE =
+  "non-playing-bidding-contract-result-reward" as const;
+export const NON_PLAYING_BIDDING_RL_REWARD_VERSION = 1 as const;
+export const NON_PLAYING_BIDDING_RL_REWARD_ID =
+  "non-playing-bidding-contract-result-reward-v1" as const;
+export const NON_PLAYING_BIDDING_RL_TERMINAL_REWARD_TRANSFORM_TYPE = "identity" as const;
+export const NON_PLAYING_BIDDING_RL_TERMINAL_REWARD_TRANSFORM_VERSION = 1 as const;
+export const NON_PLAYING_BIDDING_RL_TERMINAL_REWARD_TRANSFORM_ID =
+  "non-playing-bidding-contract-result-reward-v1-identity-v1" as const;
 export const NON_PLAYING_RL_ALL_PASS_RULE_ID = "all-pass-immediate-zero-raw-terminal-reward-v1" as const;
 export const NON_PLAYING_RL_SAMPLING_ALGORITHM = "masked-categorical" as const;
 export const DEFAULT_NON_PLAYING_RL_TEMPERATURE = 1.0 as const;
@@ -306,6 +315,16 @@ export interface NonPlayingRlDatasetManifest {
     type: typeof NON_PLAYING_RL_REWARD_TYPE;
     version: typeof NON_PLAYING_RL_REWARD_VERSION;
     id: typeof NON_PLAYING_RL_REWARD_ID;
+  } | {
+    type: typeof NON_PLAYING_BIDDING_RL_REWARD_TYPE;
+    version: typeof NON_PLAYING_BIDDING_RL_REWARD_VERSION;
+    id: typeof NON_PLAYING_BIDDING_RL_REWARD_ID;
+    sourceRewardId: typeof NON_PLAYING_RL_REWARD_ID;
+    appliesTo: "bidding";
+    napoleonWinMultiplier: 2;
+    napoleonAdjutantWinMultiplier: 3;
+    contractLossReward: -5;
+    nonContractReward: 0;
   };
   terminalRewardTransform: {
     type: typeof NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_TYPE;
@@ -314,6 +333,13 @@ export interface NonPlayingRlDatasetManifest {
     sourceRewardId: typeof NON_PLAYING_RL_REWARD_ID;
     baseline: "meanRawRewardAllPlayers";
     formula: "relative_reward_i = raw_reward_i - mean(raw_reward_all_players)";
+  } | {
+    type: typeof NON_PLAYING_BIDDING_RL_TERMINAL_REWARD_TRANSFORM_TYPE;
+    version: typeof NON_PLAYING_BIDDING_RL_TERMINAL_REWARD_TRANSFORM_VERSION;
+    id: typeof NON_PLAYING_BIDDING_RL_TERMINAL_REWARD_TRANSFORM_ID;
+    sourceRewardId: typeof NON_PLAYING_BIDDING_RL_REWARD_ID;
+    baseline: "none";
+    formula: "bidding_training_reward_i = raw_bidding_reward_i";
   };
   allPassRule: {
     id: typeof NON_PLAYING_RL_ALL_PASS_RULE_ID;
@@ -373,7 +399,7 @@ export interface NonPlayingBiddingDiagnostics {
   candidateRoleDistribution: Record<NonPlayingBiddingRlRole, number>;
   meanRawTerminalReward: number | null;
   meanLearningTerminalReward: number | null;
-  terminalRewardTransformId: typeof NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID;
+  terminalRewardTransformId: typeof NON_PLAYING_BIDDING_RL_TERMINAL_REWARD_TRANSFORM_ID;
 }
 
 export interface NonPlayingRlPolicyArtifactManifest {
@@ -682,7 +708,7 @@ function finalizeDiagnostics(
             candidateRoleDistribution: bidding.candidateRoleDistribution,
             meanRawTerminalReward: safeMean(bidding.rawRewardSum, bidding.rewardCount),
             meanLearningTerminalReward: safeMean(bidding.learningRewardSum, bidding.rewardCount),
-            terminalRewardTransformId: NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID
+            terminalRewardTransformId: NON_PLAYING_BIDDING_RL_TERMINAL_REWARD_TRANSFORM_ID
           }
         })
   };
@@ -787,6 +813,31 @@ function createTerminalRewardTransformMetadata(): NonPlayingRlDatasetManifest["t
     sourceRewardId: NON_PLAYING_RL_REWARD_ID,
     baseline: "meanRawRewardAllPlayers",
     formula: "relative_reward_i = raw_reward_i - mean(raw_reward_all_players)"
+  };
+}
+
+function createBiddingRewardMetadata(): NonPlayingRlDatasetManifest["reward"] {
+  return {
+    type: NON_PLAYING_BIDDING_RL_REWARD_TYPE,
+    version: NON_PLAYING_BIDDING_RL_REWARD_VERSION,
+    id: NON_PLAYING_BIDDING_RL_REWARD_ID,
+    sourceRewardId: NON_PLAYING_RL_REWARD_ID,
+    appliesTo: "bidding",
+    napoleonWinMultiplier: 2,
+    napoleonAdjutantWinMultiplier: 3,
+    contractLossReward: -5,
+    nonContractReward: 0
+  };
+}
+
+function createBiddingTerminalRewardTransformMetadata(): NonPlayingRlDatasetManifest["terminalRewardTransform"] {
+  return {
+    type: NON_PLAYING_BIDDING_RL_TERMINAL_REWARD_TRANSFORM_TYPE,
+    version: NON_PLAYING_BIDDING_RL_TERMINAL_REWARD_TRANSFORM_VERSION,
+    id: NON_PLAYING_BIDDING_RL_TERMINAL_REWARD_TRANSFORM_ID,
+    sourceRewardId: NON_PLAYING_BIDDING_RL_REWARD_ID,
+    baseline: "none",
+    formula: "bidding_training_reward_i = raw_bidding_reward_i"
   };
 }
 
@@ -1418,7 +1469,7 @@ export function completeNonPlayingBiddingRlSamples(
     }
 
     const outcome = createBiddingRlOutcome(record.result, decision.playerId);
-    const reward = calculateNonPlayingLearningTerminalReward(
+    const reward = calculateNonPlayingBiddingLearningTerminalReward(
       record.result,
       decision.playerId,
       record.playerIds
@@ -1656,6 +1707,42 @@ export function calculateNonPlayingLearningTerminalReward(
     rawTerminalReward,
     gameMeanRawTerminalReward,
     terminalReward: rawTerminalReward - gameMeanRawTerminalReward
+  };
+}
+
+export function calculateNonPlayingBiddingTrainingReward(
+  outcome: NonPlayingBiddingRlOutcome
+): number {
+  if (outcome.outcomeType === "all-pass") {
+    return 0;
+  }
+  if (outcome.actingPlayerRole !== "napoleon" && outcome.actingPlayerRole !== "napoleon-adjutant") {
+    return 0;
+  }
+  return calculateNonPlayingTerminalRoleReward(outcome);
+}
+
+export function calculateNonPlayingBiddingLearningTerminalReward(
+  result: GameResult,
+  actingPlayerId: PlayerId,
+  playerIds: readonly PlayerId[]
+): {
+  rawTerminalReward: number;
+  gameMeanRawTerminalReward: number;
+  terminalReward: number;
+} {
+  expectLength("playerIds", playerIds, PLAYER_COUNT);
+  if (!playerIds.includes(actingPlayerId)) {
+    throw new Error(`actingPlayerId ${actingPlayerId} is not present in playerIds.`);
+  }
+
+  const rawTerminalReward = calculateNonPlayingBiddingTrainingReward(
+    createBiddingRlOutcome(result, actingPlayerId)
+  );
+  return {
+    rawTerminalReward,
+    gameMeanRawTerminalReward: 0,
+    terminalReward: rawTerminalReward
   };
 }
 
@@ -1906,10 +1993,7 @@ export function validateNonPlayingBiddingRlSample(
     throw new Error("terminalReward must be finite.");
   }
   validateOutcome(sample.outcome);
-  validateTerminalRewardTransformFields(sample);
-  if (sample.rawTerminalReward !== calculateNonPlayingTerminalRoleReward(sample.outcome)) {
-    throw new Error("rawTerminalReward must match reward version formula.");
-  }
+  validateBiddingTerminalRewardFields(sample);
 }
 
 export function validateNonPlayingAdjutantRlSample(
@@ -2118,14 +2202,8 @@ export function validateNonPlayingRlDatasetManifest(
     throw new Error("Non-playing RL manifest samplingAlgorithm mismatch.");
   }
   validateTemperature(manifest.temperature);
-  if (
-    manifest.reward.type !== NON_PLAYING_RL_REWARD_TYPE ||
-    manifest.reward.version !== NON_PLAYING_RL_REWARD_VERSION ||
-    manifest.reward.id !== NON_PLAYING_RL_REWARD_ID
-  ) {
-    throw new Error("Non-playing RL manifest reward metadata mismatch.");
-  }
-  validateTerminalRewardTransformMetadata(manifest);
+  validateBiddingRewardMetadata(manifest);
+  validateBiddingTerminalRewardTransformMetadata(manifest);
   validateAllPassRuleMetadata(manifest);
   if (sameStringArray(manifest.fixedPhases, ["playing"])) {
     if (
@@ -2301,6 +2379,12 @@ function validateCommonNonPlayingRlPolicyMetadata(manifest: NonPlayingRlDatasetM
   validateAllPassRuleMetadata(manifest);
 }
 
+function validateBiddingRewardMetadata(manifest: NonPlayingRlDatasetManifest): void {
+  if (JSON.stringify(manifest.reward) !== JSON.stringify(createBiddingRewardMetadata())) {
+    throw new Error("Non-playing RL manifest bidding reward metadata mismatch.");
+  }
+}
+
 function validateTerminalRewardTransformFields(sample: {
   rawTerminalReward: number;
   gameMeanRawTerminalReward: number;
@@ -2321,6 +2405,26 @@ function validateTerminalRewardTransformFields(sample: {
   }
 }
 
+function validateBiddingTerminalRewardFields(sample: {
+  rawTerminalReward: number;
+  gameMeanRawTerminalReward: number;
+  terminalReward: number;
+  outcome: NonPlayingBiddingRlOutcome;
+}): void {
+  if (!Number.isFinite(sample.rawTerminalReward)) {
+    throw new Error("rawTerminalReward must be finite.");
+  }
+  if (sample.gameMeanRawTerminalReward !== 0) {
+    throw new Error("gameMeanRawTerminalReward must be zero for bidding identity reward.");
+  }
+  if (Math.abs(sample.terminalReward - sample.rawTerminalReward) > 1e-9) {
+    throw new Error("terminalReward must equal rawTerminalReward for bidding identity reward.");
+  }
+  if (sample.rawTerminalReward !== calculateNonPlayingBiddingTrainingReward(sample.outcome)) {
+    throw new Error("rawTerminalReward must match bidding reward formula.");
+  }
+}
+
 function validateTerminalRewardTransformMetadata(manifest: NonPlayingRlDatasetManifest): void {
   const transform = manifest.terminalRewardTransform;
   if (
@@ -2332,6 +2436,15 @@ function validateTerminalRewardTransformMetadata(manifest: NonPlayingRlDatasetMa
     transform.formula !== "relative_reward_i = raw_reward_i - mean(raw_reward_all_players)"
   ) {
     throw new Error("Non-playing RL manifest terminalRewardTransform metadata mismatch.");
+  }
+}
+
+function validateBiddingTerminalRewardTransformMetadata(manifest: NonPlayingRlDatasetManifest): void {
+  if (
+    JSON.stringify(manifest.terminalRewardTransform) !==
+    JSON.stringify(createBiddingTerminalRewardTransformMetadata())
+  ) {
+    throw new Error("Non-playing RL manifest bidding terminalRewardTransform metadata mismatch.");
   }
 }
 
@@ -3157,12 +3270,8 @@ function createNonPlayingRlDatasetManifest(input: {
     fixedPlayingPolicy: input.fixedPlayingPolicy,
     samplingAlgorithm: NON_PLAYING_RL_SAMPLING_ALGORITHM,
     temperature: input.temperature,
-    reward: {
-      type: NON_PLAYING_RL_REWARD_TYPE,
-      version: NON_PLAYING_RL_REWARD_VERSION,
-      id: NON_PLAYING_RL_REWARD_ID
-    },
-    terminalRewardTransform: createTerminalRewardTransformMetadata(),
+    reward: createBiddingRewardMetadata(),
+    terminalRewardTransform: createBiddingTerminalRewardTransformMetadata(),
     allPassRule: createAllPassRuleMetadata(),
     nonLearningAgents: {
       bidding: createFrozenBiddingOpponentMixMetadata(),

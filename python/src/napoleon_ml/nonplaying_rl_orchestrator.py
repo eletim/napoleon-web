@@ -69,7 +69,7 @@ DEFAULT_INFERENCE_DEVICE: Literal["cpu", "auto", "cuda"] = "cpu"
 DEFAULT_TRAINING_DEVICE: RequestedTorchDevice = "cpu"
 DEFAULT_INFERENCE_MAX_BATCH_SIZE = 256
 DEFAULT_SEED = 202
-ITERATIVE_RUN_CONFIG_SCHEMA_VERSION = 10
+ITERATIVE_RUN_CONFIG_SCHEMA_VERSION = 11
 NONPLAYING_ROLLOUT_POLICY_TOPOLOGY = "candidate-x1-frozen-x4-v1"
 NONPLAYING_GAME_COUNT_UNIT = "logical-seeds"
 NONPLAYING_ROTATION_OFFSETS = [0, 1, 2, 3, 4]
@@ -80,6 +80,14 @@ NONPLAYING_TERMINAL_REWARD_TRANSFORM_TYPE = "raw-reward-minus-game-player-mean"
 NONPLAYING_TERMINAL_REWARD_TRANSFORM_VERSION = 1
 NONPLAYING_TERMINAL_REWARD_TRANSFORM_ID = (
     "non-playing-terminal-role-reward-v3-minus-game-player-mean-v1"
+)
+NONPLAYING_BIDDING_REWARD_TYPE = "non-playing-bidding-contract-result-reward"
+NONPLAYING_BIDDING_REWARD_VERSION = 1
+NONPLAYING_BIDDING_REWARD_ID = "non-playing-bidding-contract-result-reward-v1"
+NONPLAYING_BIDDING_TERMINAL_REWARD_TRANSFORM_TYPE = "identity"
+NONPLAYING_BIDDING_TERMINAL_REWARD_TRANSFORM_VERSION = 1
+NONPLAYING_BIDDING_TERMINAL_REWARD_TRANSFORM_ID = (
+    "non-playing-bidding-contract-result-reward-v1-identity-v1"
 )
 NONPLAYING_ALL_PASS_RULE_ID = "all-pass-immediate-zero-raw-terminal-reward-v1"
 FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION = (
@@ -203,6 +211,8 @@ class NonPlayingRlRunConfig:
                 "id": NONPLAYING_REWARD_ID,
             },
             "terminalRewardTransform": _terminal_reward_transform_metadata(),
+            "biddingReward": _bidding_reward_metadata(),
+            "biddingTerminalRewardTransform": _bidding_terminal_reward_transform_metadata(),
             "allPassRule": {
                 "id": NONPLAYING_ALL_PASS_RULE_ID,
                 "starterPayoff": 0,
@@ -360,6 +370,8 @@ class NonPlayingIterativeRlRunConfig:
                 "id": NONPLAYING_REWARD_ID,
             },
             "terminalRewardTransform": _terminal_reward_transform_metadata(),
+            "biddingReward": _bidding_reward_metadata(),
+            "biddingTerminalRewardTransform": _bidding_terminal_reward_transform_metadata(),
             "allPassRule": {
                 "id": NONPLAYING_ALL_PASS_RULE_ID,
                 "starterPayoff": 0,
@@ -746,6 +758,8 @@ def _run_iterative_iteration(
             "id": NONPLAYING_REWARD_ID,
         },
         "terminalRewardTransform": _terminal_reward_transform_metadata(),
+        "biddingReward": _bidding_reward_metadata(),
+        "biddingTerminalRewardTransform": _bidding_terminal_reward_transform_metadata(),
         "allPassRule": {
             "id": NONPLAYING_ALL_PASS_RULE_ID,
             "starterPayoff": 0,
@@ -1120,6 +1134,8 @@ def _patch_cpp_bidding_manifest(
             "actualGameCount": config.games * len(NONPLAYING_ROTATION_OFFSETS),
             "rolloutPolicyTopology": NONPLAYING_ROLLOUT_POLICY_TOPOLOGY,
             "rotationOffsets": NONPLAYING_ROTATION_OFFSETS,
+            "reward": _bidding_reward_metadata(),
+            "terminalRewardTransform": _bidding_terminal_reward_transform_metadata(),
             "behaviorPolicy": behavior,
             "fixedPlayingPolicy": fixed,
             "nonLearningAgents": non_learning_agents,
@@ -1675,15 +1691,22 @@ def _validate_nonplaying_rollout_manifest(
     if manifest.get("rotationOffsets") != NONPLAYING_ROTATION_OFFSETS:
         raise NonPlayingRlOrchestratorError("rollout manifest rotationOffsets mismatch.")
     reward = _require_dict(manifest.get("reward"), "manifest.reward")
-    if (
-        reward.get("type") != NONPLAYING_REWARD_TYPE
-        or reward.get("version") != NONPLAYING_REWARD_VERSION
-        or reward.get("id") != NONPLAYING_REWARD_ID
-    ):
-        raise NonPlayingRlOrchestratorError("rollout manifest reward metadata mismatch.")
-    _validate_terminal_reward_transform(
-        manifest.get("terminalRewardTransform"), "manifest.terminalRewardTransform"
-    )
+    if phase == "bidding":
+        if reward != _bidding_reward_metadata():
+            raise NonPlayingRlOrchestratorError("rollout manifest bidding reward metadata mismatch.")
+        _validate_bidding_terminal_reward_transform(
+            manifest.get("terminalRewardTransform"), "manifest.terminalRewardTransform"
+        )
+    else:
+        if (
+            reward.get("type") != NONPLAYING_REWARD_TYPE
+            or reward.get("version") != NONPLAYING_REWARD_VERSION
+            or reward.get("id") != NONPLAYING_REWARD_ID
+        ):
+            raise NonPlayingRlOrchestratorError("rollout manifest reward metadata mismatch.")
+        _validate_terminal_reward_transform(
+            manifest.get("terminalRewardTransform"), "manifest.terminalRewardTransform"
+        )
     all_pass_rule = _require_dict(manifest.get("allPassRule"), "manifest.allPassRule")
     if (
         all_pass_rule.get("id") != NONPLAYING_ALL_PASS_RULE_ID
@@ -1782,9 +1805,40 @@ def _terminal_reward_transform_metadata() -> dict[str, object]:
     }
 
 
+def _bidding_reward_metadata() -> dict[str, object]:
+    return {
+        "type": NONPLAYING_BIDDING_REWARD_TYPE,
+        "version": NONPLAYING_BIDDING_REWARD_VERSION,
+        "id": NONPLAYING_BIDDING_REWARD_ID,
+        "sourceRewardId": NONPLAYING_REWARD_ID,
+        "appliesTo": "bidding",
+        "napoleonWinMultiplier": 2,
+        "napoleonAdjutantWinMultiplier": 3,
+        "contractLossReward": -5,
+        "nonContractReward": 0,
+    }
+
+
+def _bidding_terminal_reward_transform_metadata() -> dict[str, object]:
+    return {
+        "type": NONPLAYING_BIDDING_TERMINAL_REWARD_TRANSFORM_TYPE,
+        "version": NONPLAYING_BIDDING_TERMINAL_REWARD_TRANSFORM_VERSION,
+        "id": NONPLAYING_BIDDING_TERMINAL_REWARD_TRANSFORM_ID,
+        "sourceRewardId": NONPLAYING_BIDDING_REWARD_ID,
+        "baseline": "none",
+        "formula": "bidding_training_reward_i = raw_bidding_reward_i",
+    }
+
+
 def _validate_terminal_reward_transform(value: object, path: str) -> None:
     transform = _require_dict(value, path)
     if transform != _terminal_reward_transform_metadata():
+        raise NonPlayingRlOrchestratorError(f"{path} metadata mismatch.")
+
+
+def _validate_bidding_terminal_reward_transform(value: object, path: str) -> None:
+    transform = _require_dict(value, path)
+    if transform != _bidding_terminal_reward_transform_metadata():
         raise NonPlayingRlOrchestratorError(f"{path} metadata mismatch.")
 
 
@@ -1949,6 +2003,8 @@ def _validate_iterative_resume_config(
         "rotationOffsets",
         "reward",
         "terminalRewardTransform",
+        "biddingReward",
+        "biddingTerminalRewardTransform",
         "allPassRule",
         "biddingFrozenOpponentMixRuleVersion",
         "biddingFrozenOpponentPolicyIds",
