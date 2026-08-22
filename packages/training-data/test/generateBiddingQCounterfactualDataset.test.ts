@@ -12,6 +12,7 @@ import {
 import {
   BIDDING_Q_COUNTERFACTUAL_ACTION_MAPPING_ID,
   BIDDING_Q_COUNTERFACTUAL_ACTION_PLAN_ID,
+  BIDDING_Q_COUNTERFACTUAL_ROLE_VALUE_ACTION_PLAN_ID,
   BIDDING_Q_COUNTERFACTUAL_DATASET_SAMPLE_TYPE,
   BIDDING_Q_COUNTERFACTUAL_DATASET_SCHEMA_VERSION,
   BIDDING_Q_COUNTERFACTUAL_REWARD_ID,
@@ -267,6 +268,52 @@ describe("generateBiddingQCounterfactualDataset", () => {
       }
       expect([...repeatGroups.values()].every((indexes) => indexes.sort().join(",") === "0,1"))
         .toBe(true);
+    });
+  });
+
+  it("can generate all legal forced actions for role-value coverage", async () => {
+    await withTempDir(async (directory) => {
+      const artifacts = await createArtifactFiles(directory);
+      const output = join(directory, "all-legal");
+      const result = await generateBiddingQCounterfactualDataset({
+        outputDirectory: output,
+        biddingPolicy: createBiddingPolicy(),
+        biddingPolicyArtifact: artifacts.bidding,
+        playingPolicy: createPlayingPolicy(),
+        playingPolicyArtifact: artifacts.playing,
+        startSeed: 30,
+        logicalSeedCount: 2,
+        maxSourceStates: 3,
+        repeats: 1,
+        gamesPerShard: 50,
+        randomSeed: 383,
+        randomLegalBidCount: 0,
+        actionPlanId: BIDDING_Q_COUNTERFACTUAL_ROLE_VALUE_ACTION_PLAN_ID,
+        sourceCommit: "test-commit"
+      });
+      const manifest = await readManifest(output);
+      const samples = (await readAllSamples(output, manifest)).map((line) =>
+        JSON.parse(line) as BiddingQCounterfactualSample
+      );
+
+      validateBiddingQCounterfactualDatasetManifest(manifest);
+      expect(result.manifest.actionPlan.id).toBe(BIDDING_Q_COUNTERFACTUAL_ROLE_VALUE_ACTION_PLAN_ID);
+      expect(manifest.actionPlan.id).toBe(BIDDING_Q_COUNTERFACTUAL_ROLE_VALUE_ACTION_PLAN_ID);
+      expect(manifest.summary.totalForcedStateActionPairs).toBeGreaterThan(
+        manifest.summary.totalSourceStates
+      );
+
+      const byState = new Map<string, BiddingQCounterfactualSample[]>();
+      for (const sample of samples) {
+        byState.set(sample.stateKey, [...(byState.get(sample.stateKey) ?? []), sample]);
+      }
+      for (const stateSamples of byState.values()) {
+        const first = stateSamples[0];
+        const legalCount = first.legalBidMask.filter((value) => value === 1).length;
+        expect(new Set(stateSamples.map((sample) => sample.forcedActionIndex)).size).toBe(
+          legalCount
+        );
+      }
     });
   });
 
