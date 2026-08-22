@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 import torch
 from test_bidding_role_q import _write_role_q_dataset
+from test_bidding_role_score_integration import _sample
 
 from napoleon_ml.bidding_q import (
     BIDDING_MARGIN_HETEROSCEDASTIC_ARCHITECTURE_ID,
@@ -26,9 +27,11 @@ from napoleon_ml.bidding_q import (
     state_key_hash,
     train_bidding_margin_model,
 )
-from napoleon_ml.bidding_q.margin_training import create_margin_split
+from napoleon_ml.bidding_q.margin_training import create_margin_split, predict_margin_samples
+from napoleon_ml.bidding_q.multi_head_training import Standardization
 from napoleon_ml.dataset.constants import BIDDING_ACTION_COUNT
 from napoleon_ml.dataset.tensors import BIDDING_MODEL_INPUT_FEATURE_COUNT
+from napoleon_ml.policy.device import resolve_torch_device
 
 
 def test_margin_model_forward_shape_and_sigma_positive() -> None:
@@ -93,6 +96,32 @@ def test_extreme_scale_is_clamped_and_finite() -> None:
         torch.tensor([True]),
     )
     assert torch.isfinite(loss)
+
+
+def test_predict_margin_samples_does_not_scale_sigma_when_standardization_disabled() -> None:
+    model = BiddingMarginHeteroscedasticModel(
+        BiddingMarginHeteroscedasticModelConfig(hidden_dims=(8,))
+    )
+    for parameter in model.parameters():
+        parameter.data.zero_()
+    samples = (_sample("s", 1, "napoleon", 1),)
+    device = resolve_torch_device("cpu")
+
+    disabled = predict_margin_samples(
+        model,
+        samples,
+        device=device,
+        standardization=Standardization(enabled=False, mean=0.0, std=7.0),
+    )
+    enabled = predict_margin_samples(
+        model,
+        samples,
+        device=device,
+        standardization=Standardization(enabled=True, mean=0.0, std=7.0),
+    )
+
+    assert disabled["sigma"][0, 0] == pytest.approx(1.0)
+    assert enabled["sigma"][0, 0] == pytest.approx(7.0)
 
 
 def test_fixed_validation_split_has_no_state_key_leakage(tmp_path: Path) -> None:
