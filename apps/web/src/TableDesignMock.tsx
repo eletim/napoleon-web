@@ -1329,8 +1329,8 @@ function createRiverGeometryWithCellHeightRatio(
     rowPitch,
     visibleCardSize: { width: cardWidth, height: visibleCardHeight },
     width: gridWidth,
-    x: toLayoutPrecision(edge.start.x + edge.direction.x * edgeMargin - edge.normal.x * height),
-    y: toLayoutPrecision(edge.start.y + edge.direction.y * edgeMargin - edge.normal.y * height)
+    x: toLayoutPrecision(edge.start.x + edge.direction.x * edgeMargin),
+    y: toLayoutPrecision(edge.start.y + edge.direction.y * edgeMargin)
   };
 }
 
@@ -1388,8 +1388,8 @@ export function createCurrentTrickZoneGeometry(
   const cardSize = createCurrentTrickCardSize(layout, seatId);
   const roleEdgeCenter = midpointBetween(roleEdge.start, roleEdge.end);
   const riverInnerEdgeCenter = {
-    x: toLayoutPrecision(river.x + river.direction.x * (river.width / 2)),
-    y: toLayoutPrecision(river.y + river.direction.y * (river.width / 2))
+    x: toLayoutPrecision(river.x + river.direction.x * (river.width / 2) - river.normal.x * river.height),
+    y: toLayoutPrecision(river.y + river.direction.y * (river.width / 2) - river.normal.y * river.height)
   };
   const availableDepth = distance(roleEdgeCenter, riverInnerEdgeCenter);
   const width = toLayoutPrecision(cardSize.width * layout.currentTrickZone.zoneToCardRatio);
@@ -1775,11 +1775,10 @@ export function createRiverPlacements(
   for (let index = 0; index < boundedCardCount; index += 1) {
     const column = index % layout.riverGrid.maxColumns;
     const row = Math.floor(index / layout.riverGrid.maxColumns);
-    const outwardRow = layout.riverGrid.maxRows - 1 - row;
 
     placements.push({
       x: toLayoutPrecision(column * columnOffset),
-      y: toLayoutPrecision(outwardRow * geometry.rowPitch),
+      y: toLayoutPrecision(-geometry.visibleCardSize.height - row * geometry.rowPitch),
       rotation: 0
     });
   }
