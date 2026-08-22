@@ -24,6 +24,7 @@ import type { NonPlayingPolicyOnnxMetadata, NonPlayingPolicyType } from "../../p
 import { createConstantPolicyOnnx } from "../../policy-onnx/test/testOnnxFixture.js";
 import {
   DATASET_FORMAT,
+  ALL_PASS_BIDDING_BASELINE_ID,
   CONSERVATIVE_BIDDING_BASELINE_ID,
   FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION,
   NON_PLAYING_RL_DATASET_GENERATOR_VERSION,
@@ -39,7 +40,6 @@ import {
   NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID,
   NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_TYPE,
   NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_VERSION,
-  RULE_BASED_BIDDING_BASELINE_ID,
   calculateNonPlayingLearningTerminalReward,
   calculateNonPlayingAdjutantLogProbability,
   calculateNonPlayingBiddingLogProbability,
@@ -190,16 +190,16 @@ describe("generateNonPlayingBiddingRlDataset", () => {
         type: "mixed-frozen-bidding",
         mixingRuleVersion: FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION,
         selectionUnit: "game-seat",
-        ruleBasedWeight: 0.5,
         conservativeWeight: 0.5,
+        allPassWeight: 0.5,
         policies: {
-          ruleBased: {
-            type: "rule-based-bidding",
-            id: RULE_BASED_BIDDING_BASELINE_ID
-          },
           conservative: {
             type: "conservative-bidding",
             id: CONSERVATIVE_BIDDING_BASELINE_ID
+          },
+          allPass: {
+            type: "all-pass-bidding",
+            id: ALL_PASS_BIDDING_BASELINE_ID
           }
         }
       });
@@ -224,14 +224,14 @@ describe("generateNonPlayingBiddingRlDataset", () => {
       });
       expect(opponentMix?.seatAssignments).toHaveLength(manifest.actualGameCount * 4);
       expect(
-        (opponentMix?.ruleBasedSeatCount ?? 0) + (opponentMix?.conservativeSeatCount ?? 0)
+        (opponentMix?.conservativeSeatCount ?? 0) + (opponentMix?.allPassSeatCount ?? 0)
       ).toBe(opponentMix?.seatAssignments.length);
-      expect(opponentMix?.ruleBasedSeatCount).toBeGreaterThan(0);
       expect(opponentMix?.conservativeSeatCount).toBeGreaterThan(0);
+      expect(opponentMix?.allPassSeatCount).toBeGreaterThan(0);
       const assignmentPolicyTypes = new Set(
         (opponentMix?.seatAssignments ?? []).map((assignment) => assignment.policy.type as string)
       );
-      expect(assignmentPolicyTypes).toEqual(new Set(["rule-based-bidding", "conservative-bidding"]));
+      expect(assignmentPolicyTypes).toEqual(new Set(["conservative-bidding", "all-pass-bidding"]));
       for (const assignment of opponentMix?.seatAssignments ?? []) {
         expect(assignment.playerIndex).not.toBe(assignment.candidateSeatIndex);
         expect(assignment.rotationOffset).toBe(assignment.candidateSeatIndex);

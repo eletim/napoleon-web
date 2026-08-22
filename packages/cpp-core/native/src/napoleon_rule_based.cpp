@@ -792,6 +792,10 @@ Action select_agent_action(
     (void)rng;
     return select_bidding_action(state, player_index, true);
   }
+  if (state.phase == Phase::Bidding && agent.id == "all-pass-bidding") {
+    (void)rng;
+    return pass_action(player_index);
+  }
   return select_rule_based_action(state, player_index, rng);
 }
 

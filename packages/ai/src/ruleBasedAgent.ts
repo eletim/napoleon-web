@@ -76,6 +76,25 @@ export class PassiveBiddingAgent implements Agent {
   }
 }
 
+export class AllPassBiddingAgent implements Agent {
+  private readonly delegate: RuleBasedAgent;
+
+  constructor(rng: () => number = Math.random) {
+    this.delegate = new RuleBasedAgent(rng);
+  }
+
+  async selectAction(observation: PlayerObservation): Promise<GameAction> {
+    if (observation.view.phase === "bidding") {
+      return passOrThrow(
+        observation.legalActions.find((action) => action.type === "pass"),
+        observation.playerId
+      );
+    }
+
+    return this.delegate.selectAction(observation);
+  }
+}
+
 export function getBidLimitForScore(score: number): number | null {
   return score < 200
     ? null

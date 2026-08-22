@@ -355,20 +355,20 @@ std::uint32_t sha256_first_u32_be(const std::string& value) {
 
 AgentIdentity frozen_bidding_agent(std::uint32_t seed, int candidate_seat, int player_index) {
   const std::string key =
-      "per-seat-seeded-rule-based-conservative-50-50-v1:" + std::to_string(seed) + ":" +
+      "per-seat-seeded-conservative-all-pass-50-50-v1:" + std::to_string(seed) + ":" +
       std::to_string(candidate_seat) + ":" + std::to_string(player_index);
   return (sha256_first_u32_be(key) % 2u) == 0u
-      ? napoleon::rule_based_agent("rule-based-bidding")
-      : napoleon::rule_based_agent("conservative-bidding");
+      ? napoleon::rule_based_agent("conservative-bidding")
+      : napoleon::rule_based_agent("all-pass-bidding");
 }
 
 void write_bidding_baseline_policy(std::ostream& out, const AgentIdentity& agent) {
-  if (agent.id == "rule-based-bidding") {
-    out << "{\"type\":\"rule-based-bidding\",\"id\":\"rule-based-bidding-v1\",\"version\":1}";
-    return;
-  }
   if (agent.id == "conservative-bidding") {
     out << "{\"type\":\"conservative-bidding\",\"id\":\"conservative-bidding-v1\"}";
+    return;
+  }
+  if (agent.id == "all-pass-bidding") {
+    out << "{\"type\":\"all-pass-bidding\",\"id\":\"all-pass-bidding-v1\"}";
     return;
   }
   throw std::runtime_error("unknown frozen bidding agent id: " + agent.id);
@@ -376,22 +376,22 @@ void write_bidding_baseline_policy(std::ostream& out, const AgentIdentity& agent
 
 void write_frozen_bidding_mix_metadata(std::ostream& out) {
   out << "{\"type\":\"mixed-frozen-bidding\""
-      << ",\"mixingRuleVersion\":\"per-seat-seeded-rule-based-conservative-50-50-v1\""
+      << ",\"mixingRuleVersion\":\"per-seat-seeded-conservative-all-pass-50-50-v1\""
       << ",\"selectionUnit\":\"game-seat\""
-      << ",\"ruleBasedWeight\":0.5"
       << ",\"conservativeWeight\":0.5"
-      << ",\"policies\":{\"ruleBased\":{\"type\":\"rule-based-bidding\","
-         "\"id\":\"rule-based-bidding-v1\",\"version\":1},"
-         "\"conservative\":{\"type\":\"conservative-bidding\","
-         "\"id\":\"conservative-bidding-v1\"}}}";
+      << ",\"allPassWeight\":0.5"
+      << ",\"policies\":{\"conservative\":{\"type\":\"conservative-bidding\","
+         "\"id\":\"conservative-bidding-v1\"},"
+         "\"allPass\":{\"type\":\"all-pass-bidding\","
+         "\"id\":\"all-pass-bidding-v1\"}}}";
 }
 
 void write_frozen_bidding_mix_diagnostics(
     std::ostream& out,
     std::uint32_t start_seed,
     std::uint32_t game_count) {
-  int rule_based_count = 0;
   int conservative_count = 0;
+  int all_pass_count = 0;
   std::vector<std::tuple<std::uint32_t, int, int, AgentIdentity>> assignments;
   assignments.reserve(static_cast<std::size_t>(game_count) * kPlayerCount * (kPlayerCount - 1));
   for (std::uint32_t offset = 0; offset < game_count; ++offset) {
@@ -402,10 +402,10 @@ void write_frozen_bidding_mix_diagnostics(
           continue;
         }
         AgentIdentity agent = frozen_bidding_agent(seed, candidate_seat, player_index);
-        if (agent.id == "rule-based-bidding") {
-          ++rule_based_count;
-        } else {
+        if (agent.id == "conservative-bidding") {
           ++conservative_count;
+        } else {
+          ++all_pass_count;
         }
         assignments.push_back({seed, candidate_seat, player_index, std::move(agent)});
       }
@@ -413,16 +413,16 @@ void write_frozen_bidding_mix_diagnostics(
   }
 
   out << "{\"type\":\"mixed-frozen-bidding\""
-      << ",\"mixingRuleVersion\":\"per-seat-seeded-rule-based-conservative-50-50-v1\""
+      << ",\"mixingRuleVersion\":\"per-seat-seeded-conservative-all-pass-50-50-v1\""
       << ",\"selectionUnit\":\"game-seat\""
-      << ",\"ruleBasedWeight\":0.5"
       << ",\"conservativeWeight\":0.5"
-      << ",\"ruleBasedSeatCount\":" << rule_based_count
+      << ",\"allPassWeight\":0.5"
       << ",\"conservativeSeatCount\":" << conservative_count
-      << ",\"policies\":{\"ruleBased\":{\"type\":\"rule-based-bidding\","
-         "\"id\":\"rule-based-bidding-v1\",\"version\":1},"
-         "\"conservative\":{\"type\":\"conservative-bidding\","
-         "\"id\":\"conservative-bidding-v1\"}}"
+      << ",\"allPassSeatCount\":" << all_pass_count
+      << ",\"policies\":{\"conservative\":{\"type\":\"conservative-bidding\","
+         "\"id\":\"conservative-bidding-v1\"},"
+         "\"allPass\":{\"type\":\"all-pass-bidding\","
+         "\"id\":\"all-pass-bidding-v1\"}}"
       << ",\"seatAssignments\":[";
   for (std::size_t index = 0; index < assignments.size(); ++index) {
     if (index != 0) {

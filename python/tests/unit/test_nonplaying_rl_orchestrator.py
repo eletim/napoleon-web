@@ -286,32 +286,32 @@ def test_iterative_nonplaying_rl_resumes_and_chains_checkpoints(
             manifest["nonLearningAgents"] = {
                 "bidding": {
                     "type": "mixed-frozen-bidding",
-                    "mixingRuleVersion": "per-seat-seeded-rule-based-conservative-50-50-v1",
+                    "mixingRuleVersion": "per-seat-seeded-conservative-all-pass-50-50-v1",
                     "selectionUnit": "game-seat",
-                    "ruleBasedWeight": 0.5,
                     "conservativeWeight": 0.5,
+                    "allPassWeight": 0.5,
                     "policies": {
-                        "ruleBased": {
-                            "type": "rule-based-bidding",
-                            "id": "rule-based-bidding-v1",
-                        },
                         "conservative": {
                             "type": "conservative-bidding",
                             "id": "conservative-bidding-v1",
+                        },
+                        "allPass": {
+                            "type": "all-pass-bidding",
+                            "id": "all-pass-bidding-v1",
                         },
                     },
                 }
             }
             manifest["diagnostics"] = {
                 "frozenBiddingOpponentMix": {
-                    "mixingRuleVersion": "per-seat-seeded-rule-based-conservative-50-50-v1",
-                    "ruleBasedSeatCount": 10,
+                    "mixingRuleVersion": "per-seat-seeded-conservative-all-pass-50-50-v1",
                     "conservativeSeatCount": 10,
+                    "allPassSeatCount": 10,
                     "seatAssignments": [
                         {
                             "policy": {
-                                "type": "rule-based-bidding",
-                                "id": "rule-based-bidding-v1",
+                                "type": "all-pass-bidding",
+                                "id": "all-pass-bidding-v1",
                             }
                         }
                         for _ in range(10)
@@ -582,19 +582,19 @@ def test_iterative_bidding_only_freezes_downstream_artifacts_and_resumes(
                         "bidding": {
                             "type": "mixed-frozen-bidding",
                             "mixingRuleVersion": (
-                                "per-seat-seeded-rule-based-conservative-50-50-v1"
+                                "per-seat-seeded-conservative-all-pass-50-50-v1"
                             ),
                             "selectionUnit": "game-seat",
-                            "ruleBasedWeight": 0.5,
                             "conservativeWeight": 0.5,
+                            "allPassWeight": 0.5,
                             "policies": {
-                                "ruleBased": {
-                                    "type": "rule-based-bidding",
-                                    "id": "rule-based-bidding-v1",
-                                },
                                 "conservative": {
                                     "type": "conservative-bidding",
                                     "id": "conservative-bidding-v1",
+                                },
+                                "allPass": {
+                                    "type": "all-pass-bidding",
+                                    "id": "all-pass-bidding-v1",
                                 },
                             },
                         }
@@ -602,15 +602,15 @@ def test_iterative_bidding_only_freezes_downstream_artifacts_and_resumes(
                     "diagnostics": {
                         "frozenBiddingOpponentMix": {
                             "mixingRuleVersion": (
-                                "per-seat-seeded-rule-based-conservative-50-50-v1"
+                                "per-seat-seeded-conservative-all-pass-50-50-v1"
                             ),
-                            "ruleBasedSeatCount": 10,
                             "conservativeSeatCount": 10,
+                            "allPassSeatCount": 10,
                             "seatAssignments": [
                                 {
                                     "policy": {
-                                        "type": "rule-based-bidding",
-                                        "id": "rule-based-bidding-v1",
+                                        "type": "all-pass-bidding",
+                                        "id": "all-pass-bidding-v1",
                                     }
                                 }
                                 for _ in range(10)
@@ -856,6 +856,38 @@ def test_iterative_resume_rejects_pre_mix_schema(tmp_path: Path) -> None:
     legacy_config.pop("biddingFrozenOpponentPolicyIds")
 
     with pytest.raises(NonPlayingRlOrchestratorError, match="schemaVersion mismatch"):
+        _validate_iterative_resume_config(
+            legacy_config,
+            requested_config,
+            provided_config_keys=set(),
+        )
+
+
+def test_iterative_resume_rejects_rule_based_conservative_mix_config(tmp_path: Path) -> None:
+    playing_onnx = tmp_path / "playing.onnx"
+    playing_metadata = tmp_path / "playing.json"
+    playing_onnx.write_bytes(b"playing-onnx")
+    playing_metadata.write_text("{}\n", encoding="utf-8")
+    requested_config = NonPlayingIterativeRlRunConfig(
+        output_dir=tmp_path / "run",
+        iterations=3,
+        games_per_iteration=1,
+        playing_policy_onnx=playing_onnx,
+        playing_policy_metadata=playing_metadata,
+    ).file_dict()
+    legacy_config = dict(requested_config)
+    legacy_config["biddingFrozenOpponentMixRuleVersion"] = (
+        "per-seat-seeded-rule-based-conservative-50-50-v1"
+    )
+    legacy_config["biddingFrozenOpponentPolicyIds"] = {
+        "ruleBased": "rule-based-bidding-v1",
+        "conservative": "conservative-bidding-v1",
+    }
+
+    with pytest.raises(
+        NonPlayingRlOrchestratorError,
+        match="biddingFrozenOpponent",
+    ):
         _validate_iterative_resume_config(
             legacy_config,
             requested_config,
