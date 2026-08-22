@@ -7,7 +7,7 @@ import math
 import pickle
 import random
 from collections import Counter, defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal, NamedTuple, cast
@@ -65,6 +65,7 @@ BIDDING_ROLE_Q_ONNX_INPUT_NAME = "model_input"
 BIDDING_ROLE_Q_ONNX_LOGITS_OUTPUT_NAME = "role_logits"
 BIDDING_ROLE_Q_ONNX_VALUES_OUTPUT_NAME = "role_values"
 SUPPORTED_BIDDING_ROLE_Q_VALUE_LOSSES = ("huber", "mse")
+SUPPORTED_BIDDING_ROLE_Q_VALUE_TARGETS = ("terminal-reward", "team-point-cards")
 
 
 class BiddingRoleQCheckpointError(ValueError):
@@ -82,6 +83,7 @@ class BiddingRoleQTrainConfig:
     value_loss_type: Literal["huber", "mse"] = "huber"
     value_loss_coefficient: float = 1.0
     role_loss_coefficient: float = 1.0
+    value_target: Literal["terminal-reward", "team-point-cards"] = "terminal-reward"
     train_ratio: float = 0.8
     device: RequestedTorchDevice = "cpu"
     optimizer: str = "AdamW"
@@ -113,17 +115,25 @@ class BiddingRoleQBatch(NamedTuple):
     action_index: Tensor
     role_index: Tensor
     target_reward: Tensor
+    value_mask: Tensor
 
 
 class _BiddingRoleQSampleDataset(Dataset[BiddingRoleQBatch]):
-    def __init__(self, samples: Iterable[BiddingQRawSample]) -> None:
+    def __init__(
+        self,
+        samples: Iterable[BiddingQRawSample],
+        *,
+        value_target: Literal["terminal-reward", "team-point-cards"],
+    ) -> None:
         self.samples = tuple(samples)
+        self.value_target = value_target
 
     def __len__(self) -> int:
         return len(self.samples)
 
     def __getitem__(self, index: int) -> BiddingRoleQBatch:
         sample = self.samples[index]
+        value, mask = value_target_for_sample(sample, self.value_target)
         return BiddingRoleQBatch(
             model_input=torch.as_tensor(sample.model_input, dtype=torch.float32),
             legal_bid_mask=torch.as_tensor(sample.legal_bid_mask, dtype=torch.bool),
@@ -132,7 +142,8 @@ class _BiddingRoleQSampleDataset(Dataset[BiddingRoleQBatch]):
                 role_index_for_terminal_role(sample.terminal_role),
                 dtype=torch.long,
             ),
-            target_reward=torch.tensor(sample.terminal_reward, dtype=torch.float32),
+            target_reward=torch.tensor(value, dtype=torch.float32),
+            value_mask=torch.tensor(mask, dtype=torch.bool),
         )
 
 
@@ -148,6 +159,21 @@ def role_index_for_terminal_role(terminal_role: str) -> int:
     return BIDDING_ROLE_CLASSES.index(canonical_bidding_role(terminal_role))
 
 
+def value_target_for_sample(
+    sample: BiddingQRawSample,
+    value_target: Literal["terminal-reward", "team-point-cards"],
+) -> tuple[float, bool]:
+    if value_target == "terminal-reward":
+        return sample.terminal_reward, True
+    if value_target == "team-point-cards":
+        if not sample.team_point_cards_regression_mask:
+            return 0.0, False
+        if sample.candidate_team_point_cards is None:
+            raise ValueError(f"{sample.state_key}:{sample.forced_action_index} missing team cards.")
+        return float(sample.candidate_team_point_cards), True
+    raise ValueError(f"unsupported value target: {value_target}.")
+
+
 def bidding_role_q_losses(
     role_logits: Tensor,
     role_values: Tensor,
@@ -156,6 +182,7 @@ def bidding_role_q_losses(
     target_reward: Tensor,
     *,
     value_loss_type: Literal["huber", "mse"] = "huber",
+    value_mask: Tensor | None = None,
 ) -> tuple[Tensor, Tensor]:
     if role_logits.shape != role_values.shape:
         raise ValueError("role_logits and role_values must have the same shape.")
@@ -175,6 +202,13 @@ def bidding_role_q_losses(
     selected_logits = role_logits[batch_index, action_index]
     role_loss = F.cross_entropy(selected_logits, role_index)
     selected_values = role_values[batch_index, action_index, role_index]
+    if value_mask is not None:
+        if value_mask.ndim != 1 or value_mask.shape[0] != selected_values.shape[0]:
+            raise ValueError("value_mask must have shape (batch,).")
+        selected_values = selected_values[value_mask]
+        target_reward = target_reward[value_mask]
+    if selected_values.numel() == 0:
+        return role_loss, role_values.sum() * 0.0
     if value_loss_type == "huber":
         value_loss = F.smooth_l1_loss(selected_values, target_reward)
     elif value_loss_type == "mse":
@@ -214,6 +248,7 @@ def train_bidding_role_q_model(
         batch_size=config.batch_size,
         seed=config.seed,
         shuffle=True,
+        value_target=config.value_target,
     )
     epoch_reports: list[dict[str, object]] = []
     for epoch in range(1, config.epochs + 1):
@@ -231,10 +266,16 @@ def train_bidding_role_q_model(
             train_samples=train_samples,
             train_examples=split.train_examples,
             value_loss_type=config.value_loss_type,
+            value_target=config.value_target,
             device=device,
         )
         classifier = cast(dict[str, object], validation["roleClassifier"])
-        ranking = cast(dict[str, object], validation["ranking"])
+        ranking = cast(
+            dict[str, object],
+            validation["teamPointCardsActionSignal"]
+            if config.value_target == "team-point-cards"
+            else validation["ranking"],
+        )
         epoch_reports.append(
             {
                 "epoch": epoch,
@@ -253,6 +294,7 @@ def train_bidding_role_q_model(
         train_samples=train_samples,
         train_examples=split.train_examples,
         value_loss_type=config.value_loss_type,
+        value_target=config.value_target,
         device=device,
     )
     validation_report = evaluate_bidding_role_q_model(
@@ -262,6 +304,7 @@ def train_bidding_role_q_model(
         train_samples=train_samples,
         train_examples=split.train_examples,
         value_loss_type=config.value_loss_type,
+        value_target=config.value_target,
         device=device,
     )
     return BiddingRoleQTrainResult(
@@ -286,6 +329,7 @@ def evaluate_bidding_role_q_model(
     train_samples: Iterable[BiddingQRawSample],
     train_examples: Iterable[BiddingQAggregatedExample],
     value_loss_type: Literal["huber", "mse"],
+    value_target: Literal["terminal-reward", "team-point-cards"],
     device: ResolvedTorchDevice,
 ) -> dict[str, object]:
     sample_tuple = tuple(samples)
@@ -303,35 +347,60 @@ def evaluate_bidding_role_q_model(
         samples=sample_tuple,
         role_values=raw_predictions["roleValues"],
         value_loss_type=value_loss_type,
+        value_target=value_target,
     )
-    composed_selected = np.asarray(
-        [
-            example_q_values[index, example.action_index]
-            for index, example in enumerate(example_tuple)
-        ],
-        dtype=np.float64,
+    if value_target == "terminal-reward":
+        composed_selected = np.asarray(
+            [
+                example_q_values[index, example.action_index]
+                for index, example in enumerate(example_tuple)
+            ],
+            dtype=np.float64,
+        )
+        targets = np.asarray([example.target_mean for example in example_tuple], dtype=np.float64)
+        composed_regression: dict[str, object] = dict(
+            _regression_metrics(composed_selected, targets)
+        )
+        ranking: dict[str, object] = ranking_metrics(example_tuple, example_q_values)
+        collapse: dict[str, object] = q_collapse_diagnostics(example_tuple, example_q_values)
+    else:
+        composed_regression = {
+            "skipped": True,
+            "reason": "team-point-cards target uses raw masked samples",
+        }
+        ranking = {"skipped": True, "reason": "use teamPointCardsActionSignal"}
+        collapse = {
+            "skipped": True,
+            "reason": "team-point-cards target is not a final action score",
+        }
+    baselines = _role_baselines(
+        train_samples=tuple(train_samples),
+        validation_samples=sample_tuple,
+        value_target=value_target,
     )
-    targets = np.asarray([example.target_mean for example in example_tuple], dtype=np.float64)
     return {
         "rawSampleCount": len(sample_tuple),
         "aggregatedSampleCount": len(example_tuple),
         "stateCount": len({sample.state_key for sample in sample_tuple}),
         "roleClassifier": role_report,
         "roleValue": value_report,
-        "composedQRegression": _regression_metrics(composed_selected, targets),
-        "baselines": _role_baselines(
-            train_samples=tuple(train_samples),
-            validation_samples=sample_tuple,
+        "composedQRegression": composed_regression,
+        "baselines": baselines,
+        "ranking": ranking,
+        "qCollapseDiagnostics": collapse,
+        "teamPointCardsActionSignal": (
+            _team_point_card_action_signal(
+                samples=sample_tuple,
+                role_probabilities=raw_predictions["roleProbabilities"],
+                role_values=raw_predictions["roleValues"],
+            )
+            if value_target == "team-point-cards"
+            else {"skipped": True}
         ),
-        "ranking": ranking_metrics(example_tuple, example_q_values),
-        "qCollapseDiagnostics": q_collapse_diagnostics(example_tuple, example_q_values),
         "coverage": _raw_coverage_diagnostics(sample_tuple),
         "stateConditionedRoleSignal": _state_conditioned_role_signal(
             role_report,
-            _role_baselines(
-                train_samples=tuple(train_samples),
-                validation_samples=sample_tuple,
-            ),
+            baselines,
         ),
     }
 
@@ -347,17 +416,30 @@ def role_dataset_diagnostics(samples: Iterable[BiddingQRawSample]) -> dict[str, 
     pass_role_counts = _empty_role_counts()
     bid_role_counts = _empty_role_counts()
     target_role_counts = {str(target): _empty_role_counts() for target in BIDDING_Q_TARGETS}
+    suit_role_counts = {suit: _empty_role_counts() for suit in BIDDING_Q_SUITS}
+    opponent_role_counts: dict[str, dict[str, int]] = defaultdict(_empty_role_counts)
     lowest_suit_role_counts = {suit: _empty_role_counts() for suit in BIDDING_Q_SUITS}
     by_state: dict[str, list[BiddingQRawSample]] = defaultdict(list)
+    team_point_cards: list[float] = []
+    contract_margins: list[float] = []
     for sample in sample_tuple:
         role = canonical_bidding_role(sample.terminal_role)
         role_counts[role] += 1
         action_role_counts[str(sample.forced_action_index)][role] += 1
         by_state[sample.state_key].append(sample)
+        if sample.opponent_configuration_key is not None:
+            opponent_role_counts[sample.opponent_configuration_key][role] += 1
+        if sample.team_point_cards_regression_mask:
+            if sample.candidate_team_point_cards is not None:
+                team_point_cards.append(float(sample.candidate_team_point_cards))
+            if sample.contract_margin is not None:
+                contract_margins.append(float(sample.contract_margin))
         if sample.forced_action_index == 0:
             pass_role_counts[role] += 1
         else:
             bid_role_counts[role] += 1
+            if sample.forced_suit is not None:
+                suit_role_counts[sample.forced_suit][role] += 1
             if sample.forced_target_point_cards is not None:
                 target_role_counts[str(sample.forced_target_point_cards)][role] += 1
     state_tv_distances: dict[str, list[float]] = {suit: [] for suit in BIDDING_Q_SUITS}
@@ -392,12 +474,22 @@ def role_dataset_diagnostics(samples: Iterable[BiddingQRawSample]) -> dict[str, 
         },
         "passRoleDistribution": _counts_with_rates(pass_role_counts),
         "bidRoleDistribution": _counts_with_rates(bid_role_counts),
+        "suitRoleDistribution": {
+            suit: _counts_with_rates(counts) for suit, counts in suit_role_counts.items()
+        },
         "lowestLegalSuitRoleDistribution": {
             suit: _counts_with_rates(counts) for suit, counts in lowest_suit_role_counts.items()
         },
         "targetRoleDistribution": {
             target: _counts_with_rates(counts) for target, counts in target_role_counts.items()
         },
+        "opponentConfigurationRoleDistribution": {
+            key: _counts_with_rates(counts) for key, counts in sorted(opponent_role_counts.items())
+        },
+        "teamPointCardsDistribution": _numeric_summary(team_point_cards),
+        "contractMarginDistribution": _numeric_summary(contract_margins),
+        "sameTargetSuitSignal": _same_target_suit_signal(sample_tuple),
+        "targetSignal": _target_signal(sample_tuple),
         "passVsLowestLegalSuitRoleChange": {
             suit: {
                 "meanTotalVariationDistance": _mean(values),
@@ -580,6 +672,7 @@ def _train_one_epoch(
         action_index = batch.action_index.to(device=device.torch_device, dtype=torch.long)
         role_index = batch.role_index.to(device=device.torch_device, dtype=torch.long)
         target_reward = batch.target_reward.to(device=device.torch_device, dtype=torch.float32)
+        value_mask = batch.value_mask.to(device=device.torch_device, dtype=torch.bool)
         optimizer.zero_grad(set_to_none=True)
         role_logits, role_values = model(model_input)
         role_loss, value_loss = bidding_role_q_losses(
@@ -589,6 +682,7 @@ def _train_one_epoch(
             role_index,
             target_reward,
             value_loss_type=config.value_loss_type,
+            value_mask=value_mask,
         )
         loss = (
             config.role_loss_coefficient * role_loss
@@ -616,11 +710,12 @@ def _create_loader(
     batch_size: int,
     seed: int,
     shuffle: bool,
+    value_target: Literal["terminal-reward", "team-point-cards"],
 ) -> DataLoader[BiddingRoleQBatch]:
     generator = torch.Generator()
     generator.manual_seed(seed)
     return DataLoader(
-        _BiddingRoleQSampleDataset(samples),
+        _BiddingRoleQSampleDataset(samples, value_target=value_target),
         batch_size=batch_size,
         shuffle=shuffle,
         generator=generator,
@@ -734,7 +829,25 @@ def _role_value_metrics(
     samples: tuple[BiddingQRawSample, ...],
     role_values: np.ndarray,
     value_loss_type: Literal["huber", "mse"],
+    value_target: Literal["terminal-reward", "team-point-cards"],
 ) -> dict[str, object]:
+    rows: list[tuple[int, BiddingQRawSample, float]] = []
+    for index, sample in enumerate(samples):
+        target, mask = value_target_for_sample(sample, value_target)
+        if mask:
+            rows.append((index, sample, target))
+    if not rows:
+        return {
+            "sampleCount": 0,
+            "maskedSampleCount": len(samples),
+            "lossType": value_loss_type,
+            "valueTarget": value_target,
+            "overall": {"mae": None, "rmse": None, "mse": None, "pearsonCorrelation": None},
+            "perRole": {role: {"sampleCount": 0} for role in BIDDING_ROLE_CLASSES},
+            "perSuit": {},
+            "perTarget": {},
+            "perHandStrengthBin": {},
+        }
     predictions = np.asarray(
         [
             role_values[
@@ -742,16 +855,16 @@ def _role_value_metrics(
                 sample.forced_action_index,
                 role_index_for_terminal_role(sample.terminal_role),
             ]
-            for index, sample in enumerate(samples)
+            for index, sample, _target in rows
         ],
         dtype=np.float64,
     )
-    targets = np.asarray([sample.terminal_reward for sample in samples], dtype=np.float64)
+    targets = np.asarray([target for _index, _sample, target in rows], dtype=np.float64)
     by_role: dict[str, dict[str, object]] = {}
     for role in BIDDING_ROLE_CLASSES:
         indices = [
             index
-            for index, sample in enumerate(samples)
+            for index, (_row_index, sample, _target) in enumerate(rows)
             if canonical_bidding_role(sample.terminal_role) == role
         ]
         if not indices:
@@ -761,11 +874,38 @@ def _role_value_metrics(
             "sampleCount": len(indices),
             **_regression_metrics(predictions[indices], targets[indices]),
         }
+    by_suit = _grouped_value_metrics(
+        rows=rows,
+        predictions=predictions,
+        targets=targets,
+        key_fn=lambda sample: sample.forced_suit if sample.forced_suit is not None else "PASS",
+    )
+    by_target = _grouped_value_metrics(
+        rows=rows,
+        predictions=predictions,
+        targets=targets,
+        key_fn=lambda sample: (
+            str(sample.forced_target_point_cards)
+            if sample.forced_target_point_cards is not None
+            else "PASS"
+        ),
+    )
+    by_hand_strength = _grouped_value_metrics(
+        rows=rows,
+        predictions=predictions,
+        targets=targets,
+        key_fn=lambda sample: _hand_strength_bin(sample.strongest_suit_score),
+    )
     return {
-        "sampleCount": len(samples),
+        "sampleCount": len(rows),
+        "maskedSampleCount": len(samples) - len(rows),
         "lossType": value_loss_type,
+        "valueTarget": value_target,
         "overall": _regression_metrics(predictions, targets),
         "perRole": by_role,
+        "perSuit": by_suit,
+        "perTarget": by_target,
+        "perHandStrengthBin": by_hand_strength,
     }
 
 
@@ -773,6 +913,7 @@ def _role_baselines(
     *,
     train_samples: tuple[BiddingQRawSample, ...],
     validation_samples: tuple[BiddingQRawSample, ...],
+    value_target: Literal["terminal-reward", "team-point-cards"],
 ) -> dict[str, object]:
     global_counts = Counter(
         canonical_bidding_role(sample.terminal_role) for sample in train_samples
@@ -813,6 +954,11 @@ def _role_baselines(
             "accuracy": _accuracy(action_predictions, truth),
             "crossEntropy": _cross_entropy_from_probabilities(action_probabilities),
         },
+        "value": _value_baselines(
+            train_samples=train_samples,
+            validation_samples=validation_samples,
+            value_target=value_target,
+        ),
     }
 
 
@@ -856,6 +1002,353 @@ def _raw_coverage_diagnostics(samples: tuple[BiddingQRawSample, ...]) -> dict[st
         "actionIndexCounts": action_counts,
         "strongestSuitCounts": strongest_counts,
     }
+
+
+def _team_point_card_action_signal(
+    *,
+    samples: tuple[BiddingQRawSample, ...],
+    role_probabilities: np.ndarray,
+    role_values: np.ndarray,
+) -> dict[str, object]:
+    q_rows = np.sum(role_probabilities * role_values, axis=2)
+    state_q: dict[str, np.ndarray] = {}
+    action_semantics: dict[tuple[str, int], BiddingQRawSample] = {}
+    target_values: dict[str, dict[int, list[float]]] = defaultdict(lambda: defaultdict(list))
+    for index, sample in enumerate(samples):
+        _target, mask = value_target_for_sample(sample, "team-point-cards")
+        if not mask:
+            continue
+        if sample.candidate_team_point_cards is None:
+            continue
+        state_q.setdefault(sample.state_key, q_rows[index])
+        action_semantics[(sample.state_key, sample.forced_action_index)] = sample
+        target_values[sample.state_key][sample.forced_action_index].append(
+            float(sample.candidate_team_point_cards)
+        )
+
+    best_hits = 0
+    top3_hits = 0
+    states_with_ranking = 0
+    pair_correct = 0
+    pair_total = 0
+    predicted_action_counts = {str(index): 0 for index in range(BIDDING_ACTION_COUNT)}
+    predicted_suit_counts = {suit: 0 for suit in BIDDING_Q_SUITS}
+    predicted_target_counts = {str(target): 0 for target in BIDDING_Q_TARGETS}
+    strongest_match = 0
+    strongest_match_total = 0
+    for state_key, action_rewards in target_values.items():
+        if len(action_rewards) < 2 or state_key not in state_q:
+            continue
+        action_means = {
+            action: float(np.mean(np.asarray(rewards, dtype=np.float64)))
+            for action, rewards in action_rewards.items()
+        }
+        covered_actions = sorted(action_means)
+        predicted_scores = state_q[state_key]
+        empirical_best_value = max(action_means.values())
+        empirical_best_actions = {
+            action for action, value in action_means.items() if value == empirical_best_value
+        }
+        predicted_order = sorted(
+            covered_actions,
+            key=lambda action: (float(predicted_scores[action]), -action),
+            reverse=True,
+        )
+        predicted_best = predicted_order[0]
+        if predicted_best in empirical_best_actions:
+            best_hits += 1
+        if empirical_best_actions.intersection(predicted_order[:3]):
+            top3_hits += 1
+        states_with_ranking += 1
+        predicted_action_counts[str(predicted_best)] += 1
+        semantic = action_semantics[(state_key, predicted_best)]
+        if semantic.forced_suit is not None:
+            predicted_suit_counts[semantic.forced_suit] += 1
+            strongest_match_total += 1
+            if semantic.forced_suit == semantic.strongest_suit:
+                strongest_match += 1
+        if semantic.forced_target_point_cards is not None:
+            predicted_target_counts[str(semantic.forced_target_point_cards)] += 1
+        for left_index, left_action in enumerate(covered_actions):
+            for right_action in covered_actions[left_index + 1 :]:
+                target_delta = action_means[left_action] - action_means[right_action]
+                if target_delta == 0.0:
+                    continue
+                predicted_delta = float(
+                    predicted_scores[left_action] - predicted_scores[right_action]
+                )
+                if predicted_delta == 0.0:
+                    continue
+                pair_total += 1
+                if (target_delta > 0.0) == (predicted_delta > 0.0):
+                    pair_correct += 1
+    return {
+        "stateCount": states_with_ranking,
+        "bestActionHitRate": _safe_rate(best_hits, states_with_ranking),
+        "top3HitRate": _safe_rate(top3_hits, states_with_ranking),
+        "pairwiseRankingAccuracy": _safe_rate(pair_correct, pair_total),
+        "pairwiseComparisonCount": pair_total,
+        "predictedActionCounts": predicted_action_counts,
+        "predictedSuitCounts": predicted_suit_counts,
+        "predictedTargetCounts": predicted_target_counts,
+        "strongestSuitMatchRate": _safe_rate(strongest_match, strongest_match_total),
+        "sameTargetSuit": _same_target_suit_signal(samples),
+        "sameSuitTarget": _target_signal(samples),
+    }
+
+
+def _same_target_suit_signal(samples: tuple[BiddingQRawSample, ...]) -> dict[str, object]:
+    by_state_target: dict[tuple[str, int], dict[str, list[BiddingQRawSample]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    for sample in samples:
+        if (
+            not sample.team_point_cards_regression_mask
+            or sample.candidate_team_point_cards is None
+            or sample.forced_suit is None
+            or sample.forced_target_point_cards is None
+        ):
+            continue
+        by_state_target[(sample.state_key, sample.forced_target_point_cards)][
+            sample.forced_suit
+        ].append(sample)
+    gaps: list[float] = []
+    exact_ties = 0
+    strongest_best = 0
+    strongest_best_total = 0
+    best_suit_counts = {suit: 0 for suit in BIDDING_Q_SUITS}
+    margin_by_suit: dict[str, list[float]] = {suit: [] for suit in BIDDING_Q_SUITS}
+    target13: dict[str, object] = {"comparisonCount": 0}
+    target13_gaps: list[float] = []
+    for (_state_key, target), by_suit in by_state_target.items():
+        if any(suit not in by_suit for suit in BIDDING_Q_SUITS):
+            continue
+        suit_means = {
+            suit: float(
+                np.mean(
+                    np.asarray(
+                        [sample.candidate_team_point_cards for sample in by_suit[suit]],
+                        dtype=np.float64,
+                    )
+                )
+            )
+            for suit in BIDDING_Q_SUITS
+        }
+        best_value = max(suit_means.values())
+        worst_value = min(suit_means.values())
+        gap = best_value - worst_value
+        gaps.append(gap)
+        if target == 13:
+            target13_gaps.append(gap)
+        if gap == 0.0:
+            exact_ties += 1
+        best_suits = {suit for suit, value in suit_means.items() if value == best_value}
+        for suit in best_suits:
+            best_suit_counts[suit] += 1
+        strongest = by_suit[BIDDING_Q_SUITS[0]][0].strongest_suit
+        strongest_best_total += 1
+        if strongest in best_suits:
+            strongest_best += 1
+        for suit, suit_samples in by_suit.items():
+            margins = [
+                float(sample.contract_margin)
+                for sample in suit_samples
+                if sample.contract_margin is not None
+            ]
+            margin_by_suit[suit].extend(margins)
+    if target13_gaps:
+        target13 = {
+            "comparisonCount": len(target13_gaps),
+            "bestWorstGap": _numeric_summary(target13_gaps),
+        }
+    return {
+        "comparisonCount": len(gaps),
+        "bestWorstGap": _numeric_summary(gaps),
+        "exactTieCount": exact_ties,
+        "exactTieRate": _safe_rate(exact_ties, len(gaps)),
+        "strongestSuitTeacherBestRate": _safe_rate(strongest_best, strongest_best_total),
+        "teacherBestSuitCounts": best_suit_counts,
+        "contractMarginBySuit": {
+            suit: _numeric_summary(values) for suit, values in margin_by_suit.items()
+        },
+        "target13": target13,
+    }
+
+
+def _target_signal(samples: tuple[BiddingQRawSample, ...]) -> dict[str, object]:
+    by_state_suit: dict[tuple[str, str], dict[int, list[BiddingQRawSample]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    target_values: dict[str, list[float]] = {str(target): [] for target in BIDDING_Q_TARGETS}
+    margin_by_target: dict[str, list[float]] = {str(target): [] for target in BIDDING_Q_TARGETS}
+    for sample in samples:
+        if (
+            not sample.team_point_cards_regression_mask
+            or sample.candidate_team_point_cards is None
+            or sample.forced_suit is None
+            or sample.forced_target_point_cards is None
+        ):
+            continue
+        by_state_suit[(sample.state_key, sample.forced_suit)][
+            sample.forced_target_point_cards
+        ].append(sample)
+        target_values[str(sample.forced_target_point_cards)].append(
+            float(sample.candidate_team_point_cards)
+        )
+        if sample.contract_margin is not None:
+            margin_by_target[str(sample.forced_target_point_cards)].append(
+                float(sample.contract_margin)
+            )
+    adjacent_diffs: list[float] = []
+    best_target_counts = {str(target): 0 for target in BIDDING_Q_TARGETS}
+    comparison_count = 0
+    for by_target in by_state_suit.values():
+        if len(by_target) < 2:
+            continue
+        means = {
+            target: float(
+                np.mean(
+                    np.asarray(
+                        [sample.candidate_team_point_cards for sample in target_samples],
+                        dtype=np.float64,
+                    )
+                )
+            )
+            for target, target_samples in by_target.items()
+        }
+        sorted_targets = sorted(means)
+        comparison_count += 1
+        best_value = max(means.values())
+        for target, value in means.items():
+            if value == best_value:
+                best_target_counts[str(target)] += 1
+        for left, right in zip(sorted_targets, sorted_targets[1:], strict=False):
+            if right == left + 1:
+                adjacent_diffs.append(means[right] - means[left])
+    return {
+        "comparisonCount": comparison_count,
+        "adjacentTargetDifference": _numeric_summary(adjacent_diffs),
+        "teacherBestTargetCounts": best_target_counts,
+        "targetMeanTeamPointCards": {
+            target: _numeric_summary(values) for target, values in target_values.items()
+        },
+        "contractMarginByTarget": {
+            target: _numeric_summary(values) for target, values in margin_by_target.items()
+        },
+    }
+
+
+def _grouped_value_metrics(
+    *,
+    rows: list[tuple[int, BiddingQRawSample, float]],
+    predictions: np.ndarray,
+    targets: np.ndarray,
+    key_fn: object,
+) -> dict[str, dict[str, object]]:
+    typed_key_fn = cast(Callable[[BiddingQRawSample], str], key_fn)
+    indices_by_key: dict[str, list[int]] = defaultdict(list)
+    for index, (_row_index, sample, _target) in enumerate(rows):
+        indices_by_key[typed_key_fn(sample)].append(index)
+    return {
+        key: {
+            "sampleCount": len(indices),
+            **_regression_metrics(predictions[indices], targets[indices]),
+        }
+        for key, indices in sorted(indices_by_key.items())
+    }
+
+
+def _value_baselines(
+    *,
+    train_samples: tuple[BiddingQRawSample, ...],
+    validation_samples: tuple[BiddingQRawSample, ...],
+    value_target: Literal["terminal-reward", "team-point-cards"],
+) -> dict[str, object]:
+    train_rows = [
+        (sample, target)
+        for sample in train_samples
+        for target, mask in (value_target_for_sample(sample, value_target),)
+        if mask
+    ]
+    validation_rows = [
+        (sample, target)
+        for sample in validation_samples
+        for target, mask in (value_target_for_sample(sample, value_target),)
+        if mask
+    ]
+    if not train_rows or not validation_rows:
+        return {"sampleCount": len(validation_rows), "skipped": True}
+    global_mean = float(np.mean(np.asarray([target for _sample, target in train_rows])))
+    role_mean = _mean_lookup(
+        train_rows,
+        key_fn=lambda sample: canonical_bidding_role(sample.terminal_role),
+        fallback=global_mean,
+    )
+    action_mean = _mean_lookup(
+        train_rows,
+        key_fn=lambda sample: str(sample.forced_action_index),
+        fallback=global_mean,
+    )
+    role_action_mean = _mean_lookup(
+        train_rows,
+        key_fn=lambda sample: (
+            f"{canonical_bidding_role(sample.terminal_role)}:{sample.forced_action_index}"
+        ),
+        fallback=global_mean,
+    )
+    targets = np.asarray([target for _sample, target in validation_rows], dtype=np.float64)
+
+    def evaluate_baseline(name: str, predictions: list[float]) -> dict[str, object]:
+        return {
+            "name": name,
+            "sampleCount": len(predictions),
+            **_regression_metrics(np.asarray(predictions, dtype=np.float64), targets),
+        }
+
+    return {
+        "sampleCount": len(validation_rows),
+        "valueTarget": value_target,
+        "globalMean": evaluate_baseline(
+            "globalMean",
+            [global_mean for _sample, _target in validation_rows],
+        ),
+        "roleMean": evaluate_baseline(
+            "roleMean",
+            [
+                role_mean[canonical_bidding_role(sample.terminal_role)]
+                for sample, _target in validation_rows
+            ],
+        ),
+        "actionIndexMean": evaluate_baseline(
+            "actionIndexMean",
+            [action_mean[str(sample.forced_action_index)] for sample, _target in validation_rows],
+        ),
+        "roleActionIndexMean": evaluate_baseline(
+            "roleActionIndexMean",
+            [
+                role_action_mean[
+                    f"{canonical_bidding_role(sample.terminal_role)}:{sample.forced_action_index}"
+                ]
+                for sample, _target in validation_rows
+            ],
+        ),
+    }
+
+
+def _mean_lookup(
+    rows: list[tuple[BiddingQRawSample, float]],
+    *,
+    key_fn: object,
+    fallback: float,
+) -> defaultdict[str, float]:
+    typed_key_fn = cast(Callable[[BiddingQRawSample], str], key_fn)
+    values: dict[str, list[float]] = defaultdict(list)
+    for sample, target in rows:
+        values[typed_key_fn(sample)].append(target)
+    means: defaultdict[str, float] = defaultdict(lambda: fallback)
+    for key, key_values in values.items():
+        means[key] = float(np.mean(np.asarray(key_values, dtype=np.float64)))
+    return means
 
 
 def _checkpoint_dict(
@@ -974,6 +1467,10 @@ def _validate_train_config(config: BiddingRoleQTrainConfig) -> None:
     if config.value_loss_type not in SUPPORTED_BIDDING_ROLE_Q_VALUE_LOSSES:
         raise ValueError(
             f"value_loss_type must be one of {SUPPORTED_BIDDING_ROLE_Q_VALUE_LOSSES}."
+        )
+    if config.value_target not in SUPPORTED_BIDDING_ROLE_Q_VALUE_TARGETS:
+        raise ValueError(
+            f"value_target must be one of {SUPPORTED_BIDDING_ROLE_Q_VALUE_TARGETS}."
         )
     if config.value_loss_coefficient < 0.0 or config.role_loss_coefficient < 0.0:
         raise ValueError("loss coefficients must be non-negative.")
@@ -1121,6 +1618,41 @@ def _mean(values: Iterable[float]) -> float | None:
     if not value_tuple:
         return None
     return float(np.mean(np.asarray(value_tuple, dtype=np.float64)))
+
+
+def _numeric_summary(values: Iterable[float]) -> dict[str, float | int | None]:
+    value_array = np.asarray(tuple(values), dtype=np.float64)
+    if value_array.size == 0:
+        return {
+            "count": 0,
+            "mean": None,
+            "std": None,
+            "min": None,
+            "median": None,
+            "p90": None,
+            "max": None,
+        }
+    return {
+        "count": int(value_array.size),
+        "mean": float(value_array.mean()),
+        "std": float(value_array.std()),
+        "min": float(value_array.min()),
+        "median": float(np.median(value_array)),
+        "p90": float(np.percentile(value_array, 90)),
+        "max": float(value_array.max()),
+    }
+
+
+def _hand_strength_bin(score: float) -> str:
+    if score < 200:
+        return "<200"
+    if score < 250:
+        return "200-249"
+    if score < 300:
+        return "250-299"
+    if score < 350:
+        return "300-349"
+    return ">=350"
 
 
 def _pearson(left: np.ndarray, right: np.ndarray) -> float | None:

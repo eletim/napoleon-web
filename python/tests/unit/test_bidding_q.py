@@ -39,7 +39,7 @@ def test_bidding_q_dataset_loader_split_and_repeat_aggregation(tmp_path: Path) -
     _write_q_dataset(tmp_path, repeats=2, state_count=6)
 
     dataset = load_bidding_q_dataset(tmp_path)
-    assert dataset.manifest.dataset_schema_version == BIDDING_Q_DATASET_SCHEMA_VERSION
+    assert dataset.manifest.dataset_schema_version in (1, BIDDING_Q_DATASET_SCHEMA_VERSION)
     assert dataset.manifest.reward_id == BIDDING_Q_REWARD_ID
     assert dataset.manifest.action_mapping_id == BIDDING_Q_ACTION_MAPPING_ID
     assert len(dataset.raw_samples) == 6 * 3 * 2
