@@ -458,6 +458,18 @@ describe("TableDesignMock", () => {
       tableDesignMockLayout.playerInfo.unitWidth * 0.8
     );
 
+    for (const compactViewport of [{ width: 720, height: 360 }, { width: 690, height: 320 }]) {
+      const compactProjectedInfos = createPlayerInfoLayouts(tableDesignMockLayout, compactViewport, true);
+      const compactTopLeftInfo = compactProjectedInfos.find((entry) => entry.seatId === "top-left");
+      const compactTopRightInfo = compactProjectedInfos.find((entry) => entry.seatId === "top-right");
+
+      if (compactTopLeftInfo === undefined || compactTopRightInfo === undefined) {
+        throw new Error(`Expected compact top player info units for ${compactViewport.width}x${compactViewport.height}`);
+      }
+
+      expect(Math.abs(compactTopRightInfo.x - compactTopLeftInfo.x)).toBeGreaterThanOrEqual(138);
+    }
+
     for (const seatId of ["top-left", "top-right", "right", "left"] as const) {
       const info = projectedInfos.find((entry) => entry.seatId === seatId);
       const hand = createOpponentHandGeometry(tableDesignMockLayout, seatId);

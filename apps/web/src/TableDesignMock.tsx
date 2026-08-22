@@ -1819,6 +1819,8 @@ function createProjectedOpponentPlayerInfoLayout(
 ): PlayerInfoGeometry {
   const context = createProjectedOpponentPlayerInfoContext(layout, seatId, viewport);
   const preferredCenter = createProjectedOpponentPlayerInfoBalancedCenter(layout, seatId, viewport, context);
+  const shouldPreferCenter =
+    seatId === "top-right" && distance(preferredCenter, context.clampedCenter) > 0.5;
   const hudBox = boundingBoxFromTopLeft(layout.hud);
   const riverBox = createProjectedRiverCardsBoundingBox(layout, seatId, context.fit);
   const selfHand = createSelfHandViewportLayout(layout, selfCards.length, viewport);
@@ -1839,7 +1841,7 @@ function createProjectedOpponentPlayerInfoLayout(
       context.outward,
       viewport,
       layout.playerInfo,
-      seatId === "top-right" ? preferredCenter : undefined
+      shouldPreferCenter ? preferredCenter : undefined
     )
   );
 }

@@ -1274,8 +1274,9 @@ input:focus-visible {
   }
 
   .production-action-overlay {
-    left: 8px;
+    left: calc(env(safe-area-inset-left, 0px) + 50px);
     max-height: calc(100vh - 112px);
+    max-width: min(520px, calc(100vw - env(safe-area-inset-left, 0px) - 58px));
     overflow: auto;
     padding: 8px;
     top: 58px;
