@@ -44,10 +44,9 @@ interface TableDesignMockLayout {
     selfHand: { height: number; width: number };
   };
   currentTrickZone: {
-    cardCenterRatio: number;
-    cardMaxHeightRatio: number;
     cardWidthRatio: number;
-    widthRatio: number;
+    positionRatio: number;
+    zoneToCardRatio: number;
   };
   center: Box;
   hud: Box;
@@ -195,10 +194,9 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
     topInsetRatio: 0.015
   },
   currentTrickZone: {
-    cardCenterRatio: 0.27,
-    cardMaxHeightRatio: 0.66,
-    cardWidthRatio: 0.675,
-    widthRatio: 0.98
+    cardWidthRatio: 0.9261,
+    positionRatio: 0.5,
+    zoneToCardRatio: 1.12
   },
   riverGrid: {
     cardExposureRatio: 0.25,
@@ -1222,10 +1220,8 @@ export function createCurrentTrickCardSize(
   layout: TableDesignMockLayout,
   seatId: SeatId
 ): { height: number; width: number } {
-  const zone = createCurrentTrickZoneGeometry(layout, seatId);
-  const widthFromZone = zone.width * layout.currentTrickZone.cardWidthRatio;
-  const widthFromDepth = (zone.height * layout.currentTrickZone.cardMaxHeightRatio) / cardAspectRatio;
-  const width = toLayoutPrecision(Math.min(widthFromZone, widthFromDepth));
+  const roleEdge = createRoleBoardEdgeGeometry(layout.center, seatId);
+  const width = toLayoutPrecision(roleEdge.d * layout.currentTrickZone.cardWidthRatio);
 
   return {
     width,
@@ -1239,13 +1235,12 @@ export function createCurrentTrickCardPlane(
 ): TableCardPlane {
   const zone = createCurrentTrickZoneGeometry(layout, seatId);
   const size = createCurrentTrickCardSize(layout, seatId);
-  const center = currentTrickZoneInnerEdgeCenter(zone);
 
   return {
     ...zone,
     ...size,
-    x: toLayoutPrecision(center.x + zone.normal.x * zone.height * layout.currentTrickZone.cardCenterRatio),
-    y: toLayoutPrecision(center.y + zone.normal.y * zone.height * layout.currentTrickZone.cardCenterRatio)
+    x: zone.x,
+    y: zone.y
   };
 }
 
@@ -1257,21 +1252,26 @@ export function createCurrentTrickZoneGeometry(
   const edge = createTableSurfaceEdgeGeometry(layout, seatId);
   const roleEdge = createRoleBoardEdgeGeometry(layout.center, seatId);
   const river = createRiverGeometry(layout, seatId);
+  const cardSize = createCurrentTrickCardSize(layout, seatId);
   const roleEdgeCenter = midpointBetween(roleEdge.start, roleEdge.end);
   const riverInnerEdgeCenter = {
     x: toLayoutPrecision(river.x + river.direction.x * (river.width / 2)),
     y: toLayoutPrecision(river.y + river.direction.y * (river.width / 2))
   };
-  const height = toLayoutPrecision(distance(roleEdgeCenter, riverInnerEdgeCenter));
-  const width = toLayoutPrecision(roleEdge.d * layout.currentTrickZone.widthRatio);
-  const center = midpointBetween(roleEdgeCenter, riverInnerEdgeCenter);
+  const availableDepth = distance(roleEdgeCenter, riverInnerEdgeCenter);
+  const width = toLayoutPrecision(cardSize.width * layout.currentTrickZone.zoneToCardRatio);
+  const height = toLayoutPrecision(cardSize.height * layout.currentTrickZone.zoneToCardRatio);
+  const remainingDepth = availableDepth - height;
+  const centerOffsetFromRole = toLayoutPrecision(
+    height / 2 + Math.max(remainingDepth, 0) * layout.currentTrickZone.positionRatio
+  );
 
   return {
     ...edge,
     height,
     width,
-    x: toLayoutPrecision(center.x),
-    y: toLayoutPrecision(center.y)
+    x: toLayoutPrecision(roleEdgeCenter.x + edge.normal.x * centerOffsetFromRole),
+    y: toLayoutPrecision(roleEdgeCenter.y + edge.normal.y * centerOffsetFromRole)
   };
 }
 
@@ -1516,21 +1516,11 @@ function trickZoneStyle(
 ): CSSProperties {
   return {
     ...pointWithRotationStyle(zone),
-    "--mock-trick-card-center-y": `${toLayoutPrecision(
-      zone.height * tableDesignMockLayout.currentTrickZone.cardCenterRatio
-    )}px`,
     "--mock-trick-card-height": `${cardSize.height}px`,
     "--mock-trick-card-width": `${cardSize.width}px`,
     "--mock-trick-zone-height": `${zone.height}px`,
     "--mock-trick-zone-width": `${zone.width}px`
   } as CSSProperties;
-}
-
-function currentTrickZoneInnerEdgeCenter(zone: CurrentTrickZoneGeometry): Point {
-  return {
-    x: zone.x - zone.normal.x * (zone.height / 2),
-    y: zone.y - zone.normal.y * (zone.height / 2)
-  };
 }
 
 function roleMarkerStyle(marker: RoleMarkerGeometry): CSSProperties {
