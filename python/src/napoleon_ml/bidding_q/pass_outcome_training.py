@@ -490,6 +490,13 @@ def evaluate_pass_ev_variants(
             q_checkpoint=q_new_checkpoint,
             device=resolved,
         ),
+        "newOldQ": _fixed_pass_components(
+            pass_samples,
+            citizen_checkpoint=citizen_new_checkpoint,
+            adjutant_checkpoint=adjutant_new_checkpoint,
+            q_checkpoint=q_old_checkpoint,
+            device=resolved,
+        ),
     }
     variants: dict[str, list[dict[str, float | str | int]]] = {
         key: [] for key in ("E0", "E1", "E2", "E3")
@@ -501,7 +508,7 @@ def evaluate_pass_ev_variants(
         for name, pass_source, bid_source in (
             ("E0", "old", bid_pred_old),
             ("E1", "old", bid_pred_new),
-            ("E2", "new", bid_pred_new),
+            ("E2", "newOldQ", bid_pred_new),
             ("E3", "new", bid_pred_new),
         ):
             pass_ev = _pass_ev(pass_sample, predictions[pass_source], pass_index)
