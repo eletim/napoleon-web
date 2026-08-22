@@ -18,6 +18,7 @@ import {
 import {
   adjustTeamWinProbability,
   aiRankValues,
+  AllPassBiddingAgent,
   calculateExpectedPointCardsInTrick,
   calculateUsedCardValue,
   collectKnownCardIdsForPlayEvaluation,
@@ -354,6 +355,28 @@ describe("RuleBasedAgent bidding", () => {
     expect(passive.bidCount).toBeGreaterThan(0);
     expect(passive.passRate).toBeGreaterThan(conservative.passRate + 0.05);
     expect(passive.passRate).toBeLessThan(1);
+  });
+
+  it("uses an all-pass bidding baseline that passes even with a strong hand", async () => {
+    const state = createInitialGame({ rng: () => 0 });
+    const playerId = state.currentPlayerId;
+    const agent = new AllPassBiddingAgent(() => 0);
+
+    await expect(
+      agent.selectAction({
+        playerId,
+        view: withSelfHand(createPlayerView(state, playerId), playerId, strongSpadeHand()),
+        legalActions: [
+          { type: "pass", playerId },
+          { type: "bid", playerId, suit: "spades", targetPointCards: 13 }
+        ]
+      })
+    ).resolves.toEqual({ type: "pass", playerId });
+
+    const allPass = await countBiddingActions((rng) => new AllPassBiddingAgent(rng));
+
+    expect(allPass.bidCount).toBe(0);
+    expect(allPass.passRate).toBe(1);
   });
 });
 

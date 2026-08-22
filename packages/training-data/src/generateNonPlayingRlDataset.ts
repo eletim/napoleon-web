@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import {
+  AllPassBiddingAgent,
   ConservativeBiddingAgent,
   RuleBasedAgent,
   runAutomatedGame
@@ -65,9 +66,9 @@ export const NON_PLAYING_RL_ROLLOUT_POLICY_TOPOLOGY = "candidate-x1-frozen-x4-v1
 export const NON_PLAYING_RL_GAME_COUNT_UNIT = "logical-seeds" as const;
 export const NON_PLAYING_RL_ROTATION_OFFSETS = [0, 1, 2, 3, 4] as const;
 export const CONSERVATIVE_BIDDING_BASELINE_ID = "conservative-bidding-v1" as const;
-export const RULE_BASED_BIDDING_BASELINE_ID = "rule-based-bidding-v1" as const;
+export const ALL_PASS_BIDDING_BASELINE_ID = "all-pass-bidding-v1" as const;
 export const FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION =
-  "per-seat-seeded-rule-based-conservative-50-50-v1" as const;
+  "per-seat-seeded-conservative-all-pass-50-50-v1" as const;
 export const NON_PLAYING_RL_REWARD_TYPE = "non-playing-terminal-role-reward" as const;
 export const NON_PLAYING_RL_REWARD_VERSION = 3 as const;
 export const NON_PLAYING_RL_REWARD_ID = "non-playing-terminal-role-reward-v3" as const;
@@ -93,11 +94,11 @@ export type NonPlayingBiddingRlRole =
   | "all-pass-starter"
   | "all-pass-other";
 
-export type FrozenBiddingOpponentPolicyType = "rule-based-bidding" | "conservative-bidding";
+export type FrozenBiddingOpponentPolicyType = "conservative-bidding" | "all-pass-bidding";
 
 export interface FrozenBiddingOpponentPolicyMetadata {
   type: FrozenBiddingOpponentPolicyType;
-  id: typeof RULE_BASED_BIDDING_BASELINE_ID | typeof CONSERVATIVE_BIDDING_BASELINE_ID;
+  id: typeof CONSERVATIVE_BIDDING_BASELINE_ID | typeof ALL_PASS_BIDDING_BASELINE_ID;
 }
 
 export interface FrozenBiddingOpponentSeatAssignment {
@@ -113,17 +114,16 @@ export interface FrozenBiddingOpponentMixMetadata {
   type: "mixed-frozen-bidding";
   mixingRuleVersion: typeof FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION;
   selectionUnit: "game-seat";
-  ruleBasedWeight: 0.5;
   conservativeWeight: 0.5;
+  allPassWeight: 0.5;
   policies: {
-    ruleBased: {
-      type: "rule-based-bidding";
-      id: typeof RULE_BASED_BIDDING_BASELINE_ID;
-      version: typeof RULE_BASED_AGENT_VERSION;
-    };
     conservative: {
       type: "conservative-bidding";
       id: typeof CONSERVATIVE_BIDDING_BASELINE_ID;
+    };
+    allPass: {
+      type: "all-pass-bidding";
+      id: typeof ALL_PASS_BIDDING_BASELINE_ID;
     };
   };
 }
@@ -353,8 +353,8 @@ export interface NonPlayingRlDatasetDiagnostics {
 }
 
 export interface FrozenBiddingOpponentMixDiagnostics extends FrozenBiddingOpponentMixMetadata {
-  ruleBasedSeatCount: number;
   conservativeSeatCount: number;
+  allPassSeatCount: number;
   seatAssignments: readonly FrozenBiddingOpponentSeatAssignment[];
 }
 
@@ -523,8 +523,8 @@ interface NonPlayingRlDiagnosticsAccumulator {
     rewardCount: number;
   };
   frozenBiddingOpponentMix?: {
-    ruleBasedSeatCount: number;
     conservativeSeatCount: number;
+    allPassSeatCount: number;
     seatAssignments: FrozenBiddingOpponentSeatAssignment[];
   };
 }
@@ -560,8 +560,8 @@ function createDiagnosticsAccumulator(
       rewardCount: 0
     };
     accumulator.frozenBiddingOpponentMix = {
-      ruleBasedSeatCount: 0,
       conservativeSeatCount: 0,
+      allPassSeatCount: 0,
       seatAssignments: []
     };
   }
@@ -585,10 +585,10 @@ function recordCandidateGame(
   ) {
     for (const assignment of result.frozenBiddingOpponentAssignments) {
       accumulator.frozenBiddingOpponentMix.seatAssignments.push(assignment);
-      if (assignment.policy.type === "rule-based-bidding") {
-        accumulator.frozenBiddingOpponentMix.ruleBasedSeatCount += 1;
-      } else if (assignment.policy.type === "conservative-bidding") {
+      if (assignment.policy.type === "conservative-bidding") {
         accumulator.frozenBiddingOpponentMix.conservativeSeatCount += 1;
+      } else if (assignment.policy.type === "all-pass-bidding") {
+        accumulator.frozenBiddingOpponentMix.allPassSeatCount += 1;
       }
     }
   }
@@ -653,8 +653,8 @@ function finalizeDiagnostics(
       : {
           frozenBiddingOpponentMix: {
             ...createFrozenBiddingOpponentMixMetadata(),
-            ruleBasedSeatCount: opponentMix.ruleBasedSeatCount,
             conservativeSeatCount: opponentMix.conservativeSeatCount,
+            allPassSeatCount: opponentMix.allPassSeatCount,
             seatAssignments: opponentMix.seatAssignments
           }
         }),
@@ -756,17 +756,16 @@ export function createFrozenBiddingOpponentMixMetadata(): FrozenBiddingOpponentM
     type: "mixed-frozen-bidding",
     mixingRuleVersion: FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION,
     selectionUnit: "game-seat",
-    ruleBasedWeight: 0.5,
     conservativeWeight: 0.5,
+    allPassWeight: 0.5,
     policies: {
-      ruleBased: {
-        type: "rule-based-bidding",
-        id: RULE_BASED_BIDDING_BASELINE_ID,
-        version: RULE_BASED_AGENT_VERSION
-      },
       conservative: {
         type: "conservative-bidding",
         id: CONSERVATIVE_BIDDING_BASELINE_ID
+      },
+      allPass: {
+        type: "all-pass-bidding",
+        id: ALL_PASS_BIDDING_BASELINE_ID
       }
     }
   };
@@ -809,12 +808,12 @@ export function selectFrozenBiddingOpponentPolicy(input: {
 
   return bucket === 0
     ? {
-        type: "rule-based-bidding",
-        id: RULE_BASED_BIDDING_BASELINE_ID
-      }
-    : {
         type: "conservative-bidding",
         id: CONSERVATIVE_BIDDING_BASELINE_ID
+      }
+    : {
+        type: "all-pass-bidding",
+        id: ALL_PASS_BIDDING_BASELINE_ID
       };
 }
 
@@ -2355,13 +2354,12 @@ function validateFrozenBiddingOpponentMixMetadata(
   if (
     metadata.mixingRuleVersion !== FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION ||
     metadata.selectionUnit !== "game-seat" ||
-    metadata.ruleBasedWeight !== 0.5 ||
     metadata.conservativeWeight !== 0.5 ||
-    metadata.policies?.ruleBased?.type !== "rule-based-bidding" ||
-    metadata.policies?.ruleBased?.id !== RULE_BASED_BIDDING_BASELINE_ID ||
-    metadata.policies?.ruleBased?.version !== RULE_BASED_AGENT_VERSION ||
+    metadata.allPassWeight !== 0.5 ||
     metadata.policies?.conservative?.type !== "conservative-bidding" ||
-    metadata.policies?.conservative?.id !== CONSERVATIVE_BIDDING_BASELINE_ID
+    metadata.policies?.conservative?.id !== CONSERVATIVE_BIDDING_BASELINE_ID ||
+    metadata.policies?.allPass?.type !== "all-pass-bidding" ||
+    metadata.policies?.allPass?.id !== ALL_PASS_BIDDING_BASELINE_ID
   ) {
     throw new Error("Non-playing RL manifest frozen bidding opponent mix metadata mismatch.");
   }
@@ -2375,15 +2373,15 @@ function validateFrozenBiddingOpponentMixDiagnostics(
   }
   validateFrozenBiddingOpponentMixMetadata(diagnostics);
   if (
-    diagnostics.ruleBasedSeatCount < 0 ||
     diagnostics.conservativeSeatCount < 0 ||
-    !Number.isInteger(diagnostics.ruleBasedSeatCount) ||
-    !Number.isInteger(diagnostics.conservativeSeatCount)
+    diagnostics.allPassSeatCount < 0 ||
+    !Number.isInteger(diagnostics.conservativeSeatCount) ||
+    !Number.isInteger(diagnostics.allPassSeatCount)
   ) {
     throw new Error("Non-playing RL manifest frozen bidding opponent mix counts mismatch.");
   }
   if (
-    diagnostics.ruleBasedSeatCount + diagnostics.conservativeSeatCount !==
+    diagnostics.conservativeSeatCount + diagnostics.allPassSeatCount !==
     diagnostics.seatAssignments.length
   ) {
     throw new Error("Non-playing RL manifest frozen bidding opponent mix counts mismatch.");
@@ -2529,6 +2527,7 @@ class NonPlayingBiddingRlAgent implements Agent {
 }
 
 class FrozenNonPlayingRlAgent implements Agent {
+  private readonly allPassBiddingAgent: AllPassBiddingAgent;
   private readonly conservativeBiddingAgent: ConservativeBiddingAgent;
   private readonly ruleBasedAgent: RuleBasedAgent;
 
@@ -2541,6 +2540,7 @@ class FrozenNonPlayingRlAgent implements Agent {
       biddingPolicyType?: FrozenBiddingOpponentPolicyType;
     }
   ) {
+    this.allPassBiddingAgent = new AllPassBiddingAgent(options.rng);
     this.conservativeBiddingAgent = new ConservativeBiddingAgent(options.rng);
     this.ruleBasedAgent = new RuleBasedAgent(options.rng);
   }
@@ -2555,8 +2555,8 @@ class FrozenNonPlayingRlAgent implements Agent {
   ): Promise<GameAction> {
     switch (observation.view.phase) {
       case "bidding":
-        return this.options.biddingPolicyType === "rule-based-bidding"
-          ? this.ruleBasedAgent.selectAction(observation)
+        return this.options.biddingPolicyType === "all-pass-bidding"
+          ? this.allPassBiddingAgent.selectAction(observation)
           : this.conservativeBiddingAgent.selectAction(observation);
       case "playing":
         return selectFixedPlayingAction({
