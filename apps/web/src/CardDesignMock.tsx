@@ -1,4 +1,4 @@
-import { createElement, useEffect, type CSSProperties } from "react";
+import type { CSSProperties } from "react";
 import {
   CardDesignPrototypeCard,
   cardDesignCardHeight,
@@ -13,6 +13,10 @@ import {
   cardDesignSuitSymbols,
   createCardDesignDeck
 } from "./CardDesignCard";
+import {
+  CardmeisterPlayingCard,
+  useCardmeisterScript
+} from "./CardmeisterPlayingCard";
 import {
   mockPlayingCardComponent,
   mockPlayingCardComponentName,
@@ -30,6 +34,7 @@ interface CardDesignCandidate {
   id: string;
   license: string;
   npm: string;
+  selected?: boolean;
   source: CandidateCardSource;
   sourceLabel: string;
   summary: string;
@@ -70,7 +75,6 @@ const selfHandEquivalent = { width: 118.154, height: 165.415 };
 const riverEquivalent = { width: 126.675, visibleHeight: 44.336 };
 const leteleAspectRatio = 7 / 5;
 const svgCardsPngAspectRatio = 113 / 75;
-const cardmeisterSuitColor = "#111827,#dc2626,#2563eb,#15803d";
 
 const cardDesignCandidates = [
   {
@@ -129,6 +133,7 @@ const cardDesignCandidates = [
     npm: "no npm package found",
     vendor: "elements.cardmeister.full.js",
     aspectRatio: leteleAspectRatio,
+    selected: true,
     summary: "Configurable web component using suitcolor/rankcolor; easy palette iteration, but custom element integration is separate from React."
   }
 ] as const satisfies readonly CardDesignCandidate[];
@@ -296,7 +301,10 @@ function CandidatePanel({ candidate }: { candidate: CardDesignCandidate }) {
   return (
     <article aria-label={`${candidate.title} comparison`} className="card-design-candidate-card">
       <div className="card-design-candidate-heading">
-        <h3>{candidate.title}</h3>
+        <h3>
+          {candidate.title}
+          {candidate.selected === true ? <span className="card-design-selected-label">Selected</span> : null}
+        </h3>
         <span>{candidate.license}</span>
       </div>
       <dl className="card-design-candidate-meta">
@@ -402,12 +410,7 @@ function SvgCardsImageCard({ assetFolder, card }: { assetFolder: string; card: M
 }
 
 function CardmeisterCard({ card }: { card: MockPlayingCard }) {
-  return createElement("playing-card", {
-    cid: cardmeisterCardId(card),
-    className: "card-design-cardmeister-element",
-    rankcolor: cardmeisterSuitColor,
-    suitcolor: cardmeisterSuitColor
-  });
+  return <CardmeisterPlayingCard card={card} className="card-design-cardmeister-element" />;
 }
 
 function SectionTitle({ metric, title }: { metric: string; title: string }) {
@@ -473,20 +476,6 @@ function LeteleCard({ card }: { card: MockPlayingCard }) {
   );
 }
 
-function useCardmeisterScript() {
-  useEffect(() => {
-    if (document.querySelector("script[data-card-design-cardmeister]") !== null) {
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.dataset.cardDesignCardmeister = "true";
-    script.src = resolveAppPath("/vendor/card-design/cardmeister/elements.cardmeister.full.js");
-    script.async = true;
-    document.head.append(script);
-  }, []);
-}
-
 function svgCardsFileName(card: MockPlayingCard): string {
   const rankNames: Partial<Record<MockPlayingCard["rank"], string>> = {
     A: "Ace",
@@ -503,16 +492,4 @@ function svgCardsFileName(card: MockPlayingCard): string {
   }[card.suit];
 
   return `${suitName}${rankName}.png`;
-}
-
-function cardmeisterCardId(card: MockPlayingCard): string {
-  const rank = card.rank === "10" ? "T" : card.rank;
-  const suit = {
-    spades: "s",
-    hearts: "h",
-    diamonds: "d",
-    clubs: "c"
-  }[card.suit];
-
-  return `${rank}${suit}`;
 }

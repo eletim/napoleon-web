@@ -14,6 +14,7 @@ import {
 } from "./CardDesignCard";
 import { CardDesignMock } from "./CardDesignMock";
 import { TableDesignMock } from "./TableDesignMock";
+import { cardmeisterFourColorCsv, fourColorSuitColors } from "./cardSuitTheme";
 
 const originalWindow = globalThis.window;
 
@@ -73,6 +74,7 @@ describe("CardDesignMock", () => {
     expect(html).toContain("SVGCards Horizontal4");
     expect(html).toContain("SVGCards Accessible");
     expect(html).toContain("cardmeister 4-color");
+    expect(html).toContain("Selected");
     expect(html).toContain("CC0-1.0");
     expect(html).toContain("Public Domain");
     expect(html).toContain("Unlicense");
@@ -86,8 +88,8 @@ describe("CardDesignMock", () => {
     expect(html).toContain("/vendor/card-design/svgcards/horizontal4/club10.png");
     expect(html).toContain("/vendor/card-design/svgcards/accessible-horizontal/diamondKing.png");
     expect(html).toContain("<playing-card");
-    expect(html).toContain("suitcolor=\"#111827,#dc2626,#2563eb,#15803d\"");
-    expect(html).toContain("rankcolor=\"#111827,#dc2626,#2563eb,#15803d\"");
+    expect(html).toContain(`suitcolor="${cardmeisterFourColorCsv}"`);
+    expect(html).toContain(`rankcolor="${cardmeisterFourColorCsv}"`);
     expect((html.match(/card-design-candidate-card-frame-clipped/g) ?? [])).toHaveLength(20);
     expect((html.match(/card-design-candidate-mode-current/g) ?? [])).toHaveLength(5);
     expect((html.match(/card-design-candidate-mode-self/g) ?? [])).toHaveLength(5);
@@ -98,12 +100,7 @@ describe("CardDesignMock", () => {
     const identificationAreaRatio = cardDesignConfig.layout.identificationAreaRatio;
     const exposureOffsetRatio = cardDesignConfig.layout.exposureOffsetRatio;
 
-    expect(cardDesignConfig.colors).toEqual({
-      spades: "#111827",
-      hearts: "#dc2626",
-      diamonds: "#2563eb",
-      clubs: "#15803d"
-    });
+    expect(cardDesignConfig.colors).toEqual(fourColorSuitColors);
     expect(cardDesignConfig.layout).toMatchObject({
       identificationAreaRatio: 0.25,
       exposureOffsetRatio: 0.25,
@@ -162,12 +159,12 @@ describe("CardDesignMock", () => {
     expect(html).toContain("@letele comparison");
   });
 
-  it("does not restore the reverted issue 350 river-only table mock design", () => {
+  it("shows the selected issue 396 river-only face in the table mock without removing the card design sandbox", () => {
     const world = renderToStaticMarkup(<TableDesignMock />);
     const projected = renderToStaticMarkup(<TableDesignMock variant="projected" />);
 
-    expect(world).not.toContain("mock-river-card-face");
-    expect(projected).not.toContain("mock-river-card-face");
+    expect(world).toContain("mock-river-card-face");
+    expect(projected).toContain("mock-projected-river-card-face");
     expect(world).toContain("Issue 348 table design world mock");
     expect(projected).toContain("Issue 348 table design projected mock");
   });

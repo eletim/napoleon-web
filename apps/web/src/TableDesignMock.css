@@ -189,12 +189,15 @@ html:has(.table-design-mock-page) {
   width: 100%;
 }
 
-.mock-river-card .mock-playing-card-svg {
-  height: var(--mock-river-card-full-height);
-}
-
 .mock-river-card.mock-playing-card {
   position: absolute;
+}
+
+.mock-cardmeister-playing-card,
+.mock-cardmeister-playing-card img {
+  display: block;
+  height: 100%;
+  width: 100%;
 }
 
 .mock-trick-card {
@@ -213,6 +216,41 @@ html:has(.table-design-mock-page) {
   top: var(--mock-river-card-y);
   transform: rotate(var(--mock-river-card-rotation));
   width: var(--mock-river-card-width);
+}
+
+.mock-river-card-face {
+  align-items: center;
+  background: #fffef6;
+  border: var(--mock-river-face-border-width) solid var(--mock-river-face-color);
+  border-radius: 5px;
+  box-shadow: 0 2px 0 rgb(0 0 0 / 24%);
+  box-sizing: border-box;
+  color: var(--mock-river-face-color);
+  display: flex;
+  font-family: Arial, Helvetica, sans-serif;
+  font-weight: 900;
+  gap: var(--mock-river-face-gap);
+  justify-content: center;
+  line-height: 1;
+  overflow: hidden;
+  padding: var(--mock-river-face-padding);
+}
+
+.mock-river-card-rank,
+.mock-river-card-suit {
+  display: block;
+  flex: 0 0 auto;
+  letter-spacing: 0;
+  line-height: 0.9;
+}
+
+.mock-river-card-rank {
+  font-size: var(--mock-river-face-rank-font-size);
+}
+
+.mock-river-card-suit {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: var(--mock-river-face-suit-font-size);
 }
 
 .mock-self-hand {
@@ -324,11 +362,6 @@ html:has(.table-design-mock-page) {
   transform: var(--mock-projected-card-transform);
   transform-origin: 0 0;
   width: var(--mock-projected-card-width);
-}
-
-.mock-projected-playing-card-river .mock-playing-card-svg,
-.mock-projected-playing-card-self-river .mock-playing-card-svg {
-  height: var(--mock-projected-card-svg-height);
 }
 
 .mock-projected-opponent-hand {
