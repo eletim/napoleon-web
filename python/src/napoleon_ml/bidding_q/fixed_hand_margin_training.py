@@ -37,6 +37,12 @@ from .multi_head_training import Standardization, _binary_auc, _calibration_bins
 
 FIXED_HAND_MARGIN_CHECKPOINT_SCHEMA_VERSION = 1
 FIXED_HAND_MARGIN_MODEL_TYPE = "fixed-hand-bidding-margin"
+FIXED_HAND_MARGIN_SAMPLE_TYPES = frozenset(
+    {
+        "fixed-hand-bidding-margin-sample",
+        "napoleon-fixed-contract-margin-sample",
+    }
+)
 
 
 class FixedHandMarginDatasetError(ValueError):
@@ -170,9 +176,9 @@ def load_fixed_hand_margin_dataset(
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise FixedHandMarginDatasetError(f"manifest cannot be loaded: {error}") from error
-    if manifest.get("sampleType") != "fixed-hand-bidding-margin-sample":
+    if manifest.get("sampleType") not in FIXED_HAND_MARGIN_SAMPLE_TYPES:
         raise FixedHandMarginDatasetError(
-            "manifest sampleType is not fixed-hand-bidding-margin-sample."
+            "manifest sampleType is not a supported fixed-hand margin sample type."
         )
     shards = manifest.get("shards")
     if not isinstance(shards, list):

@@ -137,6 +137,29 @@ export function applyAction(state: GameState, action: GameAction): GameState {
   }
 }
 
+export function createContractEstablishedState(state: GameState, contract: Contract): GameState {
+  if (state.phase === "finished" || state.isGameOver) {
+    throw new GameRuleError("GAME_OVER", "The game is already over.");
+  }
+
+  if (state.phase !== "bidding") {
+    throw new GameRuleError(
+      "INVALID_ACTION_FOR_PHASE",
+      "A contract can only be established from bidding."
+    );
+  }
+
+  ensurePlayerExists(state, contract.napoleonPlayerId);
+
+  if (!isSuit(contract.trumpSuit)) {
+    throw new GameRuleError("INVALID_BID", "Bid suit is invalid.");
+  }
+
+  validateBidRange(contract.targetPointCards);
+
+  return completeBidding(state, contract);
+}
+
 export function clearLatestEvent(state: GameState): GameState {
   return state.latestEvent === null ? state : { ...state, latestEvent: null };
 }
