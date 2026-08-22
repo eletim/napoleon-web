@@ -47,6 +47,29 @@ export {
   validatePlayingSelfPlaySample
 } from "./generatePlayingSelfPlayDataset.js";
 export {
+  BIDDING_Q_COUNTERFACTUAL_ACTION_MAPPING_ID,
+  BIDDING_Q_COUNTERFACTUAL_ACTION_PLAN_ID,
+  BIDDING_Q_COUNTERFACTUAL_ACTION_PLAN_VERSION,
+  BIDDING_Q_COUNTERFACTUAL_DATASET_GENERATOR_VERSION,
+  BIDDING_Q_COUNTERFACTUAL_DATASET_SAMPLE_TYPE,
+  BIDDING_Q_COUNTERFACTUAL_DATASET_SCHEMA_VERSION,
+  BIDDING_Q_COUNTERFACTUAL_REWARD_ID,
+  BIDDING_Q_COUNTERFACTUAL_REWARD_TYPE,
+  BIDDING_Q_COUNTERFACTUAL_REWARD_VERSION,
+  BIDDING_Q_COUNTERFACTUAL_SAMPLE_SCHEMA_VERSION,
+  BIDDING_Q_COUNTERFACTUAL_SIMULATION_BACKEND,
+  BIDDING_Q_COUNTERFACTUAL_TERMINAL_REWARD_TRANSFORM_ID,
+  calculateBiddingQCounterfactualTerminalReward,
+  decodeBiddingQActionIndex,
+  encodeBiddingQActionIndex,
+  generateBiddingQCounterfactualDataset,
+  serializeBiddingQCounterfactualSample,
+  summarizeBiddingQCounterfactualSamples,
+  validateBiddingQCounterfactualDatasetManifest,
+  validateBiddingQCounterfactualSample,
+  validateGenerateBiddingQCounterfactualDatasetOptions
+} from "./generateBiddingQCounterfactualDataset.js";
+export {
   DEFAULT_NON_PLAYING_RL_TEMPERATURE,
   CONSERVATIVE_BIDDING_BASELINE_ID,
   FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION,
@@ -167,6 +190,19 @@ export type {
   RolloutRosterSeatOptions,
   RuleBasedRolloutRosterSeat
 } from "./generatePlayingSelfPlayDataset.js";
+export type {
+  BiddingQCounterfactualDatasetManifest,
+  BiddingQCounterfactualDatasetSummary,
+  BiddingQCounterfactualPolicy,
+  BiddingQCounterfactualSample,
+  BiddingQRateSummary,
+  BiddingQResultSummary,
+  BiddingQSampleProvenance,
+  BiddingQSemanticAction,
+  BiddingQTerminalRole,
+  GenerateBiddingQCounterfactualDatasetOptions,
+  GenerateBiddingQCounterfactualDatasetResult
+} from "./generateBiddingQCounterfactualDataset.js";
 export type {
   AdjutantRlGameRunResult,
   AdjutantRlSampleDraft,
