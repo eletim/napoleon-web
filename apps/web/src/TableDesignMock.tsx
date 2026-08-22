@@ -703,9 +703,9 @@ function ProjectedPointRiverCards({ layout, seat }: { layout: TableDesignMockLay
         const corners = projectTableCard(
           {
             direction: river.direction,
-            height: river.cardSize.height,
+            height: river.visibleCardSize.height,
             normal: river.normal,
-            width: river.cardSize.width,
+            width: river.visibleCardSize.width,
             x: toLayoutPrecision(river.x + river.direction.x * placement.x + river.normal.x * placement.y),
             y: toLayoutPrecision(river.y + river.direction.y * placement.x + river.normal.y * placement.y)
           },
