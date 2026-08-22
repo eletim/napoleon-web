@@ -1,0 +1,645 @@
+.table-design-mock-page,
+body:has(.table-design-mock-page),
+html:has(.table-design-mock-page) {
+  background: #1d1d1d;
+  overflow: hidden;
+}
+
+.table-design-mock-page {
+  align-items: center;
+  color: #f8fafc;
+  display: grid;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow: hidden;
+  place-items: start center;
+}
+
+.table-design-stage {
+  background: var(--mock-page-background);
+  height: var(--mock-page-height);
+  overflow: hidden;
+  position: relative;
+  transform-origin: top center;
+  width: var(--mock-page-width);
+}
+
+.table-design-mock-page-projected .table-design-stage,
+.table-design-mock-page-bidding .table-design-stage {
+  height: 100vh;
+  height: 100dvh;
+  width: 100vw;
+}
+
+.mock-hud,
+.mock-role-board,
+.mock-self-action {
+  height: var(--mock-box-height);
+  left: var(--mock-x);
+  position: absolute;
+  top: var(--mock-y);
+  transform: var(--mock-origin);
+  width: var(--mock-box-width);
+}
+
+.mock-hud {
+  align-content: center;
+  background: #d9d9d9;
+  color: #111111;
+  display: grid;
+  gap: 16px;
+  padding: 18px 36px;
+  text-shadow:
+    2px 0 #ffffff,
+    -2px 0 #ffffff,
+    0 2px #ffffff,
+    0 -2px #ffffff;
+}
+
+.mock-hud-contract,
+.mock-hud-adjutant {
+  align-items: center;
+  display: flex;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  line-height: 0.95;
+}
+
+.mock-hud-contract {
+  font-size: 98px;
+  gap: 24px;
+}
+
+.mock-hud-adjutant {
+  font-size: 78px;
+  gap: 8px;
+}
+
+.mock-hud-suit {
+  font-size: 98px;
+}
+
+.mock-self-hand,
+.mock-current-trick-zone,
+.mock-player-info,
+.mock-point-river,
+.mock-table-surface,
+.mock-projected-tabletop,
+.mock-opponent-hands-world {
+  left: var(--mock-x);
+  position: absolute;
+  top: var(--mock-y);
+}
+
+.mock-table-surface,
+.mock-projected-tabletop,
+.mock-opponent-hands-world {
+  height: var(--mock-page-height);
+  inset: 0;
+  left: 0;
+  pointer-events: none;
+  top: 0;
+  width: var(--mock-page-width);
+}
+
+.mock-table-surface-polygon {
+  fill: #3f8f51;
+  opacity: 0.82;
+  stroke: rgb(226 255 228 / 62%);
+  stroke-width: 4;
+}
+
+.mock-projected-tabletop,
+.mock-opponent-hands-world {
+  overflow: visible;
+}
+
+.mock-current-trick-zone {
+  transform: translate(-50%, -50%) rotate(var(--mock-rotation, 0deg));
+}
+
+.mock-player-info {
+  align-items: center;
+  background: rgb(17 24 39 / 88%);
+  border: 1px solid rgb(255 255 255 / 32%);
+  border-radius: 8px;
+  box-shadow: 0 3px 0 rgb(0 0 0 / 30%);
+  box-sizing: border-box;
+  display: flex;
+  gap: var(--mock-player-gap);
+  height: var(--mock-player-height);
+  padding: 7px 12px;
+  transform: translate(-50%, -50%);
+  width: var(--mock-player-width);
+  z-index: 8;
+}
+
+.mock-player-info-avatar {
+  background: #5e77ca;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  height: var(--mock-player-avatar-size);
+  overflow: hidden;
+  position: relative;
+  width: var(--mock-player-avatar-size);
+}
+
+.mock-player-info-avatar-head,
+.mock-player-info-avatar-body {
+  background: #ffffff;
+  display: block;
+  left: 50%;
+  position: absolute;
+  transform: translateX(-50%);
+}
+
+.mock-player-info-avatar-head {
+  border-radius: 50%;
+  height: calc(var(--mock-player-avatar-size) * 0.42);
+  top: calc(var(--mock-player-avatar-size) * 0.17);
+  width: calc(var(--mock-player-avatar-size) * 0.42);
+}
+
+.mock-player-info-avatar-body {
+  border-radius: 56% 56% 28% 28%;
+  bottom: calc(var(--mock-player-avatar-size) * -0.02);
+  height: calc(var(--mock-player-avatar-size) * 0.42);
+  width: calc(var(--mock-player-avatar-size) * 0.68);
+}
+
+.mock-player-info-label {
+  color: #ffffff;
+  flex: 1 1 auto;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mock-opponent-hands-world {
+  pointer-events: none;
+}
+
+.mock-opponent-hand-world-card {
+  fill: #ffd75a;
+  opacity: 0.96;
+  stroke: rgb(10 24 18 / 86%);
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.mock-current-trick-zone {
+  background: #d9ffd9;
+  height: var(--mock-trick-zone-height);
+  opacity: 0.98;
+  width: var(--mock-trick-zone-width);
+}
+
+.mock-point-river {
+  background: transparent;
+  height: var(--mock-river-height);
+  transform: rotate(var(--mock-river-rotation));
+  transform-origin: 0 0;
+  width: var(--mock-river-width);
+}
+
+.mock-playing-card {
+  box-shadow: 0 2px 0 rgb(0 0 0 / 26%);
+  display: block;
+  overflow: hidden;
+  position: relative;
+}
+
+.mock-playing-card-svg {
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+.mock-river-card.mock-playing-card {
+  position: absolute;
+}
+
+.mock-cardmeister-playing-card,
+.mock-cardmeister-playing-card img {
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+.mock-trick-card {
+  left: 50%;
+  height: var(--mock-trick-card-height);
+  position: absolute;
+  top: var(--mock-trick-card-center-y, 50%);
+  transform: translate(-50%, -50%);
+  width: var(--mock-trick-card-width);
+}
+
+.mock-river-card {
+  height: var(--mock-river-card-height);
+  left: var(--mock-river-card-x);
+  position: absolute;
+  top: var(--mock-river-card-y);
+  transform: rotate(var(--mock-river-card-rotation));
+  width: var(--mock-river-card-width);
+}
+
+.mock-river-card-face {
+  align-items: center;
+  background: #fffef6;
+  border: var(--mock-river-face-border-width) solid var(--mock-river-face-color);
+  border-radius: 5px;
+  box-shadow: 0 2px 0 rgb(0 0 0 / 24%);
+  box-sizing: border-box;
+  color: var(--mock-river-face-color);
+  display: flex;
+  font-family: Arial, Helvetica, sans-serif;
+  font-weight: 900;
+  gap: var(--mock-river-face-gap);
+  justify-content: center;
+  line-height: 1;
+  overflow: hidden;
+  padding: var(--mock-river-face-padding);
+}
+
+.mock-river-card-rank,
+.mock-river-card-suit {
+  display: block;
+  flex: 0 0 auto;
+  letter-spacing: 0;
+  line-height: 0.9;
+}
+
+.mock-river-card-rank {
+  font-size: var(--mock-river-face-rank-font-size);
+}
+
+.mock-river-card-suit {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: var(--mock-river-face-suit-font-size);
+}
+
+.mock-self-hand {
+  align-items: end;
+  display: flex;
+  gap: var(--mock-self-card-gap);
+  height: var(--mock-self-card-height);
+  left: var(--mock-self-hand-left);
+  top: var(--mock-self-hand-top);
+  width: var(--mock-self-hand-width);
+  z-index: 5;
+}
+
+.mock-self-hand-card {
+  flex: 0 0 auto;
+  height: var(--mock-self-card-height);
+  width: var(--mock-self-card-width);
+}
+
+.mock-role-board {
+  filter: drop-shadow(0 2px 0 rgb(0 0 0 / 38%));
+}
+
+.mock-role-board-shape {
+  background:
+    conic-gradient(
+      from 18deg,
+      #d9d9d9 0 72deg,
+      #dedede 72deg 144deg,
+      #d7d7d7 144deg 216deg,
+      #e2e2e2 216deg 288deg,
+      #d6d6d6 288deg 360deg
+    );
+  clip-path: polygon(var(--mock-role-board-polygon));
+  height: 100%;
+  position: relative;
+  width: 100%;
+}
+
+.mock-role-board-shape::before {
+  background: rgb(255 255 255 / 16%);
+  content: "";
+  inset: 0;
+  position: absolute;
+  z-index: 0;
+}
+
+.mock-role-board-sector-geometry {
+  height: 100%;
+  inset: 0;
+  overflow: visible;
+  position: absolute;
+  width: 100%;
+  z-index: 1;
+}
+
+.mock-role-board-sector-line {
+  stroke: rgb(255 255 255 / 72%);
+  stroke-linecap: round;
+  stroke-width: 2.5;
+}
+
+.mock-role-board-inner-pentagon {
+  fill: #d7d5ff;
+  opacity: 0.88;
+  stroke: rgb(255 255 255 / 46%);
+  stroke-width: 1.5;
+}
+
+.mock-projected-current-trick-zone-fill {
+  fill: #d9ffd9;
+  opacity: 0.92;
+  stroke: rgb(180 240 182 / 92%);
+  stroke-width: 2;
+}
+
+.mock-projected-role-marker-fill {
+  fill: #ffffff;
+  stroke: #d6d6d6;
+  stroke-width: 1.4;
+}
+
+.mock-projected-card-layer {
+  height: var(--mock-page-height);
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  transform-style: preserve-3d;
+  width: var(--mock-page-width);
+}
+
+.mock-projected-board-fit {
+  height: var(--mock-page-height);
+  left: 0;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  transform: var(--mock-projected-board-transform);
+  transform-origin: 0 0;
+  transform-style: preserve-3d;
+  width: var(--mock-page-width);
+}
+
+.mock-projected-playing-card {
+  height: var(--mock-projected-card-height);
+  left: 0;
+  position: absolute;
+  top: 0;
+  transform: var(--mock-projected-card-transform);
+  transform-origin: 0 0;
+  width: var(--mock-projected-card-width);
+}
+
+.mock-projected-opponent-hand {
+  display: contents;
+}
+
+.mock-projected-playing-card-opponent-hand {
+  filter: drop-shadow(0 6px 4px rgb(0 0 0 / 34%));
+}
+
+.mock-projected-role-board-outer {
+  fill: #d9d9d9;
+  opacity: 0.94;
+  stroke: rgb(255 255 255 / 58%);
+  stroke-width: 2;
+}
+
+.mock-projected-role-board-sector-line {
+  stroke: rgb(255 255 255 / 72%);
+  stroke-linecap: round;
+  stroke-width: 2;
+}
+
+.mock-projected-role-board-inner {
+  fill: #d7d5ff;
+  opacity: 0.9;
+  stroke: rgb(255 255 255 / 46%);
+  stroke-width: 1.5;
+}
+
+.mock-projected-role-marker-text {
+  fill: #303030;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.role-marker {
+  align-items: center;
+  background: rgb(255 255 255 / 72%);
+  border: 1px solid rgb(117 117 117 / 54%);
+  border-radius: 7px;
+  box-shadow: 0 1px 0 rgb(0 0 0 / 20%);
+  color: #303030;
+  display: flex;
+  font-size: 18px;
+  font-weight: 800;
+  height: var(--mock-role-marker-height);
+  justify-content: center;
+  left: var(--mock-role-marker-x);
+  line-height: 1;
+  position: absolute;
+  top: var(--mock-role-marker-y);
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  width: var(--mock-role-marker-width);
+  z-index: 2;
+}
+
+.mock-self-action {
+  display: grid;
+  justify-items: center;
+}
+
+.mock-action-card {
+  height: 100%;
+  width: 100%;
+}
+
+.mock-action-controls {
+  display: flex;
+  gap: 10px;
+  opacity: 0;
+  position: absolute;
+  top: calc(100% + 14px);
+}
+
+.mock-action-controls button {
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  color: #111827;
+  min-height: 36px;
+  padding: 0 18px;
+}
+
+.mock-bidding-overlay {
+  align-items: center;
+  background:
+    linear-gradient(180deg, rgb(15 23 42 / 94%), rgb(17 24 39 / 96%));
+  border: 2px solid rgb(255 255 255 / 28%);
+  border-radius: 18px;
+  box-shadow:
+    0 22px 60px rgb(0 0 0 / 42%),
+    inset 0 1px 0 rgb(255 255 255 / 18%);
+  box-sizing: border-box;
+  color: #f8fafc;
+  display: grid;
+  gap: 22px;
+  height: var(--mock-bidding-overlay-height);
+  justify-items: center;
+  left: var(--mock-x);
+  padding: 28px 42px;
+  position: absolute;
+  top: var(--mock-y);
+  transform: translate(-50%, -50%);
+  width: var(--mock-bidding-overlay-width);
+  z-index: 7;
+}
+
+.mock-bidding-highest {
+  align-items: center;
+  display: flex;
+  gap: 26px;
+}
+
+.mock-bidding-label {
+  color: #cbd5e1;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.mock-bidding-highest-value {
+  background: #fffef6;
+  border: 4px solid var(--mock-bidding-action-color);
+  border-radius: 14px;
+  box-shadow: 0 5px 0 rgb(0 0 0 / 34%);
+  box-sizing: border-box;
+  color: var(--mock-bidding-action-color);
+  display: inline-flex;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 82px;
+  font-weight: 950;
+  justify-content: center;
+  letter-spacing: 0;
+  line-height: 0.92;
+  min-width: 190px;
+  padding: 8px 20px 10px;
+  text-shadow: none;
+}
+
+.mock-bidding-suit-selector {
+  display: flex;
+  gap: 18px;
+}
+
+.mock-bidding-suit-button,
+.mock-bidding-step-button,
+.mock-bidding-declare-button,
+.mock-bidding-pass-button {
+  border: 2px solid rgb(255 255 255 / 42%);
+  border-radius: 12px;
+  box-shadow: 0 5px 0 rgb(0 0 0 / 34%);
+  box-sizing: border-box;
+  color: #ffffff;
+  cursor: default;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.mock-bidding-suit-button {
+  background: var(--mock-bidding-suit-color);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 56px;
+  height: 78px;
+  line-height: 1;
+  width: 92px;
+}
+
+.mock-bidding-suit-button[aria-pressed="true"] {
+  outline: 5px solid rgb(255 255 255 / 86%);
+  outline-offset: 3px;
+}
+
+.mock-bidding-number-selector {
+  align-items: center;
+  display: grid;
+  gap: 28px;
+  grid-template-columns: 92px 130px 92px;
+}
+
+.mock-bidding-step-button {
+  background: #334155;
+  font-size: 52px;
+  height: 76px;
+  line-height: 1;
+}
+
+.mock-bidding-number-value {
+  color: #ffffff;
+  font-size: 82px;
+  font-weight: 950;
+  line-height: 0.9;
+  text-align: center;
+}
+
+.mock-bidding-actions {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: 1fr 1fr;
+  width: min(560px, 100%);
+}
+
+.mock-bidding-declare-button,
+.mock-bidding-pass-button {
+  font-size: 34px;
+  height: 74px;
+}
+
+.mock-bidding-declare-button {
+  background: #f8fafc;
+  color: #111827;
+}
+
+.mock-bidding-pass-button {
+  background: #64748b;
+}
+
+.mock-bidding-bubble-layer {
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 10;
+}
+
+.mock-bidding-bubble {
+  align-items: center;
+  background: #fffef6;
+  border: 4px solid var(--mock-bidding-action-color);
+  border-radius: 16px;
+  box-shadow:
+    0 7px 0 rgb(0 0 0 / 30%),
+    0 18px 34px rgb(0 0 0 / 24%);
+  box-sizing: border-box;
+  color: var(--mock-bidding-action-color);
+  display: flex;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 45px;
+  font-weight: 950;
+  height: var(--mock-bidding-bubble-height);
+  justify-content: center;
+  left: var(--mock-x);
+  letter-spacing: 0;
+  line-height: 0.95;
+  padding: 8px 12px;
+  position: absolute;
+  top: var(--mock-y);
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  width: var(--mock-bidding-bubble-width);
+}

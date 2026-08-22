@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   CreateGameAgentSelection,
   PublicAgentDescriptor,
-  PublicBidAction,
   PublicCard,
   PublicGameAction,
   PublicGameState,
@@ -10,11 +9,9 @@ import type {
   PublicSuit
 } from "@napoleon/protocol";
 import { AutomatedSimulationViewer } from "./AutomatedSimulationViewer";
-import { BiddingPanel } from "./BiddingPanel";
-import { GameStatus } from "./GameStatus";
-import { PlayerSeat } from "./PlayerSeat";
-import { SelfHandPanel } from "./SelfHandPanel";
-import { TrickBoard } from "./TrickBoard";
+import { CardDesignMock } from "./CardDesignMock";
+import { TableSurface } from "./TableSurface";
+import { TableDesignMock } from "./TableDesignMock";
 import {
   createAdjutantCardId,
   createAdjutantSelectionLabel,
@@ -28,12 +25,7 @@ import {
 } from "./adjutantSelection";
 import { createGame, getAgents, nextTrick, sendAction } from "./api";
 import { suitSymbols } from "./cardSymbols";
-import {
-  createGameStatusDisplay,
-  createMessage,
-  formatPlayerLabel,
-  formatWinningTeam
-} from "./displayText";
+import { createMessage, formatPlayerLabel, formatWinningTeam } from "./displayText";
 import { createTablePlayers } from "./tablePlayers";
 import { useTrickAnimation } from "./useTrickAnimation";
 import "./styles.css";
@@ -60,6 +52,30 @@ const defaultAgentSelections: Record<string, string> = Object.fromEntries(
 );
 
 export function App() {
+  if (window.location.pathname.endsWith("/mock/card-design")) {
+    return <CardDesignMock />;
+  }
+
+  if (window.location.pathname.endsWith("/mock/table-design-bidding")) {
+    return <TableDesignMock variant="bidding" />;
+  }
+
+  if (window.location.pathname.endsWith("/mock/table-design-projected")) {
+    return <TableDesignMock variant="projected" />;
+  }
+
+  if (window.location.pathname.endsWith("/mock/table-design-world")) {
+    return <TableDesignMock variant="world" />;
+  }
+
+  if (window.location.pathname.endsWith("/mock/table-design")) {
+    return <TableDesignMock />;
+  }
+
+  return <GameApp />;
+}
+
+function GameApp() {
   const [mode, setMode] = useState<AppMode>("game");
   const [session, setSession] = useState<Session | undefined>();
   const [message, setMessage] = useState("ゲームを開始してください。");
@@ -85,7 +101,7 @@ export function App() {
   const legalBidActions = useMemo(
     () =>
       (session?.state.legalActions ?? []).filter(
-        (action): action is PublicBidAction => action.type === "bid"
+        (action) => action.type === "bid"
       ),
     [session]
   );
@@ -98,14 +114,8 @@ export function App() {
     session?.state.phase === "choosing-adjutant" &&
     session.state.adjutantChoice?.napoleonPlayerId === session.playerId;
 
-  const self = session?.state.self;
   const tablePlayers = useMemo(() => createTablePlayers(session?.state), [session?.state]);
   const aiPlayers = tablePlayers.filter((player) => !player.isSelf);
-  const selfPlayer = tablePlayers.find((player) => player.isSelf);
-  const gameStatusDisplay = useMemo(
-    () => createGameStatusDisplay(session?.state, tablePlayers),
-    [session?.state, tablePlayers]
-  );
   const adjutantShortcutOptions = useMemo(
     () => createAdjutantShortcutOptions(session?.state.specialCards),
     [session?.state.specialCards]
@@ -136,6 +146,15 @@ export function App() {
     hasRequestError;
   const trickAnimation = useTrickAnimation({ state: session?.state });
   const isInteractionLocked = isBusy || trickAnimation.isAnimating;
+  const hasTableActionPanel =
+    session !== undefined &&
+    session.state.phase !== "bidding" &&
+    ((session.state.phase === "playing" &&
+      session.state.isTrickComplete &&
+      !session.state.isGameOver) ||
+      session.state.phase === "exchanging" ||
+      session.state.phase === "choosing-adjutant" ||
+      session.state.result !== null);
 
   useEffect(() => {
     let cancelled = false;
@@ -384,249 +403,217 @@ export function App() {
           </section>
 
           <section className="table" aria-label="ゲームテーブル">
-            <div className="table-grid">
-              {aiPlayers.map((player) => (
-                <PlayerSeat key={player.seat} player={player} state={session?.state} />
-              ))}
+            <TableSurface
+              actionPanel={
+                hasTableActionPanel ? (
+                  <div className="action-area">
+                    {session?.state.phase === "playing" &&
+                    session.state.isTrickComplete &&
+                    !session.state.isGameOver ? (
+                      <button
+                        aria-label="次のトリックへ進む"
+                        className="secondary-button next-trick-button"
+                        disabled={isInteractionLocked}
+                        onClick={handleNextTrick}
+                        type="button"
+                      >
+                        次へ
+                      </button>
+                    ) : null}
 
-              <div
-                className={
-                  session !== undefined && session.state.phase !== "bidding"
-                    ? "table-center table-center-trick"
-                    : "table-center"
-                }
-              >
-                {session?.state.phase === "bidding" ? (
-                  <GameStatus display={gameStatusDisplay} />
-                ) : null}
+                    {session?.state.phase === "exchanging" ? (
+                      <section className="exchange-panel" aria-label="埋札交換">
+                        <h2>交換</h2>
+                        <span
+                          aria-label={`選択中 ${selectedDiscardCardIds.length}枚、必要 ${requiredDiscardCount}枚`}
+                        >
+                          {selectedDiscardCardIds.length} / {requiredDiscardCount}
+                        </span>
+                        <button
+                          aria-label={`${requiredDiscardCount}枚を捨てる`}
+                          className="secondary-button"
+                          disabled={
+                            !canExchange ||
+                            selectedDiscardCardIds.length !== requiredDiscardCount ||
+                            isInteractionLocked
+                          }
+                          onClick={() =>
+                            void handleSendAction({
+                              type: "discard-cards",
+                              cardIds: selectedDiscardCardIds
+                            })
+                          }
+                          type="button"
+                        >
+                          捨てる
+                        </button>
+                      </section>
+                    ) : null}
 
-                {session?.state.phase === "bidding" ? (
-                  <BiddingPanel
-                    bidding={session.state.bidding}
-                    canPass={canPass}
-                    currentPlayerId={session.state.currentPlayerId}
-                    formatPlayerLabel={(playerId) => formatPlayerLabel(playerId, tablePlayers)}
-                    isBusy={isInteractionLocked}
-                    legalBidActions={legalBidActions}
-                    onBid={(action) => void handleSendAction(action)}
-                    onPass={() => void handleSendAction({ type: "pass" })}
-                    selfPlayerId={session.playerId}
-                  />
-                ) : (
-                  <TrickBoard
-                    adjutant={session?.state.adjutant}
-                    collectingWinnerId={trickAnimation.collectingWinnerId}
-                    contract={session?.state.contract}
-                    currentTrick={trickAnimation.displayedTrick}
-                    highlightWinningCard={winningCardHighlightEnabled}
-                    isResultEmphasisActive={trickAnimation.isResultEmphasisActive}
-                    players={tablePlayers}
-                    trickNumber={session?.state.trickNumber}
-                    trumpSuit={session?.state.trumpSuit}
-                  />
-                )}
-              </div>
-              <div className="action-area">
-                {session?.state.phase === "playing" ? (
-                  <button
-                    className="secondary-button next-trick-button"
-                    disabled={
-                      !session.state.isTrickComplete ||
-                      session.state.isGameOver ||
-                      isInteractionLocked
-                    }
-                    onClick={handleNextTrick}
-                    type="button"
-                  >
-                    次のトリック
-                  </button>
-                ) : null}
-
-                {session?.state.phase === "exchanging" ? (
-                  <section className="exchange-panel" aria-label="埋札交換">
-                    <h2>交換</h2>
-                    <span
-                      aria-label={`選択中 ${selectedDiscardCardIds.length}枚、必要 ${requiredDiscardCount}枚`}
-                    >
-                      {selectedDiscardCardIds.length} / {requiredDiscardCount}
-                    </span>
-                    <button
-                      aria-label={`${requiredDiscardCount}枚を捨てる`}
-                      className="secondary-button"
-                      disabled={
-                        !canExchange ||
-                        selectedDiscardCardIds.length !== requiredDiscardCount ||
-                        isInteractionLocked
-                      }
-                      onClick={() =>
-                        void handleSendAction({
-                          type: "discard-cards",
-                          cardIds: selectedDiscardCardIds
-                        })
-                      }
-                      type="button"
-                    >
-                      捨てる
-                    </button>
-                  </section>
-                ) : null}
-
-                {session?.state.phase === "choosing-adjutant" ? (
-                  <section
-                    aria-describedby="adjutant-phase-note"
-                    aria-label="副官指定"
-                    className="adjutant-panel"
-                  >
-                    <div className="phase-title-row">
-                      <h2>副官</h2>
-                      <span aria-label="埋札前に1枚指定します" className="phase-count">
-                        1枚
-                      </span>
-                    </div>
-                    <p className="visually-hidden" id="adjutant-phase-note">
-                      埋札前に1枚指定します。
-                    </p>
-                    <div className="adjutant-shortcuts" aria-label="特殊札ショートカット">
-                      <span className="visually-hidden">特殊札ショートカット</span>
-                      <div className="adjutant-shortcut-buttons">
-                        {adjutantShortcutOptions.map((shortcut) => (
+                    {session?.state.phase === "choosing-adjutant" ? (
+                      <section
+                        aria-describedby="adjutant-phase-note"
+                        aria-label="副官指定"
+                        className="adjutant-panel"
+                      >
+                        <div className="phase-title-row">
+                          <h2>副官</h2>
+                          <span aria-label="埋札前に1枚指定します" className="phase-count">
+                            1枚
+                          </span>
+                        </div>
+                        <p className="visually-hidden" id="adjutant-phase-note">
+                          埋札前に1枚指定します。
+                        </p>
+                        <div className="adjutant-shortcuts" aria-label="特殊札ショートカット">
+                          <span className="visually-hidden">特殊札ショートカット</span>
+                          <div className="adjutant-shortcut-buttons">
+                            {adjutantShortcutOptions.map((shortcut) => (
+                              <button
+                                aria-pressed={
+                                  adjutantSelection.shortcutId === shortcut.id &&
+                                  selectedAdjutantCardId === shortcut.cardId
+                                }
+                                className={
+                                  adjutantSelection.shortcutId === shortcut.id &&
+                                  selectedAdjutantCardId === shortcut.cardId
+                                    ? "adjutant-shortcut-button adjutant-shortcut-selected"
+                                    : "adjutant-shortcut-button"
+                                }
+                                disabled={!canChooseAdjutant || isInteractionLocked}
+                                key={shortcut.id}
+                                onClick={() =>
+                                  setAdjutantSelection((current) =>
+                                    selectAdjutantShortcut(current, shortcut)
+                                  )
+                                }
+                                type="button"
+                              >
+                                <span>{shortcut.label}</span>
+                                <strong>{shortcut.display}</strong>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="adjutant-controls">
+                          <label>
+                            札
+                            <select
+                              aria-label="副官に指定するカード種別"
+                              disabled={!canChooseAdjutant || isInteractionLocked}
+                              onChange={(event) =>
+                                setAdjutantSelection((current) =>
+                                  selectAdjutantSuitOption(
+                                    current,
+                                    event.target.value as AdjutantSuitOption
+                                  )
+                                )
+                              }
+                              value={adjutantSelection.suitOption}
+                            >
+                              {suitOptions.map((suit) => (
+                                <option key={suit} value={suit}>
+                                  {suitSymbols[suit]}
+                                </option>
+                              ))}
+                              {canSelectJoker ? <option value="joker">ジョーカー</option> : null}
+                            </select>
+                          </label>
+                          <label>
+                            位
+                            <select
+                              aria-label="副官に指定するランク"
+                              disabled={
+                                !canChooseAdjutant ||
+                                isInteractionLocked ||
+                                adjutantSelection.suitOption === "joker"
+                              }
+                              onChange={(event) =>
+                                setAdjutantSelection((current) =>
+                                  selectAdjutantRank(current, event.target.value as PublicRank)
+                                )
+                              }
+                              value={adjutantSelection.rank}
+                            >
+                              {rankOptions.map((rank) => (
+                                <option key={rank} value={rank}>
+                                  {rank}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
                           <button
-                            aria-pressed={
-                              adjutantSelection.shortcutId === shortcut.id &&
-                              selectedAdjutantCardId === shortcut.cardId
-                            }
-                            className={
-                              adjutantSelection.shortcutId === shortcut.id &&
-                              selectedAdjutantCardId === shortcut.cardId
-                                ? "adjutant-shortcut-button adjutant-shortcut-selected"
-                                : "adjutant-shortcut-button"
-                            }
+                            aria-label="副官を指定"
+                            className="secondary-button"
                             disabled={!canChooseAdjutant || isInteractionLocked}
-                            key={shortcut.id}
                             onClick={() =>
-                              setAdjutantSelection((current) =>
-                                selectAdjutantShortcut(current, shortcut)
-                              )
+                              void handleSendAction({
+                                type: "choose-adjutant",
+                                cardId: selectedAdjutantCardId
+                              })
                             }
                             type="button"
                           >
-                            <span>{shortcut.label}</span>
-                            <strong>{shortcut.display}</strong>
+                            指定
                           </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="adjutant-controls">
-                      <label>
-                        札
-                        <select
-                          aria-label="副官に指定するカード種別"
-                          disabled={!canChooseAdjutant || isInteractionLocked}
-                          onChange={(event) =>
-                            setAdjutantSelection((current) =>
-                              selectAdjutantSuitOption(
-                                current,
-                                event.target.value as AdjutantSuitOption
-                              )
-                            )
-                          }
-                          value={adjutantSelection.suitOption}
-                        >
-                          {suitOptions.map((suit) => (
-                            <option key={suit} value={suit}>
-                              {suitSymbols[suit]}
-                            </option>
-                          ))}
-                          {canSelectJoker ? <option value="joker">ジョーカー</option> : null}
-                        </select>
-                      </label>
-                      <label>
-                        位
-                        <select
-                          aria-label="副官に指定するランク"
-                          disabled={
-                            !canChooseAdjutant ||
-                            isInteractionLocked ||
-                            adjutantSelection.suitOption === "joker"
-                          }
-                          onChange={(event) =>
-                            setAdjutantSelection((current) =>
-                              selectAdjutantRank(current, event.target.value as PublicRank)
-                            )
-                          }
-                          value={adjutantSelection.rank}
-                        >
-                          {rankOptions.map((rank) => (
-                            <option key={rank} value={rank}>
-                              {rank}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <button
-                        aria-label="副官を指定"
-                        className="secondary-button"
-                        disabled={!canChooseAdjutant || isInteractionLocked}
-                        onClick={() =>
-                          void handleSendAction({
-                            type: "choose-adjutant",
-                            cardId: selectedAdjutantCardId
-                          })
-                        }
-                        type="button"
-                      >
-                        指定
-                      </button>
-                      <span
-                        aria-label={`選択中の副官札: ${selectedAdjutantLabel}`}
-                        className="selected-adjutant"
-                      >
-                        <strong>{selectedAdjutantLabel}</strong>
-                      </span>
-                    </div>
-                  </section>
-                ) : null}
+                          <span
+                            aria-label={`選択中の副官札: ${selectedAdjutantLabel}`}
+                            className="selected-adjutant"
+                          >
+                            <strong>{selectedAdjutantLabel}</strong>
+                          </span>
+                        </div>
+                      </section>
+                    ) : null}
 
-                {session?.state.result !== null && session?.state.result !== undefined ? (
-                  <section className="result-panel" aria-label="ゲーム結果">
-                    <h2>ゲーム終了</h2>
-                    <div className="result-grid">
-                      <span>勝者</span>
-                      <strong>{formatWinningTeam(session.state.result.winner)}</strong>
-                      <span>契約</span>
-                      <strong>{session.state.result.targetPointCards}枚</strong>
-                      <span>ナポレオン陣営</span>
-                      <strong>{session.state.result.napoleonTeamPointCards}枚</strong>
-                      <span>連合軍</span>
-                      <strong>{session.state.result.alliancePointCards}枚</strong>
-                      <span>ナポレオン</span>
-                      <strong>
-                        {formatPlayerLabel(session.state.result.napoleonPlayerId, tablePlayers)}
-                      </strong>
-                      <span>副官</span>
-                      <strong>
-                        {formatPlayerLabel(session.state.result.adjutantPlayerId, tablePlayers)}
-                      </strong>
-                    </div>
-                  </section>
-                ) : null}
-              </div>
-
-              <SelfHandPanel
-                canExchange={canExchange}
-                isBusy={isInteractionLocked}
-                legalCardIds={legalCardIds}
-                onToggleWinningCardHighlight={() =>
-                  setWinningCardHighlightEnabled((current) => !current)
-                }
-                onPlay={handlePlay}
-                selectedDiscardCardIds={selectedDiscardCardIds}
-                self={self}
-                selfPlayer={selfPlayer}
-                state={session?.state}
-                winningCardHighlightEnabled={winningCardHighlightEnabled}
-              />
-            </div>
+                    {session?.state.result !== null && session?.state.result !== undefined ? (
+                      <section className="result-panel" aria-label="ゲーム結果">
+                        <h2>ゲーム終了</h2>
+                        <div className="result-grid">
+                          <span>勝者</span>
+                          <strong>{formatWinningTeam(session.state.result.winner)}</strong>
+                          <span>契約</span>
+                          <strong>{session.state.result.targetPointCards}枚</strong>
+                          <span>ナポレオン陣営</span>
+                          <strong>{session.state.result.napoleonTeamPointCards}枚</strong>
+                          <span>連合軍</span>
+                          <strong>{session.state.result.alliancePointCards}枚</strong>
+                          <span>ナポレオン</span>
+                          <strong>
+                            {formatPlayerLabel(session.state.result.napoleonPlayerId, tablePlayers)}
+                          </strong>
+                          <span>副官</span>
+                          <strong>
+                            {formatPlayerLabel(session.state.result.adjutantPlayerId, tablePlayers)}
+                          </strong>
+                        </div>
+                      </section>
+                    ) : null}
+                  </div>
+                ) : null
+              }
+              canExchange={canExchange}
+              canPass={canPass}
+              collectingWinnerId={trickAnimation.collectingWinnerId}
+              currentTrick={trickAnimation.displayedTrick}
+              highlightWinningCard={winningCardHighlightEnabled}
+              isBusy={isInteractionLocked}
+              isResultEmphasisActive={trickAnimation.isResultEmphasisActive}
+              legalBidActions={legalBidActions}
+              legalCardIds={legalCardIds}
+              onBid={(action) => void handleSendAction(action)}
+              onPass={() => void handleSendAction({ type: "pass" })}
+              onToggleWinningCardHighlight={() =>
+                setWinningCardHighlightEnabled((current) => !current)
+              }
+              onPlay={handlePlay}
+              players={tablePlayers}
+              selectedDiscardCardIds={selectedDiscardCardIds}
+              selfPlayerId={session?.playerId}
+              state={session?.state}
+              trickNumber={session?.state.trickNumber}
+              trumpSuit={session?.state.trumpSuit}
+            />
           </section>
         </>
       ) : (
