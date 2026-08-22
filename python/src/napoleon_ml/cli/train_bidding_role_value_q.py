@@ -13,6 +13,7 @@ from napoleon_ml.bidding_q import (
     BiddingRoleValueTrainConfig,
     load_bidding_q_dataset,
     role_value_coverage,
+    role_value_learning_assessment,
     save_bidding_role_value_artifact,
     train_bidding_role_value_model,
 )
@@ -35,9 +36,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dropout", type=float, default=0.0)
     parser.add_argument("--train-states", type=int, default=20000)
     parser.add_argument("--validation-state-keys", type=Path)
+    parser.add_argument("--validation-states", type=int)
+    parser.add_argument("--role-stratified-validation", action="store_true")
     parser.add_argument("--no-target-standardization", action="store_true")
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--patience", type=int, default=10)
+    parser.add_argument("--min-validation-diff-pairs", type=int, default=200)
+    parser.add_argument("--min-validation-ranking-states", type=int, default=100)
     parser.add_argument("--seed", type=int, default=383)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="cpu")
     parser.add_argument("--no-integrity-check", action="store_true")
@@ -83,13 +88,22 @@ def _run(args: argparse.Namespace) -> int:
         validation_state_keys_path=(
             str(args.validation_state_keys) if args.validation_state_keys is not None else None
         ),
+        validation_state_count=args.validation_states,
+        role_stratified_validation=args.role_stratified_validation,
         target_standardization=not args.no_target_standardization,
         weight_decay=args.weight_decay,
         patience=args.patience,
+        minimum_validation_diff_pairs=args.min_validation_diff_pairs,
+        minimum_validation_ranking_states=args.min_validation_ranking_states,
         device=args.device,
     )
     result = train_bidding_role_value_model(dataset, config)
     artifact = save_bidding_role_value_artifact(args.output_dir, result=result, dataset=dataset)
+    assessment = role_value_learning_assessment(
+        result.validation_report,
+        minimum_diff_pairs=config.minimum_validation_diff_pairs,
+        minimum_ranking_states=config.minimum_validation_ranking_states,
+    )
     report = {
         "outputDirectory": str(args.output_dir),
         "artifact": artifact,
@@ -107,6 +121,10 @@ def _run(args: argparse.Namespace) -> int:
             "trainRawSamples": len(result.split.train_samples),
             "validationRawSamples": len(result.split.validation_samples),
             "validationStateKeyHash": result.split.validation_state_key_hash,
+            "validationMode": (
+                "role-stratified" if config.role_stratified_validation else "default"
+            ),
+            "stateKeyLeakage": False,
         },
         "targetStandardization": result.standardization.to_dict(),
         "coverage": coverage,
@@ -114,6 +132,7 @@ def _run(args: argparse.Namespace) -> int:
         "epochs": result.epoch_reports,
         "train": result.train_report,
         "validation": result.validation_report,
+        "learningAssessment": assessment,
     }
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
@@ -135,7 +154,10 @@ def _run(args: argparse.Namespace) -> int:
         print(f"ranking states: {ranking['rankingStateCount']}")
         print(f"pair count: {ranking['pairCount']}")
         print(f"different pair count: {ranking['differentPairCount']}")
+        print(f"teacher tie rate: {ranking['teacherTieRate']}")
         print(f"pairwise: {ranking['pairwiseAccuracy']}")
+        print(f"learning established: {assessment['established']}")
+        print(f"assessment: {assessment['reason']}")
     return 0
 
 

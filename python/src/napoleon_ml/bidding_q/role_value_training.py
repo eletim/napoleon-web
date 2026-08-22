@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import math
 import pickle
@@ -35,6 +36,7 @@ from .multi_head_training import (
     _regression_metrics,
     _safe_div,
     create_multi_head_split,
+    state_key_hash,
 )
 from .role_training import canonical_bidding_role
 from .role_value_model import (
@@ -77,11 +79,15 @@ class BiddingRoleValueTrainConfig:
     dropout: float = 0.0
     train_state_count: int | None = 20000
     validation_state_keys_path: str | None = None
+    validation_state_count: int | None = None
+    role_stratified_validation: bool = False
     train_ratio: float = 20000 / 22000
     target_standardization: bool = True
     weight_decay: float = 1e-4
     patience: int = 10
     min_delta: float = 0.0
+    minimum_validation_diff_pairs: int = 200
+    minimum_validation_ranking_states: int = 100
     device: RequestedTorchDevice = "cpu"
     optimizer: str = "AdamW"
 
@@ -265,15 +271,81 @@ def create_role_value_split(
     dataset: BiddingQDataset,
     config: BiddingRoleValueTrainConfig,
 ) -> BiddingMultiHeadQSplit:
+    if config.validation_state_keys_path is not None:
+        return create_multi_head_split(
+            dataset,
+            BiddingMultiHeadQTrainConfig(
+                seed=config.seed,
+                train_state_count=config.train_state_count,
+                validation_state_keys_path=config.validation_state_keys_path,
+                train_ratio=config.train_ratio,
+            ),
+        )
+    if config.role_stratified_validation:
+        validation_keys = select_role_stratified_validation_state_keys(
+            dataset.raw_samples,
+            role=config.role,
+            teacher=config.resolved_teacher(),
+            seed=config.seed,
+            validation_state_count=_resolved_validation_state_count(dataset, config),
+        )
+        return _create_split_from_validation_keys(dataset, config, validation_keys)
     return create_multi_head_split(
         dataset,
         BiddingMultiHeadQTrainConfig(
             seed=config.seed,
             train_state_count=config.train_state_count,
-            validation_state_keys_path=config.validation_state_keys_path,
             train_ratio=config.train_ratio,
         ),
     )
+
+
+def select_role_stratified_validation_state_keys(
+    samples: Iterable[BiddingQRawSample],
+    *,
+    role: BiddingRoleValueRole,
+    teacher: BiddingRoleValueTeacher,
+    seed: int,
+    validation_state_count: int,
+) -> tuple[str, ...]:
+    sample_tuple = tuple(samples)
+    all_state_keys = _state_keys_in_source_order(sample_tuple)
+    if validation_state_count <= 0 or validation_state_count >= len(all_state_keys):
+        raise ValueError(
+            f"validation_state_count must be in [1,{len(all_state_keys) - 1}], "
+            f"got {validation_state_count}."
+        )
+    state_stats = _role_value_state_stats(sample_tuple, role=role, teacher=teacher)
+
+    def stable_hash(value: str, bucket: str) -> str:
+        return hashlib.sha256(f"{seed}:{bucket}:{value}".encode()).hexdigest()
+
+    ranked = sorted(
+        all_state_keys,
+        key=lambda key: (
+            _role_stratified_state_bucket(state_stats[key]),
+            stable_hash(key, "role-stratified-validation"),
+        ),
+    )
+    selected = tuple(sorted(ranked[:validation_state_count]))
+    selected_stats = _teacher_pair_coverage(
+        tuple(sample for sample in sample_tuple if sample.state_key in selected),
+        role=role,
+        teacher=teacher,
+    )
+    if selected_stats["sampleCount"] == 0:
+        raise ValueError(f"role-stratified validation selected no {role} teacher samples.")
+    return selected
+
+
+def _role_stratified_state_bucket(stats: dict[str, int]) -> int:
+    if stats["differentPairCount"] > 0:
+        return 0
+    if stats["pairCount"] > 0:
+        return 1
+    if stats["sampleCount"] > 0:
+        return 2
+    return 3
 
 
 def role_value_loss(
@@ -359,6 +431,7 @@ def evaluate_bidding_role_value_model(
         "rawSampleCount": len(sample_tuple),
         "teacherSampleCount": int(truth.size),
         "teacherStateCount": len({sample.state_key for sample in selected_samples}),
+        "coverage": role_value_coverage(sample_tuple),
         "regression": {
             **_regression_metrics(selected, truth),
             "sampleCount": int(truth.size),
@@ -374,6 +447,66 @@ def evaluate_bidding_role_value_model(
             role=role,
             teacher=teacher,
         ),
+    }
+
+
+def role_value_learning_assessment(
+    validation_report: dict[str, object],
+    *,
+    minimum_diff_pairs: int,
+    minimum_ranking_states: int,
+) -> dict[str, object]:
+    ranking = cast(dict[str, object], validation_report["ranking"])
+    regression = cast(dict[str, object], validation_report["regression"])
+    baselines = cast(dict[str, object], validation_report["baselines"])
+    raw_diff_pairs = ranking["differentPairCount"]
+    raw_ranking_states = ranking["rankingStateCount"]
+    if not isinstance(raw_diff_pairs, int) or not isinstance(raw_ranking_states, int):
+        raise ValueError("ranking report must include integer coverage counts.")
+    diff_pairs = raw_diff_pairs
+    ranking_states = raw_ranking_states
+    coverage_sufficient = (
+        diff_pairs >= minimum_diff_pairs and ranking_states >= minimum_ranking_states
+    )
+    baseline_names = ("globalMean", "actionIndexMean", "suitTargetMean")
+    mae = regression["mae"]
+    rmse = regression["rmse"]
+    pearson = regression["pearsonCorrelation"]
+    pairwise = ranking["pairwiseAccuracy"]
+    beats_baselines = _beats_regression_baselines(
+        mae=mae,
+        rmse=rmse,
+        baselines=baselines,
+        names=baseline_names,
+    )
+    ranking_signal = (
+        isinstance(pairwise, float)
+        and pairwise > 0.5
+        and isinstance(pearson, float)
+        and pearson > 0.0
+    )
+    established = coverage_sufficient and beats_baselines and ranking_signal
+    reasons = []
+    if not coverage_sufficient:
+        reasons.append(
+            "insufficient validation ranking coverage: "
+            f"diff_pairs={diff_pairs}/{minimum_diff_pairs}, "
+            f"ranking_states={ranking_states}/{minimum_ranking_states}"
+        )
+    if coverage_sufficient and not beats_baselines:
+        reasons.append("NN regression did not beat all required baselines on MAE/RMSE")
+    if coverage_sufficient and not ranking_signal:
+        reasons.append("state-conditioned ranking signal was not clearly positive")
+    return {
+        "established": established,
+        "coverageSufficient": coverage_sufficient,
+        "minimumDifferentPairs": minimum_diff_pairs,
+        "minimumRankingStates": minimum_ranking_states,
+        "differentPairCount": diff_pairs,
+        "rankingStateCount": ranking_states,
+        "beatsBaselines": beats_baselines,
+        "rankingSignal": ranking_signal,
+        "reason": "; ".join(reasons) if reasons else "coverage and validation metrics passed",
     }
 
 
@@ -400,13 +533,15 @@ def predict_role_value_samples(
 
 def role_value_coverage(samples: Iterable[BiddingQRawSample]) -> dict[str, object]:
     sample_tuple = tuple(samples)
-    roles = ("citizen", "adjutant")
+    roles: tuple[BiddingRoleValueRole, ...] = ("citizen", "adjutant")
     role_counts: dict[str, object] = {}
     role_state_counts: dict[str, object] = {}
     pass_bid: dict[str, object] = {}
     action_counts: dict[str, object] = {}
+    action_coverage_counts: dict[str, object] = {}
     suit_counts: dict[str, object] = {}
     target_counts: dict[str, object] = {}
+    role_matching_action_distribution: dict[str, object] = {}
     teacher_coverage: dict[str, object] = {}
     for role in roles:
         role_samples = [
@@ -418,11 +553,18 @@ def role_value_coverage(samples: Iterable[BiddingQRawSample]) -> dict[str, objec
         action_counts[role] = dict(
             Counter(str(sample.forced_action_index) for sample in role_samples)
         )
+        action_coverage_counts[role] = len(
+            {sample.forced_action_index for sample in role_samples}
+        )
         suit_counts[role] = dict(Counter(str(sample.forced_suit) for sample in role_samples))
         target_counts[role] = dict(
             Counter(str(sample.forced_target_point_cards) for sample in role_samples)
         )
-        teachers = (
+        by_state = Counter(sample.state_key for sample in role_samples)
+        role_matching_action_distribution[role] = dict(
+            Counter(str(count) for count in by_state.values())
+        )
+        teachers: tuple[BiddingRoleValueTeacher, ...] = (
             (
                 "coalition-side-point-cards",
                 "negative-contract-margin",
@@ -443,8 +585,10 @@ def role_value_coverage(samples: Iterable[BiddingQRawSample]) -> dict[str, objec
         "roleStateCounts": role_state_counts,
         "passBidRoleDistribution": pass_bid,
         "actionCoverage": action_counts,
+        "actionIndexCoverageCounts": action_coverage_counts,
         "suitCoverage": suit_counts,
         "targetCoverage": target_counts,
+        "roleMatchingActionCountDistribution": role_matching_action_distribution,
         "teacherCoverage": teacher_coverage,
         "forcedActionRoleDistribution": _forced_action_role_distribution(sample_tuple),
     }
@@ -581,6 +725,12 @@ def save_bidding_role_value_artifact(
     metadata = dict(checkpoint)
     metadata.pop("modelState", None)
     metadata["checkpointPath"] = str(checkpoint_path)
+    assessment = role_value_learning_assessment(
+        result.validation_report,
+        minimum_diff_pairs=result.config.minimum_validation_diff_pairs,
+        minimum_ranking_states=result.config.minimum_validation_ranking_states,
+    )
+    metadata["learningAssessment"] = assessment
     metadata_path.write_text(
         json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
@@ -591,6 +741,7 @@ def save_bidding_role_value_artifact(
         "coverage": result.coverage,
         "train": result.train_report,
         "validation": result.validation_report,
+        "learningAssessment": assessment,
     }
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return {
@@ -726,6 +877,7 @@ def _grouped_regression(
         truth = role_value_teacher(sample, role=role, teacher=teacher)
         if truth is None:
             continue
+        key: str
         if group == "actionType":
             key = sample.forced_action_type
         elif group == "suit":
@@ -793,6 +945,114 @@ def _forced_action_role_distribution(
     }
 
 
+def _create_split_from_validation_keys(
+    dataset: BiddingQDataset,
+    config: BiddingRoleValueTrainConfig,
+    validation_keys: tuple[str, ...],
+) -> BiddingMultiHeadQSplit:
+    all_state_keys = _state_keys_in_source_order(dataset.raw_samples)
+    all_state_key_set = set(all_state_keys)
+    missing = set(validation_keys) - all_state_key_set
+    if missing:
+        raise ValueError(f"validation state keys missing from dataset: {len(missing)}.")
+    validation_set = frozenset(validation_keys)
+    train_candidates = [key for key in all_state_keys if key not in validation_set]
+    train_count = config.train_state_count or len(train_candidates)
+    if train_count <= 0 or train_count > len(train_candidates):
+        raise ValueError(
+            f"train_state_count must be in [1,{len(train_candidates)}], got {train_count}."
+        )
+    train_set = frozenset(train_candidates[:train_count])
+    if train_set & validation_set:
+        raise AssertionError("stateKey leakage between train and validation.")
+    train_samples = tuple(sample for sample in dataset.raw_samples if sample.state_key in train_set)
+    validation_samples = tuple(
+        sample for sample in dataset.raw_samples if sample.state_key in validation_set
+    )
+    if not train_samples or not validation_samples:
+        raise ValueError("train and validation splits must both contain samples.")
+    return BiddingMultiHeadQSplit(
+        train_state_keys=train_set,
+        validation_state_keys=validation_set,
+        train_samples=train_samples,
+        validation_samples=validation_samples,
+        validation_state_key_hash=state_key_hash(validation_set),
+    )
+
+
+def _resolved_validation_state_count(
+    dataset: BiddingQDataset,
+    config: BiddingRoleValueTrainConfig,
+) -> int:
+    all_state_count = len(_state_keys_in_source_order(dataset.raw_samples))
+    if config.validation_state_count is not None:
+        return config.validation_state_count
+    return all_state_count - int(round(all_state_count * config.train_ratio))
+
+
+def _state_keys_in_source_order(samples: Iterable[BiddingQRawSample]) -> tuple[str, ...]:
+    keys: list[str] = []
+    seen: set[str] = set()
+    for sample in samples:
+        if sample.state_key in seen:
+            continue
+        seen.add(sample.state_key)
+        keys.append(sample.state_key)
+    return tuple(keys)
+
+
+def _role_value_state_stats(
+    samples: tuple[BiddingQRawSample, ...],
+    *,
+    role: BiddingRoleValueRole,
+    teacher: BiddingRoleValueTeacher,
+) -> dict[str, dict[str, int]]:
+    values_by_state: dict[str, list[float]] = defaultdict(list)
+    all_state_keys = _state_keys_in_source_order(samples)
+    for sample in samples:
+        value = role_value_teacher(sample, role=role, teacher=teacher)
+        if value is not None:
+            values_by_state[sample.state_key].append(value)
+    stats: dict[str, dict[str, int]] = {}
+    for state_key in all_state_keys:
+        values = values_by_state[state_key]
+        pair_count = 0
+        different_pair_count = 0
+        for left in range(len(values)):
+            for right in range(left + 1, len(values)):
+                pair_count += 1
+                if values[left] != values[right]:
+                    different_pair_count += 1
+        stats[state_key] = {
+            "sampleCount": len(values),
+            "pairCount": pair_count,
+            "differentPairCount": different_pair_count,
+        }
+    return stats
+
+
+def _beats_regression_baselines(
+    *,
+    mae: object,
+    rmse: object,
+    baselines: dict[str, object],
+    names: tuple[str, ...],
+) -> bool:
+    if not isinstance(mae, float) or not isinstance(rmse, float):
+        return False
+    for name in names:
+        baseline = baselines.get(name)
+        if not isinstance(baseline, dict):
+            return False
+        baseline_mae = baseline.get("mae")
+        baseline_rmse = baseline.get("rmse")
+        if not isinstance(baseline_mae, float) or not isinstance(baseline_rmse, float):
+            return False
+        if mae >= baseline_mae or rmse >= baseline_rmse:
+            return False
+    return True
+
+
 def _baseline(
     train_samples: tuple[BiddingQRawSample, ...],
     validation_samples: tuple[BiddingQRawSample, ...],
@@ -855,7 +1115,16 @@ def _checkpoint_dict(
             "trainStateCount": len(result.split.train_state_keys),
             "validationStateCount": len(result.split.validation_state_keys),
             "validationStateKeyHash": result.split.validation_state_key_hash,
+            "validationMode": (
+                "role-stratified" if result.config.role_stratified_validation else "default"
+            ),
+            "stateKeyLeakage": False,
         },
+        "learningAssessment": role_value_learning_assessment(
+            result.validation_report,
+            minimum_diff_pairs=result.config.minimum_validation_diff_pairs,
+            minimum_ranking_states=result.config.minimum_validation_ranking_states,
+        ),
     }
 
 
@@ -882,6 +1151,12 @@ def _validate_config(config: BiddingRoleValueTrainConfig) -> None:
         raise ValueError("learning_rate must be positive.")
     if config.patience <= 0:
         raise ValueError("patience must be positive.")
+    if config.validation_state_count is not None and config.validation_state_count <= 0:
+        raise ValueError("validation_state_count must be positive.")
+    if config.minimum_validation_diff_pairs < 0:
+        raise ValueError("minimum_validation_diff_pairs must be non-negative.")
+    if config.minimum_validation_ranking_states < 0:
+        raise ValueError("minimum_validation_ranking_states must be non-negative.")
 
 
 def _configure_reproducibility(seed: int) -> None:

@@ -18,6 +18,7 @@ from napoleon_ml.bidding_q import (
     load_bidding_q_dataset,
     load_bidding_role_value_checkpoint,
     role_value_coverage,
+    role_value_learning_assessment,
     role_value_loss,
     role_value_ranking,
     role_value_teacher,
@@ -69,6 +70,8 @@ def test_role_value_teachers_and_coverage(tmp_path: Path) -> None:
     citizen = next(sample for sample in dataset.raw_samples if sample.final_role == "citizen")
     adjutant = next(sample for sample in dataset.raw_samples if sample.final_role == "adjutant")
 
+    assert citizen.final_declared_target is not None
+    assert citizen.napoleon_side_point_cards is not None
     assert role_value_teacher(
         citizen, role="citizen", teacher="coalition-side-point-cards"
     ) == pytest.approx(citizen.coalition_side_point_cards)
@@ -109,6 +112,30 @@ def test_role_value_split_has_no_state_key_leakage(tmp_path: Path) -> None:
     assert split.train_state_keys.isdisjoint(split.validation_state_keys)
 
 
+def test_role_value_split_can_use_role_stratified_validation(tmp_path: Path) -> None:
+    _write_role_q_dataset(tmp_path / "dataset", repeats=1, state_count=18)
+    dataset = load_bidding_q_dataset(tmp_path / "dataset")
+
+    split = create_role_value_split(
+        dataset,
+        BiddingRoleValueTrainConfig(
+            role="adjutant",
+            hidden_dims=(8,),
+            train_state_count=8,
+            validation_state_count=4,
+            role_stratified_validation=True,
+        ),
+    )
+
+    validation_coverage = role_value_coverage(split.validation_samples)
+    teacher_coverage = cast(dict[str, object], validation_coverage["teacherCoverage"])
+    adjutant_coverage = cast(dict[str, object], teacher_coverage["adjutant"])
+    contract_margin = cast(dict[str, object], adjutant_coverage["contract-margin"])
+    assert split.train_state_keys.isdisjoint(split.validation_state_keys)
+    assert contract_margin["rankingStateCount"] == 4
+    assert contract_margin["pairCount"] == 4
+
+
 def test_role_value_ranking_reports_ties(tmp_path: Path) -> None:
     _write_role_q_dataset(tmp_path / "dataset", repeats=1, state_count=8)
     dataset = load_bidding_q_dataset(tmp_path / "dataset")
@@ -128,6 +155,32 @@ def test_role_value_ranking_reports_ties(tmp_path: Path) -> None:
     )
     assert ranking["pairCount"] is not None
     assert ranking["teacherTieRate"] is not None
+
+
+def test_role_value_learning_assessment_rejects_low_pair_coverage() -> None:
+    report = {
+        "regression": {"mae": 1.0, "rmse": 2.0, "pearsonCorrelation": 0.5},
+        "ranking": {
+            "differentPairCount": 3,
+            "rankingStateCount": 2,
+            "pairwiseAccuracy": 1.0,
+        },
+        "baselines": {
+            "globalMean": {"mae": 2.0, "rmse": 3.0},
+            "actionIndexMean": {"mae": 2.0, "rmse": 3.0},
+            "suitTargetMean": {"mae": 2.0, "rmse": 3.0},
+        },
+    }
+
+    assessment = role_value_learning_assessment(
+        report,
+        minimum_diff_pairs=200,
+        minimum_ranking_states=100,
+    )
+
+    assert assessment["coverageSufficient"] is False
+    assert assessment["established"] is False
+    assert "insufficient validation ranking coverage" in str(assessment["reason"])
 
 
 def test_role_value_training_checkpoint_and_low_sample_handling(tmp_path: Path) -> None:
