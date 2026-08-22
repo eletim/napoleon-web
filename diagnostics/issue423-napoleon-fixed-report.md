@@ -80,6 +80,13 @@ M2 has the best pWin/Brier and explicit sigma head; M1 has better same-hand top-
 
 40 current-bid representative states from #421. PASS/Citizen EV remains the #421 value; only Napoleon raise EV is replaced by new M2.
 
+Aggregate scorer values:
+
+| scorer | pWin mean | raise relative EV mean | PASS EV mean | empirical raise EV | empirical PASS EV | empirical delta |
+|---|---:|---:|---:|---:|---:|---:|
+| old #420/#411 | 0.288 | -0.510 | -0.125 | 6.377 | -0.125 | 6.502 |
+| new 5k M2 | 0.327 | 0.694 | -0.125 | 6.377 | -0.125 | 6.502 |
+
 | scorer | sign accuracy | false PASS | false raise | positive decision rate | EV MAE | EV bias |
 |---|---:|---:|---:|---:|---:|---:|
 | old #420/#411 | 30.0% | 28 | 0 | 2.5% | 10.01 | -9.95 |
@@ -87,9 +94,25 @@ M2 has the best pWin/Brier and explicit sigma head; M1 has better same-hand top-
 
 Raise underestimation is materially reduced, but not eliminated.
 
+Representative raise rows:
+
+| state | raise | old pWin | new pWin | old rel EV | new rel EV | empirical raise EV | empirical PASS EV | empirical delta |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| `seed-390093...60498c` | spades13 | 0.440 | 0.529 | 4.54 | 7.44 | 9.99 | 3.18 | 6.81 |
+| `seed-390109...72edf3` | spades15 | 0.429 | 0.449 | 4.82 | 5.59 | 25.20 | -7.35 | 32.55 |
+| `seed-390119...5b1cb2` | hearts13 | 0.312 | 0.540 | 0.40 | 7.81 | 0.62 | -1.41 | 2.03 |
+| `seed-390045...7688b8` | spades15 | 0.354 | 0.404 | 2.02 | 3.91 | 19.28 | 20.51 | -1.24 |
+
 ## #422 Opening States
 
 45 no-current-bid representative states from #422. All-Pass baseline is 0.
+
+Aggregate scorer values:
+
+| scorer | pWin mean | relative EV mean | empirical EV mean | All-Pass EV |
+|---|---:|---:|---:|---:|
+| old #420/#411 | 0.314 | 0.460 | 6.298 | 0 |
+| new 5k M2 | 0.385 | 2.772 | 6.298 | 0 |
 
 | scorer | sign accuracy | false PASS | false BID | BID rate | EV MAE | EV bias |
 |---|---:|---:|---:|---:|---:|---:|
@@ -97,6 +120,15 @@ Raise underestimation is materially reduced, but not eliminated.
 | new 5k M2 | 88.9% | 5 | 0 | 77.8% | 4.41 | -3.53 |
 
 Opening underestimation is substantially improved.
+
+Representative opening rows:
+
+| state | bid | old pWin | new pWin | old rel EV | new rel EV | empirical EV |
+|---|---|---:|---:|---:|---:|---:|
+| `seed-390039...62662b` | hearts13 | 0.301 | 0.572 | 0.03 | 8.83 | 4.13 |
+| `seed-390068...32e27b` | clubs13 | 0.303 | 0.482 | 0.10 | 5.91 | 12.28 |
+| `seed-390067...64b12b` | diamonds13 | 0.304 | 0.265 | 0.13 | -1.13 | 6.79 |
+| `seed-390106...314cab` | diamonds13 | 0.307 | 0.373 | 0.22 | 2.37 | 12.40 |
 
 ## Tests
 
