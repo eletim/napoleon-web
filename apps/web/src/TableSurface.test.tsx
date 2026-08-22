@@ -1,29 +1,40 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type {
+  PublicBidAction,
   PublicGameState,
   PublicPlayedCard,
   PublicRank,
   PublicStandardCard,
   PublicSuit
 } from "@napoleon/protocol";
-import { TableSurface } from "./TableSurface";
+import { TableSurface, productionTableTestExports } from "./TableSurface";
+import { fourColorSuitColors } from "./cardSuitTheme";
 import { createTablePlayers } from "./tablePlayers";
 
 describe("TableSurface", () => {
-  it("renders opponent hands as one facedown card per remaining card", () => {
-    const initialHtml = renderTable(createState({ opponentHandCounts: [10, 9, 8, 7] }));
-    const afterPlayHtml = renderTable(createState({ opponentHandCounts: [9, 9, 8, 7] }));
+  it("maps game-state players to mock seat geometry and opponent hand counts", () => {
+    const html = renderTable(createState({ opponentHandCounts: [10, 9, 8, 7] }));
 
-    expect(countOccurrences(initialHtml, "class=\"card-back\"")).toBe(34);
-    expect(countOccurrences(afterPlayHtml, "class=\"card-back\"")).toBe(33);
-    expect(initialHtml).toContain("左側AIの裏向き手札 10枚");
-    expect(afterPlayHtml).toContain("左側AIの裏向き手札 9枚");
+    expect(html).toContain("production-table-surface-playing");
+    expect(html).toContain("--mock-page-height:1830px");
+    expect(html).toContain("--mock-page-width:2200px");
+    expect(html).toContain("投影後の実ゲーム卓");
+    expect(html).toContain('<div class="mock-projected-card-layer">');
+    expect(countOccurrences(html, "mock-player-info mock-player-info-")).toBe(5);
+    expect(html).toContain("左側AI プレイヤー");
+    expect(html).toContain("奥左AI プレイヤー");
+    expect(html).toContain("奥右AI プレイヤー");
+    expect(html).toContain("右側AI プレイヤー");
+    expect(html).toContain("自分 プレイヤー");
+    expect(html).toContain("自分 プレイヤー 現在の手番");
+    expect(html).toContain("production-player-info-current");
+    expect(countOccurrences(html, "mock-projected-playing-card-opponent-hand")).toBe(34);
+    expect(html).toContain("左側AIの裏向き手札 10枚");
+    expect(html).toContain("奥左AIの裏向き手札 9枚");
   });
 
-  it("anchors current trick cards to the seat that played them", () => {
+  it("connects the current trick to each seat and uses cardmeister four-color cards", () => {
     const html = renderTable(
       createState({
         currentTrick: [
@@ -37,19 +48,22 @@ describe("TableSurface", () => {
       })
     );
 
-    expect(html).toContain("table-card-from-left");
-    expect(html).toContain("table-card-from-top-left");
-    expect(html).toContain("table-card-from-top-right");
-    expect(html).toContain("table-card-from-right");
-    expect(html).toContain("table-card-from-self");
-    expect(html).toContain("左側AIがA♠を出しました");
-    expect(html).toContain("奥左AIがK♥を出しました");
-    expect(html).toContain("奥右AIがQ♦を出しました");
-    expect(html).toContain("右側AIがJ♣を出しました");
-    expect(html).toContain("自分が10♠を出しました");
+    expect(html).toContain("production-trick-card-from-left");
+    expect(html).toContain("production-trick-card-from-top-left");
+    expect(html).toContain("production-trick-card-from-top-right");
+    expect(html).toContain("production-trick-card-from-right");
+    expect(html).toContain("production-trick-card-from-self");
+    expect(html).toContain('class="mock-projected-playing-card mock-playing-card mock-projected-playing-card-trick"');
+    expect(html).toContain('aria-label="A♠"');
+    expect(html).toContain('aria-label="K♥"');
+    expect(html).toContain('aria-label="Q♦"');
+    expect(html).toContain('aria-label="J♣"');
+    expect(html).toContain('aria-label="10♠"');
+    expect(countOccurrences(html, "class=\"mock-cardmeister-playing-card\"")).toBe(8);
+    expect(html).toContain(`rankcolor="${fourColorSuitColors.spades},${fourColorSuitColors.hearts},${fourColorSuitColors.diamonds},${fourColorSuitColors.clubs}"`);
   });
 
-  it("renders a compact point river inside every seat", () => {
+  it("connects captured point cards to the projected 10x2 river face", () => {
     const html = renderTable(
       createState({
         capturedPointCards: {
@@ -67,233 +81,170 @@ describe("TableSurface", () => {
       })
     );
 
-    expect(countOccurrences(html, "class=\"point-river ")).toBe(5);
-    expect(countOccurrences(html, "class=\"point-river-stack")).toBe(5);
-    expect(countOccurrences(html, "point-river-empty-mark")).toBe(3);
-    expect(countOccurrences(html, "table-point-card")).toBe(7);
-    expect(html).not.toContain("★");
-    expect(html).toContain("河 <strong>6</strong>");
-    expect(html).toContain("河 <strong>1</strong>");
-    expect(html).toContain("左側AIの獲得ポイント札 6枚");
-    expect(html).toContain("自分の獲得ポイント札 1枚");
+    expect(countOccurrences(html, "mock-projected-river-card-face")).toBe(7);
+    expect(html).toContain('aria-label="A♠"');
+    expect(html).toContain('aria-label="10♥"');
+    expect(html).toContain('aria-label="K♣"');
+    expect(html).toContain(`--mock-river-face-color:${fourColorSuitColors.clubs}`);
+    expect(html).not.toContain("point-river-empty-mark");
   });
 
-  it("renders role markers as compact table objects", () => {
-    const unknownHtml = renderTable(
+  it("connects role board markers to contract and revealed adjutant state", () => {
+    const biddingHtml = renderTable(
       createState({ opponentHandCounts: [10, 10, 10, 10], phase: "bidding" })
     );
-    const confirmedHtml = renderTable(
+    const playingHtml = renderTable(
       createState({
         adjutantRevealedPlayerId: "player-2",
         opponentHandCounts: [9, 9, 9, 9]
       })
     );
 
-    expect(countOccurrences(unknownHtml, "class=\"table-role-marker")).toBe(5);
-    expect(countOccurrences(unknownHtml, "の役職?")).toBe(5);
-    expect(unknownHtml).toContain("table-role-marker-unknown");
-    expect(confirmedHtml).toContain("左側AIの役職N");
-    expect(confirmedHtml).toContain("奥左AIの役職A");
-    expect(confirmedHtml).toContain("table-role-marker-napoleon");
-    expect(confirmedHtml).toContain("table-role-marker-adjutant");
+    expect(countOccurrences(biddingHtml, "mock-projected-role-marker-text")).toBe(5);
+    expect(biddingHtml).toContain(">?</text>");
+    expect(playingHtml).toContain(">ナポ</text>");
+    expect(playingHtml).toContain(">副</text>");
+    expect(playingHtml).toContain(">市</text>");
+    expect(productionTableTestExports.playerRoleLabel("player-1", createState({ opponentHandCounts: [9, 9, 9, 9] }))).toBe("ナポ");
+    expect(productionTableTestExports.playerRoleLabel("player-3", createState({ opponentHandCounts: [9, 9, 9, 9] }))).toBe("?");
+    expect(productionTableTestExports.playerRoleLabel("player-1", createState({
+      adjutantRevealedPlayerId: "player-1",
+      opponentHandCounts: [9, 9, 9, 9]
+    }))).toBe("ナ/副");
   });
 
-  it("keeps global contract details in the table HUD", () => {
+  it("preserves contract and called-card status after bidding", () => {
     const html = renderTable(
       createState({
-        contractSuit: "hearts",
         adjutantCardId: "diamonds-J",
-        adjutantRevealedPlayerId: "player-2",
+        contractSuit: "clubs",
         opponentHandCounts: [9, 9, 9, 9]
       })
     );
-    const hudHtml = html.slice(
-      html.indexOf("class=\"table-hud\""),
-      html.indexOf("<aside", html.indexOf("class=\"table-hud\""))
-    );
 
-    expect(hudHtml).toContain("♥13");
-    expect(hudHtml).toContain("契約");
-    expect(hudHtml).toContain("呼札 ");
-    expect(hudHtml).toContain("♦J");
-    expect(hudHtml).toContain("red-text");
-    expect(hudHtml).not.toContain("左側AI");
-    expect(hudHtml).not.toContain("自分");
-    expect(hudHtml).not.toContain("N");
-    expect(hudHtml).not.toContain("A");
+    expect(html).toContain("契約と呼札");
+    expect(html).toContain(">契約</span>");
+    expect(html).toContain(">♣13</strong>");
+    expect(html).toContain(">呼札</span>");
+    expect(html).toContain(">J♦</strong>");
+    expect(html).toContain(`--mock-bidding-action-color:${fourColorSuitColors.clubs}`);
+    expect(html).toContain(`--mock-bidding-action-color:${fourColorSuitColors.diamonds}`);
   });
 
-  it("uses table seat lanes for bidding declarations", () => {
+  it("renders bidding bubbles from latest bidding history using shared suit colors", () => {
     const html = renderTable(
       createState({
         biddingHistory: [
           { type: "bid", playerId: "player-1", suit: "spades", targetPointCards: 14 },
           { type: "pass", playerId: "player-2" },
-          { type: "bid", playerId: "player-4", suit: "hearts", targetPointCards: 15 }
+          { type: "bid", playerId: "player-4", suit: "hearts", targetPointCards: 15 },
+          { type: "bid", playerId: "player-0", suit: "clubs", targetPointCards: 13 }
+        ],
+        legalActions: [
+          { type: "bid", suit: "spades", targetPointCards: 16 },
+          { type: "bid", suit: "diamonds", targetPointCards: 16 },
+          { type: "pass" }
         ],
         opponentHandCounts: [10, 10, 10, 10],
         phase: "bidding"
       })
     );
 
-    expect(html).toContain("table-surface-bidding");
-    expect(countOccurrences(html, "class=\"table-seat-guide\"")).toBe(5);
-    expect(countOccurrences(html, "class=\"table-bid-token")).toBe(5);
-    expect(html).toContain("左側AIの競り宣言");
-    expect(html).toContain("♠");
-    expect(html).toContain(">14</strong>");
-    expect(html).toContain(">Pass</strong>");
-    expect(html).toContain("table-bid-token-red");
-    expect(html).toContain(">?</strong>");
+    expect(html).toContain("production-table-surface-bidding");
+    expect(countOccurrences(html, "mock-bidding-bubble mock-bidding-bubble-")).toBe(5);
+    expect(html).toContain("左側AI 最新宣言 ♠14");
+    expect(html).toContain("奥左AI 最新宣言 PASS");
+    expect(html).toContain("右側AI 最新宣言 ♥15");
+    expect(html).toContain("自分 最新宣言 ♣13");
+    expect(html).toContain(`--mock-bidding-action-color:${fourColorSuitColors.hearts}`);
+    expect(html).toContain(`--mock-bidding-action-color:${fourColorSuitColors.clubs}`);
   });
 
-  it("renders self hand cards with playing-card face structure", () => {
-    const html = renderTable(createState({ opponentHandCounts: [10, 10, 10, 10] }));
-
-    expect(html).toContain("class=\"card-corner card-corner-top\">A♠");
-    expect(html).toContain("class=\"card-suit card-center-mark\">♠");
-    expect(html).toContain("class=\"card-corner card-corner-bottom\">A♠");
-    expect(html).toContain("class=\"card-corner card-corner-top\">K♥");
-    expect(html).toContain("card-red");
-    expect(html).toContain("card-black");
-  });
-
-  it("keeps seat placement separate from stable card orientations", () => {
-    const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
-
-    expect(styles).not.toContain("--axis-angle");
-    expect(styles).not.toContain("--name-x");
-    expect(styles).not.toContain("--hand-x");
-    expect(styles).not.toContain("--trick-x");
-    expect(styles).not.toContain("--river-x");
-    expect(styles).not.toContain("--role-x");
-    expect(styles).not.toContain("--zone-x");
-    expect(styles).not.toContain("--zone-rotation");
-    expect(getCssRule(styles, ".table-hand-zone")).toContain(
-      "transform: rotate(var(--seat-hand-rotation));"
-    );
-    expect(getCssRule(styles, ".table-trick-zone")).toContain(
-      "transform: rotate(var(--seat-trick-rotation));"
-    );
-    expect(getCssRule(styles, ".table-river-zone", 1)).toContain(
-      "transform: rotate(var(--seat-river-rotation));"
-    );
-    expect(getCssRule(styles, ".table-player-left")).not.toContain("--seat-hand-rotation:");
-    expect(getCssRule(styles, ".table-player-right")).not.toContain("--seat-hand-rotation:");
-    expect(getCssRule(styles, ".table-player-top-left")).not.toContain("--seat-hand-rotation:");
-    expect(getCssRule(styles, ".table-player-top-right")).not.toContain("--seat-hand-rotation:");
-    expect(styles).toContain("flex-direction: column;\n  max-height: 156px;");
-  });
-
-  it("keeps permanent and contextual controls in the left side action rail", () => {
+  it("connects bidding overlay controls to legal actions only", () => {
+    const legalActions: readonly PublicBidAction[] = [
+      { type: "bid", suit: "spades", targetPointCards: 16 },
+      { type: "bid", suit: "diamonds", targetPointCards: 16 }
+    ];
     const html = renderTable(
-      createState({ opponentHandCounts: [10, 10, 10, 10] }),
-      <div className="action-area">
-        <button
-          aria-label="次のトリックへ進む"
-          className="secondary-button next-trick-button"
-          type="button"
-        >
-          次へ
-        </button>
-      </div>
+      createState({
+        biddingHistory: [
+          { type: "bid", playerId: "player-4", suit: "spades", targetPointCards: 15 }
+        ],
+        legalActions: [...legalActions, { type: "pass" }],
+        opponentHandCounts: [10, 10, 10, 10],
+        phase: "bidding"
+      }),
+      null,
+      legalActions,
+      true
     );
-    const asideStart = html.indexOf("class=\"table-side-actions\"");
-    const seatsStart = html.indexOf("class=\"table-seat-container");
-    const asideHtml = html.slice(asideStart, seatsStart);
 
-    expect(asideHtml).toContain("aria-label=\"操作\"");
-    expect(asideHtml).toContain("class=\"table-side-tools\"");
-    expect(asideHtml).toContain("理牌");
-    expect(asideHtml).toContain("勝札");
-    expect(asideHtml).toContain("next-trick-button");
-    expect(asideHtml).toContain("次のトリックへ進む");
-    expect(asideHtml.indexOf("table-side-tools")).toBeLessThan(
-      asideHtml.indexOf("next-trick-button")
-    );
+    expect(html).toContain("競り操作Overlay");
+    expect(html).toContain("現在の最高入札");
+    expect(html).toContain(">♠15</strong>");
+    expect(html).toContain('aria-label="♠を選択"');
+    expect(html).toContain('aria-label="♦を選択"');
+    expect(html).toContain('aria-label="♥を選択" aria-pressed="false" class="mock-bidding-suit-button" disabled=""');
+    expect(html).toContain('aria-label="♣を選択" aria-pressed="false" class="mock-bidding-suit-button" disabled=""');
+    expect(html).toContain('class="mock-bidding-declare-button"');
+    expect(html).toContain('class="mock-bidding-pass-button"');
   });
 
-  it("only renders the next trick action when the completed trick needs clearing", () => {
-    const appSource = readFileSync(fileURLToPath(new URL("./App.tsx", import.meta.url)), "utf8");
-    const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
-
-    expect(appSource).toContain(
-      'session?.state.phase === "playing" &&\n                session.state.isTrickComplete &&\n                !session.state.isGameOver'
+  it("keeps self hand operations and card size fixed when cards are removed", () => {
+    const fullHtml = renderTable(createState({ opponentHandCounts: [10, 10, 10, 10] }));
+    const reducedHtml = renderTable(
+      createState({
+        selfHand: [standardCard("spades", "A")],
+        opponentHandCounts: [10, 10, 10, 10]
+      })
     );
-    expect(appSource).toContain("disabled={isInteractionLocked}");
-    expect(styles).toContain(".table-side-actions .next-trick-button");
-    expect(styles).toContain("white-space: nowrap;");
+
+    expect(countOccurrences(fullHtml, "mock-self-hand-card")).toBe(3);
+    expect(countOccurrences(reducedHtml, "mock-self-hand-card")).toBe(1);
+    expect(fullHtml).toContain("--mock-self-card-width:135.3846153846154px");
+    expect(reducedHtml).toContain("--mock-self-card-width:135.3846153846154px");
+    expect(fullHtml).toContain("production-card-blocked");
+    expect(fullHtml).toContain('cid="As"');
+    expect(fullHtml).toContain('cid="Kh"');
   });
 
-  it("keeps completed trick controls attached to the self seat", () => {
+  it("keeps exchange/adjutant/result action panels available outside bidding", () => {
     const html = renderTable(
-      createState({ isTrickComplete: true, opponentHandCounts: [9, 9, 9, 9] }),
-      <div className="action-area">
-        <button
-          aria-label="次のトリックへ進む"
-          className="secondary-button next-trick-button"
-          type="button"
-        >
-          次へ
-        </button>
-      </div>
+      createState({ opponentHandCounts: [9, 9, 9, 9], phase: "exchanging" }),
+      <section className="exchange-panel" aria-label="埋札交換">
+        <button className="secondary-button" type="button">捨てる</button>
+      </section>
     );
-    const asideStart = html.indexOf("class=\"table-side-actions\"");
-    const seatsStart = html.indexOf("class=\"table-seat-container");
-    const asideHtml = html.slice(asideStart, seatsStart);
-    const selfSeatStart = html.indexOf("class=\"table-seat-container table-player-self");
-    const selfSeatEnd = html.indexOf("<div class=\"table-core\"", selfSeatStart);
-    const selfSeatHtml = html.slice(selfSeatStart, selfSeatEnd);
 
-    expect(asideHtml).not.toContain("next-trick-button");
-    expect(selfSeatHtml).toContain("class=\"table-seat-actions\"");
-    expect(selfSeatHtml).toContain("理牌");
-    expect(selfSeatHtml).toContain("勝札");
-    expect(selfSeatHtml).toContain("next-trick-button");
-  });
-
-  it("groups each player as a concrete seat container and hides unused trick slots while bidding", () => {
-    const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
-    const html = renderTable(createState({ opponentHandCounts: [10, 10, 10, 10] }));
-
-    expect(countOccurrences(html, "class=\"table-seat-container")).toBe(5);
-    expect(countOccurrences(html, "class=\"table-seat-header\"")).toBe(5);
-    expect(html.indexOf("class=\"table-seat-header\"")).toBeLessThan(
-      html.indexOf("class=\"table-hand-zone\"")
-    );
-    expect(styles).toContain(".table-surface::before,");
-    expect(getCssRule(styles, ".table-surface::before")).toContain("height: min(56vw, 400px);");
-    expect(getCssRule(styles, ".table-seat-container")).toContain("display: flex;");
-    expect(getCssRule(styles, ".table-seat-guide")).toContain("inset: -6px;");
-    expect(getCssRule(styles, ".table-player-left")).toContain("flex-direction: row;");
-    expect(getCssRule(styles, ".table-player-right")).toContain("flex-direction: row-reverse;");
-    expect(getCssRule(styles, ".table-player-self")).toContain("flex-direction: column-reverse;");
-    expect(styles).toContain("position: relative;\n  transform-origin: center;");
-    expect(getCssRule(styles, ".table-role-marker")).toContain("position: relative;");
-    expect(getCssRule(styles, ".table-trick-card")).toContain("height: 78px;");
-    expect(getCssRule(styles, ".point-river")).toContain("display: inline-grid;");
-    expect(styles).toContain("background: rgb(255 255 255 / 10%);");
-    expect(styles).toContain(".table-side-actions .adjutant-controls label,");
-    expect(styles).toContain("color: rgb(226 232 240 / 88%);");
-    expect(getCssRule(styles, ".table-surface-bidding .table-trick-zone")).toContain(
-      "display: none;"
-    );
+    expect(html).toContain("production-action-overlay");
+    expect(html).toContain("埋札交換");
+    expect(html).toContain("捨てる");
   });
 });
 
-function renderTable(state: PublicGameState, actionPanel: React.ReactNode = null): string {
+function renderTable(
+  state: PublicGameState,
+  actionPanel: React.ReactNode = null,
+  legalBidActions: readonly PublicBidAction[] = state.legalActions.filter((action): action is PublicBidAction => action.type === "bid"),
+  canPass = state.legalActions.some((action) => action.type === "pass")
+): string {
   return renderToStaticMarkup(
     <TableSurface
       actionPanel={actionPanel}
-      canExchange={false}
+      canExchange={state.phase === "exchanging"}
+      canPass={canPass}
       currentTrick={state.currentTrick}
       highlightWinningCard={true}
       isBusy={false}
-      legalCardIds={new Set()}
+      legalBidActions={legalBidActions}
+      legalCardIds={new Set(state.legalActions.filter((action) => action.type === "play-card").map((action) => action.cardId))}
+      onBid={vi.fn()}
+      onPass={vi.fn()}
       onPlay={vi.fn()}
       onToggleWinningCardHighlight={vi.fn()}
       players={createTablePlayers(state)}
       selectedDiscardCardIds={[]}
+      selfPlayerId={state.self.id}
       state={state}
       trickNumber={state.trickNumber}
       trumpSuit={state.trumpSuit}
@@ -309,8 +260,14 @@ function createState({
   biddingHistory = [],
   contractSuit = "spades",
   isTrickComplete = false,
+  legalActions = [],
   phase = "playing",
-  opponentHandCounts
+  opponentHandCounts,
+  selfHand = [
+    standardCard("spades", "A"),
+    standardCard("hearts", "K"),
+    standardCard("diamonds", "Q")
+  ]
 }: {
   adjutantCardId?: string;
   adjutantRevealedPlayerId?: string | null;
@@ -319,18 +276,16 @@ function createState({
   contractSuit?: PublicSuit;
   currentTrick?: readonly PublicPlayedCard[];
   isTrickComplete?: boolean;
+  legalActions?: PublicGameState["legalActions"];
   phase?: PublicGameState["phase"];
   opponentHandCounts: readonly [number, number, number, number];
+  selfHand?: PublicGameState["self"]["hand"];
 }): PublicGameState {
   return {
     self: {
       id: "player-0",
-      handCount: 10,
-      hand: [
-        standardCard("spades", "A"),
-        standardCard("hearts", "K"),
-        standardCard("diamonds", "Q")
-      ],
+      handCount: selfHand.length,
+      hand: selfHand,
       capturedPointCards: capturedPointCards["player-0"] ?? []
     },
     opponents: opponentHandCounts.map((handCount, index) => ({
@@ -370,7 +325,7 @@ function createState({
             history: biddingHistory
           }
         : null,
-    exchange: null,
+    exchange: phase === "exchanging" ? { napoleonPlayerId: "player-0", requiredDiscardCount: 3 } : null,
     adjutantChoice: null,
     currentPlayerId: "player-0",
     currentTrick,
@@ -378,7 +333,7 @@ function createState({
     trickNumber: 1,
     isTrickComplete,
     isGameOver: false,
-    legalActions: []
+    legalActions
   };
 }
 
@@ -400,21 +355,4 @@ function standardCard(suit: PublicSuit, rank: PublicRank): PublicStandardCard {
 
 function countOccurrences(value: string, needle: string): number {
   return value.split(needle).length - 1;
-}
-
-function getCssRule(styles: string, selector: string, occurrence = 0): string {
-  let start = -1;
-  let searchFrom = 0;
-
-  for (let index = 0; index <= occurrence; index += 1) {
-    start = styles.indexOf(`${selector} {`, searchFrom);
-    expect(start).toBeGreaterThanOrEqual(0);
-    searchFrom = start + selector.length;
-  }
-
-  expect(start).toBeGreaterThanOrEqual(0);
-  const end = styles.indexOf("\n}", start);
-  expect(end).toBeGreaterThan(start);
-
-  return styles.slice(start, end);
 }

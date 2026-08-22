@@ -1,5 +1,7 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import type {
+  PublicBidAction,
+  PublicBiddingState,
   PublicCard,
   PublicGameState,
   PublicPlayedCard,
@@ -7,47 +9,114 @@ import type {
   PublicSuit
 } from "@napoleon/protocol";
 import { determineCurrentWinningPlayer } from "@napoleon/game-core";
-import { isRedSuit, suitSymbols } from "./cardSymbols";
-import { CardButton } from "./CardButton";
+import { CardmeisterPlayingCard, useCardmeisterScript } from "./CardmeisterPlayingCard";
+import { cardDesignSuitSymbols } from "./CardDesignCard";
+import {
+  createBiddingBubbleLayouts,
+  createBiddingOverlayGeometry,
+  createCurrentTrickCardPlane,
+  createCurrentTrickZoneGeometry,
+  createOpponentHandGeometry,
+  createPlayerInfoLayouts,
+  createProjectedBoardFit,
+  createRiverFaceMetrics,
+  createRiverGeometry,
+  createRiverPlacements,
+  createRoleBoardSectorLines,
+  createRoleMarkerGeometry,
+  createSelfHandViewportLayout,
+  projectTableCard,
+  projectTablePoint,
+  projectTablePolygon,
+  projectVerticalCard,
+  projectiveTransformForRectangle,
+  roleBoardInnerPolygon,
+  roleBoardLocalToAbsolute,
+  roleBoardOuterPolygon,
+  tableDesignMockLayout
+} from "./TableDesignMock";
+import { fourColorSuitColors } from "./cardSuitTheme";
+import {
+  findBidAction,
+  getBidStepperState,
+  getBidTargetsForSuit,
+  normalizeBidSelection,
+  type BidSelection
+} from "./biddingOptions";
+import { mockCardBackComponent, mockCardBackComponentName, type MockPlayingCard } from "./mockPlayingCardAdapter";
 import { getDisplayedHandCards, type HandOrderMode } from "./handSorting";
-import type { TablePlayer } from "./tableTypes";
+import type { Seat, TablePlayer } from "./tableTypes";
 
 interface TableSurfaceProps {
   actionPanel: ReactNode;
   canExchange: boolean;
+  canPass?: boolean;
   collectingWinnerId?: string;
   currentTrick: readonly PublicPlayedCard[];
   highlightWinningCard: boolean;
   isBusy: boolean;
   isResultEmphasisActive?: boolean;
+  legalBidActions?: readonly PublicBidAction[];
   legalCardIds: ReadonlySet<string>;
+  onBid?: (action: PublicBidAction) => void;
+  onPass?: () => void;
   onPlay: (card: PublicCard) => void;
   onToggleWinningCardHighlight: () => void;
   players: readonly TablePlayer[];
   selectedDiscardCardIds: readonly string[];
+  selfPlayerId?: string;
   state: PublicGameState | undefined;
   trickNumber: number | undefined;
   trumpSuit: PublicSuit | null | undefined;
 }
 
+type TableSeatId = Seat;
+
+interface ViewportSize {
+  height: number;
+  width: number;
+}
+
+interface TablePlayerAdapter {
+  biddingDeclaration: TablePlayer["biddingDeclaration"];
+  capturedPointCards: readonly PublicStandardCard[];
+  handCount: number;
+  id: string;
+  isSelf: boolean;
+  label: string;
+  seat: TableSeatId;
+  selfHand: readonly PublicCard[];
+}
+
+const seatOrder = ["top-left", "top-right", "right", "left", "self"] as const satisfies readonly TableSeatId[];
+const opponentSeatOrder = ["top-left", "top-right", "right", "left"] as const satisfies readonly Exclude<TableSeatId, "self">[];
+const biddingSuitOptions = ["spades", "hearts", "diamonds", "clubs"] as const satisfies readonly PublicSuit[];
+
 export function TableSurface({
   actionPanel,
   canExchange,
+  canPass = false,
   collectingWinnerId,
   currentTrick,
   highlightWinningCard,
   isBusy,
   isResultEmphasisActive = false,
+  legalBidActions = [],
   legalCardIds,
+  onBid,
+  onPass,
   onPlay,
   onToggleWinningCardHighlight,
   players,
   selectedDiscardCardIds,
+  selfPlayerId,
   state,
   trickNumber,
   trumpSuit
 }: TableSurfaceProps) {
   const [handOrderMode, setHandOrderMode] = useState<HandOrderMode>("riipai");
+  const viewportSize = useViewportSize(tableDesignMockLayout.page);
+  const adapters = useMemo(() => createProductionTablePlayers(players, state, handOrderMode), [handOrderMode, players, state]);
   const playedCardsByPlayerId = useMemo(
     () => new Map(currentTrick.map((played) => [played.playerId, played] as const)),
     [currentTrick]
@@ -56,19 +125,67 @@ export function TableSurface({
     highlightWinningCard && trumpSuit !== null && trumpSuit !== undefined
       ? getCurrentWinningPlayerId(currentTrick, trumpSuit, trickNumber)
       : undefined;
-  const collectingWinner = players.find((player) => player.id === collectingWinnerId);
-  const showSeatActions =
-    state?.phase === "playing" && state.isTrickComplete && !state.isGameOver;
-  const toolsPanel =
-    state === undefined ? null : (
-      <div className="table-side-tools" aria-label="補助操作">
+  const collectingSeat = adapters.find((player) => player.id === collectingWinnerId)?.seat;
+  const className = [
+    "production-table-surface",
+    state?.phase === "bidding" ? "production-table-surface-bidding" : "production-table-surface-playing",
+    isResultEmphasisActive ? "production-table-surface-result" : "",
+    collectingSeat === undefined ? "" : `production-table-surface-collecting production-table-surface-collecting-to-${collectingSeat}`
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  useCardmeisterScript();
+
+  return (
+    <div className={className} aria-label="ゲームテーブル" style={tableSurfaceStyle(tableDesignMockLayout)}>
+      <ProjectedProductionBoard
+        adapters={adapters}
+        currentTrickByPlayerId={playedCardsByPlayerId}
+        isCollecting={collectingSeat !== undefined}
+        viewportSize={viewportSize}
+        winningPlayerId={winningPlayerId}
+        state={state}
+      />
+      <PlayerInfoLayer
+        adapters={adapters}
+        currentPlayerId={state?.currentPlayerId}
+        viewportSize={viewportSize}
+      />
+      {state?.phase !== "bidding" ? <ProductionContractHud state={state} /> : null}
+      {state?.phase === "bidding" ? (
+        <>
+          <ProductionBiddingOverlay
+            bidding={state.bidding}
+            canPass={canPass}
+            currentPlayerId={state.currentPlayerId}
+            isBusy={isBusy}
+            legalBidActions={legalBidActions}
+            onBid={onBid}
+            onPass={onPass}
+            selfPlayerId={selfPlayerId}
+            viewportSize={viewportSize}
+          />
+          <BiddingBubbleLayer adapters={adapters} viewportSize={viewportSize} />
+        </>
+      ) : null}
+      <SelfHandLayer
+        canExchange={canExchange}
+        handOrderMode={handOrderMode}
+        isBusy={isBusy}
+        legalCardIds={legalCardIds}
+        onPlay={onPlay}
+        selectedDiscardCardIds={selectedDiscardCardIds}
+        self={adapters.find((player) => player.isSelf)}
+        state={state}
+        viewportSize={viewportSize}
+      />
+      <div className="production-table-tools" aria-label="補助操作">
         <button
           aria-label={handOrderMode === "riipai" ? "理牌オン" : "理牌オフ"}
           aria-pressed={handOrderMode === "riipai"}
-          className={getSideToolButtonClassName(handOrderMode === "riipai")}
-          onClick={() =>
-            setHandOrderMode((current) => (current === "riipai" ? "original" : "riipai"))
-          }
+          className={handOrderMode === "riipai" ? "production-tool-button production-tool-button-active" : "production-tool-button"}
+          onClick={() => setHandOrderMode((current) => (current === "riipai" ? "original" : "riipai"))}
           type="button"
         >
           理牌
@@ -76,163 +193,506 @@ export function TableSurface({
         <button
           aria-label={highlightWinningCard ? "暫定勝ち札強調オン" : "暫定勝ち札強調オフ"}
           aria-pressed={highlightWinningCard}
-          className={getSideToolButtonClassName(highlightWinningCard)}
+          className={highlightWinningCard ? "production-tool-button production-tool-button-active" : "production-tool-button"}
           onClick={onToggleWinningCardHighlight}
           type="button"
         >
           勝札
         </button>
       </div>
-    );
-  const surfaceClassName = [
-    "table-surface",
-    state?.phase === "bidding" ? "table-surface-bidding" : "table-surface-playing",
-    isResultEmphasisActive ? "table-surface-result" : "",
-    collectingWinner === undefined
-      ? ""
-      : `table-surface-collecting table-surface-collecting-to-${collectingWinner.seat}`
-  ]
-    .filter(Boolean)
-    .join(" ");
+      {actionPanel === null || state?.phase === "bidding" ? null : (
+        <aside className="production-action-overlay" aria-label="操作">
+          {actionPanel}
+        </aside>
+      )}
+    </div>
+  );
+}
+
+function ProductionContractHud({ state }: { state: PublicGameState | undefined }) {
+  if (state?.contract === null || state?.contract === undefined) {
+    return null;
+  }
+
+  const calledCard = state.adjutant?.calledCardId;
 
   return (
-    <div className={surfaceClassName}>
-      <TableHud state={state} />
-      <aside className="table-side-actions" aria-label="操作">
-        {showSeatActions ? null : toolsPanel}
-        {showSeatActions ? null : actionPanel}
-      </aside>
+    <aside aria-label="契約と呼札" className="production-contract-hud">
+      <span className="production-contract-chip">
+        <span>契約</span>
+        <strong style={biddingActionColorStyle(state.contract.trumpSuit)}>
+          {cardDesignSuitSymbols[state.contract.trumpSuit]}
+          {state.contract.targetPointCards}
+        </strong>
+      </span>
+      <span className="production-contract-chip">
+        <span>呼札</span>
+        <strong style={calledCardColorStyle(calledCard)}>{formatCalledCardId(calledCard)}</strong>
+      </span>
+    </aside>
+  );
+}
 
-      {players.map((player) => (
-        <TableSeat
-          canExchange={canExchange}
-          handOrderMode={handOrderMode}
-          isBusy={isBusy}
-          isCollecting={collectingWinner !== undefined}
-          isCurrent={state?.currentPlayerId === player.id}
-          isWinning={winningPlayerId === player.id}
-          key={player.seat}
-          legalCardIds={legalCardIds}
-          onPlay={onPlay}
-          played={playedCardsByPlayerId.get(player.id)}
-          player={player}
-          seatActionPanel={
-            showSeatActions && player.isSelf ? (
-              <>
-                {toolsPanel}
-                {actionPanel}
-              </>
-            ) : null
-          }
-          selectedDiscardCardIds={selectedDiscardCardIds}
-          state={state}
-        />
-      ))}
+function ProjectedProductionBoard({
+  adapters,
+  currentTrickByPlayerId,
+  isCollecting,
+  state,
+  viewportSize,
+  winningPlayerId
+}: {
+  adapters: readonly TablePlayerAdapter[];
+  currentTrickByPlayerId: ReadonlyMap<string, PublicPlayedCard>;
+  isCollecting: boolean;
+  state: PublicGameState | undefined;
+  viewportSize: ViewportSize;
+  winningPlayerId: string | undefined;
+}) {
+  const layout = tableDesignMockLayout;
+  const fit = createProjectedBoardFit(layout, viewportSize);
+  const tablePoints = projectTablePolygon(layout.tableSurface, layout.camera);
+  const roleOuterPoints = projectTablePolygon(roleBoardOuterPolygon(layout.center), layout.camera);
+  const roleInnerPoints = projectTablePolygon(roleBoardInnerPolygon(layout.center), layout.camera);
+  const sectorLines = createRoleBoardSectorLines(layout.center).map((line) => ({
+    inner: projectTablePoint(roleBoardLocalToAbsolute(layout.center, line.inner), layout.camera),
+    outer: projectTablePoint(roleBoardLocalToAbsolute(layout.center, line.outer), layout.camera)
+  }));
 
-      <div className="table-core" aria-hidden="true">
-        <div className="table-core-ring" />
+  return (
+    <div className="mock-projected-board-fit" style={projectedBoardFitStyle(fit)}>
+      <svg
+        aria-label="投影後の実ゲーム卓"
+        className="mock-projected-tabletop production-projected-tabletop"
+        viewBox={`0 0 ${layout.page.width} ${layout.page.height}`}
+      >
+        <polygon className="mock-table-surface-polygon" points={svgPoints(tablePoints)} />
+        {seatOrder.map((seat) => {
+          const zone = createCurrentTrickZoneGeometry(layout, seat);
+          return (
+            <polygon
+              className="mock-projected-current-trick-zone-fill"
+              key={`production-trick-zone-${seat}`}
+              points={svgPoints(projectTableCard(zone, layout.camera))}
+            />
+          );
+        })}
+        <g className="mock-projected-role-board">
+          <polygon className="mock-projected-role-board-outer" points={svgPoints(roleOuterPoints)} />
+          {sectorLines.map((line, index) => (
+            <line
+              className="mock-projected-role-board-sector-line"
+              key={index}
+              x1={line.outer.x}
+              x2={line.inner.x}
+              y1={line.outer.y}
+              y2={line.inner.y}
+            />
+          ))}
+          <polygon className="mock-projected-role-board-inner" points={svgPoints(roleInnerPoints)} />
+          {seatOrder.map((seat) => (
+            <ProductionRoleMarker key={`production-role-${seat}`} seat={seat} state={state} adapters={adapters} />
+          ))}
+        </g>
+      </svg>
+      <div className="mock-projected-card-layer">
+        {seatOrder.map((seat) => {
+          const player = adapters.find((entry) => entry.seat === seat);
+          const played = player === undefined ? undefined : currentTrickByPlayerId.get(player.id);
+
+          return (
+            <ProjectedCurrentTrickCard
+              isCollecting={isCollecting}
+              isWinning={played !== undefined && played.playerId === winningPlayerId}
+              key={`production-trick-card-${seat}`}
+              played={played}
+              seat={seat}
+            />
+          );
+        })}
+        {seatOrder.map((seat) => {
+          const player = adapters.find((entry) => entry.seat === seat);
+
+          return (
+            <ProjectedPointRiverCards
+              cards={player?.capturedPointCards ?? []}
+              key={`production-river-${seat}`}
+              seat={seat}
+            />
+          );
+        })}
+        {opponentSeatOrder.map((seat) => {
+          const player = adapters.find((entry) => entry.seat === seat);
+
+          return (
+            <ProjectedOpponentHand
+              count={player?.handCount ?? 0}
+              key={`production-opponent-hand-${seat}`}
+              label={player?.label ?? seat}
+              seat={seat}
+            />
+          );
+        })}
       </div>
     </div>
   );
 }
 
-interface TableSeatProps {
-  canExchange: boolean;
-  handOrderMode: HandOrderMode;
-  isBusy: boolean;
-  isCollecting: boolean;
-  isCurrent: boolean;
-  isWinning: boolean;
-  legalCardIds: ReadonlySet<string>;
-  onPlay: (card: PublicCard) => void;
-  played: PublicPlayedCard | undefined;
-  player: TablePlayer;
-  seatActionPanel: ReactNode;
-  selectedDiscardCardIds: readonly string[];
-  state: PublicGameState | undefined;
-}
-
-function TableSeat({
-  canExchange,
-  handOrderMode,
-  isBusy,
-  isCollecting,
-  isCurrent,
-  isWinning,
-  legalCardIds,
-  onPlay,
-  played,
-  player,
-  seatActionPanel,
-  selectedDiscardCardIds,
+function ProductionRoleMarker({
+  adapters,
+  seat,
   state
-}: TableSeatProps) {
-  const capturedPointCards =
-    player.isSelf ? (state?.self.capturedPointCards ?? player.capturedPointCards) : player.capturedPointCards;
-  const seatClassName = [
-    "table-seat-container",
-    `table-player-${player.seat}`,
-    isCurrent ? "table-player-current" : ""
-  ]
-    .filter(Boolean)
-    .join(" ");
+}: {
+  adapters: readonly TablePlayerAdapter[];
+  seat: TableSeatId;
+  state: PublicGameState | undefined;
+}) {
+  const layout = tableDesignMockLayout;
+  const marker = createRoleMarkerGeometry(layout.center, seat);
+  const center = roleBoardLocalToAbsolute(layout.center, marker);
+  const corners = projectTableCard(
+    {
+      direction: { x: 1, y: 0 },
+      height: marker.height,
+      normal: { x: 0, y: 1 },
+      width: marker.width,
+      x: center.x,
+      y: center.y
+    },
+    layout.camera
+  );
+  const labelCenter = polygonCenter(corners);
+  const player = adapters.find((entry) => entry.seat === seat);
+  const role = player === undefined ? "?" : playerRoleLabel(player.id, state);
 
   return (
-    <section aria-label={player.label} className={seatClassName}>
-      <div className="table-seat-guide" aria-hidden="true" />
-      <div className="table-seat-header">
-        <div className="table-seat-name">
-          <span>{player.label}</span>
-        </div>
-        <RoleMarker player={player} state={state} />
-      </div>
-      {seatActionPanel === null ? null : (
-        <div className="table-seat-actions" aria-label={`${player.label}の操作`}>
-          {seatActionPanel}
-        </div>
-      )}
-      <div className="table-hand-zone" aria-label={`${player.label}の手札領域`}>
-        {player.isSelf ? (
-          <SelfTableHand
-            canExchange={canExchange}
-            handOrderMode={handOrderMode}
-            isBusy={isBusy}
-            legalCardIds={legalCardIds}
-            onPlay={onPlay}
-            selectedDiscardCardIds={selectedDiscardCardIds}
-            state={state}
+    <g className={`mock-projected-role-marker mock-projected-role-marker-${seat}`}>
+      <polygon className="mock-projected-role-marker-fill" points={svgPoints(corners)} />
+      <text
+        className="mock-projected-role-marker-text"
+        dominantBaseline="central"
+        textAnchor="middle"
+        x={labelCenter.x}
+        y={labelCenter.y}
+      >
+        {role}
+      </text>
+    </g>
+  );
+}
+
+function ProjectedCurrentTrickCard({
+  isCollecting,
+  isWinning,
+  played,
+  seat
+}: {
+  isCollecting: boolean;
+  isWinning: boolean;
+  played: PublicPlayedCard | undefined;
+  seat: TableSeatId;
+}) {
+  if (played === undefined) {
+    return null;
+  }
+
+  const layout = tableDesignMockLayout;
+  const cardPlane = createCurrentTrickCardPlane(layout, seat);
+  const size = { width: cardPlane.width, height: cardPlane.height };
+  const corners = projectTableCard(cardPlane, layout.camera);
+
+  return (
+    <ProjectedPlayingCard
+      card={played.card}
+      className="mock-projected-playing-card-trick"
+      contentClassName={[
+        "production-trick-card",
+        `production-trick-card-from-${seat}`,
+        isWinning ? "production-trick-card-winning" : "",
+        isCollecting ? "production-trick-card-collecting" : ""
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      corners={corners}
+      size={size}
+    />
+  );
+}
+
+function ProjectedPointRiverCards({
+  cards,
+  seat
+}: {
+  cards: readonly PublicStandardCard[];
+  seat: TableSeatId;
+}) {
+  const layout = tableDesignMockLayout;
+  const river = createRiverGeometry(layout, seat);
+  const placements = createRiverPlacements(cards.length, layout, seat);
+
+  return (
+    <g className={`mock-projected-point-river mock-projected-point-river-${seat}`}>
+      {cards.slice(0, layout.riverGrid.maxColumns * layout.riverGrid.maxRows).map((card, index) => {
+        const placement = placements[index] ?? { x: 0, y: 0, rotation: 0 };
+        const corners = projectTableCard(
+          {
+            direction: river.direction,
+            height: river.visibleCardSize.height,
+            normal: river.normal,
+            width: river.visibleCardSize.width,
+            x: toLayoutPrecision(river.x + river.direction.x * placement.x + river.normal.x * placement.y),
+            y: toLayoutPrecision(river.y + river.direction.y * placement.x + river.normal.y * placement.y)
+          },
+          layout.camera,
+          "top-left"
+        );
+
+        return (
+          <ProjectedRiverCardFace
+            card={card}
+            corners={corners}
+            key={`${card.id}-${index}`}
+            size={river.visibleCardSize}
           />
-        ) : (
-          <OpponentCardBacks count={player.handCount} playerLabel={player.label} />
-        )}
+        );
+      })}
+    </g>
+  );
+}
+
+function ProjectedOpponentHand({
+  count,
+  label,
+  seat
+}: {
+  count: number;
+  label: string;
+  seat: Exclude<TableSeatId, "self">;
+}) {
+  const layout = tableDesignMockLayout;
+  const geometry = createOpponentHandGeometry(
+    {
+      ...layout,
+      opponentHand: {
+        ...layout.opponentHand,
+        cardCounts: {
+          ...layout.opponentHand.cardCounts,
+          [seat]: count
+        }
+      }
+    },
+    seat
+  );
+
+  return (
+    <section
+      aria-label={`${label}の裏向き手札 ${count}枚`}
+      className={`mock-projected-opponent-hand mock-projected-opponent-hand-${seat}`}
+    >
+      {geometry.cards.map((card) => (
+        <ProjectedPlayingCardBack corners={projectVerticalCard(card, layout.camera)} key={card.index} size={geometry.cardSize} />
+      ))}
+    </section>
+  );
+}
+
+function PlayerInfoLayer({
+  adapters,
+  currentPlayerId,
+  viewportSize
+}: {
+  adapters: readonly TablePlayerAdapter[];
+  currentPlayerId: string | undefined;
+  viewportSize: ViewportSize;
+}) {
+  const infos = createPlayerInfoLayouts(tableDesignMockLayout, viewportSize, true);
+
+  return (
+    <>
+      {infos.map((info) => {
+        const player = adapters.find((entry) => entry.seat === info.seatId);
+        const isCurrent = player?.id === currentPlayerId;
+
+        return (
+          <div
+            aria-label={`${player?.label ?? info.label} プレイヤー${isCurrent ? " 現在の手番" : ""}`}
+            className={[
+              "mock-player-info",
+              `mock-player-info-${info.seatId}`,
+              "production-player-info",
+              isCurrent ? "production-player-info-current" : ""
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            key={info.seatId}
+            style={playerInfoStyle(info)}
+          >
+            <span aria-hidden="true" className="mock-player-info-avatar">
+              <span className="mock-player-info-avatar-head" />
+              <span className="mock-player-info-avatar-body" />
+            </span>
+            <span className="mock-player-info-label">{player?.label ?? info.label}</span>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function BiddingBubbleLayer({
+  adapters,
+  viewportSize
+}: {
+  adapters: readonly TablePlayerAdapter[];
+  viewportSize: ViewportSize;
+}) {
+  const bubbles = createBiddingBubbleLayouts(tableDesignMockLayout, viewportSize);
+
+  return (
+    <div aria-label="各プレイヤーの最新競り宣言" className="mock-bidding-bubble-layer">
+      {bubbles.map((bubble) => {
+        const player = adapters.find((entry) => entry.seat === bubble.seatId);
+        const declaration = player?.isSelf === true || player !== undefined ? player?.biddingDeclaration : undefined;
+
+        return (
+          <output
+            aria-label={`${player?.label ?? bubble.label} 最新宣言 ${formatBiddingDeclaration(declaration)}`}
+            className={`mock-bidding-bubble mock-bidding-bubble-${bubble.seatId}`}
+            key={bubble.seatId}
+            style={biddingBubbleStyle(bubble, declaration)}
+          >
+            {formatBiddingDeclaration(declaration)}
+          </output>
+        );
+      })}
+    </div>
+  );
+}
+
+function ProductionBiddingOverlay({
+  bidding,
+  canPass,
+  currentPlayerId,
+  isBusy,
+  legalBidActions,
+  onBid,
+  onPass,
+  selfPlayerId,
+  viewportSize
+}: {
+  bidding: PublicBiddingState | null;
+  canPass: boolean;
+  currentPlayerId: string;
+  isBusy: boolean;
+  legalBidActions: readonly PublicBidAction[];
+  onBid: ((action: PublicBidAction) => void) | undefined;
+  onPass: (() => void) | undefined;
+  selfPlayerId: string | undefined;
+  viewportSize: ViewportSize;
+}) {
+  const [selection, setSelection] = useState<BidSelection | null>(() => normalizeBidSelection(legalBidActions, null));
+  const geometry = createBiddingOverlayGeometry(tableDesignMockLayout, viewportSize);
+  const isSelfTurn = selfPlayerId !== undefined && currentPlayerId === selfPlayerId;
+  const canOperate = isSelfTurn && !isBusy;
+  const selectedAction = useMemo(() => findBidAction(legalBidActions, selection), [legalBidActions, selection]);
+  const stepper = useMemo(() => getBidStepperState(legalBidActions, selection), [legalBidActions, selection]);
+
+  useEffect(() => {
+    setSelection((current) => normalizeBidSelection(legalBidActions, current));
+  }, [legalBidActions]);
+
+  return (
+    <section
+      aria-label="競り操作Overlay"
+      className="mock-bidding-overlay production-bidding-overlay"
+      style={biddingOverlayStyle(geometry)}
+    >
+      <div className="mock-bidding-highest">
+        <span className="mock-bidding-label">現在の最高入札</span>
+        <strong
+          className="mock-bidding-highest-value"
+          style={biddingActionColorStyle(bidding?.highestBid?.suit)}
+        >
+          {formatHighestBid(bidding?.highestBid ?? null)}
+        </strong>
       </div>
-      <div className="table-trick-zone" aria-label={`${player.label}の現在トリック領域`}>
-        <TrickCardSlot
-          isCollecting={isCollecting}
-          isWinning={isWinning}
-          played={played}
-          player={player}
-        />
+      <div aria-label="スート選択" className="mock-bidding-suit-selector">
+        {biddingSuitOptions.map((suit) => {
+          const isAvailable = getBidTargetsForSuit(legalBidActions, suit).length > 0;
+
+          return (
+            <button
+              aria-label={`${cardDesignSuitSymbols[suit]}を選択`}
+              aria-pressed={selection?.suit === suit}
+              className="mock-bidding-suit-button"
+              disabled={!canOperate || !isAvailable}
+              key={suit}
+              onClick={() => handleSuitSelect(suit, legalBidActions, selection, setSelection)}
+              style={{ "--mock-bidding-suit-color": fourColorSuitColors[suit] } as CSSProperties}
+              type="button"
+            >
+              {cardDesignSuitSymbols[suit]}
+            </button>
+          );
+        })}
       </div>
-      <div className="table-river-zone" aria-label={`${player.label}のポイント札の河`}>
-        {state?.phase === "bidding" ? (
-          <BiddingToken player={player} />
-        ) : (
-          <PointRiver cards={capturedPointCards} player={player} />
-        )}
+      <div aria-label="入札数値選択" className="mock-bidding-number-selector">
+        <button
+          aria-label="前の宣言枚数"
+          className="mock-bidding-step-button"
+          disabled={!canOperate || stepper.previousTarget === null}
+          onClick={() => moveTarget(selection, stepper.previousTarget, setSelection)}
+          type="button"
+        >
+          -
+        </button>
+        <strong aria-label={selection === null ? "宣言枚数未選択" : `宣言枚数 ${selection.targetPointCards}`} className="mock-bidding-number-value">
+          {selection?.targetPointCards ?? "-"}
+        </strong>
+        <button
+          aria-label="次の宣言枚数"
+          className="mock-bidding-step-button"
+          disabled={!canOperate || stepper.nextTarget === null}
+          onClick={() => moveTarget(selection, stepper.nextTarget, setSelection)}
+          type="button"
+        >
+          +
+        </button>
+      </div>
+      <div className="mock-bidding-actions">
+        <button
+          className="mock-bidding-declare-button"
+          disabled={!canOperate || selectedAction === undefined || onBid === undefined}
+          onClick={() => {
+            if (selectedAction !== undefined) {
+              onBid?.(selectedAction);
+            }
+          }}
+          type="button"
+        >
+          宣言
+        </button>
+        <button
+          className="mock-bidding-pass-button"
+          disabled={!canOperate || !canPass || onPass === undefined}
+          onClick={() => onPass?.()}
+          type="button"
+        >
+          PASS
+        </button>
       </div>
     </section>
   );
 }
 
-function SelfTableHand({
+function SelfHandLayer({
   canExchange,
-  handOrderMode,
   isBusy,
   legalCardIds,
   onPlay,
   selectedDiscardCardIds,
-  state
+  self,
+  state,
+  viewportSize
 }: {
   canExchange: boolean;
   handOrderMode: HandOrderMode;
@@ -240,23 +700,35 @@ function SelfTableHand({
   legalCardIds: ReadonlySet<string>;
   onPlay: (card: PublicCard) => void;
   selectedDiscardCardIds: readonly string[];
+  self: TablePlayerAdapter | undefined;
   state: PublicGameState | undefined;
+  viewportSize: ViewportSize;
 }) {
-  const displayedHand = useMemo(
-    () => getDisplayedHandCards(state?.self.hand ?? [], handOrderMode),
-    [handOrderMode, state?.self.hand]
-  );
-  const shouldReserveHandSlots = state !== undefined && !state.isGameOver;
-  const emptyHandSlotCount = shouldReserveHandSlots ? Math.max(0, 10 - displayedHand.length) : 0;
+  const cards = self?.selfHand ?? [];
+  const hand = createSelfHandViewportLayout(tableDesignMockLayout, cards.length, viewportSize);
 
   return (
-    <div className="table-self-hand" aria-label="自分の手札">
-      {displayedHand.map((card) => {
+    <div
+      aria-label="自分の手札"
+      className="mock-self-hand production-self-hand"
+      style={selfHandViewportStyle(hand)}
+    >
+      {cards.map((card) => {
         const interactionState = getCardInteractionState(card, state, legalCardIds, canExchange);
+        const selected = selectedDiscardCardIds.includes(card.id);
 
         return (
-          <CardButton
-            card={card}
+          <button
+            aria-label={formatCardForAria(card)}
+            className={[
+              "mock-self-hand-card",
+              "mock-playing-card",
+              "production-self-hand-card",
+              `production-card-${interactionState}`,
+              selected ? "production-card-selected" : ""
+            ]
+              .filter(Boolean)
+              .join(" ")}
             disabled={
               isBusy ||
               (state?.phase === "playing"
@@ -265,220 +737,316 @@ function SelfTableHand({
                   ? !canExchange
                   : true)
             }
-            interactionState={interactionState}
             key={card.id}
-            onPlay={onPlay}
-            selected={selectedDiscardCardIds.includes(card.id)}
-          />
+            onClick={() => onPlay(card)}
+            type="button"
+          >
+            <CardFace card={card} />
+            <span className="visually-hidden">{interactionState}</span>
+          </button>
         );
       })}
-      {Array.from({ length: emptyHandSlotCount }, (_, index) => (
-        <span
-          aria-hidden="true"
-          className="hand-card-empty-slot"
-          key={`empty-hand-slot-${index}`}
-        />
-      ))}
-    </div>
-  );
-}
-
-function OpponentCardBacks({ count, playerLabel }: { count: number; playerLabel: string }) {
-  return (
-    <div className="opponent-card-backs" aria-label={`${playerLabel}の裏向き手札 ${count}枚`}>
-      {Array.from({ length: count }, (_, index) => (
-        <span aria-hidden="true" className="card-back" key={`${playerLabel}-back-${index}`} />
-      ))}
-    </div>
-  );
-}
-
-function TrickCardSlot({
-  isCollecting,
-  isWinning,
-  played,
-  player
-}: {
-  isCollecting: boolean;
-  isWinning: boolean;
-  played: PublicPlayedCard | undefined;
-  player: TablePlayer;
-}) {
-  if (played === undefined) {
-    return <div aria-label={`${player.label}は未プレイ`} className="table-empty-card-slot" />;
-  }
-
-  return (
-    <div
-      aria-label={`${player.label}が${formatCardForAria(played.card)}を出しました${
-        isWinning ? "。現在勝っています" : ""
-      }`}
-      className={[
-        "table-card",
-        "table-trick-card",
-        `table-card-from-${player.seat}`,
-        isWinning ? "table-card-winning" : "",
-        isCollecting ? "table-card-collecting" : ""
-      ]
-        .filter(Boolean)
-        .join(" ")}
-    >
-      <CardFace card={played.card} />
-    </div>
-  );
-}
-
-function PointRiver({
-  cards,
-  player
-}: {
-  cards: readonly PublicStandardCard[];
-  player: TablePlayer;
-}) {
-  return (
-    <div
-      className={cards.length === 0 ? "point-river point-river-empty" : "point-river point-river-has-cards"}
-      aria-label={`${player.label}の獲得ポイント札 ${cards.length}枚`}
-    >
-      <span className="point-river-label">
-        河 <strong>{cards.length}</strong>
-      </span>
-      <div
-        className={
-          cards.length === 0 ? "point-river-stack point-river-stack-empty" : "point-river-stack point-river-card-stack"
-        }
-        aria-hidden="true"
-      >
-        {cards.length === 0 ? (
-          <span className="point-river-empty-mark" />
-        ) : (
-          cards.map((card) => (
-            <span className="table-card table-point-card" key={card.id}>
-              <CardFace card={card} />
-            </span>
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
-
-function BiddingToken({ player }: { player: TablePlayer }) {
-  const declaration = player.biddingDeclaration;
-  const tokenClassName = [
-    "table-bid-token",
-    declaration?.type === "bid" && declaration.color === "red" ? "table-bid-token-red" : "",
-    declaration?.type === "bid" && declaration.color === "black" ? "table-bid-token-black" : "",
-    declaration?.type === "pass" ? "table-bid-token-pass" : "",
-    declaration === undefined || declaration.type === "none" ? "table-bid-token-none" : ""
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  return (
-    <div className={tokenClassName} aria-label={`${player.label}の競り宣言`}>
-      {declaration?.type === "bid" ? (
-        <>
-          <span>{declaration.suit === undefined ? "" : suitSymbols[declaration.suit]}</span>
-          <strong>{declaration.targetPointCards}</strong>
-        </>
-      ) : declaration?.type === "pass" ? (
-        <strong>Pass</strong>
-      ) : (
-        <strong>?</strong>
-      )}
-    </div>
-  );
-}
-
-function RoleMarker({
-  player,
-  state
-}: {
-  player: TablePlayer;
-  state: PublicGameState | undefined;
-}) {
-  const isNapoleon = state?.contract?.napoleonPlayerId === player.id;
-  const isAdjutant = state?.adjutant?.revealedPlayerId === player.id;
-  const markerText =
-    state === undefined || state.contract === null
-      ? "?"
-      : isNapoleon && isAdjutant
-        ? "N/A"
-        : isNapoleon
-          ? "N"
-          : isAdjutant
-            ? "A"
-            : "";
-
-  return (
-    <div
-      aria-label={`${player.label}の役職${markerText === "" ? "なし" : markerText}`}
-      className={[
-        "table-role-marker",
-        markerText === "?" ? "table-role-marker-unknown" : "",
-        markerText === "" ? "table-role-marker-empty" : "",
-        isNapoleon ? "table-role-marker-napoleon" : "",
-        isAdjutant ? "table-role-marker-adjutant" : ""
-      ]
-        .filter(Boolean)
-        .join(" ")}
-    >
-      {markerText}
-    </div>
-  );
-}
-
-function TableHud({ state }: { state: PublicGameState | undefined }) {
-  return (
-    <div className="table-hud" aria-label="ゲーム全体情報">
-      <span className="table-hud-label">契約</span>
-      <strong className={createSuitTextClassName(state?.contract?.trumpSuit)}>
-        {formatContractSummary(state?.contract)}
-      </strong>
-      <span>呼札 {renderCalledCard(state?.adjutant?.calledCardId)}</span>
     </div>
   );
 }
 
 function CardFace({ card }: { card: PublicCard }) {
   if (card.type === "joker") {
-    return (
-      <>
-        <span className="card-corner card-corner-top">JOKER</span>
-        <span className="card-center-mark joker-text">Joker</span>
-        <span className="card-corner card-corner-bottom">JOKER</span>
-      </>
-    );
+    return <JokerCardFace />;
   }
 
+  return <CardmeisterPlayingCard card={standardToMock(card)} className="mock-cardmeister-playing-card" />;
+}
+
+function ProjectedPlayingCard({
+  card,
+  className,
+  contentClassName,
+  corners,
+  size
+}: {
+  card: PublicCard;
+  className: string;
+  contentClassName?: string;
+  corners: readonly { x: number; y: number }[];
+  size: { height: number; width: number };
+}) {
+  const transform = projectiveTransformForRectangle(corners, size.width, size.height);
+
   return (
-    <>
-      <span className="card-corner card-corner-top">
-        {card.rank}
-        {suitSymbols[card.suit]}
-      </span>
-      <span className={isRedSuit(card.suit) ? "card-center-mark red-text" : "card-center-mark black-text"}>
-        {suitSymbols[card.suit]}
-      </span>
-      <span className="card-corner card-corner-bottom">
-        {card.rank}
-        {suitSymbols[card.suit]}
-      </span>
-    </>
+    <article
+      aria-label={formatCardForAria(card)}
+      className={`mock-projected-playing-card mock-playing-card ${className}`}
+      style={{
+        "--mock-projected-card-height": `${size.height}px`,
+        "--mock-projected-card-transform": transform,
+        "--mock-projected-card-width": `${size.width}px`
+      } as CSSProperties}
+    >
+      {contentClassName === undefined ? (
+        <CardFace card={card} />
+      ) : (
+        <div className={contentClassName}>
+          <CardFace card={card} />
+        </div>
+      )}
+    </article>
   );
 }
 
-function getCurrentWinningPlayerId(
-  currentTrick: readonly PublicPlayedCard[],
-  trumpSuit: NonNullable<TableSurfaceProps["trumpSuit"]>,
-  trickNumber: number | undefined
-): string | undefined {
-  if (currentTrick.length === 0) {
-    return undefined;
+function ProjectedRiverCardFace({
+  card,
+  corners,
+  size
+}: {
+  card: PublicStandardCard;
+  corners: readonly { x: number; y: number }[];
+  size: { height: number; width: number };
+}) {
+  const metrics = createRiverFaceMetrics(size);
+  const transform = projectiveTransformForRectangle(corners, size.width, size.height);
+  const symbol = cardDesignSuitSymbols[card.suit];
+  const color = fourColorSuitColors[card.suit];
+
+  return (
+    <article
+      aria-label={`${card.rank}${symbol}`}
+      className="mock-projected-playing-card mock-projected-river-card-face mock-river-card-face"
+      style={{
+        "--mock-projected-card-height": `${size.height}px`,
+        "--mock-projected-card-transform": transform,
+        "--mock-projected-card-width": `${size.width}px`,
+        "--mock-river-face-border-width": `${metrics.borderWidth}px`,
+        "--mock-river-face-color": color,
+        "--mock-river-face-gap": `${metrics.gap}px`,
+        "--mock-river-face-padding": `${metrics.padding}px`,
+        "--mock-river-face-rank-font-size": `${metrics.rankFontSize}px`,
+        "--mock-river-face-suit-font-size": `${metrics.suitFontSize}px`
+      } as CSSProperties}
+    >
+      <span className="mock-river-card-rank">{card.rank}</span>
+      <span className="mock-river-card-suit">{symbol}</span>
+    </article>
+  );
+}
+
+function ProjectedPlayingCardBack({
+  corners,
+  size
+}: {
+  corners: readonly { x: number; y: number }[];
+  size: { height: number; width: number };
+}) {
+  const CardBack = mockCardBackComponent();
+  const transform = projectiveTransformForRectangle(corners, size.width, size.height);
+
+  return (
+    <span
+      aria-label={mockCardBackComponentName}
+      className="mock-projected-playing-card mock-projected-playing-card-opponent-hand mock-playing-card mock-playing-card-back"
+      style={{
+        "--mock-projected-card-height": `${size.height}px`,
+        "--mock-projected-card-transform": transform,
+        "--mock-projected-card-width": `${size.width}px`
+      } as CSSProperties}
+    >
+      <CardBack aria-hidden="true" className="mock-playing-card-svg" focusable="false" />
+    </span>
+  );
+}
+
+function JokerCardFace() {
+  return (
+    <span className="production-joker-card-face">
+      <span>JOKER</span>
+      <strong>Joker</strong>
+      <span>JOKER</span>
+    </span>
+  );
+}
+
+function createProductionTablePlayers(
+  players: readonly TablePlayer[],
+  state: PublicGameState | undefined,
+  handOrderMode: HandOrderMode
+): readonly TablePlayerAdapter[] {
+  return seatOrder.map((seat) => {
+    const player = players.find((entry) => entry.seat === seat);
+    const selfHand = player?.isSelf === true ? getDisplayedHandCards(state?.self.hand ?? [], handOrderMode) : [];
+
+    return {
+      biddingDeclaration: player?.biddingDeclaration,
+      capturedPointCards: player?.isSelf === true
+        ? (state?.self.capturedPointCards ?? player.capturedPointCards)
+        : (player?.capturedPointCards ?? []),
+      handCount: player?.handCount ?? 0,
+      id: player?.id ?? seat,
+      isSelf: player?.isSelf ?? seat === "self",
+      label: player?.label ?? seat,
+      seat,
+      selfHand
+    };
+  });
+}
+
+function handleSuitSelect(
+  suit: PublicSuit,
+  legalBidActions: readonly PublicBidAction[],
+  selection: BidSelection | null,
+  setSelection: (selection: BidSelection | null) => void
+): void {
+  const targets = getBidTargetsForSuit(legalBidActions, suit);
+
+  if (targets.length === 0) {
+    return;
   }
 
-  return determineCurrentWinningPlayer(currentTrick, { trumpSuit }, { trickNumber });
+  setSelection({
+    suit,
+    targetPointCards:
+      selection !== null && targets.includes(selection.targetPointCards)
+        ? selection.targetPointCards
+        : targets[0]
+  });
+}
+
+function moveTarget(
+  selection: BidSelection | null,
+  targetPointCards: number | null,
+  setSelection: (selection: BidSelection | null) => void
+): void {
+  if (selection === null || targetPointCards === null) {
+    return;
+  }
+
+  setSelection({
+    suit: selection.suit,
+    targetPointCards
+  });
+}
+
+function standardToMock(card: PublicStandardCard): MockPlayingCard {
+  return {
+    rank: card.rank,
+    suit: card.suit
+  };
+}
+
+function formatBiddingDeclaration(declaration: TablePlayer["biddingDeclaration"] | undefined): string {
+  if (declaration === undefined || declaration.type === "none") {
+    return "?";
+  }
+
+  if (declaration.type === "pass") {
+    return "PASS";
+  }
+
+  return `${cardDesignSuitSymbols[declaration.suit]}${declaration.targetPointCards}`;
+}
+
+function formatHighestBid(bid: PublicBiddingState["highestBid"]): string {
+  if (bid === null) {
+    return "-";
+  }
+
+  return `${cardDesignSuitSymbols[bid.suit]}${bid.targetPointCards}`;
+}
+
+function biddingBubbleStyle(
+  bubble: { height: number; width: number; x: number; y: number },
+  declaration: TablePlayer["biddingDeclaration"] | undefined
+): CSSProperties {
+  const suit = declaration?.type === "bid" ? declaration.suit : undefined;
+
+  return {
+    ...biddingActionColorStyle(suit),
+    "--mock-bidding-bubble-height": `${bubble.height}px`,
+    "--mock-bidding-bubble-width": `${bubble.width}px`,
+    "--mock-x": `${bubble.x}px`,
+    "--mock-y": `${bubble.y}px`
+  } as CSSProperties;
+}
+
+function biddingActionColorStyle(suit: PublicSuit | undefined): CSSProperties {
+  return {
+    "--mock-bidding-action-color": suit === undefined ? "#64748b" : fourColorSuitColors[suit]
+  } as CSSProperties;
+}
+
+function playerInfoStyle(info: { avatarSize: number; gap: number; height: number; width: number; x: number; y: number }): CSSProperties {
+  return {
+    "--mock-player-avatar-size": `${info.avatarSize}px`,
+    "--mock-player-gap": `${info.gap}px`,
+    "--mock-player-height": `${info.height}px`,
+    "--mock-player-width": `${info.width}px`,
+    "--mock-x": `${info.x}px`,
+    "--mock-y": `${info.y}px`
+  } as CSSProperties;
+}
+
+function biddingOverlayStyle(geometry: { height: number; width: number; x: number; y: number }): CSSProperties {
+  return {
+    "--mock-bidding-overlay-height": `${geometry.height}px`,
+    "--mock-bidding-overlay-width": `${geometry.width}px`,
+    "--mock-x": `${geometry.x}px`,
+    "--mock-y": `${geometry.y}px`
+  } as CSSProperties;
+}
+
+function selfHandViewportStyle(layout: { cardSize: { height: number; width: number }; gap: number; handWidth: number; left: number; top: number }): CSSProperties {
+  return {
+    "--mock-self-card-gap": `${layout.gap}px`,
+    "--mock-self-card-height": `${layout.cardSize.height}px`,
+    "--mock-self-card-width": `${layout.cardSize.width}px`,
+    "--mock-self-hand-left": `${layout.left}px`,
+    "--mock-self-hand-top": `${layout.top}px`,
+    "--mock-self-hand-width": `${layout.handWidth}px`
+  } as CSSProperties;
+}
+
+function projectedBoardFitStyle(fit: { scale: number; translate: { x: number; y: number } }): CSSProperties {
+  return {
+    "--mock-projected-board-transform": `translate(${fit.translate.x}px, ${fit.translate.y}px) scale(${fit.scale})`
+  } as CSSProperties;
+}
+
+function tableSurfaceStyle(layout: typeof tableDesignMockLayout): CSSProperties {
+  return {
+    "--mock-page-background": layout.page.background,
+    "--mock-page-height": `${layout.page.height}px`,
+    "--mock-page-width": `${layout.page.width}px`
+  } as CSSProperties;
+}
+
+function playerRoleLabel(playerId: string, state: PublicGameState | undefined): string {
+  if (state === undefined || state.contract === null) {
+    return "?";
+  }
+
+  const isNapoleon = state.contract.napoleonPlayerId === playerId;
+  const isAdjutant = state.adjutant?.revealedPlayerId === playerId;
+
+  if (isNapoleon && isAdjutant) {
+    return "ナ/副";
+  }
+
+  if (isNapoleon) {
+    return "ナポ";
+  }
+
+  if (isAdjutant) {
+    return "副";
+  }
+
+  if (
+    (state.phase === "playing" || state.phase === "finished") &&
+    state.adjutant?.revealedPlayerId !== null &&
+    state.adjutant?.revealedPlayerId !== undefined
+  ) {
+    return "市";
+  }
+
+  return "?";
 }
 
 function getCardInteractionState(
@@ -498,8 +1066,16 @@ function getCardInteractionState(
   return "blocked";
 }
 
-function getSideToolButtonClassName(enabled: boolean): string {
-  return enabled ? "table-side-tool table-side-tool-active" : "table-side-tool";
+function getCurrentWinningPlayerId(
+  currentTrick: readonly PublicPlayedCard[],
+  trumpSuit: PublicSuit,
+  trickNumber: number | undefined
+): string | undefined {
+  if (currentTrick.length === 0) {
+    return undefined;
+  }
+
+  return determineCurrentWinningPlayer(currentTrick, { trumpSuit }, { trickNumber });
 }
 
 function formatCardForAria(card: PublicCard): string {
@@ -507,61 +1083,82 @@ function formatCardForAria(card: PublicCard): string {
     return "JOKER";
   }
 
-  return `${card.rank}${suitSymbols[card.suit]}`;
+  return `${card.rank}${cardDesignSuitSymbols[card.suit]}`;
 }
 
-function formatContractSummary(contract: PublicGameState["contract"] | undefined): string {
-  if (contract === undefined || contract === null) {
-    return "-";
-  }
-
-  return `${suitSymbols[contract.trumpSuit]}${contract.targetPointCards}`;
-}
-
-function renderCalledCard(cardId: string | undefined) {
+function formatCalledCardId(cardId: string | undefined): string {
   if (cardId === undefined) {
-    return "-";
+    return "?";
   }
 
-  const suit = getCalledCardSuit(cardId);
-  const label = formatCalledCardId(cardId);
-
-  if (suit !== undefined && isRedSuit(suit)) {
-    return <span className="red-text">{label}</span>;
-  }
-
-  return label;
-}
-
-function formatCalledCardId(cardId: string): string {
   if (cardId === "joker") {
-    return "Joker";
+    return "JOKER";
   }
 
   const [suit, rank] = cardId.split("-");
 
-  if (isPublicSuit(suit) && rank !== undefined) {
-    return `${suitSymbols[suit]}${rank}`;
-  }
-
-  return cardId;
+  return isPublicSuit(suit) && rank !== undefined
+    ? `${rank}${cardDesignSuitSymbols[suit]}`
+    : cardId;
 }
 
-function getCalledCardSuit(cardId: string): PublicSuit | undefined {
-  const [suit] = cardId.split("-");
+function calledCardColorStyle(cardId: string | undefined): CSSProperties {
+  const [suit] = cardId?.split("-") ?? [];
 
-  return isPublicSuit(suit) ? suit : undefined;
-}
-
-function createSuitTextClassName(suit: PublicSuit | null | undefined): string {
-  return suit !== null && suit !== undefined && isRedSuit(suit) ? "red-text" : "black-text";
+  return biddingActionColorStyle(isPublicSuit(suit) ? suit : undefined);
 }
 
 function isPublicSuit(value: string | undefined): value is PublicSuit {
-  return (
-    value === "spades" ||
-    value === "hearts" ||
-    value === "diamonds" ||
-    value === "clubs"
-  );
+  return value === "spades" || value === "hearts" || value === "diamonds" || value === "clubs";
 }
+
+function svgPoints(points: readonly { x: number; y: number }[]): string {
+  return points.map((point) => `${toLayoutPrecision(point.x)},${toLayoutPrecision(point.y)}`).join(" ");
+}
+
+function polygonCenter(points: readonly { x: number; y: number }[]): { x: number; y: number } {
+  const total = points.reduce(
+    (sum, point) => ({
+      x: sum.x + point.x,
+      y: sum.y + point.y
+    }),
+    { x: 0, y: 0 }
+  );
+
+  return {
+    x: toLayoutPrecision(total.x / points.length),
+    y: toLayoutPrecision(total.y / points.length)
+  };
+}
+
+function useViewportSize(fallback: ViewportSize): ViewportSize {
+  const [viewportSize, setViewportSize] = useState<ViewportSize>(fallback);
+
+  useEffect(() => {
+    const readViewportSize = () => ({
+      width: window.innerWidth,
+      height: window.innerHeight
+    });
+
+    const updateViewportSize = () => setViewportSize(readViewportSize());
+
+    updateViewportSize();
+    window.addEventListener("resize", updateViewportSize);
+
+    return () => window.removeEventListener("resize", updateViewportSize);
+  }, []);
+
+  return viewportSize;
+}
+
+function toLayoutPrecision(value: number): number {
+  return Number(value.toFixed(3));
+}
+
+export const productionTableTestExports = {
+  createProductionTablePlayers,
+  formatBiddingDeclaration,
+  formatHighestBid,
+  playerRoleLabel,
+  standardToMock
+};
