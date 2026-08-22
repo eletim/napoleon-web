@@ -42,12 +42,12 @@ interface TableDesignMockLayout {
   camera: PerspectiveCameraConfig;
   cardSizes: {
     selfHand: { height: number; width: number };
-    trick: { height: number; width: number };
   };
   currentTrickZone: {
-    gapFromRiver: number;
-    paddingBlock: number;
-    paddingInline: number;
+    cardCenterRatio: number;
+    cardMaxHeightRatio: number;
+    cardWidthRatio: number;
+    widthRatio: number;
   };
   center: Box;
   hud: Box;
@@ -62,7 +62,6 @@ interface TableDesignMockLayout {
   riverGrid: {
     cardExposureRatio: number;
     columnGap: number;
-    edgeInset: number;
     maxColumns: number;
     maxRows: number;
     rowGap: number;
@@ -133,7 +132,6 @@ const roleBoardPentagon = Object.fromEntries(
 const tableSurfacePentagon = regularPentagon(pentagonCenter, tableSurfaceRadius, pentagonStartAngle);
 
 const cardAspectRatio = 7 / 5;
-const trickCardWidth = scaleTabletopDimension(118);
 const selfHandCardWidth = (0.8 * mockPageWidth) / maxSelfHandCardCount;
 const opponentHandCardWidthRatio = 0.08;
 const opponentHandCardGapRatio = 0.02;
@@ -174,7 +172,6 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
   },
   center: roleBoardCenter,
   cardSizes: {
-    trick: { width: trickCardWidth, height: toLayoutPrecision(trickCardWidth * cardAspectRatio) },
     selfHand: { width: selfHandCardWidth, height: selfHandCardWidth * cardAspectRatio }
   },
   opponentHand: {
@@ -198,14 +195,14 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
     topInsetRatio: 0.015
   },
   currentTrickZone: {
-    gapFromRiver: scaleTabletopDimension(28),
-    paddingBlock: scaleTabletopDimension(52),
-    paddingInline: scaleTabletopDimension(44)
+    cardCenterRatio: 0.27,
+    cardMaxHeightRatio: 0.66,
+    cardWidthRatio: 0.675,
+    widthRatio: 0.98
   },
   riverGrid: {
     cardExposureRatio: 0.25,
     columnGap: scaleTabletopDimension(8),
-    edgeInset: scaleTabletopDimension(112),
     maxColumns: 10,
     maxRows: 2,
     rowGap: scaleTabletopDimension(8),
@@ -343,9 +340,7 @@ export function TableDesignMock({ variant = "world" }: { variant?: TableDesignMo
         {
           "--mock-page-background": layout.page.background,
           "--mock-page-height": `${layout.page.height}px`,
-          "--mock-page-width": `${layout.page.width}px`,
-          "--mock-trick-card-height": `${layout.cardSizes.trick.height}px`,
-          "--mock-trick-card-width": `${layout.cardSizes.trick.width}px`
+          "--mock-page-width": `${layout.page.width}px`
         } as CSSProperties
       }
     >
@@ -463,12 +458,13 @@ function SelfHand({
 function CurrentTrickZone({ seat }: { seat: SeatLayout }) {
   const cardCount = riverCards[seat.id]?.length ?? 0;
   const geometry = createCurrentTrickZoneGeometry(tableDesignMockLayout, seat.id, cardCount);
+  const cardSize = createCurrentTrickCardSize(tableDesignMockLayout, seat.id);
 
   return (
     <section
       aria-label={`${seat.label}の現在トリック置き場`}
       className={`mock-current-trick-zone mock-current-trick-zone-${seat.id}`}
-      style={trickZoneStyle(geometry)}
+      style={trickZoneStyle(geometry, cardSize)}
     >
       <PlayingCard card={trickCards[seat.id]} className="mock-trick-card" />
     </section>
@@ -676,17 +672,9 @@ function ProjectedCurrentTrickZone({ layout, seat }: { layout: TableDesignMockLa
 }
 
 function ProjectedCurrentTrickCard({ layout, seat }: { layout: TableDesignMockLayout; seat: SeatLayout }) {
-  const cardCount = riverCards[seat.id]?.length ?? 0;
-  const geometry = createCurrentTrickZoneGeometry(layout, seat.id, cardCount);
-  const size = layout.cardSizes.trick;
-  const corners = projectTableCard(
-    {
-      ...geometry,
-      height: size.height,
-      width: size.width
-    },
-    layout.camera
-  );
+  const cardPlane = createCurrentTrickCardPlane(layout, seat.id);
+  const size = { width: cardPlane.width, height: cardPlane.height };
+  const corners = projectTableCard(cardPlane, layout.camera);
 
   return <ProjectedPlayingCard card={trickCards[seat.id]} corners={corners} size={size} variant="trick" />;
 }
@@ -1217,7 +1205,6 @@ export function createRiverGeometry(
   const rowPitch = toLayoutPrecision(visibleCardHeight + layout.riverGrid.rowGap);
   const height = toLayoutPrecision(visibleCardHeight + rowPitch * (layout.riverGrid.maxRows - 1));
   const edgeMargin = toLayoutPrecision((edge.d - gridWidth) / 2);
-  const inwardOffset = toLayoutPrecision(height + layout.riverGrid.edgeInset);
 
   return {
     ...edge,
@@ -1226,8 +1213,39 @@ export function createRiverGeometry(
     rowPitch,
     visibleCardSize: { width: cardWidth, height: visibleCardHeight },
     width: gridWidth,
-    x: toLayoutPrecision(edge.start.x + edge.direction.x * edgeMargin - edge.normal.x * inwardOffset),
-    y: toLayoutPrecision(edge.start.y + edge.direction.y * edgeMargin - edge.normal.y * inwardOffset)
+    x: toLayoutPrecision(edge.start.x + edge.direction.x * edgeMargin - edge.normal.x * height),
+    y: toLayoutPrecision(edge.start.y + edge.direction.y * edgeMargin - edge.normal.y * height)
+  };
+}
+
+export function createCurrentTrickCardSize(
+  layout: TableDesignMockLayout,
+  seatId: SeatId
+): { height: number; width: number } {
+  const zone = createCurrentTrickZoneGeometry(layout, seatId);
+  const widthFromZone = zone.width * layout.currentTrickZone.cardWidthRatio;
+  const widthFromDepth = (zone.height * layout.currentTrickZone.cardMaxHeightRatio) / cardAspectRatio;
+  const width = toLayoutPrecision(Math.min(widthFromZone, widthFromDepth));
+
+  return {
+    width,
+    height: toLayoutPrecision(width * cardAspectRatio)
+  };
+}
+
+export function createCurrentTrickCardPlane(
+  layout: TableDesignMockLayout,
+  seatId: SeatId
+): TableCardPlane {
+  const zone = createCurrentTrickZoneGeometry(layout, seatId);
+  const size = createCurrentTrickCardSize(layout, seatId);
+  const center = currentTrickZoneInnerEdgeCenter(zone);
+
+  return {
+    ...zone,
+    ...size,
+    x: toLayoutPrecision(center.x + zone.normal.x * zone.height * layout.currentTrickZone.cardCenterRatio),
+    y: toLayoutPrecision(center.y + zone.normal.y * zone.height * layout.currentTrickZone.cardCenterRatio)
   };
 }
 
@@ -1237,20 +1255,23 @@ export function createCurrentTrickZoneGeometry(
   _riverCardCount = 0
 ): CurrentTrickZoneGeometry {
   const edge = createTableSurfaceEdgeGeometry(layout, seatId);
+  const roleEdge = createRoleBoardEdgeGeometry(layout.center, seatId);
   const river = createRiverGeometry(layout, seatId);
-  const width = toLayoutPrecision(layout.cardSizes.trick.width + layout.currentTrickZone.paddingInline);
-  const height = toLayoutPrecision(layout.cardSizes.trick.height + layout.currentTrickZone.paddingBlock);
-  const midpoint = midpointBetween(edge.start, edge.end);
-  const centerOffset = toLayoutPrecision(
-    layout.riverGrid.edgeInset + river.height + layout.currentTrickZone.gapFromRiver + height / 2
-  );
+  const roleEdgeCenter = midpointBetween(roleEdge.start, roleEdge.end);
+  const riverInnerEdgeCenter = {
+    x: toLayoutPrecision(river.x + river.direction.x * (river.width / 2)),
+    y: toLayoutPrecision(river.y + river.direction.y * (river.width / 2))
+  };
+  const height = toLayoutPrecision(distance(roleEdgeCenter, riverInnerEdgeCenter));
+  const width = toLayoutPrecision(roleEdge.d * layout.currentTrickZone.widthRatio);
+  const center = midpointBetween(roleEdgeCenter, riverInnerEdgeCenter);
 
   return {
     ...edge,
     height,
     width,
-    x: toLayoutPrecision(midpoint.x - edge.normal.x * centerOffset),
-    y: toLayoutPrecision(midpoint.y - edge.normal.y * centerOffset)
+    x: toLayoutPrecision(center.x),
+    y: toLayoutPrecision(center.y)
   };
 }
 
@@ -1440,10 +1461,11 @@ export function createRiverPlacements(
   for (let index = 0; index < boundedCardCount; index += 1) {
     const column = index % layout.riverGrid.maxColumns;
     const row = Math.floor(index / layout.riverGrid.maxColumns);
+    const outwardRow = layout.riverGrid.maxRows - 1 - row;
 
     placements.push({
       x: toLayoutPrecision(column * columnOffset),
-      y: toLayoutPrecision(row * geometry.rowPitch),
+      y: toLayoutPrecision(outwardRow * geometry.rowPitch),
       rotation: 0
     });
   }
@@ -1488,12 +1510,27 @@ function verticalCardTopDownThicknessPolygon(
   ];
 }
 
-function trickZoneStyle(zone: CurrentTrickZoneGeometry): CSSProperties {
+function trickZoneStyle(
+  zone: CurrentTrickZoneGeometry,
+  cardSize: { height: number; width: number }
+): CSSProperties {
   return {
     ...pointWithRotationStyle(zone),
+    "--mock-trick-card-center-y": `${toLayoutPrecision(
+      zone.height * tableDesignMockLayout.currentTrickZone.cardCenterRatio
+    )}px`,
+    "--mock-trick-card-height": `${cardSize.height}px`,
+    "--mock-trick-card-width": `${cardSize.width}px`,
     "--mock-trick-zone-height": `${zone.height}px`,
     "--mock-trick-zone-width": `${zone.width}px`
   } as CSSProperties;
+}
+
+function currentTrickZoneInnerEdgeCenter(zone: CurrentTrickZoneGeometry): Point {
+  return {
+    x: zone.x - zone.normal.x * (zone.height / 2),
+    y: zone.y - zone.normal.y * (zone.height / 2)
+  };
 }
 
 function roleMarkerStyle(marker: RoleMarkerGeometry): CSSProperties {
