@@ -11,7 +11,6 @@ import {
   createRiverGeometry,
   createRiverPlacements,
   createRoleMarkerGeometry,
-  createRoleBoardEdgeGeometry,
   createRoleSectorGeometry,
   createSelfHandViewportLayout,
   createSelfHandViewportMetrics,
@@ -78,11 +77,15 @@ describe("TableDesignMock", () => {
     expect(tableDesignMockLayout.tableSurface).toEqual(regularPentagon({ x: 1120, y: 910 }, 1260, -90));
     expect(tableDesignMockLayout.seats.find((seat) => seat.id === "self")).toMatchObject({ hand: { y: 1640 } });
     expect(tableDesignMockLayout.seats.some((seat) => "trickZone" in seat)).toBe(false);
-    expect(tableDesignMockLayout.riverGrid).toMatchObject({ maxColumns: 5, maxRows: 4 });
+    expect(tableDesignMockLayout.riverGrid).toMatchObject({
+      cardExposureRatio: 0.25,
+      maxColumns: 10,
+      maxRows: 2
+    });
     expect((html.match(/mock-current-trick-zone/g) ?? [])).toHaveLength(10);
     expect((html.match(/mock-trick-card mock-playing-card/g) ?? [])).toHaveLength(5);
     expect((html.match(/mock-self-hand-card/g) ?? [])).toHaveLength(13);
-    expect((html.match(/mock-playing-card-svg/g) ?? [])).toHaveLength(32);
+    expect((html.match(/mock-playing-card-svg/g) ?? [])).toHaveLength(50);
     expect((html.match(/mock-opponent-hand-world-card/g) ?? [])).toHaveLength(23);
     expect((html.match(/aria-label="B1"/g) ?? [])).toHaveLength(0);
     expect(html).not.toContain("mock-card-back-fan");
@@ -108,9 +111,9 @@ describe("TableDesignMock", () => {
     expect(html).toContain("mock-table-surface-polygon");
     expect((html.match(/mock-projected-current-trick-zone mock-projected-current-trick-zone-/g) ?? [])).toHaveLength(5);
     expect((html.match(/mock-projected-role-marker mock-projected-role-marker-/g) ?? [])).toHaveLength(5);
-    expect((html.match(/mock-projected-playing-card /g) ?? [])).toHaveLength(42);
+    expect((html.match(/mock-projected-playing-card /g) ?? [])).toHaveLength(60);
     expect((html.match(/mock-projected-playing-card-opponent-hand/g) ?? [])).toHaveLength(23);
-    expect((html.match(/matrix3d\(/g) ?? [])).toHaveLength(42);
+    expect((html.match(/matrix3d\(/g) ?? [])).toHaveLength(60);
     expect((html.match(/aria-label="B1"/g) ?? [])).toHaveLength(23);
     expect(html).toContain("mock-projected-card-layer");
     expect(html).not.toContain("mock-projected-card-corner");
@@ -245,54 +248,65 @@ describe("TableDesignMock", () => {
     expect(nearLength / farLength).toBeLessThan(1.2);
   });
 
-  it("defines all river geometry from the corresponding role-board edge", () => {
+  it("defines all river geometry from the corresponding table-surface edge", () => {
     const seatIds = ["top-left", "top-right", "right", "self", "left"] as const;
     const expected = {
-      "top-left": { d: 370.305, rotation: 144 },
-      "top-right": { d: 370.305, rotation: -144 },
-      right: { d: 370.305, rotation: -72 },
-      self: { d: 370.305, rotation: 0 },
-      left: { d: 370.305, rotation: 72 }
+      "top-left": { d: 1481.219, rotation: 144 },
+      "top-right": { d: 1481.219, rotation: -144 },
+      right: { d: 1481.219, rotation: -72 },
+      self: { d: 1481.219, rotation: 0 },
+      left: { d: 1481.219, rotation: 72 }
     } as const;
-    const sideLengths = seatIds.map((seatId) => createRoleBoardEdgeGeometry(tableDesignMockLayout.center, seatId).d);
+    const sideLengths = seatIds.map((seatId) => createTableSurfaceEdgeGeometry(tableDesignMockLayout, seatId).d);
 
     for (const seatId of seatIds) {
-      const edge = createRoleBoardEdgeGeometry(tableDesignMockLayout.center, seatId);
+      const edge = createTableSurfaceEdgeGeometry(tableDesignMockLayout, seatId);
       const river = createRiverGeometry(tableDesignMockLayout, seatId);
+      const expectedGridWidth = edge.d * tableDesignMockLayout.riverGrid.widthRatio;
+      const expectedCardWidth =
+        (river.width - tableDesignMockLayout.riverGrid.columnGap * (tableDesignMockLayout.riverGrid.maxColumns - 1)) /
+        tableDesignMockLayout.riverGrid.maxColumns;
 
       expect(river.d).toBeCloseTo(edge.d);
       expect(river.d).toBeCloseTo(expected[seatId].d);
       expect(river.rotation).toBeCloseTo(expected[seatId].rotation);
-      expect(river.cardSize.width).toBeCloseTo(river.d * 0.5);
-      expect(river.width).toBeCloseTo(river.d);
+      expect(river.width).toBeCloseTo(expectedGridWidth);
+      expect(river.cardSize.width).toBeCloseTo(expectedCardWidth);
+      expect(river.cardSize.height).toBeCloseTo(river.cardSize.width * 7 / 5);
+      expect(river.visibleCardSize.height).toBeCloseTo(
+        river.cardSize.height * tableDesignMockLayout.riverGrid.cardExposureRatio
+      );
       expect(river.normal.x * edge.direction.x + river.normal.y * edge.direction.y).toBeCloseTo(0);
     }
 
-    expect(new Set(sideLengths)).toEqual(new Set([370.305]));
-    expect(selfRiverWidth(tableDesignMockLayout)).toBeCloseTo(roleBoardSelfSideLength(tableDesignMockLayout.center));
+    expect(new Set(sideLengths)).toEqual(new Set([1481.219]));
+    expect(selfRiverWidth(tableDesignMockLayout)).toBeCloseTo(
+      createTableSurfaceEdgeGeometry(tableDesignMockLayout, "self").d * tableDesignMockLayout.riverGrid.widthRatio
+    );
+    expect(selfRiverWidth(tableDesignMockLayout)).toBeGreaterThan(roleBoardSelfSideLength(tableDesignMockLayout.center));
   });
 
-  it("applies the same 5x4 river placement rule to every seat", () => {
+  it("applies the same 10x2 river placement rule to every seat", () => {
     const seatIds = ["top-left", "top-right", "right", "self", "left"] as const;
 
     for (const seatId of seatIds) {
       const river = createRiverGeometry(tableDesignMockLayout, seatId);
       const oneCard = createRiverPlacements(1, tableDesignMockLayout, seatId);
-      const fiveCards = createRiverPlacements(5, tableDesignMockLayout, seatId);
-      const sixCards = createRiverPlacements(6, tableDesignMockLayout, seatId);
+      const tenCards = createRiverPlacements(10, tableDesignMockLayout, seatId);
+      const elevenCards = createRiverPlacements(11, tableDesignMockLayout, seatId);
       const maxCards = createRiverPlacements(21, tableDesignMockLayout, seatId);
-      const columnOffset = river.d * 0.125;
+      const columnOffset = river.visibleCardSize.width + tableDesignMockLayout.riverGrid.columnGap;
 
       expect(oneCard).toHaveLength(1);
       expect(oneCard[0]).toMatchObject({ x: 0, y: 0, rotation: 0 });
-      expect(fiveCards).toHaveLength(5);
-      expect(fiveCards[1]?.x).toBeCloseTo(columnOffset);
-      expect(fiveCards[4]?.x).toBeCloseTo(columnOffset * 4);
-      expect((fiveCards[4]?.x ?? 0) + river.cardSize.width - (fiveCards[0]?.x ?? 0)).toBeCloseTo(
-        river.d
+      expect(tenCards).toHaveLength(10);
+      expect(tenCards[1]?.x).toBeCloseTo(columnOffset);
+      expect(tenCards[9]?.x).toBeCloseTo(columnOffset * 9);
+      expect((tenCards[9]?.x ?? 0) + river.visibleCardSize.width - (tenCards[0]?.x ?? 0)).toBeCloseTo(
+        river.width
       );
-      expect(sixCards[5]?.x).toBeCloseTo(0);
-      expect(sixCards[5]?.y).toBeCloseTo(river.rowPitch);
+      expect(elevenCards[10]?.x).toBeCloseTo(0);
+      expect(elevenCards[10]?.y).toBeCloseTo(river.rowPitch);
       expect(maxCards).toHaveLength(20);
     }
   });
@@ -415,7 +429,7 @@ describe("TableDesignMock", () => {
     expect(Math.max(leftTop.y, rightTop.y)).toBeLessThan(Math.max(leftBottom.y, rightBottom.y));
   });
 
-  it("generates every current trick zone from the same edge geometry outside the river", () => {
+  it("generates every current trick zone from the same table-edge geometry inside the river", () => {
     const seatIds = ["top-left", "top-right", "right", "self", "left"] as const;
     const riverCardCounts = {
       "top-left": 2,
@@ -425,17 +439,21 @@ describe("TableDesignMock", () => {
       left: 2
     } as const;
     const expected = {
-      "top-left": { rotation: 144, x: 654.278, y: 268.988 },
-      "top-right": { rotation: -144, x: 1585.722, y: 268.988 },
-      right: { rotation: -72, x: 1873.555, y: 1154.845 },
-      self: { rotation: 0, x: 1120, y: 1702.334 },
-      left: { rotation: 72, x: 366.445, y: 1154.845 }
+      "top-left": { rotation: 144, x: 844.276, y: 530.499 },
+      "top-right": { rotation: -144, x: 1395.724, y: 530.499 },
+      right: { rotation: -72, x: 1566.131, y: 1054.957 },
+      self: { rotation: 0, x: 1120, y: 1379.089 },
+      left: { rotation: 72, x: 673.869, y: 1054.957 }
     } as const;
 
     for (const seatId of seatIds) {
-      const edge = createRoleBoardEdgeGeometry(tableDesignMockLayout.center, seatId);
+      const edge = createTableSurfaceEdgeGeometry(tableDesignMockLayout, seatId);
       const river = createRiverGeometry(tableDesignMockLayout, seatId);
       const zone = createCurrentTrickZoneGeometry(tableDesignMockLayout, seatId, riverCardCounts[seatId]);
+      const riverCenter = {
+        x: river.x + river.direction.x * (river.width / 2) + river.normal.x * (river.height / 2),
+        y: river.y + river.direction.y * (river.width / 2) + river.normal.y * (river.height / 2)
+      };
 
       expect(zone.rotation).toBeCloseTo(edge.rotation);
       expect(zone.rotation).toBeCloseTo(expected[seatId].rotation);
@@ -447,7 +465,7 @@ describe("TableDesignMock", () => {
       );
       expect(zone.x).toBeCloseTo(expected[seatId].x);
       expect(zone.y).toBeCloseTo(expected[seatId].y);
-      expect(distanceAlongNormal(edge, zone)).toBeGreaterThan(distanceAlongNormal(edge, river));
+      expect(distanceAlongNormal(edge, zone)).toBeLessThan(distanceAlongNormal(edge, riverCenter));
     }
   });
 
