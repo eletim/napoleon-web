@@ -69,7 +69,7 @@ DEFAULT_INFERENCE_DEVICE: Literal["cpu", "auto", "cuda"] = "cpu"
 DEFAULT_TRAINING_DEVICE: RequestedTorchDevice = "cpu"
 DEFAULT_INFERENCE_MAX_BATCH_SIZE = 256
 DEFAULT_SEED = 202
-ITERATIVE_RUN_CONFIG_SCHEMA_VERSION = 11
+ITERATIVE_RUN_CONFIG_SCHEMA_VERSION = 12
 NONPLAYING_ROLLOUT_POLICY_TOPOLOGY = "candidate-x1-frozen-x4-v1"
 NONPLAYING_GAME_COUNT_UNIT = "logical-seeds"
 NONPLAYING_ROTATION_OFFSETS = [0, 1, 2, 3, 4]
@@ -82,12 +82,12 @@ NONPLAYING_TERMINAL_REWARD_TRANSFORM_ID = (
     "non-playing-terminal-role-reward-v3-minus-game-player-mean-v1"
 )
 NONPLAYING_BIDDING_REWARD_TYPE = "non-playing-bidding-contract-result-reward"
-NONPLAYING_BIDDING_REWARD_VERSION = 1
-NONPLAYING_BIDDING_REWARD_ID = "non-playing-bidding-contract-result-reward-v1"
+NONPLAYING_BIDDING_REWARD_VERSION = 2
+NONPLAYING_BIDDING_REWARD_ID = "non-playing-bidding-contract-result-reward-v2"
 NONPLAYING_BIDDING_TERMINAL_REWARD_TRANSFORM_TYPE = "identity"
 NONPLAYING_BIDDING_TERMINAL_REWARD_TRANSFORM_VERSION = 1
 NONPLAYING_BIDDING_TERMINAL_REWARD_TRANSFORM_ID = (
-    "non-playing-bidding-contract-result-reward-v1-identity-v1"
+    "non-playing-bidding-contract-result-reward-v2-identity-v1"
 )
 NONPLAYING_ALL_PASS_RULE_ID = "all-pass-immediate-zero-raw-terminal-reward-v1"
 FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION = (
@@ -1814,7 +1814,7 @@ def _bidding_reward_metadata() -> dict[str, object]:
         "appliesTo": "bidding",
         "napoleonWinMultiplier": 2,
         "napoleonAdjutantWinMultiplier": 3,
-        "contractLossReward": -5,
+        "contractLossReward": 0,
         "nonContractReward": 0,
     }
 

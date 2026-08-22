@@ -463,10 +463,10 @@ int raw_reward_for_player(const GameResult& result, int player_index) {
   const bool is_napoleon_adjutant =
       is_napoleon && (!result.adjutant_player_index.has_value() || is_adjutant);
   if (is_napoleon_adjutant) {
-    return napoleon_won ? 3 * d : -5;
+    return napoleon_won ? 3 * d : 0;
   }
   if (is_napoleon) {
-    return napoleon_won ? 2 * d : -5;
+    return napoleon_won ? 2 * d : 0;
   }
   if (is_adjutant) {
     return napoleon_won ? d : 0;
@@ -850,7 +850,7 @@ int main(int argc, char** argv) {
     const std::string resolved_inference_device = options.inference_device == "cuda" ? "cuda" : "cpu";
     manifest << "{\n";
     manifest << "  \"datasetSchemaVersion\":4,\n";
-    manifest << "  \"generatorVersion\":5,\n";
+    manifest << "  \"generatorVersion\":6,\n";
     manifest << "  \"format\":\"jsonl\",\n";
     manifest << "  \"sampleType\":\"non-playing-bidding-rl-sample\",\n";
     manifest << "  \"sampleSchemaVersion\":4,\n";
@@ -906,9 +906,9 @@ int main(int argc, char** argv) {
     manifest << ",\n";
     manifest << "  \"samplingAlgorithm\":\"masked-categorical\",\n";
     manifest << "  \"temperature\":" << options.temperature << ",\n";
-    manifest << "  \"reward\":{\"type\":\"non-playing-bidding-contract-result-reward\",\"version\":1,\"id\":\"non-playing-bidding-contract-result-reward-v1\",\"sourceRewardId\":\"non-playing-terminal-role-reward-v3\",\"appliesTo\":\"bidding\",\"napoleonWinMultiplier\":2,\"napoleonAdjutantWinMultiplier\":3,\"contractLossReward\":-5,\"nonContractReward\":0},\n";
+    manifest << "  \"reward\":{\"type\":\"non-playing-bidding-contract-result-reward\",\"version\":2,\"id\":\"non-playing-bidding-contract-result-reward-v2\",\"sourceRewardId\":\"non-playing-terminal-role-reward-v3\",\"appliesTo\":\"bidding\",\"napoleonWinMultiplier\":2,\"napoleonAdjutantWinMultiplier\":3,\"contractLossReward\":0,\"nonContractReward\":0},\n";
     manifest << "  \"allPassRule\":{\"id\":\"all-pass-immediate-zero-raw-terminal-reward-v1\",\"starterPayoff\":0,\"otherPayoff\":0},\n";
-    manifest << "  \"terminalRewardTransform\":{\"type\":\"identity\",\"version\":1,\"id\":\"non-playing-bidding-contract-result-reward-v1-identity-v1\",\"sourceRewardId\":\"non-playing-bidding-contract-result-reward-v1\",\"baseline\":\"none\",\"formula\":\"bidding_training_reward_i = raw_bidding_reward_i\"},\n";
+    manifest << "  \"terminalRewardTransform\":{\"type\":\"identity\",\"version\":1,\"id\":\"non-playing-bidding-contract-result-reward-v2-identity-v1\",\"sourceRewardId\":\"non-playing-bidding-contract-result-reward-v2\",\"baseline\":\"none\",\"formula\":\"bidding_training_reward_i = raw_bidding_reward_i\"},\n";
     manifest << "  \"nonLearningAgents\":{\"bidding\":";
     write_frozen_bidding_mix_metadata(manifest);
     manifest << ",\"choosingAdjutant\":{\"type\":\"rule-based\",\"version\":1}"

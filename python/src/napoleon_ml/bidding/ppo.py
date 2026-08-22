@@ -46,12 +46,12 @@ from .model import (
 )
 
 NON_PLAYING_RL_SAMPLE_TYPE = "non-playing-bidding-rl-sample"
-NON_PLAYING_RL_REWARD_ID = "non-playing-bidding-contract-result-reward-v1"
+NON_PLAYING_RL_REWARD_ID = "non-playing-bidding-contract-result-reward-v2"
 NON_PLAYING_RL_REWARD_TYPE = "non-playing-bidding-contract-result-reward"
-NON_PLAYING_RL_REWARD_VERSION = 1
+NON_PLAYING_RL_REWARD_VERSION = 2
 NON_PLAYING_RL_SOURCE_REWARD_ID = "non-playing-terminal-role-reward-v3"
 NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID = (
-    "non-playing-bidding-contract-result-reward-v1-identity-v1"
+    "non-playing-bidding-contract-result-reward-v2-identity-v1"
 )
 NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_TYPE = "identity"
 NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_VERSION = 1
@@ -1610,7 +1610,7 @@ def _expected_reward_metadata() -> dict[str, object]:
         "appliesTo": "bidding",
         "napoleonWinMultiplier": 2,
         "napoleonAdjutantWinMultiplier": 3,
-        "contractLossReward": -5,
+        "contractLossReward": 0,
         "nonContractReward": 0,
     }
 
