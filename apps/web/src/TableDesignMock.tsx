@@ -37,7 +37,6 @@ interface ViewportSize {
 }
 
 interface SeatLayout {
-  avatar: Point;
   hand: Point & { rotation: number };
   id: SeatId;
   label: string;
@@ -65,6 +64,7 @@ interface TableDesignMockLayout {
   };
   riverGrid: {
     cardExposureRatio: number;
+    cellHeightRatio: number;
     columnGap: number;
     maxColumns: number;
     maxRows: number;
@@ -89,6 +89,15 @@ interface TableDesignMockLayout {
     cardGapRatio: number;
     cardThickness: number;
     maxCardCount: number;
+  };
+  playerInfo: {
+    avatarSize: number;
+    gap: number;
+    offsetFromHand: number;
+    selfGap: number;
+    unitHeight: number;
+    unitWidth: number;
+    viewportMargin: number;
   };
   selfHandUi: {
     bottomInset: number;
@@ -147,10 +156,6 @@ const selfHandCardWidth = (0.8 * mockPageWidth) / maxSelfHandCardCount;
 const opponentHandCardWidthRatio = 0.08;
 const opponentHandCardGapRatio = 0.02;
 
-const projectedSelfArtifacts: Pick<SeatLayout, "avatar"> = {
-  avatar: { x: 808, y: 1492 }
-};
-
 // Source of Truth: https://github.com/eletim/napoleon-web/issues/308#issuecomment-5348323047
 // Keep the screenshot-facing coordinates here so the mock can be tuned without
 // hunting through individual elements.
@@ -197,6 +202,15 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
     cardThickness: scaleTabletopDimension(6),
     maxCardCount: 10
   },
+  playerInfo: {
+    avatarSize: 38,
+    gap: 12,
+    offsetFromHand: 18,
+    selfGap: 8,
+    unitHeight: 52,
+    unitWidth: 210,
+    viewportMargin: 18
+  },
   selfHandUi: {
     bottomInset: 16,
     maxCardCount: maxSelfHandCardCount
@@ -212,6 +226,7 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
   },
   riverGrid: {
     cardExposureRatio: 0.25,
+    cellHeightRatio: 1.5,
     columnGap: scaleTabletopDimension(8),
     maxColumns: 10,
     maxRows: 2,
@@ -234,31 +249,26 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
     {
       id: "top-left",
       label: "北西",
-      avatar: { x: 586, y: 132 },
       hand: { x: 672, y: 292, rotation: -19 }
     },
     {
       id: "top-right",
       label: "北東",
-      avatar: { x: 1590, y: 144 },
       hand: { x: 1538, y: 294, rotation: 19 }
     },
     {
       id: "right",
       label: "右席",
-      avatar: { x: 2112, y: 1074 },
       hand: { x: 1942, y: 1080, rotation: 55 }
     },
     {
       id: "self",
       label: "自分",
-      avatar: { x: 808, y: 1492 },
       hand: { x: 1118, y: 1640, rotation: 0 }
     },
     {
       id: "left",
       label: "左席",
-      avatar: { x: 136, y: 1070 },
       hand: { x: 308, y: 1086, rotation: -54 }
     }
   ]
@@ -380,26 +390,11 @@ export function TableDesignMock({ variant = "world" }: { variant?: TableDesignMo
             <RoleBoard layout={layout.center} />
           </>
         )}
-        {isProjected
-          ? null
-          : layout.seats.map((seat) => (
-              <PlayerArtifacts key={seat.id} seat={playerArtifactSeat(seat, isProjected)} />
-            ))}
+        <PlayerInfoOverlay isProjected={isProjected} layout={layout} viewportSize={viewportSize} />
         <SelfHand cards={selfCards} layout={layout} viewportSize={viewportSize} />
       </div>
     </main>
   );
-}
-
-function playerArtifactSeat(seat: SeatLayout, isProjected: boolean): SeatLayout {
-  if (!isProjected || seat.id !== "self") {
-    return seat;
-  }
-
-  return {
-    ...seat,
-    ...projectedSelfArtifacts
-  };
 }
 
 function HudBox({ layout }: { layout: Box }) {
@@ -422,19 +417,39 @@ function HudBox({ layout }: { layout: Box }) {
   );
 }
 
-function PlayerArtifacts({ seat }: { seat: SeatLayout }) {
+function PlayerInfoOverlay({
+  isProjected,
+  layout,
+  viewportSize
+}: {
+  isProjected: boolean;
+  layout: TableDesignMockLayout;
+  viewportSize: ViewportSize;
+}) {
+  const playerInfos = createPlayerInfoLayouts(layout, viewportSize, isProjected);
+
   return (
     <>
-      <div
-        aria-label={`${seat.label} プレイヤー`}
-        className={`mock-avatar mock-avatar-${seat.id}`}
-        style={pointStyle(seat.avatar)}
-      >
-        <span className="mock-avatar-head" />
-        <span className="mock-avatar-body" />
-      </div>
-
+      {playerInfos.map((info) => (
+        <PlayerInfoUnit info={info} key={info.seatId} />
+      ))}
     </>
+  );
+}
+
+function PlayerInfoUnit({ info }: { info: PlayerInfoGeometry }) {
+  return (
+    <div
+      aria-label={`${info.label} プレイヤー`}
+      className={`mock-player-info mock-player-info-${info.seatId}`}
+      style={playerInfoStyle(info)}
+    >
+      <span aria-hidden="true" className="mock-player-info-avatar">
+        <span className="mock-player-info-avatar-head" />
+        <span className="mock-player-info-avatar-body" />
+      </span>
+      <span className="mock-player-info-label">{info.label}</span>
+    </div>
   );
 }
 
@@ -617,9 +632,6 @@ function ProjectedTabletop({ layout, viewportSize }: { layout: TableDesignMockLa
         ))}
         <ProjectedOpponentHands layout={layout} />
       </div>
-      {layout.seats.map((seat) => (
-        <PlayerArtifacts key={seat.id} seat={playerArtifactSeat(seat, true)} />
-      ))}
     </div>
   );
 }
@@ -946,6 +958,13 @@ interface RiverGeometry extends RoleBoardEdgeGeometry {
   width: number;
   x: number;
   y: number;
+}
+
+interface PlayerInfoGeometry extends Box {
+  avatarSize: number;
+  gap: number;
+  label: string;
+  seatId: SeatId;
 }
 
 interface CurrentTrickZoneGeometry extends RoleBoardEdgeGeometry {
@@ -1278,12 +1297,27 @@ export function createRiverGeometry(
   layout: TableDesignMockLayout,
   seatId: SeatId
 ): RiverGeometry {
+  return createRiverGeometryWithCellHeightRatio(layout, seatId, layout.riverGrid.cellHeightRatio);
+}
+
+export function createCurrentTrickReferenceRiverGeometry(
+  layout: TableDesignMockLayout,
+  seatId: SeatId
+): RiverGeometry {
+  return createRiverGeometryWithCellHeightRatio(layout, seatId, 1);
+}
+
+function createRiverGeometryWithCellHeightRatio(
+  layout: TableDesignMockLayout,
+  seatId: SeatId,
+  cellHeightRatio: number
+): RiverGeometry {
   const edge = createTableSurfaceEdgeGeometry(layout, seatId);
   const gridWidth = toLayoutPrecision(edge.d * layout.riverGrid.widthRatio);
   const totalColumnGap = layout.riverGrid.columnGap * (layout.riverGrid.maxColumns - 1);
   const cardWidth = toLayoutPrecision((gridWidth - totalColumnGap) / layout.riverGrid.maxColumns);
   const cardHeight = toLayoutPrecision(cardWidth * cardAspectRatio);
-  const visibleCardHeight = toLayoutPrecision(cardHeight * layout.riverGrid.cardExposureRatio);
+  const visibleCardHeight = toLayoutPrecision(cardHeight * layout.riverGrid.cardExposureRatio * cellHeightRatio);
   const rowPitch = toLayoutPrecision(visibleCardHeight + layout.riverGrid.rowGap);
   const height = toLayoutPrecision(visibleCardHeight + rowPitch * (layout.riverGrid.maxRows - 1));
   const edgeMargin = toLayoutPrecision((edge.d - gridWidth) / 2);
@@ -1350,7 +1384,7 @@ export function createCurrentTrickZoneGeometry(
 ): CurrentTrickZoneGeometry {
   const edge = createTableSurfaceEdgeGeometry(layout, seatId);
   const roleEdge = createRoleBoardEdgeGeometry(layout.center, seatId);
-  const river = createRiverGeometry(layout, seatId);
+  const river = createCurrentTrickReferenceRiverGeometry(layout, seatId);
   const cardSize = createCurrentTrickCardSize(layout, seatId);
   const roleEdgeCenter = midpointBetween(roleEdge.start, roleEdge.end);
   const riverInnerEdgeCenter = {
@@ -1372,6 +1406,187 @@ export function createCurrentTrickZoneGeometry(
     x: toLayoutPrecision(roleEdgeCenter.x + edge.normal.x * centerOffsetFromRole),
     y: toLayoutPrecision(roleEdgeCenter.y + edge.normal.y * centerOffsetFromRole)
   };
+}
+
+export function createPlayerInfoLayouts(
+  layout: TableDesignMockLayout,
+  viewport: ViewportSize = layout.page,
+  isProjected = false
+): PlayerInfoGeometry[] {
+  const selfHandLayout = createSelfHandViewportLayout(layout, selfCards.length, viewport);
+  const opponents = opponentSeatOrder.map((seatId) =>
+    isProjected
+      ? createProjectedOpponentPlayerInfoLayout(layout, seatId, viewport)
+      : createWorldOpponentPlayerInfoLayout(layout, seatId)
+  );
+
+  return [
+    ...opponents,
+    createSelfPlayerInfoLayout(layout, selfHandLayout, viewport)
+  ];
+}
+
+function createWorldOpponentPlayerInfoLayout(
+  layout: TableDesignMockLayout,
+  seatId: OpponentSeatId
+): PlayerInfoGeometry {
+  const hand = createOpponentHandGeometry(layout, seatId);
+  const handBox = boundingBox(
+    hand.cards.flatMap((card) =>
+      verticalCardTopDownThicknessPolygon(card, hand.edge.normal, layout.opponentHand.cardThickness)
+    )
+  );
+  const center = playerInfoCenterOutsideBox(handBox, hand.baseline.normal, layout.playerInfo);
+  const clampedCenter = clampPlayerInfoCenter(center, layout.page, layout.playerInfo);
+  const hudBox = boundingBoxFromTopLeft(layout.hud);
+  const riverBox = createWorldRiverCardsBoundingBox(layout, seatId);
+
+  return createPlayerInfoGeometry(
+    layout,
+    seatId,
+    avoidPlayerInfoOverlaps(
+      clampedCenter,
+      [handBox, hudBox, ...optionalBox(riverBox)],
+      handBox,
+      hand.baseline.normal,
+      layout.page,
+      layout.playerInfo
+    )
+  );
+}
+
+function createProjectedOpponentPlayerInfoLayout(
+  layout: TableDesignMockLayout,
+  seatId: OpponentSeatId,
+  viewport: ViewportSize
+): PlayerInfoGeometry {
+  const hand = createOpponentHandGeometry(layout, seatId);
+  const fit = createProjectedBoardFit(layout, viewport);
+  const handBox = transformBoundingBox(
+    boundingBox(hand.cards.flatMap((card) => projectVerticalCard(card, layout.camera))),
+    fit.scale,
+    fit.translate
+  );
+  const outward = normalizeVector({
+    x: handBox.x - fit.transformedTableBox.x,
+    y: handBox.y - fit.transformedTableBox.y
+  });
+  const center = playerInfoCenterOutsideBox(handBox, outward, layout.playerInfo);
+  const clampedCenter = clampPlayerInfoCenter(center, viewport, layout.playerInfo);
+  const hudBox = boundingBoxFromTopLeft(layout.hud);
+  const riverBox = createProjectedRiverCardsBoundingBox(layout, seatId, fit);
+
+  return createPlayerInfoGeometry(
+    layout,
+    seatId,
+    avoidPlayerInfoOverlaps(
+      clampedCenter,
+      [handBox, hudBox, ...optionalBox(riverBox)],
+      handBox,
+      outward,
+      viewport,
+      layout.playerInfo
+    )
+  );
+}
+
+function createSelfPlayerInfoLayout(
+  layout: TableDesignMockLayout,
+  selfHandLayout: SelfHandViewportLayout,
+  viewport: ViewportSize
+): PlayerInfoGeometry {
+  const info = layout.playerInfo;
+  const x = clamp(
+    selfHandLayout.left,
+    info.viewportMargin,
+    viewport.width - info.viewportMargin - info.unitWidth
+  );
+  const y = clamp(
+    selfHandLayout.top - info.unitHeight - info.selfGap,
+    info.viewportMargin,
+    selfHandLayout.top - info.unitHeight - info.selfGap
+  );
+
+  return createPlayerInfoGeometry(layout, "self", {
+    x: toLayoutPrecision(x + info.unitWidth / 2),
+    y: toLayoutPrecision(y + info.unitHeight / 2)
+  });
+}
+
+function playerInfoCenterOutsideBox(
+  box: Pick<Box, "height" | "width" | "x" | "y">,
+  outward: Point,
+  info: TableDesignMockLayout["playerInfo"]
+): Point {
+  const offset =
+    rectHalfExtentAlong(box, outward) +
+    rectHalfExtentAlong({ width: info.unitWidth, height: info.unitHeight }, outward) +
+    info.offsetFromHand;
+
+  return {
+    x: toLayoutPrecision(box.x + outward.x * offset),
+    y: toLayoutPrecision(box.y + outward.y * offset)
+  };
+}
+
+function createPlayerInfoGeometry(
+  layout: TableDesignMockLayout,
+  seatId: SeatId,
+  center: Point
+): PlayerInfoGeometry {
+  const seat = layout.seats.find((entry) => entry.id === seatId);
+
+  if (seat === undefined) {
+    throw new Error(`Missing seat layout for ${seatId}`);
+  }
+
+  return {
+    avatarSize: layout.playerInfo.avatarSize,
+    gap: layout.playerInfo.gap,
+    height: layout.playerInfo.unitHeight,
+    label: seat.label,
+    seatId,
+    width: layout.playerInfo.unitWidth,
+    x: center.x,
+    y: center.y
+  };
+}
+
+function createWorldRiverCardsBoundingBox(layout: TableDesignMockLayout, seatId: SeatId): BoundingBox | undefined {
+  const cardBoxes = createRiverCardPlanes(layout, seatId).map((card) => boundingBoxFromTableCard(card));
+
+  return cardBoxes.length === 0 ? undefined : boundingBoxAroundBoxes(cardBoxes);
+}
+
+function createProjectedRiverCardsBoundingBox(
+  layout: TableDesignMockLayout,
+  seatId: SeatId,
+  fit: ProjectedBoardFit
+): BoundingBox | undefined {
+  const cardBoxes = createRiverCardPlanes(layout, seatId).map((card) =>
+    transformBoundingBox(boundingBox(projectTableCard(card, layout.camera, "top-left")), fit.scale, fit.translate)
+  );
+
+  return cardBoxes.length === 0 ? undefined : boundingBoxAroundBoxes(cardBoxes);
+}
+
+function createRiverCardPlanes(layout: TableDesignMockLayout, seatId: SeatId): TableCardPlane[] {
+  const cards = riverCards[seatId] ?? [];
+  const river = createRiverGeometry(layout, seatId);
+  const placements = createRiverPlacements(cards.length, layout, seatId);
+
+  return placements.map((placement) => ({
+    direction: river.direction,
+    height: river.visibleCardSize.height,
+    normal: river.normal,
+    width: river.visibleCardSize.width,
+    x: toLayoutPrecision(river.x + river.direction.x * placement.x + river.normal.x * placement.y),
+    y: toLayoutPrecision(river.y + river.direction.y * placement.x + river.normal.y * placement.y)
+  }));
+}
+
+function optionalBox(box: BoundingBox | undefined): BoundingBox[] {
+  return box === undefined ? [] : [box];
 }
 
 export function createRoleMarkerGeometry(
@@ -1579,6 +1794,17 @@ function riverStyle(geometry: RiverGeometry): CSSProperties {
     "--mock-river-width": `${geometry.width}px`,
     "--mock-x": `${geometry.x}px`,
     "--mock-y": `${geometry.y}px`
+  } as CSSProperties;
+}
+
+function playerInfoStyle(info: PlayerInfoGeometry): CSSProperties {
+  return {
+    "--mock-player-avatar-size": `${info.avatarSize}px`,
+    "--mock-player-gap": `${info.gap}px`,
+    "--mock-player-height": `${info.height}px`,
+    "--mock-player-width": `${info.width}px`,
+    "--mock-x": `${info.x}px`,
+    "--mock-y": `${info.y}px`
   } as CSSProperties;
 }
 
@@ -1842,6 +2068,29 @@ function boundingBox(points: readonly Point[]): BoundingBox {
   };
 }
 
+function boundingBoxFromTableCard(card: TableCardPlane): BoundingBox {
+  const topLeft = {
+    x: card.x,
+    y: card.y
+  };
+
+  return boundingBox([
+    topLeft,
+    {
+      x: topLeft.x + card.direction.x * card.width,
+      y: topLeft.y + card.direction.y * card.width
+    },
+    {
+      x: topLeft.x + card.direction.x * card.width + card.normal.x * card.height,
+      y: topLeft.y + card.direction.y * card.width + card.normal.y * card.height
+    },
+    {
+      x: topLeft.x + card.normal.x * card.height,
+      y: topLeft.y + card.normal.y * card.height
+    }
+  ]);
+}
+
 function transformBoundingBox(box: BoundingBox, scale: number, translate: Point): BoundingBox {
   const left = box.left * scale + translate.x;
   const right = box.right * scale + translate.x;
@@ -1880,8 +2129,160 @@ function interpolatePoint(start: Point, end: Point, ratio: number): Point {
   };
 }
 
+function rectHalfExtentAlong(size: Pick<Box, "height" | "width">, direction: Point): number {
+  return Math.abs(direction.x) * size.width / 2 + Math.abs(direction.y) * size.height / 2;
+}
+
+function clampPlayerInfoCenter(
+  center: Point,
+  viewport: ViewportSize,
+  info: TableDesignMockLayout["playerInfo"]
+): Point {
+  return {
+    x: toLayoutPrecision(clamp(
+      center.x,
+      info.viewportMargin + info.unitWidth / 2,
+      viewport.width - info.viewportMargin - info.unitWidth / 2
+    )),
+    y: toLayoutPrecision(clamp(
+      center.y,
+      info.viewportMargin + info.unitHeight / 2,
+      viewport.height - info.viewportMargin - info.unitHeight / 2
+    ))
+  };
+}
+
+function avoidPlayerInfoOverlaps(
+  center: Point,
+  avoidBoxes: readonly BoundingBox[],
+  anchorBox: BoundingBox,
+  outward: Point,
+  viewport: ViewportSize,
+  info: TableDesignMockLayout["playerInfo"]
+): Point {
+  const boxForCenter = (candidate: Point): BoundingBox => boundingBoxFromCenter({
+    ...candidate,
+    width: info.unitWidth,
+    height: info.unitHeight
+  });
+  const overlapsAnyBox = (candidate: Point) =>
+    avoidBoxes.some((avoidBox) => boxesOverlap(boxForCenter(candidate), avoidBox));
+
+  if (!overlapsAnyBox(center)) {
+    return center;
+  }
+
+  const gap = info.offsetFromHand;
+  const candidateBoxes = [...avoidBoxes, boundingBoxAroundBoxes(avoidBoxes)];
+  const candidates = candidateBoxes
+    .flatMap((avoidBox) => [
+      { x: center.x, y: avoidBox.top - info.unitHeight / 2 - gap },
+      { x: center.x, y: avoidBox.bottom + info.unitHeight / 2 + gap },
+      { x: avoidBox.left - info.unitWidth / 2 - gap, y: center.y },
+      { x: avoidBox.right + info.unitWidth / 2 + gap, y: center.y }
+    ])
+    .map((candidate) => clampPlayerInfoCenter(candidate, viewport, info));
+  const nonOverlapping = uniquePoints(candidates).filter((candidate) => !overlapsAnyBox(candidate));
+
+  if (nonOverlapping.length === 0) {
+    return center;
+  }
+
+  return [...nonOverlapping].sort((a, b) => {
+    const aOutward = (a.x - anchorBox.x) * outward.x + (a.y - anchorBox.y) * outward.y;
+    const bOutward = (b.x - anchorBox.x) * outward.x + (b.y - anchorBox.y) * outward.y;
+
+    if (aOutward !== bOutward) {
+      return bOutward - aOutward;
+    }
+
+    return distance(a, center) - distance(b, center);
+  })[0] ?? center;
+}
+
+function boundingBoxAroundBoxes(boxes: readonly BoundingBox[]): BoundingBox {
+  const left = Math.min(...boxes.map((box) => box.left));
+  const right = Math.max(...boxes.map((box) => box.right));
+  const top = Math.min(...boxes.map((box) => box.top));
+  const bottom = Math.max(...boxes.map((box) => box.bottom));
+
+  return boundingBoxFromEdges(left, right, top, bottom);
+}
+
+function boundingBoxFromEdges(left: number, right: number, top: number, bottom: number): BoundingBox {
+  const width = right - left;
+  const height = bottom - top;
+
+  return {
+    bottom: toLayoutPrecision(bottom),
+    height: toLayoutPrecision(height),
+    left: toLayoutPrecision(left),
+    right: toLayoutPrecision(right),
+    top: toLayoutPrecision(top),
+    width: toLayoutPrecision(width),
+    x: toLayoutPrecision(left + width / 2),
+    y: toLayoutPrecision(top + height / 2)
+  };
+}
+
+function uniquePoints(points: readonly Point[]): Point[] {
+  const seen = new Set<string>();
+  const unique: Point[] = [];
+
+  for (const point of points) {
+    const key = `${point.x}:${point.y}`;
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    unique.push(point);
+  }
+
+  return unique;
+}
+
+function boundingBoxFromCenter(box: Box): BoundingBox {
+  return {
+    bottom: toLayoutPrecision(box.y + box.height / 2),
+    height: box.height,
+    left: toLayoutPrecision(box.x - box.width / 2),
+    right: toLayoutPrecision(box.x + box.width / 2),
+    top: toLayoutPrecision(box.y - box.height / 2),
+    width: box.width,
+    x: box.x,
+    y: box.y
+  };
+}
+
+function boundingBoxFromTopLeft(box: Box): BoundingBox {
+  return {
+    bottom: toLayoutPrecision(box.y + box.height),
+    height: box.height,
+    left: box.x,
+    right: toLayoutPrecision(box.x + box.width),
+    top: box.y,
+    width: box.width,
+    x: toLayoutPrecision(box.x + box.width / 2),
+    y: toLayoutPrecision(box.y + box.height / 2)
+  };
+}
+
+function boxesOverlap(a: BoundingBox, b: BoundingBox): boolean {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
 function normalizeVector(vector: Point): Point {
   const length = distance({ x: 0, y: 0 }, vector);
+
+  if (length === 0) {
+    return { x: 0, y: -1 };
+  }
 
   return {
     x: vector.x / length,
