@@ -30,6 +30,10 @@ async function main() {
   const repeats = optionalInt("--repeats", 1);
   const gamesPerShard = optionalInt("--games-per-shard", 100);
   const randomLegalBidCount = optionalInt("--random-legal-bid-count", 2);
+  const actionPlanId = optionalChoice("--action-plan-id", [
+    "pass-lowest-suits-strongest-policy-top-random-target-coverage-v1",
+    "all-legal-actions-role-value-v1"
+  ], "pass-lowest-suits-strongest-policy-top-random-target-coverage-v1");
 
   if ((fixedAdjutantOnnx === undefined) !== (fixedAdjutantMetadata === undefined)) {
     throw new Error("--adjutant-onnx and --adjutant-metadata must be specified together.");
@@ -100,6 +104,7 @@ async function main() {
     gamesPerShard,
     randomSeed,
     randomLegalBidCount,
+    actionPlanId,
     inferenceDevice,
     sourceCommit: args.get("--source-commit") ?? sourceCommit()
   });

@@ -68,6 +68,8 @@ export const BIDDING_Q_COUNTERFACTUAL_ACTION_MAPPING_ID =
   "bidding-action-index-v1-pass-then-13-19-spades-hearts-diamonds-clubs" as const;
 export const BIDDING_Q_COUNTERFACTUAL_ACTION_PLAN_ID =
   "pass-lowest-suits-strongest-policy-top-random-target-coverage-v1" as const;
+export const BIDDING_Q_COUNTERFACTUAL_ROLE_VALUE_ACTION_PLAN_ID =
+  "all-legal-actions-role-value-v1" as const;
 export const BIDDING_Q_COUNTERFACTUAL_ACTION_PLAN_VERSION = 1 as const;
 export const BIDDING_Q_COUNTERFACTUAL_REWARD_ID =
   "bidding-q-contract-result-loss-minus-one-v1" as const;
@@ -94,6 +96,9 @@ const TARGETS = Array.from(
 );
 const SUITS = BIDDING_HISTORY_SUIT_ORDER;
 const CARD_BY_ID = new Map(createDeck().map((card) => [card.id, card]));
+type BiddingQCounterfactualActionPlanId =
+  | typeof BIDDING_Q_COUNTERFACTUAL_ACTION_PLAN_ID
+  | typeof BIDDING_Q_COUNTERFACTUAL_ROLE_VALUE_ACTION_PLAN_ID;
 
 export interface BiddingQCounterfactualPolicy {
   metadata: unknown;
@@ -119,7 +124,7 @@ export interface GenerateBiddingQCounterfactualDatasetOptions {
   randomSeed: number;
   randomLegalBidCount?: number;
   inferenceDevice?: "cpu" | "auto" | "cuda";
-  actionPlanId?: typeof BIDDING_Q_COUNTERFACTUAL_ACTION_PLAN_ID;
+  actionPlanId?: BiddingQCounterfactualActionPlanId;
   rewardId?: typeof BIDDING_Q_COUNTERFACTUAL_REWARD_ID;
   simulationBackend?: typeof BIDDING_Q_COUNTERFACTUAL_SIMULATION_BACKEND;
   sourceCommit?: string;
@@ -164,7 +169,7 @@ export interface BiddingQCounterfactualSample {
   forcedAction: BiddingQSemanticAction;
   strongestSuit: Suit;
   strongestSuitScore: number;
-  actionPlanId: typeof BIDDING_Q_COUNTERFACTUAL_ACTION_PLAN_ID;
+  actionPlanId: BiddingQCounterfactualActionPlanId;
   repeatIndex: number;
   rolloutSeed: number;
   terminalReward: number;
@@ -274,7 +279,7 @@ export interface BiddingQCounterfactualDatasetManifest {
     formula: "terminal_reward = raw_bidding_q_reward";
   };
   actionPlan: {
-    id: typeof BIDDING_Q_COUNTERFACTUAL_ACTION_PLAN_ID;
+    id: BiddingQCounterfactualActionPlanId;
     version: typeof BIDDING_Q_COUNTERFACTUAL_ACTION_PLAN_VERSION;
     randomLegalBidCount: number;
   };
@@ -427,7 +432,8 @@ export async function generateBiddingQCounterfactualDataset(
     const sourceStates = await collectSourceStates(options);
     const plannedActions = createForcedActionPlan(sourceStates, {
       randomSeed: options.randomSeed,
-      randomLegalBidCount: options.randomLegalBidCount ?? DEFAULT_RANDOM_LEGAL_BID_COUNT
+      randomLegalBidCount: options.randomLegalBidCount ?? DEFAULT_RANDOM_LEGAL_BID_COUNT,
+      actionPlanId: options.actionPlanId
     });
     const samples: BiddingQCounterfactualSample[] = [];
     let fallbackCount = 0;
@@ -512,7 +518,8 @@ export function validateGenerateBiddingQCounterfactualDatasetOptions(
   }
   if (
     options.actionPlanId !== undefined &&
-    options.actionPlanId !== BIDDING_Q_COUNTERFACTUAL_ACTION_PLAN_ID
+    options.actionPlanId !== BIDDING_Q_COUNTERFACTUAL_ACTION_PLAN_ID &&
+    options.actionPlanId !== BIDDING_Q_COUNTERFACTUAL_ROLE_VALUE_ACTION_PLAN_ID
   ) {
     throw new Error("Unsupported bidding Q counterfactual action plan id.");
   }
@@ -575,7 +582,10 @@ export function validateBiddingQCounterfactualDatasetManifest(
     throw new Error("Bidding Q counterfactual manifest reward transform mismatch.");
   }
   if (
-    manifest.actionPlan.id !== BIDDING_Q_COUNTERFACTUAL_ACTION_PLAN_ID ||
+    (
+      manifest.actionPlan.id !== BIDDING_Q_COUNTERFACTUAL_ACTION_PLAN_ID &&
+      manifest.actionPlan.id !== BIDDING_Q_COUNTERFACTUAL_ROLE_VALUE_ACTION_PLAN_ID
+    ) ||
     manifest.actionPlan.version !== BIDDING_Q_COUNTERFACTUAL_ACTION_PLAN_VERSION
   ) {
     throw new Error("Bidding Q counterfactual manifest action plan mismatch.");
@@ -957,11 +967,18 @@ function createForcedActionPlan(
   options: {
     randomSeed: number;
     randomLegalBidCount: number;
+    actionPlanId?: BiddingQCounterfactualActionPlanId;
   }
 ): PlannedStateAction[] {
   const planned: PlannedStateAction[] = [];
   const targetCounts = emptyTargetCounts();
   for (const source of sourceStates) {
+    if (options.actionPlanId === BIDDING_Q_COUNTERFACTUAL_ROLE_VALUE_ACTION_PLAN_ID) {
+      for (const actionIndex of legalActionIndexes(source.legalBidMask)) {
+        planned.push({ source, forcedActionIndex: actionIndex });
+      }
+      continue;
+    }
     const indexes = new Set<number>();
     addIfLegal(indexes, source.legalBidMask, 0);
     const lowestTarget = lowestLegalTarget(source.legalBidMask);
@@ -1074,7 +1091,7 @@ async function runForcedRollout(input: {
     forcedAction: decodeBiddingQActionIndex(input.forcedActionIndex),
     strongestSuit: input.source.strongestSuit,
     strongestSuitScore: input.source.strongestSuitScore,
-    actionPlanId: BIDDING_Q_COUNTERFACTUAL_ACTION_PLAN_ID,
+    actionPlanId: input.options.actionPlanId ?? BIDDING_Q_COUNTERFACTUAL_ACTION_PLAN_ID,
     repeatIndex: input.repeatIndex,
     rolloutSeed: input.rolloutSeed,
     terminalReward: reward.reward,
@@ -1586,7 +1603,7 @@ async function createBiddingQCounterfactualManifest(input: {
       formula: "terminal_reward = raw_bidding_q_reward"
     },
     actionPlan: {
-      id: BIDDING_Q_COUNTERFACTUAL_ACTION_PLAN_ID,
+      id: input.options.actionPlanId ?? BIDDING_Q_COUNTERFACTUAL_ACTION_PLAN_ID,
       version: BIDDING_Q_COUNTERFACTUAL_ACTION_PLAN_VERSION,
       randomLegalBidCount: input.options.randomLegalBidCount ?? DEFAULT_RANDOM_LEGAL_BID_COUNT
     },
