@@ -180,16 +180,20 @@ export function TableSurface({
         state={state}
         viewportSize={viewportSize}
       />
+      <button
+        aria-label={handOrderMode === "riipai" ? "理牌オン" : "理牌オフ"}
+        aria-pressed={handOrderMode === "riipai"}
+        className={[
+          "production-riipai-sidebar",
+          handOrderMode === "riipai" ? "production-riipai-sidebar-active" : ""
+        ].filter(Boolean).join(" ")}
+        onClick={() => setHandOrderMode((current) => (current === "riipai" ? "original" : "riipai"))}
+        type="button"
+      >
+        <span>理</span>
+        <strong>{handOrderMode === "riipai" ? "ON" : "OFF"}</strong>
+      </button>
       <div className="production-table-tools" aria-label="補助操作">
-        <button
-          aria-label={handOrderMode === "riipai" ? "理牌オン" : "理牌オフ"}
-          aria-pressed={handOrderMode === "riipai"}
-          className={handOrderMode === "riipai" ? "production-tool-button production-tool-button-active" : "production-tool-button"}
-          onClick={() => setHandOrderMode((current) => (current === "riipai" ? "original" : "riipai"))}
-          type="button"
-        >
-          理牌
-        </button>
         <button
           aria-label={highlightWinningCard ? "暫定勝ち札強調オン" : "暫定勝ち札強調オフ"}
           aria-pressed={highlightWinningCard}
@@ -219,14 +223,14 @@ function ProductionContractHud({ state }: { state: PublicGameState | undefined }
   return (
     <aside aria-label="契約と呼札" className="production-contract-hud">
       <span className="production-contract-chip">
-        <span>契約</span>
+        <span>宣言</span>
         <strong style={biddingActionColorStyle(state.contract.trumpSuit)}>
           {cardDesignSuitSymbols[state.contract.trumpSuit]}
           {state.contract.targetPointCards}
         </strong>
       </span>
       <span className="production-contract-chip">
-        <span>呼札</span>
+        <span>副官</span>
         <strong style={calledCardColorStyle(calledCard)}>{formatCalledCardId(calledCard)}</strong>
       </span>
     </aside>

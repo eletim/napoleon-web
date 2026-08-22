@@ -432,6 +432,44 @@ describe("TableDesignMock", () => {
     expect(selfBox.bottom).toBeLessThan(selfHand.top);
     expect(selfBox.top).toBeGreaterThan(projectedFit.transformedTableBox.bottom);
 
+    const topLeftInfo = projectedInfos.find((entry) => entry.seatId === "top-left");
+    const topRightInfo = projectedInfos.find((entry) => entry.seatId === "top-right");
+
+    if (topLeftInfo === undefined || topRightInfo === undefined) {
+      throw new Error("Expected top player info units");
+    }
+
+    const topLeftDistanceFromCenter = projectedFit.transformedTableBox.x - topLeftInfo.x;
+    const topRightDistanceFromCenter = topRightInfo.x - projectedFit.transformedTableBox.x;
+
+    expect(topLeftDistanceFromCenter).toBeGreaterThan(0);
+    expect(topRightDistanceFromCenter).toBeGreaterThan(0);
+    expect(Math.abs(topLeftDistanceFromCenter - topRightDistanceFromCenter)).toBeLessThanOrEqual(128);
+
+    const tabletProjectedInfos = createPlayerInfoLayouts(tableDesignMockLayout, { width: 1024, height: 768 }, true);
+    const tabletTopLeftInfo = tabletProjectedInfos.find((entry) => entry.seatId === "top-left");
+    const tabletTopRightInfo = tabletProjectedInfos.find((entry) => entry.seatId === "top-right");
+
+    if (tabletTopLeftInfo === undefined || tabletTopRightInfo === undefined) {
+      throw new Error("Expected tablet top player info units");
+    }
+
+    expect(Math.abs(tabletTopRightInfo.x - tabletTopLeftInfo.x)).toBeGreaterThan(
+      tableDesignMockLayout.playerInfo.unitWidth * 0.8
+    );
+
+    for (const compactViewport of [{ width: 720, height: 360 }, { width: 690, height: 320 }]) {
+      const compactProjectedInfos = createPlayerInfoLayouts(tableDesignMockLayout, compactViewport, true);
+      const compactTopLeftInfo = compactProjectedInfos.find((entry) => entry.seatId === "top-left");
+      const compactTopRightInfo = compactProjectedInfos.find((entry) => entry.seatId === "top-right");
+
+      if (compactTopLeftInfo === undefined || compactTopRightInfo === undefined) {
+        throw new Error(`Expected compact top player info units for ${compactViewport.width}x${compactViewport.height}`);
+      }
+
+      expect(Math.abs(compactTopRightInfo.x - compactTopLeftInfo.x)).toBeGreaterThanOrEqual(138);
+    }
+
     for (const seatId of ["top-left", "top-right", "right", "left"] as const) {
       const info = projectedInfos.find((entry) => entry.seatId === seatId);
       const hand = createOpponentHandGeometry(tableDesignMockLayout, seatId);
