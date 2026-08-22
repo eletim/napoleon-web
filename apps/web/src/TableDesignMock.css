@@ -189,6 +189,10 @@ html:has(.table-design-mock-page) {
   width: 100%;
 }
 
+.mock-river-card .mock-playing-card-svg {
+  height: var(--mock-river-card-full-height);
+}
+
 .mock-river-card.mock-playing-card {
   position: absolute;
 }
@@ -320,6 +324,11 @@ html:has(.table-design-mock-page) {
   transform: var(--mock-projected-card-transform);
   transform-origin: 0 0;
   width: var(--mock-projected-card-width);
+}
+
+.mock-projected-playing-card-river .mock-playing-card-svg,
+.mock-projected-playing-card-self-river .mock-playing-card-svg {
+  height: var(--mock-projected-card-svg-height);
 }
 
 .mock-projected-opponent-hand {

@@ -60,9 +60,13 @@ interface TableDesignMockLayout {
     innerPentagonScale: number;
   };
   riverGrid: {
+    cardExposureRatio: number;
+    columnGap: number;
+    edgeInset: number;
     maxColumns: number;
     maxRows: number;
     rowGap: number;
+    widthRatio: number;
   };
   roleMarker: {
     height: number;
@@ -131,7 +135,6 @@ const tableSurfacePentagon = regularPentagon(pentagonCenter, tableSurfaceRadius,
 const cardAspectRatio = 7 / 5;
 const trickCardWidth = scaleTabletopDimension(118);
 const selfHandCardWidth = (0.8 * mockPageWidth) / maxSelfHandCardCount;
-const riverGap = scaleTabletopDimension(18);
 const opponentHandCardWidthRatio = 0.08;
 const opponentHandCardGapRatio = 0.02;
 
@@ -200,9 +203,13 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
     paddingInline: scaleTabletopDimension(44)
   },
   riverGrid: {
-    maxColumns: 5,
-    maxRows: 4,
-    rowGap: scaleTabletopDimension(24)
+    cardExposureRatio: 0.25,
+    columnGap: scaleTabletopDimension(8),
+    edgeInset: scaleTabletopDimension(112),
+    maxColumns: 10,
+    maxRows: 2,
+    rowGap: scaleTabletopDimension(8),
+    widthRatio: 0.94
   },
   roleMarker: {
     width: scaleTabletopDimension(58),
@@ -274,7 +281,25 @@ const riverCards: Record<string, readonly MockPlayingCard[]> = {
   ],
   "top-right": [
     { rank: "K", suit: "hearts" },
-    { rank: "10", suit: "diamonds" }
+    { rank: "10", suit: "diamonds" },
+    { rank: "Q", suit: "hearts" },
+    { rank: "J", suit: "hearts" },
+    { rank: "9", suit: "hearts" },
+    { rank: "8", suit: "hearts" },
+    { rank: "7", suit: "hearts" },
+    { rank: "6", suit: "hearts" },
+    { rank: "5", suit: "hearts" },
+    { rank: "4", suit: "hearts" },
+    { rank: "A", suit: "diamonds" },
+    { rank: "K", suit: "diamonds" },
+    { rank: "Q", suit: "diamonds" },
+    { rank: "J", suit: "diamonds" },
+    { rank: "9", suit: "diamonds" },
+    { rank: "8", suit: "diamonds" },
+    { rank: "7", suit: "diamonds" },
+    { rank: "6", suit: "diamonds" },
+    { rank: "5", suit: "diamonds" },
+    { rank: "4", suit: "diamonds" }
   ],
   right: [
     { rank: "A", suit: "clubs" },
@@ -469,9 +494,10 @@ function PointRiver({ seat }: { seat: SeatLayout }) {
           key={`${card.rank}-${card.suit}-${index}`}
           style={{
             "--mock-river-card-index": index,
+            "--mock-river-card-full-height": `${riverGeometry.cardSize.height}px`,
             "--mock-river-card-rotation": `${riverPlacements[index]?.rotation ?? 0}deg`,
-            "--mock-river-card-height": `${riverGeometry.cardSize.height}px`,
-            "--mock-river-card-width": `${riverGeometry.cardSize.width}px`,
+            "--mock-river-card-height": `${riverGeometry.visibleCardSize.height}px`,
+            "--mock-river-card-width": `${riverGeometry.visibleCardSize.width}px`,
             "--mock-river-card-x": `${riverPlacements[index]?.x ?? 0}px`,
             "--mock-river-card-y": `${riverPlacements[index]?.y ?? 0}px`
           } as CSSProperties}
@@ -692,7 +718,8 @@ function ProjectedPointRiverCards({ layout, seat }: { layout: TableDesignMockLay
             card={card}
             corners={corners}
             key={`${card.rank}-${card.suit}-${index}`}
-            size={river.cardSize}
+            size={river.visibleCardSize}
+            svgSize={river.cardSize}
             variant={seat.id === "self" ? "self-river" : "river"}
           />
         );
@@ -737,11 +764,13 @@ function ProjectedPlayingCard({
   card,
   corners,
   size,
+  svgSize = size,
   variant
 }: {
   card: MockPlayingCard | undefined;
   corners: readonly Point[];
   size: { height: number; width: number };
+  svgSize?: { height: number; width: number };
   variant: "river" | "self-river" | "trick";
 }) {
   if (card === undefined) {
@@ -757,6 +786,7 @@ function ProjectedPlayingCard({
       style={
         {
           "--mock-projected-card-height": `${size.height}px`,
+          "--mock-projected-card-svg-height": `${svgSize.height}px`,
           "--mock-projected-card-transform": transform,
           "--mock-projected-card-width": `${size.width}px`
         } as CSSProperties
@@ -830,7 +860,7 @@ function ProjectedPlayingCardBack({
 }
 
 export function selfRiverWidth(layout: TableDesignMockLayout): number {
-  return createRiverGeometry(layout, "self").d;
+  return createRiverGeometry(layout, "self").width;
 }
 
 export function roleBoardSelfSideLength(layout: Box): number {
@@ -850,6 +880,7 @@ interface RiverGeometry extends RoleBoardEdgeGeometry {
   cardSize: { height: number; width: number };
   height: number;
   rowPitch: number;
+  visibleCardSize: { height: number; width: number };
   width: number;
   x: number;
   y: number;
@@ -1177,46 +1208,49 @@ export function createRiverGeometry(
   layout: TableDesignMockLayout,
   seatId: SeatId
 ): RiverGeometry {
-  const edge = createRoleBoardEdgeGeometry(layout.center, seatId);
-  const cardWidth = toLayoutPrecision(edge.d * 0.5);
+  const edge = createTableSurfaceEdgeGeometry(layout, seatId);
+  const gridWidth = toLayoutPrecision(edge.d * layout.riverGrid.widthRatio);
+  const totalColumnGap = layout.riverGrid.columnGap * (layout.riverGrid.maxColumns - 1);
+  const cardWidth = toLayoutPrecision((gridWidth - totalColumnGap) / layout.riverGrid.maxColumns);
   const cardHeight = toLayoutPrecision(cardWidth * cardAspectRatio);
-  const rowPitch = toLayoutPrecision(cardHeight + layout.riverGrid.rowGap);
-  const height = toLayoutPrecision(cardHeight + rowPitch * (layout.riverGrid.maxRows - 1));
-  const offset = riverGap;
+  const visibleCardHeight = toLayoutPrecision(cardHeight * layout.riverGrid.cardExposureRatio);
+  const rowPitch = toLayoutPrecision(visibleCardHeight + layout.riverGrid.rowGap);
+  const height = toLayoutPrecision(visibleCardHeight + rowPitch * (layout.riverGrid.maxRows - 1));
+  const edgeMargin = toLayoutPrecision((edge.d - gridWidth) / 2);
+  const inwardOffset = toLayoutPrecision(height + layout.riverGrid.edgeInset);
 
   return {
     ...edge,
     cardSize: { width: cardWidth, height: cardHeight },
     height,
     rowPitch,
-    width: edge.d,
-    x: toLayoutPrecision(edge.start.x + edge.normal.x * offset),
-    y: toLayoutPrecision(edge.start.y + edge.normal.y * offset)
+    visibleCardSize: { width: cardWidth, height: visibleCardHeight },
+    width: gridWidth,
+    x: toLayoutPrecision(edge.start.x + edge.direction.x * edgeMargin - edge.normal.x * inwardOffset),
+    y: toLayoutPrecision(edge.start.y + edge.direction.y * edgeMargin - edge.normal.y * inwardOffset)
   };
 }
 
 export function createCurrentTrickZoneGeometry(
   layout: TableDesignMockLayout,
   seatId: SeatId,
-  riverCardCount = 0
+  _riverCardCount = 0
 ): CurrentTrickZoneGeometry {
-  const edge = createRoleBoardEdgeGeometry(layout.center, seatId);
+  const edge = createTableSurfaceEdgeGeometry(layout, seatId);
   const river = createRiverGeometry(layout, seatId);
-  const visibleRiverRows = Math.max(1, Math.ceil(Math.min(riverCardCount, 20) / layout.riverGrid.maxColumns));
-  const visibleRiverDepth = toLayoutPrecision(
-    river.cardSize.height * visibleRiverRows + layout.riverGrid.rowGap * (visibleRiverRows - 1)
-  );
   const width = toLayoutPrecision(layout.cardSizes.trick.width + layout.currentTrickZone.paddingInline);
   const height = toLayoutPrecision(layout.cardSizes.trick.height + layout.currentTrickZone.paddingBlock);
   const midpoint = midpointBetween(edge.start, edge.end);
-  const centerOffset = toLayoutPrecision(riverGap + visibleRiverDepth + layout.currentTrickZone.gapFromRiver + height / 2);
+  const centerOffset = toLayoutPrecision(
+    layout.riverGrid.edgeInset + river.height + layout.currentTrickZone.gapFromRiver + height / 2
+  );
 
   return {
     ...edge,
     height,
     width,
-    x: toLayoutPrecision(midpoint.x + edge.normal.x * centerOffset),
-    y: toLayoutPrecision(midpoint.y + edge.normal.y * centerOffset)
+    x: toLayoutPrecision(midpoint.x - edge.normal.x * centerOffset),
+    y: toLayoutPrecision(midpoint.y - edge.normal.y * centerOffset)
   };
 }
 
@@ -1401,7 +1435,7 @@ export function createRiverPlacements(
   const boundedCardCount = Math.min(cardCount, maxCards);
   const geometry = createRiverGeometry(layout, seatId);
   const placements: Array<Point & { rotation: number }> = [];
-  const columnOffset = toLayoutPrecision(geometry.d * 0.125);
+  const columnOffset = toLayoutPrecision(geometry.visibleCardSize.width + layout.riverGrid.columnGap);
 
   for (let index = 0; index < boundedCardCount; index += 1) {
     const column = index % layout.riverGrid.maxColumns;
