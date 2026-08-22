@@ -29,6 +29,12 @@ import {
   FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION,
   NON_PLAYING_RL_DATASET_GENERATOR_VERSION,
   NON_PLAYING_RL_ALL_PASS_RULE_ID,
+  NON_PLAYING_BIDDING_RL_REWARD_ID,
+  NON_PLAYING_BIDDING_RL_REWARD_TYPE,
+  NON_PLAYING_BIDDING_RL_REWARD_VERSION,
+  NON_PLAYING_BIDDING_RL_TERMINAL_REWARD_TRANSFORM_ID,
+  NON_PLAYING_BIDDING_RL_TERMINAL_REWARD_TRANSFORM_TYPE,
+  NON_PLAYING_BIDDING_RL_TERMINAL_REWARD_TRANSFORM_VERSION,
   NON_PLAYING_RL_DATASET_SAMPLE_TYPE,
   NON_PLAYING_RL_DATASET_SCHEMA_VERSION,
   NON_PLAYING_RL_PHASE_SCOPE,
@@ -40,6 +46,7 @@ import {
   NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID,
   NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_TYPE,
   NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_VERSION,
+  calculateNonPlayingBiddingTrainingReward,
   calculateNonPlayingLearningTerminalReward,
   calculateNonPlayingAdjutantLogProbability,
   calculateNonPlayingBiddingLogProbability,
@@ -139,17 +146,23 @@ describe("generateNonPlayingBiddingRlDataset", () => {
       expect(manifest.samplingAlgorithm).toBe(NON_PLAYING_RL_SAMPLING_ALGORITHM);
       expect(manifest.temperature).toBe(0.01);
       expect(manifest.reward).toEqual({
-        type: NON_PLAYING_RL_REWARD_TYPE,
-        version: NON_PLAYING_RL_REWARD_VERSION,
-        id: NON_PLAYING_RL_REWARD_ID
+        type: NON_PLAYING_BIDDING_RL_REWARD_TYPE,
+        version: NON_PLAYING_BIDDING_RL_REWARD_VERSION,
+        id: NON_PLAYING_BIDDING_RL_REWARD_ID,
+        sourceRewardId: NON_PLAYING_RL_REWARD_ID,
+        appliesTo: "bidding",
+        napoleonWinMultiplier: 2,
+        napoleonAdjutantWinMultiplier: 3,
+        contractLossReward: -5,
+        nonContractReward: 0
       });
       expect(manifest.terminalRewardTransform).toEqual({
-        type: NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_TYPE,
-        version: NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_VERSION,
-        id: NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID,
-        sourceRewardId: NON_PLAYING_RL_REWARD_ID,
-        baseline: "meanRawRewardAllPlayers",
-        formula: "relative_reward_i = raw_reward_i - mean(raw_reward_all_players)"
+        type: NON_PLAYING_BIDDING_RL_TERMINAL_REWARD_TRANSFORM_TYPE,
+        version: NON_PLAYING_BIDDING_RL_TERMINAL_REWARD_TRANSFORM_VERSION,
+        id: NON_PLAYING_BIDDING_RL_TERMINAL_REWARD_TRANSFORM_ID,
+        sourceRewardId: NON_PLAYING_BIDDING_RL_REWARD_ID,
+        baseline: "none",
+        formula: "bidding_training_reward_i = raw_bidding_reward_i"
       });
       expect(manifest.allPassRule).toEqual({
         id: NON_PLAYING_RL_ALL_PASS_RULE_ID,
@@ -253,7 +266,7 @@ describe("generateNonPlayingBiddingRlDataset", () => {
         expect(sample.modelInput).toHaveLength(BIDDING_MODEL_INPUT_FEATURE_COUNT);
         expect(sample.legalBidMask).toHaveLength(BIDDING_ACTION_COUNT);
         expect(sample.legalBidMask[sample.selectedActionIndex]).toBe(1);
-        assertSampleUsesRelativeReward(sample);
+        assertSampleUsesBiddingIdentityReward(sample);
         if (sample.outcome.outcomeType === "all-pass") {
           expect(sample.outcome.actingPlayerPayoff).toBe(0);
           expect(sample.rawTerminalReward).toBe(0);
@@ -456,6 +469,88 @@ describe("generateNonPlayingBiddingRlDataset", () => {
         actingPlayerPayoff: 0
       })
     ).toBe(0);
+  });
+
+  it("assigns bidding training reward only to Napoleon contract outcomes", () => {
+    expectBiddingReward(
+      {
+        outcomeType: "standard",
+        winner: "napoleon-team",
+        targetPointCards: 16,
+        napoleonPlayerId: "player-0",
+        actingPlayerRole: "napoleon"
+      },
+      32
+    );
+    expectBiddingReward(
+      {
+        outcomeType: "standard",
+        winner: "alliance",
+        targetPointCards: 16,
+        napoleonPlayerId: "player-0",
+        actingPlayerRole: "napoleon"
+      },
+      -5
+    );
+    expectBiddingReward(
+      {
+        outcomeType: "standard",
+        winner: "napoleon-team",
+        targetPointCards: 16,
+        napoleonPlayerId: "player-0",
+        actingPlayerRole: "napoleon-adjutant"
+      },
+      48
+    );
+    expectBiddingReward(
+      {
+        outcomeType: "standard",
+        winner: "alliance",
+        targetPointCards: 16,
+        napoleonPlayerId: "player-0",
+        actingPlayerRole: "napoleon-adjutant"
+      },
+      -5
+    );
+    expectBiddingReward(
+      {
+        outcomeType: "standard",
+        winner: "alliance",
+        targetPointCards: 16,
+        napoleonPlayerId: "player-1",
+        actingPlayerRole: "citizen"
+      },
+      0
+    );
+    expectBiddingReward(
+      {
+        outcomeType: "standard",
+        winner: "napoleon-team",
+        targetPointCards: 16,
+        napoleonPlayerId: "player-1",
+        actingPlayerRole: "adjutant"
+      },
+      0
+    );
+    expectBiddingReward(
+      {
+        outcomeType: "all-pass",
+        starterPlayerId: "player-0",
+        actingPlayerRole: "all-pass-starter",
+        actingPlayerPayoff: 0
+      },
+      0
+    );
+    expectBiddingReward(
+      {
+        outcomeType: "standard",
+        winner: "napoleon-team",
+        targetPointCards: 16,
+        napoleonPlayerId: "player-1",
+        actingPlayerRole: "citizen"
+      },
+      0
+    );
   });
 
   it("calculates zero-sum relative learning rewards from raw terminal rewards", () => {
@@ -954,6 +1049,19 @@ function expectReward(
   reward: number
 ): void {
   expect(calculateNonPlayingTerminalRoleReward(outcome)).toBe(reward);
+}
+
+function expectBiddingReward(
+  outcome: NonPlayingBiddingRlOutcome,
+  reward: number
+): void {
+  expect(calculateNonPlayingBiddingTrainingReward(outcome)).toBe(reward);
+}
+
+function assertSampleUsesBiddingIdentityReward(sample: NonPlayingBiddingRlSample): void {
+  expect(sample.rawTerminalReward).toBe(calculateNonPlayingBiddingTrainingReward(sample.outcome));
+  expect(sample.gameMeanRawTerminalReward).toBe(0);
+  expect(sample.terminalReward).toBe(sample.rawTerminalReward);
 }
 
 function assertSampleUsesRelativeReward(

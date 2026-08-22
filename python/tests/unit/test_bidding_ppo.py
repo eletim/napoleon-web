@@ -44,6 +44,7 @@ from napoleon_ml.dataset.constants import (
     EXPECTED_CARD_IDS,
 )
 from napoleon_ml.dataset.tensors import BIDDING_MODEL_INPUT_FEATURE_COUNT
+from napoleon_ml.dataset.tensors import BIDDING_MODEL_INPUT_SCHEMA_VERSION
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 from napoleon_ml.nonplaying_onnx_export import export_bidding_rl_checkpoint_to_onnx
 
@@ -970,7 +971,7 @@ def _write_rl_dataset(
         "cardIds": [],
         "cardIdsSha256": calculate_card_ids_sha256(),
         "biddingEncoderSchemaVersion": 1,
-        "biddingModelInputSchemaVersion": 1,
+        "biddingModelInputSchemaVersion": BIDDING_MODEL_INPUT_SCHEMA_VERSION,
         "biddingModelInputFeatureCount": BIDDING_MODEL_INPUT_FEATURE_COUNT,
         "playingModelInputSchemaVersion": 2,
         "playingModelInputFeatureCount": 6246,
@@ -980,9 +981,15 @@ def _write_rl_dataset(
         "samplingAlgorithm": "masked-categorical",
         "temperature": 1.0,
         "reward": {
-            "type": "non-playing-terminal-role-reward",
-            "version": 3,
+            "type": "non-playing-bidding-contract-result-reward",
+            "version": 1,
             "id": NON_PLAYING_RL_REWARD_ID,
+            "sourceRewardId": "non-playing-terminal-role-reward-v3",
+            "appliesTo": "bidding",
+            "napoleonWinMultiplier": 2,
+            "napoleonAdjutantWinMultiplier": 3,
+            "contractLossReward": -5,
+            "nonContractReward": 0,
         },
         "terminalRewardTransform": _terminal_reward_transform(),
         "allPassRule": {
@@ -1090,12 +1097,12 @@ def _policy(policy_type: str) -> dict[str, object]:
 
 def _terminal_reward_transform() -> dict[str, object]:
     return {
-        "type": "raw-reward-minus-game-player-mean",
+        "type": "identity",
         "version": 1,
         "id": NON_PLAYING_RL_TERMINAL_REWARD_TRANSFORM_ID,
         "sourceRewardId": NON_PLAYING_RL_REWARD_ID,
-        "baseline": "meanRawRewardAllPlayers",
-        "formula": "relative_reward_i = raw_reward_i - mean(raw_reward_all_players)",
+        "baseline": "none",
+        "formula": "bidding_training_reward_i = raw_bidding_reward_i",
     }
 
 
