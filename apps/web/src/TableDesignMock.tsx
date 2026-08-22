@@ -1887,6 +1887,11 @@ function createProjectedOpponentPlayerInfoBalancedCenter(
 
   const topLeft = createProjectedOpponentPlayerInfoLayout(layout, "top-left", viewport);
   const tableCenterX = context.fit.transformedTableBox.x;
+
+  if (topLeft.x >= tableCenterX) {
+    return context.clampedCenter;
+  }
+
   const mirroredTopLeftX = tableCenterX + Math.abs(tableCenterX - topLeft.x);
 
   return clampPlayerInfoCenter(

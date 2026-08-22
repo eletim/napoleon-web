@@ -1044,7 +1044,7 @@ input:focus-visible {
   gap: 2px;
   height: 64px;
   justify-items: center;
-  left: 0;
+  left: env(safe-area-inset-left, 0px);
   line-height: 1;
   padding: 7px 5px;
   position: fixed;

@@ -446,6 +446,18 @@ describe("TableDesignMock", () => {
     expect(topRightDistanceFromCenter).toBeGreaterThan(0);
     expect(Math.abs(topLeftDistanceFromCenter - topRightDistanceFromCenter)).toBeLessThanOrEqual(128);
 
+    const tabletProjectedInfos = createPlayerInfoLayouts(tableDesignMockLayout, { width: 1024, height: 768 }, true);
+    const tabletTopLeftInfo = tabletProjectedInfos.find((entry) => entry.seatId === "top-left");
+    const tabletTopRightInfo = tabletProjectedInfos.find((entry) => entry.seatId === "top-right");
+
+    if (tabletTopLeftInfo === undefined || tabletTopRightInfo === undefined) {
+      throw new Error("Expected tablet top player info units");
+    }
+
+    expect(Math.abs(tabletTopRightInfo.x - tabletTopLeftInfo.x)).toBeGreaterThan(
+      tableDesignMockLayout.playerInfo.unitWidth * 0.8
+    );
+
     for (const seatId of ["top-left", "top-right", "right", "left"] as const) {
       const info = projectedInfos.find((entry) => entry.seatId === seatId);
       const hand = createOpponentHandGeometry(tableDesignMockLayout, seatId);
