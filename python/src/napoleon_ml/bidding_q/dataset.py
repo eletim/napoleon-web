@@ -30,9 +30,7 @@ BIDDING_Q_DATASET_SCHEMA_VERSION = 2
 BIDDING_Q_SUPPORTED_DATASET_SCHEMA_VERSIONS = (1, 2)
 BIDDING_Q_SAMPLE_SCHEMA_VERSION = 2
 BIDDING_Q_SUPPORTED_SAMPLE_SCHEMA_VERSIONS = (1, 2)
-BIDDING_Q_ACTION_MAPPING_ID = (
-    "bidding-action-index-v1-pass-then-13-19-spades-hearts-diamonds-clubs"
-)
+BIDDING_Q_ACTION_MAPPING_ID = "bidding-action-index-v1-pass-then-13-19-spades-hearts-diamonds-clubs"
 BIDDING_Q_REWARD_ID = "bidding-q-contract-result-loss-minus-one-v1"
 BIDDING_Q_MODEL_INPUT_SCHEMA_VERSION = BIDDING_MODEL_INPUT_SCHEMA_VERSION
 BIDDING_Q_MODEL_INPUT_FEATURE_COUNT = BIDDING_MODEL_INPUT_FEATURE_COUNT
@@ -98,6 +96,7 @@ class BiddingQRawSample:
     final_declared_suit: SuitName | None
     contract_margin: int | None
     opponent_configuration_key: str | None
+    source_selected_action_index: int | None = None
 
 
 @dataclass(frozen=True)
@@ -441,6 +440,14 @@ def _parse_sample(raw: dict[str, object], *, context: str) -> BiddingQRawSample:
     _validate_action_index(action_index)
     if legal_bid_mask[action_index] != 1.0:
         raise BiddingQDatasetError(f"{context}: forced action is illegal.")
+    source_selected_action_index = _optional_int(
+        raw.get("sourceSelectedActionIndex"),
+        f"{context}.sourceSelectedActionIndex",
+    )
+    if source_selected_action_index is not None:
+        _validate_action_index(source_selected_action_index)
+        if legal_bid_mask[source_selected_action_index] != 1.0:
+            raise BiddingQDatasetError(f"{context}: source selected action is illegal.")
     forced_action = _require_dict(raw.get("forcedAction"), f"{context}.forcedAction")
     action_type = _require_str(forced_action.get("type"), f"{context}.forcedAction.type")
     if action_type not in ("pass", "bid"):
@@ -450,9 +457,12 @@ def _parse_sample(raw: dict[str, object], *, context: str) -> BiddingQRawSample:
     if action_type == "pass" and action_index != 0:
         raise BiddingQDatasetError(f"{context}: PASS semantic/action index mismatch.")
     if action_type == "bid":
-        if _require_int(
-            forced_action.get("targetPointCards"), f"{context}.forcedAction.targetPointCards"
-        ) != semantic_target:
+        if (
+            _require_int(
+                forced_action.get("targetPointCards"), f"{context}.forcedAction.targetPointCards"
+            )
+            != semantic_target
+        ):
             raise BiddingQDatasetError(f"{context}: forced target mismatch.")
         if _require_str(forced_action.get("suit"), f"{context}.forcedAction.suit") != semantic_suit:
             raise BiddingQDatasetError(f"{context}: forced suit mismatch.")
@@ -537,12 +547,11 @@ def _parse_sample(raw: dict[str, object], *, context: str) -> BiddingQRawSample:
         ),
         contract_margin=_optional_int(raw.get("contractMargin"), f"{context}.contractMargin"),
         opponent_configuration_key=(
-            _require_str(
-                raw.get("opponentConfigurationKey"), f"{context}.opponentConfigurationKey"
-            )
+            _require_str(raw.get("opponentConfigurationKey"), f"{context}.opponentConfigurationKey")
             if sample_schema_version >= 2
             else None
         ),
+        source_selected_action_index=source_selected_action_index,
     )
 
 

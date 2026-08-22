@@ -14,12 +14,6 @@ from .dataset import (
     create_bidding_q_split,
     load_bidding_q_dataset,
 )
-from .model import (
-    BIDDING_Q_MLP_ARCHITECTURE_ID,
-    BiddingQModel,
-    BiddingQModelConfig,
-    create_seeded_bidding_q_model,
-)
 from .margin_model import (
     BIDDING_MARGIN_HETEROSCEDASTIC_ARCHITECTURE_ID,
     BiddingMarginHeteroscedasticModel,
@@ -42,6 +36,12 @@ from .margin_training import (
     save_bidding_margin_artifact,
     sigma_diagnostics,
     train_bidding_margin_model,
+)
+from .model import (
+    BIDDING_Q_MLP_ARCHITECTURE_ID,
+    BiddingQModel,
+    BiddingQModelConfig,
+    create_seeded_bidding_q_model,
 )
 from .multi_head_model import (
     BIDDING_MULTI_HEAD_Q_ARCHITECTURE_ID,
@@ -77,13 +77,20 @@ from .role_model import (
     compose_role_q,
     create_seeded_bidding_role_q_model,
 )
-from .role_value_model import (
-    BIDDING_ADJUTANT_VALUE_ARCHITECTURE_ID,
-    BIDDING_CITIZEN_VALUE_ARCHITECTURE_ID,
-    BiddingRoleValueModel,
-    BiddingRoleValueModelConfig,
-    architecture_id_for_role,
-    create_seeded_bidding_role_value_model,
+from .role_score_integration import (
+    AffineCalibration,
+    RoleScorePredictions,
+    ScoreMatrices,
+    StateKeySplit,
+    compose_score_matrices,
+    create_role_score_state_split,
+    evaluate_role_score_offline,
+    evaluate_score_matrices,
+    fit_affine_calibration,
+    fit_role_calibrations,
+    role_probability_metrics,
+    teacher_utility,
+    validate_role_probabilities,
 )
 from .role_training import (
     BIDDING_ROLE_Q_MODEL_TYPE,
@@ -97,6 +104,14 @@ from .role_training import (
     role_index_for_terminal_role,
     save_bidding_role_q_artifact,
     train_bidding_role_q_model,
+)
+from .role_value_model import (
+    BIDDING_ADJUTANT_VALUE_ARCHITECTURE_ID,
+    BIDDING_CITIZEN_VALUE_ARCHITECTURE_ID,
+    BiddingRoleValueModel,
+    BiddingRoleValueModelConfig,
+    architecture_id_for_role,
+    create_seeded_bidding_role_value_model,
 )
 from .role_value_training import (
     BIDDING_ROLE_VALUE_MODEL_TYPE,
@@ -170,6 +185,10 @@ __all__ = [
     "BiddingRoleValueModelConfig",
     "BiddingRoleValueTrainConfig",
     "BiddingRoleValueTrainResult",
+    "AffineCalibration",
+    "RoleScorePredictions",
+    "ScoreMatrices",
+    "StateKeySplit",
     "Standardization",
     "aggregate_bidding_q_samples",
     "architecture_id_for_role",
@@ -179,9 +198,11 @@ __all__ = [
     "bidding_q_selected_action_loss",
     "canonical_bidding_role",
     "compose_role_q",
+    "compose_score_matrices",
     "coverage_diagnostics",
     "create_bidding_q_split",
     "create_multi_head_split",
+    "create_role_score_state_split",
     "create_seeded_bidding_margin_model",
     "create_seeded_bidding_q_model",
     "create_seeded_bidding_multi_head_q_model",
@@ -191,6 +212,8 @@ __all__ = [
     "default_teacher_for_role",
     "evaluate_bidding_q_model",
     "evaluate_bidding_multi_head_q_model",
+    "evaluate_role_score_offline",
+    "evaluate_score_matrices",
     "export_bidding_margin_onnx",
     "export_bidding_role_q_onnx",
     "export_bidding_q_onnx",
@@ -209,13 +232,17 @@ __all__ = [
     "margin_sigma_from_log_variance",
     "offline_score_metrics",
     "ranking_metrics",
+    "fit_affine_calibration",
+    "fit_role_calibrations",
     "role_dataset_diagnostics",
     "role_index_for_terminal_role",
+    "role_probability_metrics",
     "role_value_coverage",
     "role_value_learning_assessment",
     "role_value_loss",
     "role_value_ranking",
     "role_value_teacher",
+    "teacher_utility",
     "risk_aware_ranking",
     "save_bidding_margin_artifact",
     "save_bidding_multi_head_q_artifact",
@@ -230,4 +257,5 @@ __all__ = [
     "train_bidding_role_q_model",
     "train_bidding_role_value_model",
     "train_bidding_q_model",
+    "validate_role_probabilities",
 ]
