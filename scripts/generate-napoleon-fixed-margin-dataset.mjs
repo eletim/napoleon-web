@@ -16,6 +16,12 @@ const pairCount = numberArg(args.pairs, 1000, "--pairs");
 const repeats = numberArg(args.repeats, 50, "--repeats");
 const randomSeed = numberArg(args.seed, 423000, "--seed");
 const actionCountPerHand = numberArg(args.actionsPerHand, 4, "--actions-per-hand");
+const decisionContextMode = stringArg(
+  args.decisionContextMode ?? args.contextMode,
+  "opening",
+  "--decision-context-mode",
+  ["opening", "raise", "mixed"]
+);
 const gamesPerShard = numberArg(args.gamesPerShard, 1000, "--games-per-shard");
 const reservedHands = args.reservedHands
   ? await loadReservedHands(args.reservedHands, Number(args.reservedLimit ?? 20))
@@ -28,6 +34,7 @@ const result = await generateNapoleonFixedMarginDataset({
   repeats,
   randomSeed,
   actionCountPerHand,
+  decisionContextMode,
   gamesPerShard,
   reservedHands,
   reserveHandsForFinal: reservedHands.length > 0,
@@ -60,7 +67,8 @@ async function loadReservedHands(path, limit) {
       handCount: 1,
       actionCountPerHand: 4,
       randomSeed: 423000 + index,
-      candidateSeatIndex: selection.candidateSeatIndex ?? 0
+      candidateSeatIndex: selection.candidateSeatIndex ?? 0,
+      decisionContextMode
     })[0];
     const actions = Array.isArray(selection.actions) && selection.actions.length > 0
       ? selection.actions
@@ -69,6 +77,12 @@ async function loadReservedHands(path, limit) {
             actionIndex: action.actionIndex,
             targetPointCards: action.target ?? action.targetPointCards,
             suit: action.suit,
+            decisionContext: action.decisionContext,
+            currentBidTargetPointCards: action.currentBidTargetPointCards,
+            currentBidSuit: action.currentBidSuit,
+            currentBidderSeatIndex: action.currentBidderSeatIndex,
+            consecutivePassCount: action.consecutivePassCount,
+            biddingStep: action.biddingStep,
             label: action.label,
             sourceNnMu: action.sourceNn?.mu ?? null,
             sourceNnSigma: action.sourceNn?.sigma ?? null,
@@ -123,6 +137,14 @@ function numberArg(value, fallback, name) {
   return parsed;
 }
 
+function stringArg(value, fallback, name, allowed) {
+  const selected = value ?? fallback;
+  if (!allowed.includes(selected)) {
+    usage(`${name} must be one of ${allowed.join(", ")}`);
+  }
+  return selected;
+}
+
 function gitCommitOrNull() {
   try {
     return execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
@@ -142,7 +164,7 @@ function hashText(text) {
 function usage(message) {
   console.error(`error: ${message}`);
   console.error(
-    "usage: node scripts/generate-napoleon-fixed-margin-dataset.mjs --output /tmp/ds --pairs 1000 --repeats 50 [--reserved-hands /tmp/selected-hands.json]"
+    "usage: node scripts/generate-napoleon-fixed-margin-dataset.mjs --output /tmp/ds --pairs 1000 --repeats 50 [--decision-context-mode opening|raise|mixed] [--reserved-hands /tmp/selected-hands.json]"
   );
   process.exit(1);
 }
