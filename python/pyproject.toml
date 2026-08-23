@@ -71,6 +71,8 @@ napoleon-evaluate-adjutant-mlp = "napoleon_ml.cli.evaluate_adjutant_mlp:main"
 napoleon-train-exchange-mlp = "napoleon_ml.cli.train_exchange_mlp:main"
 napoleon-train-exchange-ppo = "napoleon_ml.cli.train_exchange_ppo:main"
 napoleon-evaluate-exchange-mlp = "napoleon_ml.cli.evaluate_exchange_mlp:main"
+napoleon-train-exchange-value-mlp = "napoleon_ml.cli.train_exchange_value_mlp:main"
+napoleon-evaluate-exchange-value-mlp = "napoleon_ml.cli.evaluate_exchange_value_mlp:main"
 napoleon-run-non-playing-rl = "napoleon_ml.cli.run_nonplaying_rl:main"
 
 [tool.setuptools.packages.find]
