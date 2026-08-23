@@ -239,6 +239,9 @@ describe("generateFixedHandBiddingMarginDataset", () => {
         expect(sample.legalBidMask[sample.evaluatedRaiseAction.actionIndex]).toBe(1);
         expect(sample.rolloutCount).toBe(1);
         expect(sample.empiricalMarginStd).toBe(0);
+        expect(sample.finalRoleCounts.napoleon + sample.finalRoleCounts["napoleon-adjutant"]).toBe(1);
+        expect(typeof sample.finalRoleCounts.napoleon).toBe("number");
+        expect(typeof sample.finalRoleCounts["napoleon-adjutant"]).toBe("number");
         expect(sample.invariantChecks).toEqual({
           candidateHandFixed: true,
           deckConservation: true,

@@ -617,6 +617,10 @@ async function runHistoryConsistentRaiseRollout(options: {
     finalRole,
     invariantChecks
   };
+  const finalRoleCounts: Record<"napoleon" | "napoleon-adjutant", number> = {
+    napoleon: finalRole === "napoleon" ? 1 : 0,
+    "napoleon-adjutant": finalRole === "napoleon-adjutant" ? 1 : 0
+  };
   const sample: HistoryConsistentRaiseMarginSample = {
     sampleType: HISTORY_CONSISTENT_RAISE_MARGIN_DATASET_SAMPLE_TYPE,
     schemaVersion: HISTORY_CONSISTENT_RAISE_MARGIN_SAMPLE_SCHEMA_VERSION,
@@ -643,7 +647,7 @@ async function runHistoryConsistentRaiseRollout(options: {
     empiricalMarginMax: contractMargin,
     marginHistogram: { [String(contractMargin)]: 1 },
     resultTypeCounts: { [state.result.resultType]: 1 },
-    finalRoleCounts: { [finalRole]: 1 } as Record<"napoleon" | "napoleon-adjutant", number>,
+    finalRoleCounts,
     sourceNnMu: null,
     sourceNnSigma: null,
     sourceNnPWin: null,
