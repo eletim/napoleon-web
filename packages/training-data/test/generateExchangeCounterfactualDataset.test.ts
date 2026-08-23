@@ -2,7 +2,10 @@ import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { RuleBasedAgent } from "@napoleon/ai";
+import type { Agent, PlayerObservation } from "@napoleon/ai";
 import { createDeck } from "@napoleon/game-core";
+import type { GameAction } from "@napoleon/game-core";
 import { CARD_IDS, EXCHANGE_MODEL_INPUT_FEATURE_COUNT } from "@napoleon/ai-observation";
 import {
   EXCHANGE_COUNTERFACTUAL_COMBINATION_COUNT,
@@ -11,6 +14,7 @@ import {
   EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT,
   enumerateExchangeDiscardCombinations,
   generateExchangeCounterfactualDataset,
+  generatePseudoFixedExchangeCounterfactualDataset,
   validateGenerateExchangeCounterfactualDatasetOptions
 } from "../src/index.js";
 import type { ExchangeCounterfactualSample } from "../src/index.js";
@@ -138,6 +142,66 @@ describe("generateExchangeCounterfactualDataset", () => {
     });
   }, 60_000);
 
+  it("generates pseudo-fixed original10 plus kitty3 groups with varying hidden deals", async () => {
+    await withTempDir(async (directory) => {
+      const outputDirectory = join(directory, "pseudo-fixed");
+      const result = await generatePseudoFixedExchangeCounterfactualDataset({
+        outputDirectory,
+        fixedThirteenGroupCount: 2,
+        acceptedDealsPerFixedThirteenGroup: 2,
+        startSeed: 440000,
+        statesPerShard: 1,
+        maxDealAttempts: 40,
+        createBiddingAgent: ({ playerIndex }) =>
+          playerIndex === 0 ? new BidIfPossibleAgent() : new PassOnlyAgent(),
+        getBiddingPolicyId: ({ playerIndex }) =>
+          playerIndex === 0 ? "candidate-no-pass-test" : `opponent-pass-seat-${playerIndex}`,
+        createAdjutantAgent: () => new RuleBasedAgent(),
+        createPlayingAgent: () => new RuleBasedAgent()
+      });
+
+      expect(result.manifest.pseudoFixedThirteen?.method).toBe(
+        "pseudo-fixed-original10-kitty3-v1"
+      );
+      expect(result.manifest.sourceStateCount).toBe(4);
+      expect(result.manifest.summary.pseudoFixedThirteen?.acceptedDealCount).toBe(4);
+      expect(result.manifest.summary.pseudoFixedThirteen?.rejectedDealCount).toBe(0);
+      expect(result.manifest.summary.invariantFailureCount).toBe(0);
+
+      const manifest = JSON.parse(await readFile(join(outputDirectory, "manifest.json"), "utf8")) as typeof result.manifest;
+      const rows = (await Promise.all(
+        manifest.shards.map((shard) => readSamples(join(outputDirectory, shard.file)))
+      )).flat();
+      const firstRowsBySource = rows.filter((row) => row.candidateIndex === 0);
+      expect(firstRowsBySource).toHaveLength(4);
+      expect(new Set(firstRowsBySource.map((row) => row.fixedThirteenGroupId)).size).toBe(2);
+
+      const byGroup = new Map<string, ExchangeCounterfactualSample[]>();
+      for (const row of firstRowsBySource) {
+        expect(row.napoleonSeatIndex).toBe(0);
+        expect(row.napoleonPlayerId).toBe("player-0");
+        if (row.opponentPolicyIds === undefined) {
+          throw new Error("opponentPolicyIds missing");
+        }
+        expect(row.opponentPolicyIds).toHaveLength(4);
+        const groupId = row.fixedThirteenGroupId;
+        if (groupId === undefined) {
+          throw new Error("fixedThirteenGroupId missing");
+        }
+        byGroup.set(groupId, [...(byGroup.get(groupId) ?? []), row]);
+      }
+
+      for (const groupRows of byGroup.values()) {
+        expect(groupRows).toHaveLength(2);
+        expect(new Set(groupRows.map((row) => row.originalHandCardIds.join("|"))).size).toBe(1);
+        expect(new Set(groupRows.map((row) => row.kittyPickupCardIds.join("|"))).size).toBe(1);
+        expect(new Set(groupRows.map((row) => row.pickupHandCardIds.join("|"))).size).toBe(1);
+        expect(new Set(groupRows.map((row) => row.hiddenDealChecksum)).size).toBe(2);
+        expect(groupRows.every((row) => row.biddingHistoryActionCount >= 5)).toBe(true);
+      }
+    });
+  }, 60_000);
+
   it("records custom policy metadata as unknown unless explicitly supplied", () => {
     const validated = validateGenerateExchangeCounterfactualDatasetOptions({
       outputDirectory: "/tmp/custom-playing",
@@ -214,5 +278,35 @@ async function withTempDir(callback: (directory: string) => Promise<void>): Prom
     await callback(directory);
   } finally {
     await rm(directory, { recursive: true, force: true });
+  }
+}
+
+class BidIfPossibleAgent implements Agent {
+  private readonly delegate = new RuleBasedAgent();
+
+  async selectAction(observation: PlayerObservation): Promise<GameAction> {
+    if (observation.view.phase !== "bidding") {
+      return this.delegate.selectAction(observation);
+    }
+    const bid = observation.legalActions.find((action) => action.type === "bid");
+    if (bid === undefined) {
+      return this.delegate.selectAction(observation);
+    }
+    return bid;
+  }
+}
+
+class PassOnlyAgent implements Agent {
+  private readonly delegate = new RuleBasedAgent();
+
+  async selectAction(observation: PlayerObservation): Promise<GameAction> {
+    if (observation.view.phase !== "bidding") {
+      return this.delegate.selectAction(observation);
+    }
+    const pass = observation.legalActions.find((action) => action.type === "pass");
+    if (pass === undefined) {
+      throw new Error("pass action missing");
+    }
+    return pass;
   }
 }

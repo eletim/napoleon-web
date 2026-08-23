@@ -221,8 +221,10 @@ export {
   EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT,
   enumerateExchangeDiscardCombinations,
   generateExchangeCounterfactualDataset,
+  generatePseudoFixedExchangeCounterfactualDataset,
   summarizeExchangeCounterfactualSamples,
-  validateGenerateExchangeCounterfactualDatasetOptions
+  validateGenerateExchangeCounterfactualDatasetOptions,
+  validateGeneratePseudoFixedExchangeCounterfactualDatasetOptions
 } from "./generateExchangeCounterfactualDataset.js";
 export type {
   ExchangeCounterfactualAgentContext,
@@ -234,6 +236,7 @@ export type {
   ExchangeCounterfactualSample,
   ExchangeCounterfactualSourceDiagnostic,
   GenerateExchangeCounterfactualDatasetOptions,
+  GeneratePseudoFixedExchangeCounterfactualDatasetOptions,
   GenerateExchangeCounterfactualDatasetResult
 } from "./generateExchangeCounterfactualDataset.js";
 export {
