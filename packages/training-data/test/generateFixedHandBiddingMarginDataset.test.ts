@@ -12,6 +12,8 @@ import {
   createRandomFixedHands,
   generateFixedHandBiddingMarginDataset,
   generateNapoleonFixedMarginDataset,
+  createHistoryConsistentRaiseInitialState,
+  generateHistoryConsistentRaiseMarginDataset,
   stableUint32,
   summarizeFixedHandBiddingMarginSamples
 } from "../src/index.js";
@@ -194,6 +196,93 @@ describe("generateFixedHandBiddingMarginDataset", () => {
       expect(second.rawRollouts).toEqual(first.rawRollouts);
       expect(new Set(first.rawRollouts.map((raw) => raw.hiddenDealSeed)).size).toBe(2);
       expect(new Set(first.rawRollouts.map((raw) => raw.handIds.join(","))).size).toBe(1);
+    });
+  });
+
+  it("starts history-consistent raise deals from true initial bidding state", () => {
+    const handIds = createDeck().slice(0, 10).map((card) => card.id);
+    const state = createHistoryConsistentRaiseInitialState({
+      dealSeed: 427,
+      candidateSeatIndex: 2,
+      handIds
+    });
+    expect(state.phase).toBe("bidding");
+    expect(state.currentPlayerId).toBe("player-0");
+    expect(state.bidding).toEqual({
+      starterPlayerId: "player-0",
+      highestBid: null,
+      consecutivePassCount: 0,
+      history: []
+    });
+    expect(state.players[2].hand.map((card) => card.id)).toEqual(handIds);
+    assertDeckConservation(state);
+  });
+
+  it("generates raise samples whose hidden deal and bidding history share the same dealSeed", async () => {
+    await withTempDir(async (directory) => {
+      const result = await generateHistoryConsistentRaiseMarginDataset({
+        outputDirectory: join(directory, "raise"),
+        pairCount: 8,
+        fixedHandCount: 6,
+        maxDealSeedsPerHand: 40,
+        actionCountPerState: 2,
+        randomSeed: 427,
+        gamesPerShard: 10
+      });
+      expect(result.samples).toHaveLength(8);
+      expect(result.rawRollouts).toHaveLength(8);
+      expect(result.manifest.uniqueRaiseStateCount).toBeGreaterThan(0);
+      expect(result.manifest.teacher.note).toContain("no post-history hidden-hand reshuffle");
+      for (const sample of result.samples) {
+        expect(sample.currentBidder).toBe(sample.candidatePlayerId);
+        expect(sample.currentHighestBid).not.toBeNull();
+        expect(sample.legalBidMask[sample.evaluatedRaiseAction.actionIndex]).toBe(1);
+        expect(sample.rolloutCount).toBe(1);
+        expect(sample.empiricalMarginStd).toBe(0);
+        expect(sample.invariantChecks).toEqual({
+          candidateHandFixed: true,
+          deckConservation: true,
+          candidateTurnWithCurrentBid: true,
+          evaluatedActionLegalInSourceState: true,
+          hiddenDealMatchesSourceState: true,
+          candidateRoleNapoleon: true,
+          contractOwnerCandidate: true,
+          targetMatches: true,
+          suitMatches: true,
+          downstreamBiddingActionCount: 0
+        });
+        const raw = result.rawRollouts.find((row) =>
+          row.sourceStateKey === sample.sourceStateKey &&
+          row.forcedActionIndex === sample.forcedActionIndex
+        );
+        expect(raw).toBeDefined();
+        expect(raw?.dealSeed).toBe(sample.dealSeed);
+        expect(raw?.hiddenDealChecksum).toBe(sample.hiddenDealChecksum);
+        expect(raw?.biddingHistorySummary).toEqual(sample.biddingHistorySummary);
+      }
+    });
+  });
+
+  it("replays history-consistent raise generation deterministically by seed", async () => {
+    await withTempDir(async (directory) => {
+      const first = await generateHistoryConsistentRaiseMarginDataset({
+        outputDirectory: join(directory, "first-raise"),
+        pairCount: 4,
+        fixedHandCount: 4,
+        maxDealSeedsPerHand: 40,
+        actionCountPerState: 2,
+        randomSeed: 428
+      });
+      const second = await generateHistoryConsistentRaiseMarginDataset({
+        outputDirectory: join(directory, "second-raise"),
+        pairCount: 4,
+        fixedHandCount: 4,
+        maxDealSeedsPerHand: 40,
+        actionCountPerState: 2,
+        randomSeed: 428
+      });
+      expect(second.samples).toEqual(first.samples);
+      expect(second.rawRollouts).toEqual(first.rawRollouts);
     });
   });
 });

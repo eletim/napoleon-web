@@ -62,6 +62,37 @@ def test_napoleon_fixed_sample_type_loads_with_hand_level_split(tmp_path: Path) 
     assert {sample.fixed_hand_id for sample in split.final_samples} == final
 
 
+def test_history_consistent_raise_sample_type_loads_source_identity(tmp_path: Path) -> None:
+    dataset = write_dataset(
+        tmp_path,
+        hand_count=4,
+        actions_per_hand=2,
+        sample_type="history-consistent-raise-margin-sample",
+    )
+    assert dataset.manifest["sampleType"] == "history-consistent-raise-margin-sample"
+    first = dataset.samples[0]
+    assert first.source_state_key == "state-0-1"
+    assert first.deal_seed == 427001
+    assert first.state_key == "state-0-1"
+    ranking = same_hand_ranking(
+        dataset.samples[:2],
+        score=np.asarray([0.0, 1.0]),
+        teacher=np.asarray([0.0, 1.0]),
+    )
+    assert ranking["rankingStateCount"] == 0
+
+
+def test_mixed_fixed_hand_margin_sample_type_loads(tmp_path: Path) -> None:
+    dataset = write_dataset(
+        tmp_path,
+        hand_count=3,
+        actions_per_hand=2,
+        sample_type="mixed-fixed-hand-margin-sample",
+    )
+    assert len(dataset.samples) == 6
+    assert dataset.manifest["sampleType"] == "mixed-fixed-hand-margin-sample"
+
+
 def test_selected_action_only_mean_loss_fixture() -> None:
     mean = torch.zeros((2, 29), dtype=torch.float32)
     log_variance = torch.zeros((2, 29), dtype=torch.float32)
@@ -109,6 +140,22 @@ def test_m2_std_loss_uses_log_variance_target() -> None:
         target_scale=1.0,
     )
     assert float(loss) == 0.0
+
+
+def test_m2_std_loss_ignores_single_rollout_zero_std_targets() -> None:
+    mean = torch.zeros((1, 29), dtype=torch.float32)
+    mean[0, 1] = 2.0
+    loss = fixed_hand_margin_loss(
+        mean=mean,
+        log_variance=torch.full((1, 29), 100.0, dtype=torch.float32),
+        action_index=torch.tensor([1]),
+        target_mean=torch.tensor([1.0]),
+        target_std=torch.tensor([0.0]),
+        variant="M2",
+        std_loss_weight=100.0,
+        target_scale=1.0,
+    )
+    assert float(loss) == 1.0
 
 
 def test_checkpoint_save_load_roundtrip(tmp_path: Path) -> None:
@@ -205,7 +252,7 @@ def write_dataset(
 
 
 def sample_dict(hand_index: int, action_index: int, *, sample_type: str) -> dict[str, object]:
-    return {
+    row = {
         "sampleType": sample_type,
         "schemaVersion": 1,
         "fixedHandId": f"hand-{hand_index}",
@@ -223,6 +270,12 @@ def sample_dict(hand_index: int, action_index: int, *, sample_type: str) -> dict
         "empiricalWinRate": 0.2 + 0.05 * action_index,
         "splitHint": "final-diagnostic" if hand_index == 0 else None,
     }
+    if sample_type == "history-consistent-raise-margin-sample":
+        row.update({
+            "sourceStateKey": f"state-{hand_index}-{action_index}",
+            "dealSeed": 427000 + hand_index * 10 + action_index,
+        })
+    return row
 
 
 def sample(

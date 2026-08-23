@@ -192,6 +192,23 @@ export type {
   RoleConditionedMarginSummary
 } from "./generateFixedHandPassOutcomeDataset.js";
 export {
+  HISTORY_CONSISTENT_RAISE_MARGIN_DATASET_GENERATOR_VERSION,
+  HISTORY_CONSISTENT_RAISE_MARGIN_DATASET_SAMPLE_TYPE,
+  HISTORY_CONSISTENT_RAISE_MARGIN_DATASET_SCHEMA_VERSION,
+  HISTORY_CONSISTENT_RAISE_MARGIN_SAMPLE_SCHEMA_VERSION,
+  HISTORY_CONSISTENT_RAISE_MARGIN_TEACHER_ID,
+  createHistoryConsistentRaiseInitialState,
+  generateHistoryConsistentRaiseMarginDataset,
+  summarizeHistoryConsistentRaiseSamples,
+  validateGenerateHistoryConsistentRaiseMarginDatasetOptions
+} from "./generateHistoryConsistentRaiseMarginDataset.js";
+export type {
+  GenerateHistoryConsistentRaiseMarginDatasetOptions,
+  HistoryConsistentRaiseMarginDatasetManifest,
+  HistoryConsistentRaiseMarginSample,
+  HistoryConsistentRaiseRawRollout
+} from "./generateHistoryConsistentRaiseMarginDataset.js";
+export {
   calculateCardIdsSha256,
   serializeManifest,
   serializePlayingTrainingSample,

@@ -41,6 +41,8 @@ FIXED_HAND_MARGIN_SAMPLE_TYPES = frozenset(
     {
         "fixed-hand-bidding-margin-sample",
         "napoleon-fixed-contract-margin-sample",
+        "history-consistent-raise-margin-sample",
+        "mixed-fixed-hand-margin-sample",
     }
 )
 
@@ -69,10 +71,12 @@ class FixedHandMarginSample:
     source_nn_mu: float | None = None
     source_nn_sigma: float | None = None
     source_nn_p_win: float | None = None
+    source_state_key: str | None = None
+    deal_seed: int | None = None
 
     @property
     def state_key(self) -> str:
-        return self.fixed_hand_id
+        return self.source_state_key or self.fixed_hand_id
 
 
 @dataclass(frozen=True)
@@ -111,6 +115,7 @@ class FixedHandMarginTrainConfig:
     patience: int = 8
     min_delta: float = 0.0
     device: RequestedTorchDevice = "cpu"
+    init_checkpoint_path: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         data = asdict(self)
@@ -261,6 +266,14 @@ def train_fixed_hand_margin_model(
         ),
         seed=config.seed,
     ).to(device.torch_device)
+    if config.init_checkpoint_path is not None:
+        init_model, init_raw = load_fixed_hand_margin_checkpoint(config.init_checkpoint_path)
+        init_config = init_raw.get("modelConfig")
+        if init_config != model.config.to_dict():
+            raise FixedHandMarginCheckpointError(
+                "init checkpoint modelConfig does not match requested architecture."
+            )
+        model.load_state_dict(cpu_state_dict(init_model))
     optimizer = optim.AdamW(
         model.parameters(),
         lr=config.learning_rate,
@@ -389,10 +402,13 @@ def fixed_hand_margin_loss(
     if variant == "M1":
         return mean_loss
     selected_log_variance = log_variance[batch_index, action_index]
+    valid_std = target_std > 1e-6
+    if not bool(valid_std.any().item()):
+        return mean_loss
     target_log_variance = torch.log(
         torch.clamp((target_std / max(target_scale, 1e-12)) ** 2, min=1e-12)
     )
-    std_loss = torch.mean((selected_log_variance - target_log_variance) ** 2)
+    std_loss = torch.mean((selected_log_variance[valid_std] - target_log_variance[valid_std]) ** 2)
     return mean_loss + std_loss_weight * std_loss
 
 
@@ -504,7 +520,7 @@ def same_hand_ranking(
 ) -> dict[str, object]:
     by_hand: dict[str, list[int]] = defaultdict(list)
     for index, sample in enumerate(samples):
-        by_hand[sample.fixed_hand_id].append(index)
+        by_hand[sample.state_key].append(index)
     pair_count = 0
     correct = 0
     ties = 0
@@ -685,6 +701,8 @@ def _parse_fixed_hand_sample(raw: object) -> FixedHandMarginSample:
         source_nn_mu=_nullable_float(raw.get("sourceNnMu")),
         source_nn_sigma=_nullable_float(raw.get("sourceNnSigma")),
         source_nn_p_win=_nullable_float(raw.get("sourceNnPWin")),
+        source_state_key=_nullable_string(raw.get("sourceStateKey")),
+        deal_seed=_nullable_int(raw.get("dealSeed")),
     )
 
 
@@ -730,3 +748,11 @@ def _nullable_float(value: object) -> float | None:
     if not isinstance(value, int | float):
         raise FixedHandMarginDatasetError("nullable float field has invalid type.")
     return float(value)
+
+
+def _nullable_int(value: object) -> int | None:
+    if value is None:
+        return None
+    if not isinstance(value, int):
+        raise FixedHandMarginDatasetError("nullable integer field has invalid type.")
+    return value
