@@ -34,6 +34,7 @@ for (const input of inputs) {
     for (const line of text.split(/\n/)) {
       if (!line.trim()) continue;
       const row = JSON.parse(line);
+      row.sampleType = "mixed-fixed-hand-margin-sample";
       delete row.rawRolloutShard;
       rows.push(row);
     }
