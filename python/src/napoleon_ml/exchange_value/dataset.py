@@ -27,12 +27,15 @@ ExchangeValueInputVariant = str
 class ExchangeCounterfactualSample:
     source_state_key: str
     fixed_hand_id: str
+    fixed_thirteen_group_id: str
     deal_seed: int
     source_index: int
+    repeat_index: int | None
     candidate_index: int
     candidate_key: str
     original_hand_card_ids: tuple[str, ...] | None
     kitty_pickup_card_ids: tuple[str, ...] | None
+    opponent_policy_ids: tuple[str, ...] | None
     pickup_hand_card_ids: tuple[str, ...]
     model_input: np.ndarray
     compact_exchange_state_input: np.ndarray | None
@@ -235,6 +238,7 @@ def _identity_components(
     identity_owner: dict[tuple[str, str], str] = {}
     for sample in samples:
         for identity in (
+            ("fixedThirteenGroupId", sample.fixed_thirteen_group_id),
             ("dealSeed", str(sample.deal_seed)),
             ("hiddenDealChecksum", sample.hidden_deal_checksum),
             ("fixedHandId", sample.fixed_hand_id),
@@ -334,8 +338,10 @@ def _parse_sample(raw: dict[str, Any], *, context: str) -> ExchangeCounterfactua
     return ExchangeCounterfactualSample(
         source_state_key=_require_str(raw, "sourceStateKey"),
         fixed_hand_id=_require_str(raw, "fixedHandId"),
+        fixed_thirteen_group_id=str(raw.get("fixedThirteenGroupId") or raw["fixedHandId"]),
         deal_seed=_require_int(raw, "dealSeed"),
         source_index=_require_int(raw, "sourceIndex"),
+        repeat_index=_optional_int(raw.get("repeatIndex"), context, "repeatIndex"),
         candidate_index=_require_int(raw, "candidateIndex"),
         candidate_key=_require_str(raw, "candidateKey"),
         original_hand_card_ids=_optional_str_tuple(
@@ -349,6 +355,11 @@ def _parse_sample(raw: dict[str, Any], *, context: str) -> ExchangeCounterfactua
             3,
             context,
             "kittyPickupCardIds",
+        ),
+        opponent_policy_ids=_optional_variable_str_tuple(
+            raw.get("opponentPolicyIds"),
+            context,
+            "opponentPolicyIds",
         ),
         pickup_hand_card_ids=_str_tuple(raw.get("pickupHandCardIds"), 13, context),
         model_input=model_input,
@@ -418,6 +429,7 @@ def _leakage_guard(
     checks: dict[str, object] = {}
     for name, key_fn in (
         ("sourceStateKey", lambda s: s.source_state_key),
+        ("fixedThirteenGroupId", lambda s: s.fixed_thirteen_group_id),
         ("dealSeed", lambda s: str(s.deal_seed)),
         ("hiddenDealChecksum", lambda s: s.hidden_deal_checksum),
         ("fixedHandId", lambda s: s.fixed_hand_id),
@@ -485,6 +497,26 @@ def _optional_str_tuple(
     ):
         raise ValueError(f"{context}: {field_name} must be length {length} string array.")
     return tuple(value)
+
+
+def _optional_variable_str_tuple(
+    value: object,
+    context: str,
+    field_name: str,
+) -> tuple[str, ...] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ValueError(f"{context}: {field_name} must be a string array.")
+    return tuple(value)
+
+
+def _optional_int(value: object, context: str, field_name: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{context}: {field_name} must be an integer.")
+    return value
 
 
 def _special_flags(value: object, context: str) -> dict[str, bool]:

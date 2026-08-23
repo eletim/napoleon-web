@@ -393,8 +393,12 @@ def exchange_value_evaluation_report(
         "split": split,
         "sampleCount": len(samples),
         "stateCount": len({sample.source_state_key for sample in samples}),
+        "fixedThirteenGroupCount": len(
+            {sample.fixed_thirteen_group_id for sample in samples}
+        ),
         "scalar": _regression_metrics(predictions.astype(np.float64), truth),
         "ranking": ranking,
+        "sameThirteen": _same_thirteen_summary(samples, predictions),
         "ruleBased": _rule_based_summary(ranking),
         "buryContent": _bury_content_summary(samples, predictions),
     }
@@ -713,6 +717,91 @@ def _rule_based_summary(ranking: dict[str, object]) -> dict[str, object]:
         "teacherMarginRegret": ranking["ruleBasedTeacherMarginRegret"],
         "relativeRewardRegret": ranking["ruleBasedRelativeRewardRegret"],
         "modelVsRuleBasedMarginRegret": ranking["modelVsRuleBasedMarginRegret"],
+    }
+
+
+def _same_thirteen_summary(
+    samples: tuple[ExchangeCounterfactualSample, ...],
+    predictions: np.ndarray,
+) -> dict[str, object]:
+    by_state: dict[str, list[tuple[ExchangeCounterfactualSample, float]]] = defaultdict(list)
+    for index, sample in enumerate(samples):
+        by_state[sample.source_state_key].append((sample, float(predictions[index])))
+
+    by_group: dict[str, list[dict[str, object]]] = defaultdict(list)
+    for state_key, group in by_state.items():
+        if len(group) != EXCHANGE_COUNTERFACTUAL_COMBINATION_COUNT:
+            raise ValueError(f"{state_key}: expected 286 candidates in same-13 summary.")
+        best = max(
+            (sample for sample, _prediction in group),
+            key=lambda sample: (
+                sample.contract_margin,
+                sample.napoleon_relative_reward,
+                -sample.candidate_index,
+            ),
+        )
+        model_selected = max(group, key=lambda item: (item[1], -item[0].candidate_index))[0]
+        group_id = best.fixed_thirteen_group_id
+        by_group[group_id].append(
+            {
+                "sourceStateKey": state_key,
+                "modelMarginRegret": best.contract_margin
+                - model_selected.contract_margin,
+                "modelRelativeRewardRegret": best.napoleon_relative_reward
+                - model_selected.napoleon_relative_reward,
+                "modelDiscardKey": "|".join(model_selected.candidate_discard_card_ids),
+                "teacherBestDiscardKey": "|".join(best.candidate_discard_card_ids),
+            }
+        )
+
+    group_rows: list[dict[str, object]] = []
+    for group_id, rows in by_group.items():
+        margin = np.asarray([row["modelMarginRegret"] for row in rows], dtype=np.float64)
+        reward = np.asarray(
+            [row["modelRelativeRewardRegret"] for row in rows],
+            dtype=np.float64,
+        )
+        group_rows.append(
+            {
+                "fixedThirteenGroupId": group_id,
+                "dealCount": len(rows),
+                "meanMarginRegret": float(np.mean(margin)),
+                "meanRelativeRewardRegret": float(np.mean(reward)),
+                "modelSelectedDiscardUniqueCount": len(
+                    {str(row["modelDiscardKey"]) for row in rows}
+                ),
+                "teacherBestDiscardUniqueCount": len(
+                    {str(row["teacherBestDiscardKey"]) for row in rows}
+                ),
+            }
+        )
+
+    return {
+        "groupCount": len(group_rows),
+        "dealCountPerGroup": _numeric_summary(
+            np.asarray([row["dealCount"] for row in group_rows], dtype=np.float64)
+        ),
+        "groupMeanMarginRegret": _numeric_summary(
+            np.asarray([row["meanMarginRegret"] for row in group_rows], dtype=np.float64)
+        ),
+        "groupMeanRelativeRewardRegret": _numeric_summary(
+            np.asarray(
+                [row["meanRelativeRewardRegret"] for row in group_rows],
+                dtype=np.float64,
+            )
+        ),
+        "modelSelectedDiscardUniqueCount": _numeric_summary(
+            np.asarray(
+                [row["modelSelectedDiscardUniqueCount"] for row in group_rows],
+                dtype=np.float64,
+            )
+        ),
+        "teacherBestDiscardUniqueCount": _numeric_summary(
+            np.asarray(
+                [row["teacherBestDiscardUniqueCount"] for row in group_rows],
+                dtype=np.float64,
+            )
+        ),
     }
 
 

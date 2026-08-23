@@ -74,8 +74,10 @@ def _sample(*, state: int, candidate: int) -> dict[str, Any]:
         "schemaVersion": 1,
         "sourceStateKey": f"state-{state}",
         "fixedHandId": f"fixed-{state}",
+        "fixedThirteenGroupId": f"group-{state // 2}",
         "dealSeed": 436000 + state,
         "sourceIndex": state,
+        "repeatIndex": state % 2,
         "candidateIndex": candidate,
         "candidateKey": f"state-{state}-candidate-{candidate}",
         "napoleonPlayerId": "player-0",
@@ -85,6 +87,12 @@ def _sample(*, state: int, candidate: int) -> dict[str, Any]:
         "calledAdjutantCardId": "spades-A",
         "originalHandCardIds": [EXPECTED_CARD_IDS[index] for index in original_indices],
         "kittyPickupCardIds": [EXPECTED_CARD_IDS[index] for index in kitty_indices],
+        "opponentPolicyIds": [
+            "frozen-raise-v1",
+            "strong-rule-based-bidding-v1",
+            "conservative-bidding-v1",
+            "frozen-raise-v1",
+        ],
         "pickupHandCardIds": [
             EXPECTED_CARD_IDS[index] for index in original_indices + kitty_indices
         ],
@@ -205,7 +213,16 @@ def test_group_split_guards_state_and_identity_leakage(tmp_path: Path) -> None:
     assert split.train_state_keys.isdisjoint(split.validation_state_keys)
     assert split.train_state_keys.isdisjoint(split.final_state_keys)
     assert split.leakage_guard["status"] == "passed"
+    assert split.leakage_guard["fixedThirteenGroupId"]["crossSplitLeakageCount"] == 0
     assert {sample.source_state_key for sample in split.train_samples} == split.train_state_keys
+    for left, right in (
+        (split.train_samples, split.validation_samples),
+        (split.train_samples, split.final_samples),
+        (split.validation_samples, split.final_samples),
+    ):
+        assert {
+            sample.fixed_thirteen_group_id for sample in left
+        }.isdisjoint({sample.fixed_thirteen_group_id for sample in right})
 
 
 def test_model_uses_2671_plus_53_input_dimensions() -> None:
@@ -256,6 +273,8 @@ def test_ranking_metrics_and_rule_based_fixture(tmp_path: Path) -> None:
     bury_content = cast(dict[str, object], report["buryContent"])
     model_selected = cast(dict[str, object], bury_content["modelSelected"])
     assert model_selected["stateCount"] == 2
+    same_thirteen = cast(dict[str, object], report["sameThirteen"])
+    assert same_thirteen["groupCount"] == 1
 
 
 def test_training_smoke_checkpoint_save_load_and_deterministic_eval(tmp_path: Path) -> None:

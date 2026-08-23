@@ -35,6 +35,7 @@ import {
   advanceToNextTrick,
   applyAction,
   clearLatestEvent,
+  createDeck,
   createInitialGame,
   createPlayerView,
   getLegalActions,
@@ -43,6 +44,7 @@ import {
   isPointCard,
   jokerCardId,
   orumaCardId,
+  shuffleDeck,
   yoromekiCardId
 } from "@napoleon/game-core";
 import type {
@@ -121,6 +123,16 @@ export interface GenerateExchangeCounterfactualDatasetOptions {
   onProgress?: (progress: ExchangeCounterfactualGenerationProgress) => void;
 }
 
+export interface GeneratePseudoFixedExchangeCounterfactualDatasetOptions
+  extends Omit<GenerateExchangeCounterfactualDatasetOptions, "sourceStateCount"> {
+  fixedThirteenGroupCount: number;
+  acceptedDealsPerFixedThirteenGroup: number;
+  candidatePlayerIndex?: number;
+  maxDealAttemptsPerAccepted?: number;
+  diagnosticOnly?: boolean;
+  getBiddingPolicyId?: (context: ExchangeCounterfactualAgentContext) => string;
+}
+
 export interface ExchangeCounterfactualGenerationProgress {
   completedSourceStates: number;
   requestedSourceStates: number;
@@ -129,6 +141,8 @@ export interface ExchangeCounterfactualGenerationProgress {
   completedShards: number;
   currentSeed: number;
   dealAttempts: number;
+  completedFixedThirteenGroups?: number;
+  requestedFixedThirteenGroups?: number;
 }
 
 export interface ExchangeCounterfactualSample {
@@ -136,8 +150,10 @@ export interface ExchangeCounterfactualSample {
   schemaVersion: typeof EXCHANGE_COUNTERFACTUAL_SAMPLE_SCHEMA_VERSION;
   sourceStateKey: string;
   fixedHandId: string;
+  fixedThirteenGroupId?: string;
   dealSeed: number;
   sourceIndex: number;
+  repeatIndex?: number;
   candidateIndex: number;
   candidateKey: string;
   napoleonPlayerId: PlayerId;
@@ -147,6 +163,7 @@ export interface ExchangeCounterfactualSample {
   calledAdjutantCardId: string;
   originalHandCardIds: readonly string[];
   kittyPickupCardIds: readonly string[];
+  opponentPolicyIds?: readonly string[];
   pickupHandCardIds: readonly string[];
   modelInput: readonly number[];
   compactExchangeStateInput: readonly number[];
@@ -219,6 +236,7 @@ export interface ExchangeCounterfactualDatasetSummary {
   rankingStability: ExchangeCounterfactualRankingStability;
   invariantFailureCount: number;
   sourceStateDiagnostics: readonly ExchangeCounterfactualSourceDiagnostic[];
+  pseudoFixedThirteen?: PseudoFixedExchangeDatasetDiagnostics;
 }
 
 export interface NumericSummary {
@@ -249,7 +267,14 @@ export interface ExchangeCounterfactualRankingStability {
 
 export interface ExchangeCounterfactualSourceDiagnostic {
   sourceStateKey: string;
+  fixedThirteenGroupId?: string;
   dealSeed: number;
+  repeatIndex?: number;
+  opponentPolicyIds?: readonly string[];
+  contractTargetPointCards: number;
+  contractSuit: string;
+  biddingHistoryHash: string;
+  biddingHistoryActionCount: number;
   candidateCount: number;
   ruleBasedCandidateIndex: number;
   ruleBasedBestMatch: boolean;
@@ -268,6 +293,27 @@ export interface ExchangeCounterfactualSourceDiagnostic {
   ruleBasedBuriedPointCardCount: number;
   bestBuriedSpecialCards: ExchangeCounterfactualSpecialBuriedFlags;
   ruleBasedBuriedSpecialCards: ExchangeCounterfactualSpecialBuriedFlags;
+}
+
+export interface PseudoFixedExchangeDatasetDiagnostics {
+  method: "pseudo-fixed-original10-kitty3-v1";
+  fixedThirteenGroupCount: number;
+  acceptedDealsPerFixedThirteenGroup: number;
+  acceptedDealCount: number;
+  rejectedDealCount: number;
+  acceptanceRate: number;
+  rejectionReasons: Record<string, number>;
+  targetDistribution: Record<string, number>;
+  suitDistribution: Record<string, number>;
+  biddingHistoryActionCount: NumericSummary;
+  biddingHistoryUniqueHashCount: number;
+  opponentPolicyCounts: Record<string, number>;
+  opponentPolicyRatios: Record<string, number>;
+  groupContractDiversity: {
+    targetMeanUniqueCount: number;
+    suitMeanUniqueCount: number;
+    targetSuitMeanUniqueCount: number;
+  };
 }
 
 export interface ExchangeCounterfactualDatasetManifest {
@@ -314,6 +360,17 @@ export interface ExchangeCounterfactualDatasetManifest {
     raw: "napoleon contract success ? 2 * target : 0";
     relative: "napoleon contract success ? 7 * target / 4 : -3 * target / 4";
   };
+  pseudoFixedThirteen?: {
+    method: "pseudo-fixed-original10-kitty3-v1";
+    fixedThirteenGroupCount: number;
+    acceptedDealsPerFixedThirteenGroup: number;
+    candidatePlayerIndex: number;
+    candidatePolicy: "frozen-raise-v1-no-pass-legal-bid-fallback";
+    opponentPolicyMix: "per-seat-seeded-frozen-strong-conservative-1-1-1-v1";
+    hiddenHandsReshuffledAfterBidding: false;
+    biddingHistoryArtificiallyFixed: false;
+    teacherRolloutsGenerated: boolean;
+  };
   summary: ExchangeCounterfactualDatasetSummary;
   shardCount: number;
   shards: readonly DatasetShardManifest[];
@@ -332,6 +389,9 @@ interface SourceExchangeState {
   hiddenDealChecksum: string;
   sourceStateKey: string;
   fixedHandId: string;
+  fixedThirteenGroupId?: string;
+  repeatIndex?: number;
+  opponentPolicyIds?: readonly string[];
   modelInput: readonly number[];
   compactExchangeStateInput: readonly number[];
   legalDiscardCardMask: readonly number[];
@@ -341,6 +401,17 @@ interface SourceExchangeState {
   pickupHandCardIds: readonly string[];
   ruleBasedDiscardCardIds: readonly string[];
   ruleBasedCandidateIndex: number;
+}
+
+interface PseudoFixedGroupSpec {
+  fixedThirteenGroupId: string;
+  groupIndex: number;
+  candidatePlayerId: PlayerId;
+  candidatePlayerIndex: number;
+  originalHandCards: readonly Card[];
+  kittyCards: readonly Card[];
+  originalHandCardIds: readonly string[];
+  kittyPickupCardIds: readonly string[];
 }
 
 interface CompleteInfoActionAgent {
@@ -476,6 +547,184 @@ export async function generateExchangeCounterfactualDataset(
   }
 }
 
+export async function generatePseudoFixedExchangeCounterfactualDataset(
+  options: GeneratePseudoFixedExchangeCounterfactualDatasetOptions
+): Promise<GenerateExchangeCounterfactualDatasetResult> {
+  const pseudo = validateGeneratePseudoFixedExchangeCounterfactualDatasetOptions(options);
+  const validated = pseudo.common;
+  const outputDirectory = resolve(validated.outputDirectory);
+  const outputParentDirectory = dirname(outputDirectory);
+  await mkdir(outputParentDirectory, { recursive: true });
+  await assertOutputDirectoryDoesNotExist(outputDirectory);
+  const tempDirectory = await mkdtemp(
+    join(outputParentDirectory, `.${basename(outputDirectory)}-staging-`)
+  );
+  const shards: DatasetShardManifest[] = [];
+  let currentShardRows: ExchangeCounterfactualSample[] = [];
+  let currentShardStartSeed = validated.startSeed;
+  let dealAttempts = 0;
+  let seed = validated.startSeed;
+  let completedSourceStates = 0;
+  let sampleCount = 0;
+  let invariantFailureCount = 0;
+  const sourceDiagnostics: ExchangeCounterfactualSourceDiagnostic[] = [];
+  const dealSeeds = new Set<number>();
+  const fixedHandIds = new Set<string>();
+  const rejectionReasons = new Map<string, number>();
+  const biddingHistoryHashes = new Set<string>();
+
+  try {
+    for (let groupIndex = 0; groupIndex < pseudo.fixedThirteenGroupCount; groupIndex += 1) {
+      const group = createPseudoFixedGroup({
+        groupIndex,
+        candidatePlayerIndex: pseudo.candidatePlayerIndex,
+        playerIds: validated.playerIds,
+        startSeed: validated.startSeed
+      });
+      let acceptedInGroup = 0;
+      let attemptsInGroup = 0;
+
+      while (acceptedInGroup < pseudo.acceptedDealsPerFixedThirteenGroup) {
+        if (dealAttempts >= validated.maxDealAttempts) {
+          throw new Error(
+            `Unable to collect ${validated.sourceStateCount} pseudo-fixed exchange states within ${validated.maxDealAttempts} deal attempts.`
+          );
+        }
+        if (attemptsInGroup >= pseudo.maxDealAttemptsPerGroup) {
+          throw new Error(
+            `Unable to collect ${pseudo.acceptedDealsPerFixedThirteenGroup} accepted deals for ${group.fixedThirteenGroupId} within ${pseudo.maxDealAttemptsPerGroup} attempts.`
+          );
+        }
+
+        const source = await tryCreatePseudoFixedSourceExchangeState({
+          ...validated,
+          dealSeed: seed,
+          sourceIndex: completedSourceStates,
+          group,
+          repeatIndex: acceptedInGroup,
+          getBiddingPolicyId: pseudo.getBiddingPolicyId
+        });
+        dealAttempts += 1;
+        attemptsInGroup += 1;
+        seed += 1;
+
+        if (source.source === null) {
+          rejectionReasons.set(
+            source.rejectionReason,
+            (rejectionReasons.get(source.rejectionReason) ?? 0) + 1
+          );
+          continue;
+        }
+
+        const sourceSamples = pseudo.diagnosticOnly
+          ? []
+          : await createSourceSamples(source.source, validated);
+        currentShardRows.push(...sourceSamples);
+        sampleCount += sourceSamples.length;
+        invariantFailureCount += sourceSamples.filter((sample) =>
+          Object.values(sample.invariantChecks).some((value) => value === false)
+        ).length;
+        const diagnostic = pseudo.diagnosticOnly
+          ? createSourceDistributionDiagnostic(source.source)
+          : createSourceDiagnostic(sourceSamples);
+        sourceDiagnostics.push(diagnostic);
+        biddingHistoryHashes.add(diagnostic.biddingHistoryHash);
+        dealSeeds.add(source.source.dealSeed);
+        fixedHandIds.add(source.source.fixedHandId);
+        completedSourceStates += 1;
+        acceptedInGroup += 1;
+
+        if (currentShardRows.length >= validated.statesPerShard * EXCHANGE_COUNTERFACTUAL_COMBINATION_COUNT) {
+          shards.push(
+            await writeJsonlShard({
+              directory: tempDirectory,
+              rows: currentShardRows,
+              shardIndex: shards.length,
+              startSeed: currentShardStartSeed,
+              endSeed: source.source.dealSeed,
+              gameCount: currentShardRows.length / EXCHANGE_COUNTERFACTUAL_COMBINATION_COUNT
+            })
+          );
+          currentShardRows = [];
+          currentShardStartSeed = seed;
+        }
+
+        validated.onProgress?.({
+          completedSourceStates,
+          requestedSourceStates: validated.sourceStateCount,
+          sampleCount,
+          rolloutCount: sampleCount,
+          completedShards: shards.length,
+          currentSeed: seed - 1,
+          dealAttempts,
+          completedFixedThirteenGroups: groupIndex + (acceptedInGroup === pseudo.acceptedDealsPerFixedThirteenGroup ? 1 : 0),
+          requestedFixedThirteenGroups: pseudo.fixedThirteenGroupCount
+        });
+      }
+    }
+
+    if (currentShardRows.length > 0) {
+      shards.push(
+        await writeJsonlShard({
+          directory: tempDirectory,
+          rows: currentShardRows,
+          shardIndex: shards.length,
+          startSeed: currentShardStartSeed,
+          endSeed: seed - 1,
+          gameCount: currentShardRows.length / EXCHANGE_COUNTERFACTUAL_COMBINATION_COUNT
+        })
+      );
+    }
+
+    const summary = createSummaryFromDiagnostics({
+      diagnostics: sourceDiagnostics,
+      uniqueDealSeedCount: dealSeeds.size,
+      uniqueFixedHandCount: fixedHandIds.size,
+      sampleCount,
+      invariantFailureCount,
+      playingPolicyDeterministic: validated.playingPolicyDeterministic,
+      pseudoFixedThirteen: createPseudoFixedDiagnostics({
+        diagnostics: sourceDiagnostics,
+        rejectedDealCount: Array.from(rejectionReasons.values()).reduce((sum, count) => sum + count, 0),
+        rejectionReasons: Object.fromEntries(rejectionReasons),
+        fixedThirteenGroupCount: pseudo.fixedThirteenGroupCount,
+        acceptedDealsPerFixedThirteenGroup: pseudo.acceptedDealsPerFixedThirteenGroup,
+        biddingHistoryUniqueHashCount: biddingHistoryHashes.size
+      })
+    });
+    const manifest = createManifest({
+      options: validated,
+      endSeed: seed - 1,
+      dealAttempts,
+      sampleCount,
+      summary,
+      shards,
+      pseudoFixedThirteen: {
+        method: "pseudo-fixed-original10-kitty3-v1",
+        fixedThirteenGroupCount: pseudo.fixedThirteenGroupCount,
+        acceptedDealsPerFixedThirteenGroup: pseudo.acceptedDealsPerFixedThirteenGroup,
+        candidatePlayerIndex: pseudo.candidatePlayerIndex,
+        candidatePolicy: "frozen-raise-v1-no-pass-legal-bid-fallback",
+        opponentPolicyMix: "per-seat-seeded-frozen-strong-conservative-1-1-1-v1",
+        hiddenHandsReshuffledAfterBidding: false,
+        biddingHistoryArtificiallyFixed: false,
+        teacherRolloutsGenerated: !pseudo.diagnosticOnly
+      }
+    });
+
+    await writeFile(join(tempDirectory, "manifest.json"), serializeManifest(manifest), "utf8");
+    await rename(tempDirectory, outputDirectory);
+
+    return {
+      outputDirectory,
+      manifest
+    };
+  } catch (error) {
+    await rm(tempDirectory, { recursive: true, force: true });
+    throw error;
+  }
+}
+
 export function validateGenerateExchangeCounterfactualDatasetOptions(
   options: GenerateExchangeCounterfactualDatasetOptions
 ): Required<Omit<
@@ -569,6 +818,70 @@ export function validateGenerateExchangeCounterfactualDatasetOptions(
   };
 }
 
+export function validateGeneratePseudoFixedExchangeCounterfactualDatasetOptions(
+  options: GeneratePseudoFixedExchangeCounterfactualDatasetOptions
+): {
+  common: ReturnType<typeof validateGenerateExchangeCounterfactualDatasetOptions>;
+  fixedThirteenGroupCount: number;
+  acceptedDealsPerFixedThirteenGroup: number;
+  candidatePlayerIndex: number;
+  maxDealAttemptsPerGroup: number;
+  diagnosticOnly: boolean;
+  getBiddingPolicyId?: (context: ExchangeCounterfactualAgentContext) => string;
+} {
+  if (
+    !Number.isInteger(options.fixedThirteenGroupCount) ||
+    options.fixedThirteenGroupCount <= 0
+  ) {
+    throw new Error(
+      `fixedThirteenGroupCount must be a positive integer: ${options.fixedThirteenGroupCount}`
+    );
+  }
+  if (
+    !Number.isInteger(options.acceptedDealsPerFixedThirteenGroup) ||
+    options.acceptedDealsPerFixedThirteenGroup <= 0
+  ) {
+    throw new Error(
+      `acceptedDealsPerFixedThirteenGroup must be a positive integer: ${options.acceptedDealsPerFixedThirteenGroup}`
+    );
+  }
+  const playerIds = options.playerIds ?? DEFAULT_PLAYER_IDS;
+  const candidatePlayerIndex = options.candidatePlayerIndex ?? 0;
+  if (
+    !Number.isInteger(candidatePlayerIndex) ||
+    candidatePlayerIndex < 0 ||
+    candidatePlayerIndex >= playerIds.length
+  ) {
+    throw new Error(`candidatePlayerIndex must be in [0, ${playerIds.length - 1}].`);
+  }
+  const sourceStateCount =
+    options.fixedThirteenGroupCount * options.acceptedDealsPerFixedThirteenGroup;
+  const maxDealAttempts = options.maxDealAttempts ??
+    sourceStateCount * DEFAULT_MAX_DEAL_ATTEMPTS_FACTOR;
+  const maxDealAttemptsPerGroup = options.maxDealAttemptsPerAccepted === undefined
+    ? maxDealAttempts
+    : options.maxDealAttemptsPerAccepted * options.acceptedDealsPerFixedThirteenGroup;
+  if (!Number.isInteger(maxDealAttemptsPerGroup) || maxDealAttemptsPerGroup < options.acceptedDealsPerFixedThirteenGroup) {
+    throw new Error(
+      `maxDealAttemptsPerAccepted must allow at least ${options.acceptedDealsPerFixedThirteenGroup} attempts per group.`
+    );
+  }
+  return {
+    common: validateGenerateExchangeCounterfactualDatasetOptions({
+      ...options,
+      sourceStateCount,
+      maxDealAttempts,
+      playerIds
+    }),
+    fixedThirteenGroupCount: options.fixedThirteenGroupCount,
+    acceptedDealsPerFixedThirteenGroup: options.acceptedDealsPerFixedThirteenGroup,
+    candidatePlayerIndex,
+    maxDealAttemptsPerGroup,
+    diagnosticOnly: options.diagnosticOnly ?? false,
+    getBiddingPolicyId: options.getBiddingPolicyId
+  };
+}
+
 function validateSeedHeadroom(startSeed: number, maxDealAttempts: number): void {
   if (startSeed + maxDealAttempts - 1 > UINT32_MAX) {
     throw new Error(
@@ -654,7 +967,14 @@ function createSourceDiagnostic(
 
   return {
     sourceStateKey: best.sourceStateKey,
+    fixedThirteenGroupId: best.fixedThirteenGroupId,
     dealSeed: best.dealSeed,
+    repeatIndex: best.repeatIndex,
+    opponentPolicyIds: best.opponentPolicyIds,
+    contractTargetPointCards: best.contractTargetPointCards,
+    contractSuit: best.contractSuit,
+    biddingHistoryHash: best.biddingHistoryHash,
+    biddingHistoryActionCount: best.biddingHistoryActionCount,
     candidateCount: rows.length,
     ruleBasedCandidateIndex: ruleBased.candidateIndex,
     ruleBasedBestMatch: sameOutcome(ruleBased, best),
@@ -678,6 +998,41 @@ function createSourceDiagnostic(
   };
 }
 
+function createSourceDistributionDiagnostic(
+  source: SourceExchangeState
+): ExchangeCounterfactualSourceDiagnostic {
+  const contract = requiredContract(source.state);
+  return {
+    sourceStateKey: source.sourceStateKey,
+    fixedThirteenGroupId: source.fixedThirteenGroupId,
+    dealSeed: source.dealSeed,
+    repeatIndex: source.repeatIndex,
+    opponentPolicyIds: source.opponentPolicyIds,
+    contractTargetPointCards: contract.targetPointCards,
+    contractSuit: contract.trumpSuit,
+    biddingHistoryHash: sha256Utf8(JSON.stringify(source.publicActionHistory)),
+    biddingHistoryActionCount: source.publicActionHistory.length,
+    candidateCount: 0,
+    ruleBasedCandidateIndex: source.ruleBasedCandidateIndex,
+    ruleBasedBestMatch: false,
+    ruleBasedRankByRelativeReward: 0,
+    ruleBasedRankPercentile: 0,
+    bestCandidateIndex: 0,
+    bestRelativeReward: 0,
+    ruleBasedRelativeReward: 0,
+    ruleBasedRelativeRewardRegret: 0,
+    bestMargin: 0,
+    ruleBasedMargin: 0,
+    ruleBasedMarginRegret: 0,
+    marginSpread: 0,
+    relativeRewardSpread: 0,
+    bestBuriedPointCardCount: 0,
+    ruleBasedBuriedPointCardCount: 0,
+    bestBuriedSpecialCards: emptySpecialBuriedFlags(),
+    ruleBasedBuriedSpecialCards: emptySpecialBuriedFlags()
+  };
+}
+
 function createSummaryFromDiagnostics(input: {
   diagnostics: readonly ExchangeCounterfactualSourceDiagnostic[];
   uniqueDealSeedCount: number;
@@ -685,6 +1040,7 @@ function createSummaryFromDiagnostics(input: {
   sampleCount: number;
   invariantFailureCount: number;
   playingPolicyDeterministic: boolean;
+  pseudoFixedThirteen?: PseudoFixedExchangeDatasetDiagnostics;
 }): ExchangeCounterfactualDatasetSummary {
   const diagnostics = input.diagnostics;
   return {
@@ -733,7 +1089,10 @@ function createSummaryFromDiagnostics(input: {
         : "Source state and candidate discard are fixed; no hidden reshuffle is performed. Ranking repeat correlation was not measured because the configured playing policy is not declared deterministic."
     },
     invariantFailureCount: input.invariantFailureCount,
-    sourceStateDiagnostics: diagnostics
+    sourceStateDiagnostics: diagnostics,
+    ...(input.pseudoFixedThirteen === undefined
+      ? {}
+      : { pseudoFixedThirteen: input.pseudoFixedThirteen })
   };
 }
 
@@ -744,6 +1103,7 @@ function createManifest(input: {
   sampleCount: number;
   summary: ExchangeCounterfactualDatasetSummary;
   shards: readonly DatasetShardManifest[];
+  pseudoFixedThirteen?: NonNullable<ExchangeCounterfactualDatasetManifest["pseudoFixedThirteen"]>;
 }): ExchangeCounterfactualDatasetManifest {
   return {
     datasetSchemaVersion: EXCHANGE_COUNTERFACTUAL_DATASET_SCHEMA_VERSION,
@@ -805,9 +1165,405 @@ function createManifest(input: {
       raw: "napoleon contract success ? 2 * target : 0",
       relative: "napoleon contract success ? 7 * target / 4 : -3 * target / 4"
     },
+    ...(input.pseudoFixedThirteen === undefined
+      ? {}
+      : { pseudoFixedThirteen: input.pseudoFixedThirteen }),
     summary: input.summary,
     shardCount: input.shards.length,
     shards: input.shards
+  };
+}
+
+function createPseudoFixedDiagnostics(input: {
+  diagnostics: readonly ExchangeCounterfactualSourceDiagnostic[];
+  rejectedDealCount: number;
+  rejectionReasons: Record<string, number>;
+  fixedThirteenGroupCount: number;
+  acceptedDealsPerFixedThirteenGroup: number;
+  biddingHistoryUniqueHashCount: number;
+}): PseudoFixedExchangeDatasetDiagnostics {
+  const acceptedDealCount = input.diagnostics.length;
+  const policyCounts = new Map<string, number>();
+  for (const diagnostic of input.diagnostics) {
+    for (const policyId of diagnostic.opponentPolicyIds ?? []) {
+      policyCounts.set(policyId, (policyCounts.get(policyId) ?? 0) + 1);
+    }
+  }
+  const totalPolicySeats = Array.from(policyCounts.values()).reduce((sum, count) => sum + count, 0);
+  const byGroup = new Map<string, ExchangeCounterfactualSourceDiagnostic[]>();
+  for (const diagnostic of input.diagnostics) {
+    const groupId = diagnostic.fixedThirteenGroupId ?? diagnostic.sourceStateKey;
+    const rows = byGroup.get(groupId) ?? [];
+    rows.push(diagnostic);
+    byGroup.set(groupId, rows);
+  }
+
+  return {
+    method: "pseudo-fixed-original10-kitty3-v1",
+    fixedThirteenGroupCount: input.fixedThirteenGroupCount,
+    acceptedDealsPerFixedThirteenGroup: input.acceptedDealsPerFixedThirteenGroup,
+    acceptedDealCount,
+    rejectedDealCount: input.rejectedDealCount,
+    acceptanceRate: acceptedDealCount + input.rejectedDealCount === 0
+      ? 0
+      : acceptedDealCount / (acceptedDealCount + input.rejectedDealCount),
+    rejectionReasons: input.rejectionReasons,
+    targetDistribution: countBy(input.diagnostics, (diagnostic) =>
+      String(diagnostic.contractTargetPointCards)
+    ),
+    suitDistribution: countBy(input.diagnostics, (diagnostic) => diagnostic.contractSuit),
+    biddingHistoryActionCount: summarizeNumbers(
+      input.diagnostics.map((diagnostic) => diagnostic.biddingHistoryActionCount)
+    ),
+    biddingHistoryUniqueHashCount: input.biddingHistoryUniqueHashCount,
+    opponentPolicyCounts: Object.fromEntries(policyCounts),
+    opponentPolicyRatios: Object.fromEntries(
+      Array.from(policyCounts).map(([policyId, count]) => [
+        policyId,
+        totalPolicySeats === 0 ? 0 : count / totalPolicySeats
+      ])
+    ),
+    groupContractDiversity: {
+      targetMeanUniqueCount: mean(Array.from(byGroup.values()).map((rows) =>
+        new Set(rows.map((row) => row.contractTargetPointCards)).size
+      )),
+      suitMeanUniqueCount: mean(Array.from(byGroup.values()).map((rows) =>
+        new Set(rows.map((row) => row.contractSuit)).size
+      )),
+      targetSuitMeanUniqueCount: mean(Array.from(byGroup.values()).map((rows) =>
+        new Set(rows.map((row) => `${row.contractTargetPointCards}:${row.contractSuit}`)).size
+      ))
+    }
+  };
+}
+
+async function tryCreatePseudoFixedSourceExchangeState(input: ReturnType<
+  typeof validateGenerateExchangeCounterfactualDatasetOptions
+> & {
+  dealSeed: number;
+  sourceIndex: number;
+  group: PseudoFixedGroupSpec;
+  repeatIndex: number;
+  getBiddingPolicyId?: (context: ExchangeCounterfactualAgentContext) => string;
+}): Promise<{
+  source: SourceExchangeState | null;
+  rejectionReason: string;
+}> {
+  const initialState = createPseudoFixedInitialState({
+    group: input.group,
+    dealSeed: input.dealSeed,
+    playerIds: input.playerIds
+  });
+  const opponentPolicyIds = input.playerIds
+    .filter((playerId) => playerId !== input.group.candidatePlayerId)
+    .map((playerId) => {
+      const playerIndex = input.playerIds.indexOf(playerId);
+      return input.getBiddingPolicyId?.({
+        playerId,
+        playerIndex,
+        rng: createSeededRandom(deriveSeed(input.dealSeed, `agent:bidding:${playerId}`)),
+        seed: input.dealSeed
+      }) ?? "custom-opponent-bidding-policy-unknown-v1";
+    });
+  const bidding = await runBiddingFromInitialState({
+    ...input,
+    initialState
+  });
+
+  if (bidding.state.phase !== "choosing-adjutant" || bidding.state.contract === null) {
+    return {
+      source: null,
+      rejectionReason: bidding.state.result?.resultType === "all-pass"
+        ? "all-pass"
+        : "no-standard-contract"
+    };
+  }
+  if (bidding.state.contract.napoleonPlayerId !== input.group.candidatePlayerId) {
+    return {
+      source: null,
+      rejectionReason: "candidate-not-final-napoleon"
+    };
+  }
+
+  const source = await finishSourceExchangeState({
+    ...input,
+    state: bidding.state,
+    publicActionHistory: bidding.publicActionHistory,
+    biddingStarterPlayerId: initialState.bidding?.starterPlayerId ?? input.playerIds[0],
+    fixedThirteenGroupId: input.group.fixedThirteenGroupId,
+    repeatIndex: input.repeatIndex,
+    fixedHandId: input.group.fixedThirteenGroupId,
+    opponentPolicyIds
+  });
+  if (!sameStringArray(source.originalHandCardIds, input.group.originalHandCardIds)) {
+    throw new Error("Pseudo-fixed source original hand changed before exchange.");
+  }
+  if (!sameStringArray(source.kittyPickupCardIds, input.group.kittyPickupCardIds)) {
+    throw new Error("Pseudo-fixed source kitty changed before pickup.");
+  }
+  return { source, rejectionReason: "accepted" };
+}
+
+async function runBiddingFromInitialState(input: ReturnType<
+  typeof validateGenerateExchangeCounterfactualDatasetOptions
+> & {
+  dealSeed: number;
+  initialState: GameState;
+}): Promise<{
+  state: GameState;
+  publicActionHistory: readonly PublicActionRecord[];
+}> {
+  let state = input.initialState;
+  const biddingAgents = createAgents(input, input.dealSeed, "bidding");
+  const publicActionHistory: PublicActionRecord[] = [];
+  let decisionStep = 0;
+
+  while (state.phase === "bidding" && !state.isGameOver) {
+    if (decisionStep >= input.maxDecisionSteps) {
+      throw new Error(`Source bidding exceeded ${input.maxDecisionSteps} decision steps.`);
+    }
+    const playerId = state.currentPlayerId;
+    const agent = requiredAgent(biddingAgents, playerId);
+    const legalActions = getLegalActions(state, playerId);
+    const observation = createObservation({
+      state,
+      playerId,
+      legalActions,
+      publicActionHistory
+    });
+    const action = await selectAgentAction(agent, observation, {
+      actualState: captureActualCardState(state),
+      playerIds: input.playerIds
+    });
+    assertLegalAction(action, legalActions, state.phase);
+    decisionStep += 1;
+    publicActionHistory.push({
+      step: decisionStep,
+      playerId,
+      phase: "bidding",
+      action: action as PublicActionRecord["action"]
+    });
+    state = applyAction(clearLatestEvent(state), action);
+  }
+
+  return { state, publicActionHistory };
+}
+
+function createPseudoFixedGroup(input: {
+  groupIndex: number;
+  candidatePlayerIndex: number;
+  playerIds: readonly PlayerId[];
+  startSeed: number;
+}): PseudoFixedGroupSpec {
+  const shuffled = shuffleDeck(
+    createDeck(),
+    createSeededRandom(deriveSeed(input.startSeed, `fixed-thirteen-group:${input.groupIndex}`))
+  );
+  const originalHandCards = [...shuffled.slice(0, 10)].sort(compareCardsByEncoderOrder);
+  const kittyCards = [...shuffled.slice(10, 13)].sort(compareCardsByEncoderOrder);
+  const originalHandCardIds = originalHandCards.map((card) => card.id);
+  const kittyPickupCardIds = kittyCards.map((card) => card.id);
+  return {
+    fixedThirteenGroupId: sha256Utf8(JSON.stringify({
+      originalHandCardIds,
+      kittyPickupCardIds
+    })).slice(0, 24),
+    groupIndex: input.groupIndex,
+    candidatePlayerId: input.playerIds[input.candidatePlayerIndex],
+    candidatePlayerIndex: input.candidatePlayerIndex,
+    originalHandCards,
+    kittyCards,
+    originalHandCardIds,
+    kittyPickupCardIds
+  };
+}
+
+function createPseudoFixedInitialState(input: {
+  group: PseudoFixedGroupSpec;
+  dealSeed: number;
+  playerIds: readonly PlayerId[];
+}): GameState {
+  const fixedIds = new Set([
+    ...input.group.originalHandCardIds,
+    ...input.group.kittyPickupCardIds
+  ]);
+  const remaining = createDeck().filter((card) => !fixedIds.has(card.id));
+  const shuffledRemaining = shuffleDeck(
+    remaining,
+    createSeededRandom(deriveSeed(input.dealSeed, "pseudo-fixed-hidden-opponents"))
+  );
+  if (shuffledRemaining.length !== 40) {
+    throw new Error(`Expected 40 remaining cards, got ${shuffledRemaining.length}.`);
+  }
+  const starterIndex = Math.floor(
+    createSeededRandom(deriveSeed(input.dealSeed, "pseudo-fixed-bidding-starter"))() *
+      input.playerIds.length
+  );
+  const players = input.playerIds.map((id, playerIndex) => {
+    if (playerIndex === input.group.candidatePlayerIndex) {
+      return { id, hand: input.group.originalHandCards };
+    }
+    const opponentOffset = playerIndex < input.group.candidatePlayerIndex
+      ? playerIndex
+      : playerIndex - 1;
+    const start = opponentOffset * 10;
+    return {
+      id,
+      hand: shuffledRemaining.slice(start, start + 10).sort(compareCardsByEncoderOrder)
+    };
+  });
+
+  return {
+    players,
+    phase: "bidding",
+    currentPlayerId: input.playerIds[starterIndex],
+    currentTrick: [],
+    completedTricks: [],
+    trumpSuit: null,
+    contract: null,
+    adjutant: null,
+    bidding: {
+      starterPlayerId: input.playerIds[starterIndex],
+      highestBid: null,
+      consecutivePassCount: 0,
+      history: []
+    },
+    awardedPointCards: [],
+    excludedCards: [],
+    latestEvent: null,
+    result: null,
+    trickNumber: 1,
+    isTrickComplete: false,
+    isGameOver: false,
+    unusedCards: input.group.kittyCards
+  };
+}
+
+async function finishSourceExchangeState(input: ReturnType<
+  typeof validateGenerateExchangeCounterfactualDatasetOptions
+> & {
+  dealSeed: number;
+  sourceIndex: number;
+  state: GameState;
+  publicActionHistory: readonly PublicActionRecord[];
+  biddingStarterPlayerId: PlayerId;
+  fixedThirteenGroupId?: string;
+  repeatIndex?: number;
+  fixedHandId?: string;
+  opponentPolicyIds?: readonly string[];
+}): Promise<SourceExchangeState> {
+  let state = input.state;
+  if (state.phase !== "choosing-adjutant" || state.contract === null || state.isGameOver) {
+    throw new Error("Expected choosing-adjutant state with a contract.");
+  }
+
+  const napoleonPlayerId = state.contract.napoleonPlayerId;
+  const originalHandCards = [...getPlayerHand(state, napoleonPlayerId)].sort(compareCardsByEncoderOrder);
+  const originalHandCardIds = originalHandCards.map((card) => card.id);
+  const kittyPickupCardIds = canonicalCardIds(state.unusedCards.map((card) => card.id));
+  const adjutantAgent = createAgent(input, input.dealSeed, "adjutant", napoleonPlayerId);
+  const adjutantLegalActions = getLegalActions(state, napoleonPlayerId);
+  const adjutantObservation = createObservation({
+    state,
+    playerId: napoleonPlayerId,
+    legalActions: adjutantLegalActions,
+    publicActionHistory: input.publicActionHistory
+  });
+  const adjutantAction = await selectAgentAction(adjutantAgent, adjutantObservation, {
+    actualState: captureActualCardState(state),
+    playerIds: input.playerIds
+  });
+  assertLegalAction(adjutantAction, adjutantLegalActions, state.phase);
+  state = applyAction(clearLatestEvent(state), adjutantAction);
+
+  if (state.phase !== "exchanging" || state.contract === null || state.adjutant === null) {
+    throw new Error(`Expected exchange phase after adjutant selection for seed ${input.dealSeed}.`);
+  }
+
+  const exchangeLegalActions = enumerateExchangeLegalActions(state, napoleonPlayerId);
+  const exchangeObservation = createObservation({
+    state,
+    playerId: napoleonPlayerId,
+    legalActions: exchangeLegalActions,
+    publicActionHistory: input.publicActionHistory
+  });
+  const absolutePlayerIds = input.playerIds;
+  const relativePlayerIds = createRelativePlayerOrder(absolutePlayerIds, napoleonPlayerId);
+  const biddingHistory = encodeBiddingHistoryFromPublicActions(
+    input.publicActionHistory,
+    relativePlayerIds
+  );
+  const encodedExchangeObservation = encodeExchangeObservation(
+    exchangeObservation,
+    absolutePlayerIds,
+    biddingHistory
+  );
+  const { modelInput, legalDiscardCardMask } = createExchangeModelInput(encodedExchangeObservation);
+  const compactExchangeStateInput = createCompactExchangeStateInput({
+    originalHandCardIds,
+    kittyPickupCardIds,
+    calledAdjutantCardId: requiredAdjutant(state).calledCardId,
+    contractSuit: state.contract.trumpSuit,
+    contractTargetPointCards: state.contract.targetPointCards,
+    biddingStarterRelativePlayerIndex: relativePlayerIds.indexOf(input.biddingStarterPlayerId),
+    biddingHistory
+  });
+  const self = getPlayerHand(state, napoleonPlayerId);
+  const pickupHandCards = [...self].sort(compareCardsByEncoderOrder);
+  const pickupHandCardIds = pickupHandCards.map((card) => card.id);
+  const combinations = enumerateExchangeDiscardCombinations(pickupHandCards);
+  if (combinations.length !== EXCHANGE_COUNTERFACTUAL_COMBINATION_COUNT) {
+    throw new Error(`Expected 286 exchange candidates, got ${combinations.length}.`);
+  }
+
+  const ruleBasedAction = await new RuleBasedAgent(
+    createSeededRandom(deriveSeed(input.dealSeed, "rule-based-discard-diagnostic"))
+  ).selectAction(exchangeObservation);
+  if (ruleBasedAction.type !== "discard-cards") {
+    throw new Error(`RuleBased exchange selected ${ruleBasedAction.type}.`);
+  }
+  const ruleBasedDiscardCardIds = canonicalCardIds(ruleBasedAction.cardIds);
+  const ruleBasedCandidateIndex = combinations.findIndex((candidate) =>
+    sameStringArray(candidate, ruleBasedDiscardCardIds)
+  );
+  if (ruleBasedCandidateIndex === -1) {
+    throw new Error("RuleBased discard action was not found among enumerated candidates.");
+  }
+
+  const hiddenDealChecksum = createHiddenDealChecksum(state);
+  const sourceStateKey = sha256Utf8(JSON.stringify({
+    dealSeed: input.dealSeed,
+    contract: state.contract,
+    adjutant: state.adjutant,
+    pickupHandCardIds,
+    publicActionHistory: input.publicActionHistory,
+    hiddenDealChecksum
+  })).slice(0, 24);
+  const fixedHandId = input.fixedHandId ?? sha256Utf8(JSON.stringify({
+    napoleonSeatIndex: input.playerIds.indexOf(napoleonPlayerId),
+    pickupHandCardIds
+  })).slice(0, 24);
+
+  return {
+    sourceIndex: input.sourceIndex,
+    dealSeed: input.dealSeed,
+    state,
+    publicActionHistory: input.publicActionHistory,
+    hiddenDealChecksum,
+    sourceStateKey,
+    fixedHandId,
+    fixedThirteenGroupId: input.fixedThirteenGroupId,
+    repeatIndex: input.repeatIndex,
+    opponentPolicyIds: input.opponentPolicyIds,
+    modelInput: Array.from(modelInput),
+    compactExchangeStateInput,
+    legalDiscardCardMask: [...legalDiscardCardMask],
+    originalHandCardIds,
+    kittyPickupCardIds,
+    pickupHandCards,
+    pickupHandCardIds,
+    ruleBasedDiscardCardIds,
+    ruleBasedCandidateIndex
   };
 }
 
@@ -1033,8 +1789,12 @@ async function createSourceSamples(
       schemaVersion: EXCHANGE_COUNTERFACTUAL_SAMPLE_SCHEMA_VERSION,
       sourceStateKey: source.sourceStateKey,
       fixedHandId: source.fixedHandId,
+      ...(source.fixedThirteenGroupId === undefined
+        ? {}
+        : { fixedThirteenGroupId: source.fixedThirteenGroupId }),
       dealSeed: source.dealSeed,
       sourceIndex: source.sourceIndex,
+      ...(source.repeatIndex === undefined ? {} : { repeatIndex: source.repeatIndex }),
       candidateIndex,
       candidateKey,
       napoleonPlayerId: contract.napoleonPlayerId,
@@ -1044,6 +1804,9 @@ async function createSourceSamples(
       calledAdjutantCardId: requiredAdjutant(source.state).calledCardId,
       originalHandCardIds: source.originalHandCardIds,
       kittyPickupCardIds: source.kittyPickupCardIds,
+      ...(source.opponentPolicyIds === undefined
+        ? {}
+        : { opponentPolicyIds: source.opponentPolicyIds }),
       pickupHandCardIds: source.pickupHandCardIds,
       modelInput: source.modelInput,
       compactExchangeStateInput: source.compactExchangeStateInput,
@@ -1380,6 +2143,17 @@ function createSpecialBuriedFlags(
   };
 }
 
+function emptySpecialBuriedFlags(): ExchangeCounterfactualSpecialBuriedFlags {
+  return {
+    joker: false,
+    oruma: false,
+    yoromeki: false,
+    seiJack: false,
+    uraJack: false,
+    calledAdjutant: false
+  };
+}
+
 function getPlayerHand(state: GameState, playerId: PlayerId): readonly Card[] {
   const player = state.players.find((candidate) => candidate.id === playerId);
   if (player === undefined) {
@@ -1514,6 +2288,21 @@ function summarizeNumbers(values: readonly number[]): NumericSummary {
     mean: values.reduce((total, value) => total + value, 0) / values.length,
     median
   };
+}
+
+function mean(values: readonly number[]): number {
+  return values.length === 0
+    ? 0
+    : values.reduce((total, value) => total + value, 0) / values.length;
+}
+
+function countBy<T>(values: readonly T[], keyFn: (value: T) => string): Record<string, number> {
+  const counts = new Map<string, number>();
+  for (const value of values) {
+    const key = keyFn(value);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return Object.fromEntries(counts);
 }
 
 function summarizeSpecialBuryRates(
