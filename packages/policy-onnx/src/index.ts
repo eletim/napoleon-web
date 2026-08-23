@@ -17,9 +17,12 @@ export {
   MODEL_INPUT_FEATURE_COUNT,
   MODEL_INPUT_SCHEMA_VERSION,
   MULTIPHASE_DATASET_SCHEMA_VERSION,
+  BIDDING_MARGIN_ONNX_METADATA_SCHEMA_VERSION,
   NONPLAYING_ONNX_METADATA_SCHEMA_VERSION,
   ONNX_CRITIC_OUTPUT_NAME,
   ONNX_INPUT_NAME,
+  ONNX_MARGIN_LOG_VARIANCE_OUTPUT_NAME,
+  ONNX_MARGIN_MEAN_OUTPUT_NAME,
   ONNX_OPSET_VERSION,
   ONNX_OUTPUT_NAME,
   PLAYING_ENCODER_SCHEMA_VERSION,
@@ -31,7 +34,9 @@ export { calculateCardIdsSha256 } from "./cardIdsHash.js";
 export { PolicyOnnxCompatibilityError } from "./errors.js";
 export {
   parseNonPlayingPolicyOnnxMetadata,
+  parseBiddingMarginOnnxMetadata,
   validateNonPlayingPolicyOnnxMetadata,
+  validateBiddingMarginOnnxMetadata,
   parsePolicyCriticOnnxMetadata,
   validatePolicyCriticOnnxMetadata,
   parsePolicyOnnxMetadata,
@@ -39,10 +44,12 @@ export {
 } from "./metadata.js";
 export {
   NonPlayingPolicyOnnxModel,
+  BiddingMarginOnnxModel,
   PolicyCriticOnnxModel,
   PolicyOnnxModel,
   calculateLegalPolicyLogProbability,
   criticValueToWinRateEquivalent,
+  loadBiddingMarginOnnxModel,
   loadNonPlayingPolicyOnnxModel,
   loadPolicyCriticOnnxModel,
   loadPolicyOnnxModel,
@@ -72,6 +79,22 @@ export {
   CriticEvBiddingAgent,
   isNonPointCard
 } from "./criticEvBiddingAgent.js";
+export {
+  T1NapoleonEvBiddingAgent,
+  createT1NapoleonEvBiddingDiagnostics,
+  gaussianSuccessProbability,
+  handStrength,
+  handStrengthBucket,
+  napoleonRelativeEv
+} from "./t1NapoleonEvBiddingAgent.js";
+export type {
+  T1BiddingDecisionKind,
+  T1HandStrengthBucket,
+  T1NapoleonEvBiddingAgentOptions,
+  T1NapoleonEvCandidateEvaluation,
+  T1NapoleonEvBiddingDecisionRecord,
+  T1NapoleonEvBiddingDiagnostics
+} from "./t1NapoleonEvBiddingAgent.js";
 export type {
   CriticEvBiddingAgentOptions,
   CriticEvBiddingEvaluation,
@@ -88,12 +111,18 @@ export type {
 } from "./policyOnnxAgent.js";
 export {
   PPO_SEPARATED_V1000_BENCHMARK_POLICY_ID,
+  ISSUE427_T1_BIDDING_MARGIN_POLICY_ID,
   RL_V740_BENCHMARK_POLICY_ID,
+  getRepoManagedBiddingMarginPolicyBenchmark,
   getRepoManagedPlayingPolicyBenchmark,
+  loadRepoManagedBiddingMarginPolicyBenchmark,
   loadRepoManagedPlayingPolicyBenchmark,
+  validateBiddingMarginPolicyArtifactReference,
   validatePlayingPolicyArtifactReference
 } from "./benchmarkArtifacts.js";
 export type {
+  BiddingMarginPolicyArtifactReference,
+  LoadedBiddingMarginPolicyBenchmark,
   LoadedPlayingPolicyBenchmark,
   PlayingPolicyArtifactReference,
   RepoManagedPlayingPolicyBenchmarkId
@@ -105,6 +134,15 @@ export {
   runStandardPlayingPolicyBenchmarks,
   runPolicyVsRuleBasedEvaluation
 } from "./policyVsRuleBasedEvaluation.js";
+export { runIssue429T1BiddingRuntimeEvaluation } from "./issue429T1BiddingRuntimeEvaluation.js";
+export type {
+  Issue429CandidateSummary,
+  Issue429T1BiddingRuntimeEvaluationResult,
+  MeanSummary,
+  RateSummary,
+  RunIssue429T1BiddingRuntimeEvaluationOptions,
+  StrengthBucketSummary
+} from "./issue429T1BiddingRuntimeEvaluation.js";
 export type {
   BiddingActionDistributionSummary,
   BiddingContractSummary,
@@ -140,6 +178,8 @@ export type {
   NonPlayingPolicyOnnxMetadata,
   NonPlayingPolicyOnnxSingleSelection,
   CalculateLegalPolicyLogProbabilityOptions,
+  BiddingMarginOnnxMetadata,
+  BiddingMarginOnnxPrediction,
   PolicyOnnxExecutionProvider,
   PolicyCriticOnnxMetadata,
   PolicyCriticOnnxSelection,

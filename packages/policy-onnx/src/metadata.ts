@@ -1,6 +1,9 @@
 import {
+  BIDDING_MARGIN_ONNX_METADATA_SCHEMA_VERSION,
   EXCHANGE_DECISION_MODE_TOP3_SET,
   EXCHANGE_DECISION_MODE_SEQUENTIAL_CARD,
+  BIDDING_ACTION_COUNT,
+  BIDDING_MODEL_INPUT_FEATURE_COUNT,
   ONNX_OPSET_VERSION,
   ONNX_DTYPE
 } from "./constants.js";
@@ -15,6 +18,7 @@ import {
 } from "./policySpecs.js";
 import type {
   NonPlayingPolicyOnnxMetadata,
+  BiddingMarginOnnxMetadata,
   NonPlayingPolicyType,
   PolicyCriticOnnxMetadata,
   PolicyOnnxIoMetadata,
@@ -57,6 +61,19 @@ export function parsePolicyCriticOnnxMetadata(text: string): PolicyCriticOnnxMet
   }
 
   validatePolicyCriticOnnxMetadata(raw);
+  return raw;
+}
+
+export function parseBiddingMarginOnnxMetadata(text: string): BiddingMarginOnnxMetadata {
+  let raw: unknown;
+
+  try {
+    raw = JSON.parse(text);
+  } catch (error) {
+    throw new PolicyOnnxCompatibilityError(`metadata JSON cannot be parsed: ${String(error)}`);
+  }
+
+  validateBiddingMarginOnnxMetadata(raw);
   return raw;
 }
 
@@ -167,6 +184,88 @@ export function validatePolicyCriticOnnxMetadata(
   expectEqual("outputDtype", value.outputDtype, ONNX_DTYPE);
 
   validateOnnxMetadata(value.onnx, spec);
+}
+
+export function validateBiddingMarginOnnxMetadata(
+  value: unknown
+): asserts value is BiddingMarginOnnxMetadata {
+  if (!isRecord(value)) {
+    throw new PolicyOnnxCompatibilityError("metadata must be a JSON object.");
+  }
+
+  expectEqual("metadataSchemaVersion", value.metadataSchemaVersion, BIDDING_MARGIN_ONNX_METADATA_SCHEMA_VERSION);
+  expectEqual("artifactType", value.artifactType, "napoleon-bidding-margin-heteroscedastic-onnx");
+  if (
+    value.modelType !== "fixed-hand-bidding-margin" &&
+    value.modelType !== "bidding-margin-heteroscedastic"
+  ) {
+    throw new PolicyOnnxCompatibilityError(
+      `metadata modelType is unsupported: ${JSON.stringify(value.modelType)}.`
+    );
+  }
+  if (value.variant !== "M1" && value.variant !== "M2") {
+    throw new PolicyOnnxCompatibilityError(`metadata variant is unsupported: ${JSON.stringify(value.variant)}.`);
+  }
+  validateStandardization(value.targetStandardization);
+  if (!Number.isFinite(value.constantSigma) || typeof value.constantSigma !== "number" || value.constantSigma < 0) {
+    throw new PolicyOnnxCompatibilityError("metadata constantSigma must be a non-negative finite number.");
+  }
+  expectEqual("inputName", value.inputName, "model_input");
+  if (
+    !Array.isArray(value.outputNames) ||
+    value.outputNames.length !== 2 ||
+    value.outputNames[0] !== "mean" ||
+    value.outputNames[1] !== "log_variance"
+  ) {
+    throw new PolicyOnnxCompatibilityError("metadata outputNames must be [\"mean\", \"log_variance\"].");
+  }
+  expectEqual("outputValueType", value.outputValueType, "standardized-margin-mean-and-log-variance");
+  if (!isRecord(value.onnx)) {
+    throw new PolicyOnnxCompatibilityError("metadata onnx must be an object.");
+  }
+  expectEqual("onnx.opsetVersion", value.onnx.opsetVersion, ONNX_OPSET_VERSION);
+  validateIoList(value.onnx.inputs, {
+    label: "input",
+    expected: {
+      name: "model_input",
+      dtype: ONNX_DTYPE,
+      shape: ["batch", BIDDING_MODEL_INPUT_FEATURE_COUNT]
+    }
+  });
+  if (!Array.isArray(value.onnx.outputs) || value.onnx.outputs.length !== 2) {
+    throw new PolicyOnnxCompatibilityError("metadata onnx outputs must contain mean and log_variance.");
+  }
+  validateIoList([value.onnx.outputs[0]], {
+    label: "output",
+    expected: {
+      name: "mean",
+      dtype: ONNX_DTYPE,
+      shape: ["batch", BIDDING_ACTION_COUNT]
+    }
+  });
+  validateIoList([value.onnx.outputs[1]], {
+    label: "output",
+    expected: {
+      name: "log_variance",
+      dtype: ONNX_DTYPE,
+      shape: ["batch", BIDDING_ACTION_COUNT]
+    }
+  });
+}
+
+function validateStandardization(value: unknown): void {
+  if (!isRecord(value)) {
+    throw new PolicyOnnxCompatibilityError("metadata targetStandardization must be an object.");
+  }
+  if (typeof value.enabled !== "boolean") {
+    throw new PolicyOnnxCompatibilityError("metadata targetStandardization.enabled must be boolean.");
+  }
+  if (typeof value.mean !== "number" || !Number.isFinite(value.mean)) {
+    throw new PolicyOnnxCompatibilityError("metadata targetStandardization.mean must be finite.");
+  }
+  if (typeof value.std !== "number" || !Number.isFinite(value.std) || value.std <= 0) {
+    throw new PolicyOnnxCompatibilityError("metadata targetStandardization.std must be positive.");
+  }
 }
 
 function validateOnnxMetadata(value: unknown, spec: RuntimeOnnxIoSpec): void {

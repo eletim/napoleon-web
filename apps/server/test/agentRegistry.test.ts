@@ -15,6 +15,7 @@ import {
   BIDDING_ACTION_COUNT,
   BIDDING_ENCODER_SCHEMA_VERSION,
   BIDDING_MODEL_INPUT_FEATURE_COUNT,
+  BIDDING_MODEL_INPUT_SCHEMA_VERSION,
   CARD_COUNT,
   DATASET_SCHEMA_VERSION,
   EXCHANGE_DECISION_MODE_SEQUENTIAL_CARD,
@@ -529,7 +530,7 @@ function createNonPlayingMetadata(
     bidding: {
       artifactType: "napoleon-bidding-policy-onnx",
       encoderSchemaVersion: BIDDING_ENCODER_SCHEMA_VERSION,
-      modelInputSchemaVersion: 1,
+      modelInputSchemaVersion: BIDDING_MODEL_INPUT_SCHEMA_VERSION,
       modelInputFeatureCount: BIDDING_MODEL_INPUT_FEATURE_COUNT,
       outputCount: BIDDING_ACTION_COUNT
     },
