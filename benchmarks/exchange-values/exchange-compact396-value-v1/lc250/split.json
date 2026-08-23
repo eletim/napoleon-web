@@ -1,0 +1,34 @@
+{
+  "finalSampleCount": 28600,
+  "finalStateCount": 100,
+  "finalStateKeyHash": "069ea5f954f1209d312809c9b2a1ed565a68ef97e54864b3894baa7259524d15",
+  "leakageGuard": {
+    "dealSeed": {
+      "crossSplitLeakageCount": 0,
+      "uniqueCount": 450
+    },
+    "fixedHandId": {
+      "crossSplitLeakageCount": 0,
+      "uniqueCount": 450
+    },
+    "hiddenDealChecksum": {
+      "crossSplitLeakageCount": 0,
+      "uniqueCount": 450
+    },
+    "pickupHand": {
+      "crossSplitLeakageCount": 0,
+      "uniqueCount": 450
+    },
+    "sourceStateKey": {
+      "crossSplitLeakageCount": 0,
+      "uniqueCount": 450
+    },
+    "status": "passed"
+  },
+  "trainSampleCount": 71500,
+  "trainStateCount": 250,
+  "trainStateKeyHash": "2241bb134cee9c81fcdf2de27e533ef80fab5f993430ab2fede201b028f58c39",
+  "validationSampleCount": 28600,
+  "validationStateCount": 100,
+  "validationStateKeyHash": "01c26f1b6beb791ed7e4f01527896cc442c33c363658f426ba982c8d2b05e00b"
+}

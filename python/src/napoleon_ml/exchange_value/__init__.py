@@ -1,10 +1,14 @@
 """Exchange discard-combination value model support."""
 
 from .dataset import (
+    EXCHANGE_COMPACT_STATE_FEATURE_COUNT,
+    EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT,
     EXCHANGE_COUNTERFACTUAL_SAMPLE_TYPE,
     EXCHANGE_VALUE_INPUT_FEATURE_COUNT,
+    EXCHANGE_VALUE_INPUT_VARIANTS,
     ExchangeCounterfactualDataset,
     ExchangeCounterfactualSample,
+    ExchangeValueInputVariant,
     ExchangeValueSplit,
     create_exchange_value_split,
     load_exchange_counterfactual_dataset,
@@ -27,9 +31,13 @@ from .training import (
 __all__ = [
     "EXCHANGE_COUNTERFACTUAL_SAMPLE_TYPE",
     "EXCHANGE_VALUE_ARCHITECTURE_ID",
+    "EXCHANGE_COMPACT_STATE_FEATURE_COUNT",
+    "EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT",
     "EXCHANGE_VALUE_INPUT_FEATURE_COUNT",
+    "EXCHANGE_VALUE_INPUT_VARIANTS",
     "ExchangeCounterfactualDataset",
     "ExchangeCounterfactualSample",
+    "ExchangeValueInputVariant",
     "ExchangeValueMlpConfig",
     "ExchangeValueMlpModel",
     "ExchangeValueSplit",

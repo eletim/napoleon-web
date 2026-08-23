@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from napoleon_ml.exchange_value import (
+    EXCHANGE_VALUE_INPUT_VARIANTS,
     ExchangeValueTrainConfig,
     load_exchange_counterfactual_dataset,
     save_exchange_value_artifact,
@@ -24,6 +25,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--hidden-dims", default="512,512,256,256")
     parser.add_argument("--dropout", type=float, default=0.0)
+    parser.add_argument(
+        "--input-variant",
+        choices=EXCHANGE_VALUE_INPUT_VARIANTS,
+        default="legacy2724",
+    )
     parser.add_argument("--seed", type=int, default=436)
     parser.add_argument("--train-state-count", type=int)
     parser.add_argument("--loss", choices=("mse", "huber"), default="mse")
@@ -51,6 +57,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             learning_rate=args.learning_rate,
             hidden_dims=hidden_dims,
             dropout=args.dropout,
+            input_variant=args.input_variant,
             train_state_count=args.train_state_count,
             loss=args.loss,
             huber_delta=args.huber_delta,

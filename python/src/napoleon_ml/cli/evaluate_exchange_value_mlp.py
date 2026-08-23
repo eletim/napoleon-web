@@ -57,6 +57,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "validation": split.validation_samples,
         "final": split.final_samples,
     }[args.split]
+    input_variant = str(training_config.get("input_variant", "legacy2724"))
     device = resolve_torch_device(args.device)
     model.to(device.torch_device)
     report = evaluate_exchange_value_model(
@@ -65,6 +66,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         split=args.split,
         device=device,
         standardization=standardization,
+        input_variant=input_variant,
     )
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0
