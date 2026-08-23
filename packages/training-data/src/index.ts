@@ -209,6 +209,32 @@ export type {
   HistoryConsistentRaiseRawRollout
 } from "./generateHistoryConsistentRaiseMarginDataset.js";
 export {
+  EXCHANGE_COUNTERFACTUAL_COMBINATION_COUNT,
+  EXCHANGE_COUNTERFACTUAL_DATASET_FORMAT,
+  EXCHANGE_COUNTERFACTUAL_DATASET_GENERATOR_VERSION,
+  EXCHANGE_COUNTERFACTUAL_DATASET_SAMPLE_TYPE,
+  EXCHANGE_COUNTERFACTUAL_DATASET_SCHEMA_VERSION,
+  EXCHANGE_COUNTERFACTUAL_DISCARD_ACTION_SPACE_ID,
+  EXCHANGE_COUNTERFACTUAL_SAMPLE_SCHEMA_VERSION,
+  EXCHANGE_COUNTERFACTUAL_TEACHER_ID,
+  enumerateExchangeDiscardCombinations,
+  generateExchangeCounterfactualDataset,
+  summarizeExchangeCounterfactualSamples,
+  validateGenerateExchangeCounterfactualDatasetOptions
+} from "./generateExchangeCounterfactualDataset.js";
+export type {
+  ExchangeCounterfactualAgentContext,
+  ExchangeCounterfactualDatasetManifest,
+  ExchangeCounterfactualDatasetSummary,
+  ExchangeCounterfactualGenerationProgress,
+  ExchangeCounterfactualPolicyMetadata,
+  ExchangeCounterfactualRankingStability,
+  ExchangeCounterfactualSample,
+  ExchangeCounterfactualSourceDiagnostic,
+  GenerateExchangeCounterfactualDatasetOptions,
+  GenerateExchangeCounterfactualDatasetResult
+} from "./generateExchangeCounterfactualDataset.js";
+export {
   calculateCardIdsSha256,
   serializeManifest,
   serializePlayingTrainingSample,
