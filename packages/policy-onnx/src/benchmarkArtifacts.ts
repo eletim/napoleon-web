@@ -2,13 +2,18 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { PolicyOnnxCompatibilityError } from "./errors.js";
-import { loadPolicyCriticOnnxModel, loadPolicyOnnxModel } from "./policyOnnx.js";
-import type { PolicyCriticOnnxModel, PolicyOnnxModel } from "./policyOnnx.js";
-import { validatePolicyCriticOnnxMetadata, validatePolicyOnnxMetadata } from "./metadata.js";
-import type { PolicyOnnxInferenceDevice, PolicyOnnxMetadata } from "./types.js";
+import { loadBiddingMarginOnnxModel, loadPolicyCriticOnnxModel, loadPolicyOnnxModel } from "./policyOnnx.js";
+import type { BiddingMarginOnnxModel, PolicyCriticOnnxModel, PolicyOnnxModel } from "./policyOnnx.js";
+import {
+  validateBiddingMarginOnnxMetadata,
+  validatePolicyCriticOnnxMetadata,
+  validatePolicyOnnxMetadata
+} from "./metadata.js";
+import type { BiddingMarginOnnxMetadata, PolicyOnnxInferenceDevice, PolicyOnnxMetadata } from "./types.js";
 
 export const RL_V740_BENCHMARK_POLICY_ID = "rl-v740" as const;
 export const PPO_SEPARATED_V1000_BENCHMARK_POLICY_ID = "ppo-separated-v1000" as const;
+export const ISSUE427_T1_BIDDING_MARGIN_POLICY_ID = "issue427-t1-strong-raise-ft" as const;
 
 export type RepoManagedPlayingPolicyBenchmarkId =
   | typeof RL_V740_BENCHMARK_POLICY_ID
@@ -36,6 +41,24 @@ export interface LoadedPlayingPolicyBenchmark {
   critic?: PolicyCriticOnnxModel;
 }
 
+export interface BiddingMarginPolicyArtifactReference {
+  id: string;
+  displayName: string;
+  onnxPath: string;
+  metadataPath: string;
+  externalDataPath?: string;
+  exportReportPath?: string;
+  onnxSha256: string;
+  metadataSha256: string;
+  externalDataSha256?: string;
+  exportReportSha256?: string;
+}
+
+export interface LoadedBiddingMarginPolicyBenchmark {
+  artifact: BiddingMarginPolicyArtifactReference;
+  model: BiddingMarginOnnxModel;
+}
+
 const rlV740Artifact = {
   id: RL_V740_BENCHMARK_POLICY_ID,
   displayName: "RL v740",
@@ -61,6 +84,19 @@ const ppoSeparatedV1000Artifact = {
   onnxSha256: "54d7ba29222a12e99a91ab61ee7aa253fe3fab73200d78167d64bf9e7bb8887e",
   metadataSha256: "54f0f2837f0e0bad81c778114ab996259b5f3a05bda338a12d0fb32b1fb50616"
 } as const satisfies PlayingPolicyArtifactReference;
+
+const issue427T1BiddingMarginArtifact = {
+  id: ISSUE427_T1_BIDDING_MARGIN_POLICY_ID,
+  displayName: "Issue #427 T1 history-consistent raise FT",
+  onnxPath: biddingMarginBenchmarkPath("issue427-t1-strong-raise-ft/margin.onnx"),
+  metadataPath: biddingMarginBenchmarkPath("issue427-t1-strong-raise-ft/margin.json"),
+  externalDataPath: biddingMarginBenchmarkPath("issue427-t1-strong-raise-ft/margin.onnx.data"),
+  exportReportPath: biddingMarginBenchmarkPath("issue427-t1-strong-raise-ft/export-report.json"),
+  onnxSha256: "c6e51c0f45d62436964a328c9aa2989eaf8cd2822d8aa4bd3648604bca75d14c",
+  metadataSha256: "6f7fde46269b77aac7165adc5f5a0bd7276e725c5ca47e5c52cff0aba9a3b519",
+  externalDataSha256: "aee857e51e8dcdaebe6449bfc1984fde5c661f51395512c0c62dde23d261bed0",
+  exportReportSha256: "00906b86fb8f48240826574c11da15ebb41d57e6e3862dc415b93f948bbdc905"
+} as const satisfies BiddingMarginPolicyArtifactReference;
 
 export function getRepoManagedPlayingPolicyBenchmark(
   id: RepoManagedPlayingPolicyBenchmarkId
@@ -95,6 +131,31 @@ export async function loadRepoManagedPlayingPolicyBenchmark(
             inferenceDevice: options.inferenceDevice
           })
         })
+  };
+}
+
+export function getRepoManagedBiddingMarginPolicyBenchmark(
+  id: typeof ISSUE427_T1_BIDDING_MARGIN_POLICY_ID
+): BiddingMarginPolicyArtifactReference {
+  switch (id) {
+    case ISSUE427_T1_BIDDING_MARGIN_POLICY_ID:
+      return { ...issue427T1BiddingMarginArtifact };
+  }
+}
+
+export async function loadRepoManagedBiddingMarginPolicyBenchmark(
+  id: typeof ISSUE427_T1_BIDDING_MARGIN_POLICY_ID,
+  options: { inferenceDevice?: PolicyOnnxInferenceDevice } = {}
+): Promise<LoadedBiddingMarginPolicyBenchmark> {
+  const artifact = getRepoManagedBiddingMarginPolicyBenchmark(id);
+  await validateBiddingMarginPolicyArtifactReference(artifact);
+  return {
+    artifact,
+    model: await loadBiddingMarginOnnxModel({
+      onnxPath: artifact.onnxPath,
+      metadataPath: artifact.metadataPath,
+      inferenceDevice: options.inferenceDevice
+    })
   };
 }
 
@@ -160,6 +221,52 @@ export async function validatePlayingPolicyArtifactReference(
   return metadata;
 }
 
+export async function validateBiddingMarginPolicyArtifactReference(
+  artifact: BiddingMarginPolicyArtifactReference
+): Promise<BiddingMarginOnnxMetadata> {
+  const [onnxSha256, metadataBytes, externalDataSha256, exportReportSha256] = await Promise.all([
+    calculateFileSha256(artifact.onnxPath),
+    readFile(artifact.metadataPath),
+    artifact.externalDataPath === undefined ? Promise.resolve(undefined) : calculateFileSha256(artifact.externalDataPath),
+    artifact.exportReportPath === undefined ? Promise.resolve(undefined) : calculateFileSha256(artifact.exportReportPath)
+  ]);
+  const metadataSha256 = sha256(metadataBytes);
+  if (onnxSha256 !== artifact.onnxSha256) {
+    throw new PolicyOnnxCompatibilityError(
+      `bidding margin artifact ${artifact.id} ONNX SHA256 mismatch: ` +
+      `expected ${artifact.onnxSha256}, got ${onnxSha256}.`
+    );
+  }
+  if (metadataSha256 !== artifact.metadataSha256) {
+    throw new PolicyOnnxCompatibilityError(
+      `bidding margin artifact ${artifact.id} metadata SHA256 mismatch: ` +
+      `expected ${artifact.metadataSha256}, got ${metadataSha256}.`
+    );
+  }
+  if (
+    artifact.externalDataSha256 !== undefined &&
+    externalDataSha256 !== artifact.externalDataSha256
+  ) {
+    throw new PolicyOnnxCompatibilityError(
+      `bidding margin artifact ${artifact.id} external data SHA256 mismatch: ` +
+      `expected ${artifact.externalDataSha256}, got ${externalDataSha256}.`
+    );
+  }
+  if (
+    artifact.exportReportSha256 !== undefined &&
+    exportReportSha256 !== artifact.exportReportSha256
+  ) {
+    throw new PolicyOnnxCompatibilityError(
+      `bidding margin artifact ${artifact.id} export report SHA256 mismatch: ` +
+      `expected ${artifact.exportReportSha256}, got ${exportReportSha256}.`
+    );
+  }
+
+  const metadata = JSON.parse(new TextDecoder().decode(metadataBytes)) as unknown;
+  validateBiddingMarginOnnxMetadata(metadata);
+  return metadata;
+}
+
 async function calculateFileSha256(path: string): Promise<string> {
   return sha256(await readFile(path));
 }
@@ -170,4 +277,8 @@ function sha256(bytes: Uint8Array): string {
 
 function benchmarkPath(relativePath: string): string {
   return fileURLToPath(new URL(`../../../benchmarks/playing-policies/${relativePath}`, import.meta.url));
+}
+
+function biddingMarginBenchmarkPath(relativePath: string): string {
+  return fileURLToPath(new URL(`../../../benchmarks/bidding-margin-policies/${relativePath}`, import.meta.url));
 }

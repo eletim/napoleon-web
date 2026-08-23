@@ -1,0 +1,12 @@
+{
+  "artifactId": "issue427-t1-strong-raise-ft",
+  "displayName": "Issue #427 T1 history-consistent raise FT",
+  "metadataPath": "benchmarks/bidding-margin-policies/issue427-t1-strong-raise-ft/margin.json",
+  "onnxParity": {
+    "checked": true,
+    "maxAbsDiff": 5.960464477539063e-08,
+    "withinTolerance": true
+  },
+  "onnxPath": "benchmarks/bidding-margin-policies/issue427-t1-strong-raise-ft/margin.onnx",
+  "sourceCheckpointSha256": "86330f47ea4b77781e01ea6d9bbec6e3655d49ec1928361e4a5d7e4a06571766"
+}
