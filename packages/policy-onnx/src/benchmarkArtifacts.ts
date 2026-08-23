@@ -14,6 +14,7 @@ import type { BiddingMarginOnnxMetadata, PolicyOnnxInferenceDevice, PolicyOnnxMe
 export const RL_V740_BENCHMARK_POLICY_ID = "rl-v740" as const;
 export const PPO_SEPARATED_V1000_BENCHMARK_POLICY_ID = "ppo-separated-v1000" as const;
 export const ISSUE427_T1_BIDDING_MARGIN_POLICY_ID = "issue427-t1-strong-raise-ft" as const;
+export const FROZEN_RAISE_V1_BIDDING_MARGIN_POLICY_ID = "frozen-raise-v1" as const;
 
 export type RepoManagedPlayingPolicyBenchmarkId =
   | typeof RL_V740_BENCHMARK_POLICY_ID
@@ -48,10 +49,12 @@ export interface BiddingMarginPolicyArtifactReference {
   metadataPath: string;
   externalDataPath?: string;
   exportReportPath?: string;
+  manifestPath?: string;
   onnxSha256: string;
   metadataSha256: string;
   externalDataSha256?: string;
   exportReportSha256?: string;
+  manifestSha256?: string;
 }
 
 export interface LoadedBiddingMarginPolicyBenchmark {
@@ -98,6 +101,25 @@ const issue427T1BiddingMarginArtifact = {
   exportReportSha256: "00906b86fb8f48240826574c11da15ebb41d57e6e3862dc415b93f948bbdc905"
 } as const satisfies BiddingMarginPolicyArtifactReference;
 
+const frozenRaiseV1BiddingMarginArtifact = {
+  id: FROZEN_RAISE_V1_BIDDING_MARGIN_POLICY_ID,
+  displayName: "Frozen bidding margin v1 (Issue #431 50k)",
+  onnxPath: biddingMarginBenchmarkPath("frozen-raise-v1/margin.onnx"),
+  metadataPath: biddingMarginBenchmarkPath("frozen-raise-v1/margin.json"),
+  externalDataPath: biddingMarginBenchmarkPath("frozen-raise-v1/margin.onnx.data"),
+  exportReportPath: biddingMarginBenchmarkPath("frozen-raise-v1/export-report.json"),
+  manifestPath: biddingMarginBenchmarkPath("frozen-raise-v1/frozen-manifest.json"),
+  onnxSha256: "f3454cca5d2ef667942431296b1260da114f255ce9a03594d32720b180c9c623",
+  metadataSha256: "6b3eb4f1d5d5f6f1d6986a7e960f0770292ae8b74dc184d8c237e476e17ce479",
+  externalDataSha256: "37f5c882cbdf3b0a4deb4635a81d0eaa76d0987f305663451e8488ed92401872",
+  exportReportSha256: "8c871120927f3e99ef4e37926733f73184cd4bce12a0bdda117a3e8962ce33f3",
+  manifestSha256: "bc79cbd7895c6a2228d98bae55983fe1a96cd8ae5b655866e8fe373c51098c56"
+} as const satisfies BiddingMarginPolicyArtifactReference;
+
+export type RepoManagedBiddingMarginPolicyBenchmarkId =
+  | typeof ISSUE427_T1_BIDDING_MARGIN_POLICY_ID
+  | typeof FROZEN_RAISE_V1_BIDDING_MARGIN_POLICY_ID;
+
 export function getRepoManagedPlayingPolicyBenchmark(
   id: RepoManagedPlayingPolicyBenchmarkId
 ): PlayingPolicyArtifactReference {
@@ -135,16 +157,18 @@ export async function loadRepoManagedPlayingPolicyBenchmark(
 }
 
 export function getRepoManagedBiddingMarginPolicyBenchmark(
-  id: typeof ISSUE427_T1_BIDDING_MARGIN_POLICY_ID
+  id: RepoManagedBiddingMarginPolicyBenchmarkId
 ): BiddingMarginPolicyArtifactReference {
   switch (id) {
     case ISSUE427_T1_BIDDING_MARGIN_POLICY_ID:
       return { ...issue427T1BiddingMarginArtifact };
+    case FROZEN_RAISE_V1_BIDDING_MARGIN_POLICY_ID:
+      return { ...frozenRaiseV1BiddingMarginArtifact };
   }
 }
 
 export async function loadRepoManagedBiddingMarginPolicyBenchmark(
-  id: typeof ISSUE427_T1_BIDDING_MARGIN_POLICY_ID,
+  id: RepoManagedBiddingMarginPolicyBenchmarkId,
   options: { inferenceDevice?: PolicyOnnxInferenceDevice } = {}
 ): Promise<LoadedBiddingMarginPolicyBenchmark> {
   const artifact = getRepoManagedBiddingMarginPolicyBenchmark(id);
@@ -224,11 +248,12 @@ export async function validatePlayingPolicyArtifactReference(
 export async function validateBiddingMarginPolicyArtifactReference(
   artifact: BiddingMarginPolicyArtifactReference
 ): Promise<BiddingMarginOnnxMetadata> {
-  const [onnxSha256, metadataBytes, externalDataSha256, exportReportSha256] = await Promise.all([
+  const [onnxSha256, metadataBytes, externalDataSha256, exportReportSha256, manifestSha256] = await Promise.all([
     calculateFileSha256(artifact.onnxPath),
     readFile(artifact.metadataPath),
     artifact.externalDataPath === undefined ? Promise.resolve(undefined) : calculateFileSha256(artifact.externalDataPath),
-    artifact.exportReportPath === undefined ? Promise.resolve(undefined) : calculateFileSha256(artifact.exportReportPath)
+    artifact.exportReportPath === undefined ? Promise.resolve(undefined) : calculateFileSha256(artifact.exportReportPath),
+    artifact.manifestPath === undefined ? Promise.resolve(undefined) : calculateFileSha256(artifact.manifestPath)
   ]);
   const metadataSha256 = sha256(metadataBytes);
   if (onnxSha256 !== artifact.onnxSha256) {
@@ -259,6 +284,15 @@ export async function validateBiddingMarginPolicyArtifactReference(
     throw new PolicyOnnxCompatibilityError(
       `bidding margin artifact ${artifact.id} export report SHA256 mismatch: ` +
       `expected ${artifact.exportReportSha256}, got ${exportReportSha256}.`
+    );
+  }
+  if (
+    artifact.manifestSha256 !== undefined &&
+    manifestSha256 !== artifact.manifestSha256
+  ) {
+    throw new PolicyOnnxCompatibilityError(
+      `bidding margin artifact ${artifact.id} manifest SHA256 mismatch: ` +
+      `expected ${artifact.manifestSha256}, got ${manifestSha256}.`
     );
   }
 

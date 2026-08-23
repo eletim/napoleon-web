@@ -1,0 +1,1189 @@
+{
+  "artifactId": "frozen-raise-v1",
+  "artifactType": "napoleon-bidding-margin-heteroscedastic-onnx",
+  "checkpointSchemaVersion": 1,
+  "constantSigma": 0.0,
+  "dataset": {
+    "manifest": {
+      "actionMapping": {
+        "actionCount": 29,
+        "bidTargets": [
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "id": "bidding-action-index-v1-pass-then-13-19-spades-hearts-diamonds-clubs",
+        "passActionIndex": 0,
+        "suitOrder": [
+          "spades",
+          "hearts",
+          "diamonds",
+          "clubs"
+        ]
+      },
+      "cardCount": 53,
+      "cardIds": [
+        "spades-A",
+        "spades-K",
+        "spades-Q",
+        "spades-J",
+        "spades-10",
+        "spades-9",
+        "spades-8",
+        "spades-7",
+        "spades-6",
+        "spades-5",
+        "spades-4",
+        "spades-3",
+        "spades-2",
+        "hearts-A",
+        "hearts-K",
+        "hearts-Q",
+        "hearts-J",
+        "hearts-10",
+        "hearts-9",
+        "hearts-8",
+        "hearts-7",
+        "hearts-6",
+        "hearts-5",
+        "hearts-4",
+        "hearts-3",
+        "hearts-2",
+        "diamonds-A",
+        "diamonds-K",
+        "diamonds-Q",
+        "diamonds-J",
+        "diamonds-10",
+        "diamonds-9",
+        "diamonds-8",
+        "diamonds-7",
+        "diamonds-6",
+        "diamonds-5",
+        "diamonds-4",
+        "diamonds-3",
+        "diamonds-2",
+        "clubs-A",
+        "clubs-K",
+        "clubs-Q",
+        "clubs-J",
+        "clubs-10",
+        "clubs-9",
+        "clubs-8",
+        "clubs-7",
+        "clubs-6",
+        "clubs-5",
+        "clubs-4",
+        "clubs-3",
+        "clubs-2",
+        "joker"
+      ],
+      "cardIdsSha256": "7ea0fdb58078f835bc5f7e6307a2a0c869430db343dd9e50ed1226f0452aaf38",
+      "compactObservation": {
+        "encoderSchemaVersion": 1,
+        "modelInputFeatureCount": 278,
+        "modelInputSchemaVersion": 2,
+        "phase": "bidding"
+      },
+      "datasetSchemaVersion": 1,
+      "fixedCondition": {
+        "fixed": [
+          "candidate hand",
+          "candidate seat index",
+          "dealSeed hidden deal",
+          "visible bidding history generated from the same deal",
+          "candidate role = Napoleon during teacher",
+          "contract owner = candidate during teacher",
+          "contract target/suit = evaluated raise"
+        ],
+        "note": "Source bidding starts from the true initial bidding state and runs RuleBased/Conservative 50:50 until candidate turns with a current bid are collected.",
+        "varied": [
+          "fixedHandId",
+          "dealSeed",
+          "source raise state",
+          "evaluated legal raise action"
+        ]
+      },
+      "fixedHandCount": 12500,
+      "format": "jsonl",
+      "generatorVersion": 1,
+      "opponentMix": {
+        "candidateBiddingPolicy": "same-seat-policy-mix-during-source-bidding",
+        "conservativeWeight": 0.5,
+        "mixingRuleVersion": "per-seat-seeded-rule-based-conservative-50-50-v1",
+        "ruleBasedWeight": 0.5
+      },
+      "pairCount": 50000,
+      "playerCount": 5,
+      "randomSeed": 427700,
+      "rawRolloutShards": [
+        {
+          "byteLength": 1512568,
+          "endSeed": 0,
+          "file": "raw-rollouts-00000.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "a9e770fc9afdbb2e50c5bcbbc949384aec0f813f4d8043bf87249ef182b44248",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1512434,
+          "endSeed": 0,
+          "file": "raw-rollouts-00001.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "943995e0d6402f655edbdfd035e31a250006321852c7e57f1248942efe7cb35b",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1512489,
+          "endSeed": 0,
+          "file": "raw-rollouts-00002.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "3765550c842634e5c04faf4292784f67b542e3918e3a438e3ad95594fbbc8937",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1513603,
+          "endSeed": 0,
+          "file": "raw-rollouts-00003.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "42ac76c53474ae903b7648bc2aa69ea542bf2f367c325dc8e623a786892af01b",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1514248,
+          "endSeed": 0,
+          "file": "raw-rollouts-00004.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "a4c10e11a04ac7b4ab2ddfffde25be77fc2b3824ab78d860d15ee4e1e8045e7f",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1514239,
+          "endSeed": 0,
+          "file": "raw-rollouts-00005.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "8e521ca84672481e708feb787257f24f602eb35d0ab760ada784ecef65e3a951",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1514014,
+          "endSeed": 0,
+          "file": "raw-rollouts-00006.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "de1e71cb73efcfdba218bc86333b946b4a87055ec1705a5cd9741ed59f2c0db3",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1513563,
+          "endSeed": 0,
+          "file": "raw-rollouts-00007.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "a0b8182b1055942a09c39a079455a4636b4034e5d00e2cf85551235bf4809f38",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1514753,
+          "endSeed": 0,
+          "file": "raw-rollouts-00008.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "2dd540fd7a1409d095e2ab074569cd050b505a61ab74a7e8c9597ab74b535700",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1514199,
+          "endSeed": 0,
+          "file": "raw-rollouts-00009.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "f5143970a5b624e4e868d40c375f25eca9062cd82420eb3805787a0cefc70d95",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1514536,
+          "endSeed": 0,
+          "file": "raw-rollouts-00010.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "e28ade3534c8e238a8280e7d7cf5a98ddce9536fcb8a924d428fd80e3f21b509",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1513428,
+          "endSeed": 0,
+          "file": "raw-rollouts-00011.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "ab84050bfcfc4cf0086404f315de28afcb53da55bb8ca6e58b1c6eef09a2ed33",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1514861,
+          "endSeed": 0,
+          "file": "raw-rollouts-00012.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "9684f392da9bfe3a21c21c23f1e7890cade8747e6d491962003f65096ae7c7d5",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1513358,
+          "endSeed": 0,
+          "file": "raw-rollouts-00013.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "a485a41a7d609624b4e1757fbf08590a27a3215e5a357057be4339d9443d4228",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1514970,
+          "endSeed": 0,
+          "file": "raw-rollouts-00014.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "9d8224a5e588c6469e34961212c680ec38f602bd1016d6e5243413a2fd5c6419",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1515121,
+          "endSeed": 0,
+          "file": "raw-rollouts-00015.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "cc69c1d480ff434a4460c5f4365e08be0e262adbde969162aee9db4ccd9c8c8f",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1514730,
+          "endSeed": 0,
+          "file": "raw-rollouts-00016.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "b8f532415f6d7f2e1867b8ce86d27116b90de7d63f1519b9616d1fa750ad8808",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1514426,
+          "endSeed": 0,
+          "file": "raw-rollouts-00017.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "b8a5dd8cb73f4721a19d58eb15af97f4485039851c5bbdd5ca1200b727690492",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1515331,
+          "endSeed": 0,
+          "file": "raw-rollouts-00018.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "05eab2680381e6a5f1e7ae8963dce6644b7f0e76d3d313711f0f06ad07dc9af4",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1515059,
+          "endSeed": 0,
+          "file": "raw-rollouts-00019.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "471895da33a5a39728911f776dc21068fd30584febff7bfd06e7d2b79f3c7652",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1514706,
+          "endSeed": 0,
+          "file": "raw-rollouts-00020.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "f39f339dcc8fd7876f37932421ce59d80293169b1fbf8cb5ed3895ca0ccdc6b3",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1514067,
+          "endSeed": 0,
+          "file": "raw-rollouts-00021.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "90b6191ccde5a1ca2d22e5ff3b3c0eb86a3e983e61e943855f27bfe7bdbcc3b9",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1515405,
+          "endSeed": 0,
+          "file": "raw-rollouts-00022.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "ade9d10c348e5e5b289597aeb78dc722de9fcc516364c307dc344e37da8464e9",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1513981,
+          "endSeed": 0,
+          "file": "raw-rollouts-00023.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "33a725128525b1d7cd460af7e886d47b5e3dbb3a76caa3b6e497cef95597c8f2",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1513966,
+          "endSeed": 0,
+          "file": "raw-rollouts-00024.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "89d42470ff9ac8d8ef2aec1bce53570cd3342e356fd0a0c494a155bae7f89d40",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1512969,
+          "endSeed": 0,
+          "file": "raw-rollouts-00025.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "be26223d77f6a98dd657b31528df68b8f5f73b64fd20f9ae37b5578bbf46b84f",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1515208,
+          "endSeed": 0,
+          "file": "raw-rollouts-00026.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "2945f0c4cb1b30824738ba2126e1c27108e3e3e34ecef467e0b681cc1adfe9e6",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1514538,
+          "endSeed": 0,
+          "file": "raw-rollouts-00027.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "70ae5a5931a1e00791c6df8f36b42286c99182c997efadffdff247244e8f5310",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1514687,
+          "endSeed": 0,
+          "file": "raw-rollouts-00028.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "498b6cf7ec2b5d3e814e9899e5b6c489db2f157738687ca41894f6a710f7b4e8",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1513966,
+          "endSeed": 0,
+          "file": "raw-rollouts-00029.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "217b523fe7617e1ab9d9b390747d7f4504e3052e8b57f53d686936b0aaff4294",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1513762,
+          "endSeed": 0,
+          "file": "raw-rollouts-00030.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "4ea7ef97337903b28682924dd916ec6ebaa59d5dabfc4feab11f541b2654dffe",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1515027,
+          "endSeed": 0,
+          "file": "raw-rollouts-00031.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "5d0a4cc42db80b885ff1af486800423d4c417a48f237a9b9ee6c2095dcb26a14",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1513898,
+          "endSeed": 0,
+          "file": "raw-rollouts-00032.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "4362b6e9159f92921839962d3e665282488b6524f4995a97f08cd6e3e44b08bd",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1515402,
+          "endSeed": 0,
+          "file": "raw-rollouts-00033.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "403c51dc7fcce5240bcd552bd8727cb04bd193915d8ba38ab6b2625b033db5f9",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1514269,
+          "endSeed": 0,
+          "file": "raw-rollouts-00034.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "c58f05f0b704ca8a61395908a0a34818e719484932966d452da709a0b38d28ef",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1515215,
+          "endSeed": 0,
+          "file": "raw-rollouts-00035.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "de9ede6b50fb9f6819278353f06c7ebf0c44445ba9db33f3117cfa842672fc9a",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1514166,
+          "endSeed": 0,
+          "file": "raw-rollouts-00036.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "8f1de2cfed164643c0049c38a2a59544a73d455e737e44a185996bb6d545b52f",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1513920,
+          "endSeed": 0,
+          "file": "raw-rollouts-00037.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "520315d80bd5e66f9b8c63a7bdc6e7fb3ec696f04fbbadd66dbce3d072f56345",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1514430,
+          "endSeed": 0,
+          "file": "raw-rollouts-00038.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "61139fea7f81e4fe7cd766edf17bdc55c6dbb1413a26afaffebbddd9fa834dce",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1514552,
+          "endSeed": 0,
+          "file": "raw-rollouts-00039.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "a0af0e7c4c72db07e77fbff0294d436ab06dd992953891e250b4360d772deb64",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1514549,
+          "endSeed": 0,
+          "file": "raw-rollouts-00040.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "ba0f2936df97e0e217c962b41811a69508fba93200d4cb45640777baa2d554f1",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1515060,
+          "endSeed": 0,
+          "file": "raw-rollouts-00041.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "9d715581059134350ff9c0ce4b07b929dc261e4d8cbb10f5224c1216d9e031d6",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1515689,
+          "endSeed": 0,
+          "file": "raw-rollouts-00042.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "97c80fe14e1e1593abc46bc4cf96055bfe223f114d1c7557e69ecdec3b8beea2",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1516297,
+          "endSeed": 0,
+          "file": "raw-rollouts-00043.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "53b8e0d603d645b301a65e8e277faf7f876b79c985457206d1a51b77ce5f464f",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1515270,
+          "endSeed": 0,
+          "file": "raw-rollouts-00044.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "8b064ed933df81cfb6d9f518d47f516db718b257400a0204ff381767256d1bd3",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1516566,
+          "endSeed": 0,
+          "file": "raw-rollouts-00045.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "5bc3ddfc5bb9e8994658505cb534a658c0f1bf30397918b951d4a442a2e598ad",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1515674,
+          "endSeed": 0,
+          "file": "raw-rollouts-00046.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "818104c0331f96fe9c2d2d1f8ec265af12717948aed086dc2edd68674b4da068",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1516342,
+          "endSeed": 0,
+          "file": "raw-rollouts-00047.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "84f9941402d9936bbe0a43e17d190e94a20d929357e835cafecd34c863823880",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1514016,
+          "endSeed": 0,
+          "file": "raw-rollouts-00048.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "5298b8d903143f301c91e12e7727049d1a9143a7bb6bb427051e80dee8ed5eb2",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1515618,
+          "endSeed": 0,
+          "file": "raw-rollouts-00049.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "9499dfd567c9e57767cdc00b99454b65a0109cde57dd4d3312b8f82a7e829928",
+          "startSeed": 0
+        }
+      ],
+      "rolloutCount": 50000,
+      "sampleSchemaVersion": 1,
+      "sampleType": "history-consistent-raise-margin-sample",
+      "shardCount": 50,
+      "shards": [
+        {
+          "byteLength": 2704508,
+          "endSeed": 0,
+          "file": "shard-00000.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "1ce4a928b249ffc93e43c7b7fa666708c60a10801bd56b85066cbb9249251a37",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2704250,
+          "endSeed": 0,
+          "file": "shard-00001.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "75010a4473360192ec9968051bc5611771800307dce51c4890d7afd260479697",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2703996,
+          "endSeed": 0,
+          "file": "shard-00002.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "f1874fce413f2fdedd4b41b1995e6616c7d61b46c253e91948496598f0ce53be",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2705312,
+          "endSeed": 0,
+          "file": "shard-00003.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "c4b4a967d062bc69a6b30466c0d2c25dbc9d7586585685d829ab80b238cfd78b",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2705800,
+          "endSeed": 0,
+          "file": "shard-00004.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "e93d038eb65de8bb58465bb9f2a866126be41c3bca767d2fd79cf0d9204256e6",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2705572,
+          "endSeed": 0,
+          "file": "shard-00005.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "d955647553c42a142930f8ed9466e961eb7717c331b308a1af475d7ec52e8456",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2705162,
+          "endSeed": 0,
+          "file": "shard-00006.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "e5741a77a6e89c6325a299545d9b0e78afceab586452fb60a45d577d725b59e9",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2704712,
+          "endSeed": 0,
+          "file": "shard-00007.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "82d6f3b5eb4f7093d43274b4f99bb25c070e3864c97e87faf97c891fefc361b7",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2705400,
+          "endSeed": 0,
+          "file": "shard-00008.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "f7fb40a8cb91824320f7d1e3755a5ed765f94fe6438019a215c5f32b599bf7bd",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2706058,
+          "endSeed": 0,
+          "file": "shard-00009.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "961d23e6c6ac84a70be177c96ff84e34f5e34059e1d44854878c2023488bb913",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2706424,
+          "endSeed": 0,
+          "file": "shard-00010.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "172f334f7311a3cead9531256835ddea540321ac11236bc35abb15dc256a489f",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2704980,
+          "endSeed": 0,
+          "file": "shard-00011.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "91e742a1fe0b38480f120ffd2418918b8841bced30aa8d46f12447f0ee63bbf5",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2706508,
+          "endSeed": 0,
+          "file": "shard-00012.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "27ebd4cc3c1df35a156158b48d2960c3ebae119a8d9d3f5093885f7567c6aab2",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2704674,
+          "endSeed": 0,
+          "file": "shard-00013.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "c908e112f063a4aa7aa9c5d8c16a831a832fc5d8955737eac43cf97adf012872",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2706328,
+          "endSeed": 0,
+          "file": "shard-00014.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "ad15a89277c93c6c24f02633525059bfe108d9806c579969a21cc19b70ab1bda",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2706378,
+          "endSeed": 0,
+          "file": "shard-00015.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "f073f2cea945f6ba2032190d608b677181b687eb2345b0009a697b45c9cae559",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2706024,
+          "endSeed": 0,
+          "file": "shard-00016.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "8bd20b0aa982d1b37ae818cf1cad2265b481d9c6d7e0e59deea55673bb473c39",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2705776,
+          "endSeed": 0,
+          "file": "shard-00017.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "c063e3c652cf9b6603e427eabf524a041a2eb40ea9f62bb290c4358d2141e894",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2706938,
+          "endSeed": 0,
+          "file": "shard-00018.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "85f2771c62973fa9adbe5c696d7b6f8d830fadfa5c3830fb9a334120f51cf27b",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2705616,
+          "endSeed": 0,
+          "file": "shard-00019.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "4ab85ceafb0709b5a6b680cbff71d1b2b8dbf5175893cab405baf215d2bb18cb",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2705906,
+          "endSeed": 0,
+          "file": "shard-00020.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "c26db8bb868eade7381f3506185a380da44e91a6fa42c30f2807e95df7c859fe",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2705876,
+          "endSeed": 0,
+          "file": "shard-00021.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "dca577e0634b7d26a939fcf7fdf54119183f7f940711a722a0ec07ef645558a6",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2707462,
+          "endSeed": 0,
+          "file": "shard-00022.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "18544a076a9e1d2f11e148cdba7351bb485b62b08696833f89005ee86a57a44d",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2704868,
+          "endSeed": 0,
+          "file": "shard-00023.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "7a5a7ae19a17f29212f25f46bc79e25fbcec9dbfbb0fc711ac7aa50d51779be9",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2704520,
+          "endSeed": 0,
+          "file": "shard-00024.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "979f3367520c0723730c4ec721fe48f8ceb7654ab140a548e9db3bbb3b53178b",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2704164,
+          "endSeed": 0,
+          "file": "shard-00025.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "d80b03dbf5487ad265be1ccef102cae5cef8d8fb048b2a572244c480779850b1",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2706180,
+          "endSeed": 0,
+          "file": "shard-00026.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "ff2a555155a97ba641f8355ba9dc9100ccf08383cf8a20302e6fc6fd19d6a4db",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2705258,
+          "endSeed": 0,
+          "file": "shard-00027.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "fc1e67c8adc3e911c8d754230e7eefc39d4854877fb0fae1f828e6c9ada885da",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2706302,
+          "endSeed": 0,
+          "file": "shard-00028.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "ddf53cf9dcbbd234ffd3c261ce04302a1db6a326c6f674684516322abbe9763d",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2705028,
+          "endSeed": 0,
+          "file": "shard-00029.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "6b2a16de50608307f4785cd90fdfcfe7f73d52334e0d31d8af714387455dce45",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2704970,
+          "endSeed": 0,
+          "file": "shard-00030.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "95fb32d4e6249c5b9067aa11b1aa67fab45b89171784607ad7ea73870891b107",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2706404,
+          "endSeed": 0,
+          "file": "shard-00031.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "aeaaa14b6dcbcba1b645424ce67f7791dd260d918649091718d050802188a740",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2704512,
+          "endSeed": 0,
+          "file": "shard-00032.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "4c61b3aa20a171aac916ce6ebce7cbf767149f7049f2d86bde67fb9d9c8faf27",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2706690,
+          "endSeed": 0,
+          "file": "shard-00033.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "e7489eb75e431884e60aafbb6c7a70edb3dcc4fd47f734246d130ea2395baca8",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2705666,
+          "endSeed": 0,
+          "file": "shard-00034.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "08d0159dd4175104dc7f6f22d264da3c620363d3a8d2f8d5d57d8cb2ff585523",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2706862,
+          "endSeed": 0,
+          "file": "shard-00035.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "e041e7c8ecd79c7937f18ed148b7fa70ace7e5db8e10d6daf5daee79ecc7dba1",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2705238,
+          "endSeed": 0,
+          "file": "shard-00036.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "be0a62af0ed29c6a955ae93789723687dbe35edc34cc85e09da086e81a2a4376",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2705614,
+          "endSeed": 0,
+          "file": "shard-00037.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "f47f393ea25121e6b2768a4e918055e96e2311ccbfe9665982b1a31523e209c7",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2705558,
+          "endSeed": 0,
+          "file": "shard-00038.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "a221aa21a3027d60f7e610f941b2043d6de5559012aaf5d2f71fb5aa83d57fb4",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2705020,
+          "endSeed": 0,
+          "file": "shard-00039.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "3298fd8d380c66bb35ea3395ca9cd6cc146461dfb0c4a46fb39a9717415b25e0",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2705906,
+          "endSeed": 0,
+          "file": "shard-00040.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "8858273ddca94dcb2be4daee228394040ad6537899ebb3b3591ca2ccd5586e2d",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2706132,
+          "endSeed": 0,
+          "file": "shard-00041.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "d9f2b7e4463653fd6b01ea63fb25da811dcffb429d82e94dca6331b7cb6c2fd0",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2706708,
+          "endSeed": 0,
+          "file": "shard-00042.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "ef18db11db49edad2543c5c56777d70db9355dc3a65272a597b617dc91894a7f",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2707526,
+          "endSeed": 0,
+          "file": "shard-00043.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "cd4967126e4b5f3344050ab77db57a6b87df1e6fa50b90ae7ea9ff0b6d193879",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2706398,
+          "endSeed": 0,
+          "file": "shard-00044.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "62a79b73bc0a04dda2c4845f8fc8a73b646ad0424375587f2eba2d62fa3acf61",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2707446,
+          "endSeed": 0,
+          "file": "shard-00045.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "206832d81ed516b9dd77eb7c6482574f0c652e60b00f586f0611aa65d8dd4437",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2706490,
+          "endSeed": 0,
+          "file": "shard-00046.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "4bc8e6493a6556d8ddd93048d8c15af70be01968eaa8924105f50f6c066e2900",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2707442,
+          "endSeed": 0,
+          "file": "shard-00047.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "5997eb621a57ad9d3023d32b5055f614792aee447427e5df11e5068eaada1c84",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2705640,
+          "endSeed": 0,
+          "file": "shard-00048.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "546666c15bd069a52a71842a2d0ea451f349f0cc8c6774695710929f60cfa25d",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2706498,
+          "endSeed": 0,
+          "file": "shard-00049.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "a2b4bd8bea0a586e9fd8a0ccc1ea4b8797e2f6ef74cd3e97637cbc6f30ee35c9",
+          "startSeed": 0
+        }
+      ],
+      "sourceCommit": null,
+      "summary": {
+        "currentSuitCounts": {
+          "clubs": 13248,
+          "diamonds": 13204,
+          "hearts": 12040,
+          "spades": 11508
+        },
+        "currentTargetCounts": {
+          "14": 44132,
+          "15": 5816,
+          "16": 52
+        },
+        "empiricalMarginMean": {
+          "count": 50000,
+          "max": 6,
+          "mean": -4.23882,
+          "min": -16,
+          "std": 4.0508153509634335
+        },
+        "empiricalMarginStd": {
+          "count": 50000,
+          "max": 0,
+          "mean": 0,
+          "min": 0,
+          "std": 0
+        },
+        "empiricalWinRate": {
+          "count": 50000,
+          "max": 1,
+          "mean": 0.19024,
+          "min": 0,
+          "std": 0.3924904360618177
+        },
+        "fixedHandCount": 12500,
+        "pairCount": 50000,
+        "repeatCountMax": 1,
+        "repeatCountMin": 1,
+        "rolloutCount": 50000,
+        "splitHintCounts": {
+          "none": 50000
+        },
+        "suitCounts": {
+          "clubs": 12500,
+          "diamonds": 12500,
+          "hearts": 12500,
+          "spades": 12500
+        },
+        "targetCounts": {
+          "14": 17179,
+          "15": 29303,
+          "16": 3485,
+          "17": 33
+        },
+        "uniqueDealSeedCount": 12500,
+        "uniqueRaiseStateCount": 12500
+      },
+      "teacher": {
+        "id": "history-consistent-raise-contract-margin-v1",
+        "note": "Each label uses the same hidden deal that generated the visible bidding history; no post-history hidden-hand reshuffle is performed.",
+        "primaryLabel": "empiricalMarginMean",
+        "repeatsPerPair": 1,
+        "stdLabel": "empiricalMarginStd",
+        "winRateLabel": "empiricalWinRate"
+      },
+      "uniqueDealSeedCount": 12500,
+      "uniqueRaiseStateCount": 12500
+    },
+    "path": "/tmp/issue431-raise-50k",
+    "sampleCount": 50000
+  },
+  "displayName": "Frozen bidding margin v1 (Issue #431 50k)",
+  "inputName": "model_input",
+  "metadataSchemaVersion": 1,
+  "modelConfig": {
+    "actionCount": 29,
+    "architectureId": "bidding-margin-heteroscedastic-mlp-v1",
+    "dropout": 0.0,
+    "hidden_dims": [
+      512,
+      512,
+      256,
+      256
+    ],
+    "input_dim": 278,
+    "logVarianceMax": 5.991464547107982,
+    "logVarianceMin": -5.991464547107982
+  },
+  "modelType": "bidding-margin-heteroscedastic",
+  "onnx": {
+    "inputs": [
+      {
+        "dtype": "float32",
+        "name": "model_input",
+        "shape": [
+          "batch",
+          278
+        ]
+      }
+    ],
+    "opsetVersion": 18,
+    "outputs": [
+      {
+        "dtype": "float32",
+        "name": "mean",
+        "shape": [
+          "batch",
+          29
+        ]
+      },
+      {
+        "dtype": "float32",
+        "name": "log_variance",
+        "shape": [
+          "batch",
+          29
+        ]
+      }
+    ]
+  },
+  "outputNames": [
+    "mean",
+    "log_variance"
+  ],
+  "outputValueType": "standardized-margin-mean-and-log-variance",
+  "sourceCheckpointSha256": "11d0bc9c2ce5a99d4293b20f08e7437c36bca3eb7b3da8a3de7076ee63bc3b00",
+  "sourceNote": "Issue #431 selected 50k history-consistent raise fine-tune from the #423 single-head M2 checkpoint; runtime semantics remain Issue #429 T1 Napoleon EV.",
+  "targetStandardization": {
+    "enabled": true,
+    "mean": -4.232175,
+    "std": 4.0394764226784385
+  },
+  "trainingConfig": {
+    "algorithm": "fixed-hand-empirical-margin-selected-action-v1",
+    "batch_size": 256,
+    "device": "cpu",
+    "dropout": 0.0,
+    "epochs": 30,
+    "final_ratio": 0.1,
+    "hidden_dims": [
+      512,
+      512,
+      256,
+      256
+    ],
+    "init_checkpoint_path": "/tmp/issue423-model-5k-M2/checkpoint.pt",
+    "learning_rate": 0.0003,
+    "min_delta": 0.0,
+    "min_sigma": 0.05,
+    "patience": 6,
+    "seed": 4273,
+    "std_loss_weight": 0.25,
+    "target_standardization": true,
+    "train_pair_limit": null,
+    "validation_ratio": 0.1,
+    "variant": "M2",
+    "weight_decay": 0.0001
+  },
+  "variant": "M2"
+}

@@ -110,6 +110,7 @@ export type {
   PolicyOnnxPlayInput
 } from "./policyOnnxAgent.js";
 export {
+  FROZEN_RAISE_V1_BIDDING_MARGIN_POLICY_ID,
   PPO_SEPARATED_V1000_BENCHMARK_POLICY_ID,
   ISSUE427_T1_BIDDING_MARGIN_POLICY_ID,
   RL_V740_BENCHMARK_POLICY_ID,
@@ -125,6 +126,7 @@ export type {
   LoadedBiddingMarginPolicyBenchmark,
   LoadedPlayingPolicyBenchmark,
   PlayingPolicyArtifactReference,
+  RepoManagedBiddingMarginPolicyBenchmarkId,
   RepoManagedPlayingPolicyBenchmarkId
 } from "./benchmarkArtifacts.js";
 export {

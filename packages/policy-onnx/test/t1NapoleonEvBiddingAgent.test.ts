@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFile } from "node:fs/promises";
 import { RuleBasedAgent, runAutomatedGame } from "@napoleon/ai";
 import { applyAction, createInitialGame, createPlayerView } from "@napoleon/game-core";
 import type { GameState } from "@napoleon/game-core";
@@ -6,6 +7,7 @@ import {
   BIDDING_ACTION_COUNT,
   BIDDING_MODEL_INPUT_FEATURE_COUNT,
   CriticEvBiddingAgent,
+  FROZEN_RAISE_V1_BIDDING_MARGIN_POLICY_ID,
   ISSUE427_T1_BIDDING_MARGIN_POLICY_ID,
   PPO_SEPARATED_V1000_BENCHMARK_POLICY_ID,
   T1NapoleonEvBiddingAgent,
@@ -63,6 +65,75 @@ describe("T1NapoleonEvBiddingAgent", () => {
     const prediction = await loaded.model.predict(new Float32Array(BIDDING_MODEL_INPUT_FEATURE_COUNT));
     expect(prediction.mean).toHaveLength(BIDDING_ACTION_COUNT);
     expect(prediction.sigma.every((value) => Number.isFinite(value) && value > 0)).toBe(true);
+  });
+
+  it("loads and validates the Frozen raise v1 ONNX artifact manifest", async () => {
+    const loaded = await loadRepoManagedBiddingMarginPolicyBenchmark(
+      FROZEN_RAISE_V1_BIDDING_MARGIN_POLICY_ID,
+      { inferenceDevice: "cpu" }
+    );
+    if (loaded.artifact.manifestPath === undefined) {
+      throw new Error("frozen artifact must include a manifest.");
+    }
+
+    const manifest = JSON.parse(await readFile(loaded.artifact.manifestPath, "utf8")) as {
+      selectedScale?: string;
+      dataset?: {
+        counts?: {
+          actionPairs?: number;
+          uniqueFixedHands?: number;
+          uniqueDealSeeds?: number;
+          uniqueRaiseStates?: number;
+        };
+      };
+      training?: {
+        variant?: string;
+        singleHead?: boolean;
+        architectureChanged?: boolean;
+        rewardChanged?: boolean;
+        runtimeSemanticsChanged?: boolean;
+      };
+      leakageGuard?: {
+        checks?: Record<string, {
+          invariantViolationCount?: number;
+          maxDealSeedsPerFixedHand?: number;
+          maxRaiseStatesPerFixedHand?: number;
+          maxHiddenDealsPerRaiseState?: number;
+        }>;
+        representativeStateExclusion?: Record<string, {
+          modelInputHashIntersections?: Record<string, number>;
+        }>;
+      };
+    };
+
+    expect(loaded.artifact.id).toBe(FROZEN_RAISE_V1_BIDDING_MARGIN_POLICY_ID);
+    expect(loaded.model.metadata.variant).toBe("M2");
+    expect(manifest.selectedScale).toBe("50k");
+    expect(manifest.dataset?.counts).toMatchObject({
+      actionPairs: 50_000,
+      uniqueFixedHands: 12_500,
+      uniqueDealSeeds: 12_500,
+      uniqueRaiseStates: 12_500
+    });
+    expect(manifest.training).toMatchObject({
+      variant: "M2",
+      singleHead: true,
+      architectureChanged: false,
+      rewardChanged: false,
+      runtimeSemanticsChanged: false
+    });
+    for (const check of Object.values(manifest.leakageGuard?.checks ?? {})) {
+      expect(check.invariantViolationCount).toBe(0);
+      expect(check.maxDealSeedsPerFixedHand).toBe(1);
+      expect(check.maxRaiseStatesPerFixedHand).toBe(1);
+      expect(check.maxHiddenDealsPerRaiseState).toBe(1);
+    }
+    for (const exclusion of Object.values(manifest.leakageGuard?.representativeStateExclusion ?? {})) {
+      expect(exclusion.modelInputHashIntersections).toMatchObject({
+        issue421: 0,
+        issue422: 0
+      });
+    }
   });
 
   it("uses the Issue #429 Napoleon relative EV formula", () => {
@@ -204,6 +275,38 @@ describe("T1NapoleonEvBiddingAgent", () => {
       expect(candidate.rewards.candidateRelativeReward.count).toBe(2);
       expect(candidate.rewards.meanRelativeRewardPerPlayerGame.count).toBe(10);
     }
+  });
+
+  it("can run a smoke runtime evaluation with the Frozen raise v1 artifact", async () => {
+    const playing = await loadRepoManagedPlayingPolicyBenchmark(
+      PPO_SEPARATED_V1000_BENCHMARK_POLICY_ID,
+      { inferenceDevice: "cpu" }
+    );
+    const frozen = await loadRepoManagedBiddingMarginPolicyBenchmark(
+      FROZEN_RAISE_V1_BIDDING_MARGIN_POLICY_ID,
+      { inferenceDevice: "cpu" }
+    );
+    if (playing.critic === undefined) {
+      throw new Error("fixture playing artifact must include a critic.");
+    }
+
+    const result = await runIssue429T1BiddingRuntimeEvaluation({
+      startSeed: 431,
+      gameCount: 2,
+      playingPolicy: playing.policy,
+      critic: playing.critic,
+      t1MarginModel: frozen.model
+    });
+
+    const frozenResult = result.candidates.find((candidate) => candidate.agentName === "T1NapoleonEvBidding");
+    expect(frozenResult?.games.completed).toBe(2);
+    expect(frozenResult?.safety).toMatchObject({
+      illegalBidCount: 0,
+      invalidMaskCount: 0,
+      modelInferenceFailureCount: 0,
+      fallbackCount: 0,
+      crashCount: 0
+    });
   });
 });
 

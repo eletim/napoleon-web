@@ -1,0 +1,12 @@
+{
+  "artifactId": "frozen-raise-v1",
+  "displayName": "Frozen bidding margin v1 (Issue #431 50k)",
+  "metadataPath": "benchmarks/bidding-margin-policies/frozen-raise-v1/margin.json",
+  "onnxParity": {
+    "checked": true,
+    "maxAbsDiff": 5.960464477539063e-08,
+    "withinTolerance": true
+  },
+  "onnxPath": "benchmarks/bidding-margin-policies/frozen-raise-v1/margin.onnx",
+  "sourceCheckpointSha256": "11d0bc9c2ce5a99d4293b20f08e7437c36bca3eb7b3da8a3de7076ee63bc3b00"
+}
