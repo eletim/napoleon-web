@@ -36,9 +36,7 @@ from .fixed_hand_margin_training import (
     train_fixed_hand_margin_model,
 )
 from .margin_model import (
-    BIDDING_MARGIN_DECISION_HEAD_ARCHITECTURE_ID,
     BIDDING_MARGIN_HETEROSCEDASTIC_ARCHITECTURE_ID,
-    BiddingMarginDecisionHeadModel,
     BiddingMarginHeteroscedasticModel,
     BiddingMarginHeteroscedasticModelConfig,
     create_seeded_bidding_margin_model,
@@ -248,7 +246,6 @@ __all__ = [
     "BIDDING_Q_ACTION_MAPPING_ID",
     "BIDDING_Q_DATASET_SAMPLE_TYPE",
     "BIDDING_Q_DATASET_SCHEMA_VERSION",
-    "BIDDING_MARGIN_DECISION_HEAD_ARCHITECTURE_ID",
     "BIDDING_MARGIN_HETEROSCEDASTIC_ARCHITECTURE_ID",
     "BIDDING_MARGIN_HETEROSCEDASTIC_MODEL_TYPE",
     "BIDDING_MULTI_HEAD_Q_ARCHITECTURE_ID",
@@ -278,7 +275,6 @@ __all__ = [
     "BiddingQTrainConfig",
     "BiddingQTrainResult",
     "BiddingMarginHeteroscedasticModel",
-    "BiddingMarginDecisionHeadModel",
     "BiddingMarginHeteroscedasticModelConfig",
     "BiddingMarginTrainConfig",
     "BiddingMarginTrainResult",

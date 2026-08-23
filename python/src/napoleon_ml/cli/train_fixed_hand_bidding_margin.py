@@ -26,8 +26,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("dataset_directory", type=Path)
     parser.add_argument("--output-dir", "--output", dest="output_dir", type=Path, required=True)
     parser.add_argument("--variant", choices=("M1", "M2"), default="M1")
-    parser.add_argument("--head-mode", choices=("single", "opening_raise"), default="single")
-    parser.add_argument("--context-feature-mode", choices=("old", "minimal"), default="old")
     parser.add_argument("--epochs", type=int, default=40)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--learning-rate", type=float, default=1e-3)
@@ -65,8 +63,6 @@ def _run(args: argparse.Namespace) -> int:
     dataset = load_fixed_hand_margin_dataset(args.dataset_directory)
     config = FixedHandMarginTrainConfig(
         variant=args.variant,
-        head_mode=args.head_mode,
-        context_feature_mode=args.context_feature_mode,
         seed=args.seed,
         epochs=args.epochs,
         batch_size=args.batch_size,

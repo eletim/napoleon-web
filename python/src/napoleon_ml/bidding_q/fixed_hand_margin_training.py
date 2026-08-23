@@ -28,10 +28,8 @@ from napoleon_ml.policy.device import (
 )
 
 from .margin_model import (
-    BIDDING_MARGIN_DECISION_HEAD_ARCHITECTURE_ID,
     BiddingMarginHeteroscedasticModel,
     BiddingMarginHeteroscedasticModelConfig,
-    BiddingMarginDecisionHeadModel,
     create_seeded_bidding_margin_model,
 )
 from .margin_training import gaussian_success_probability
@@ -45,7 +43,6 @@ FIXED_HAND_MARGIN_SAMPLE_TYPES = frozenset(
         "napoleon-fixed-contract-margin-sample",
     }
 )
-MINIMAL_CONTEXT_FEATURE_COUNT = 13
 
 
 class FixedHandMarginDatasetError(ValueError):
@@ -60,17 +57,9 @@ class FixedHandMarginCheckpointError(ValueError):
 class FixedHandMarginSample:
     fixed_hand_id: str
     hand_ids: tuple[str, ...]
-    candidate_seat_index: int
-    source_state_key: str | None
     forced_action_index: int
     forced_target_point_cards: int
     forced_suit: str
-    decision_context: Literal["opening", "raise"]
-    current_bid_target_point_cards: int | None
-    current_bid_suit: str | None
-    current_bidder_seat_index: int | None
-    consecutive_pass_count: int
-    bidding_step: int
     model_input: np.ndarray
     rollout_count: int
     empirical_margin_mean: float
@@ -83,7 +72,7 @@ class FixedHandMarginSample:
 
     @property
     def state_key(self) -> str:
-        return self.source_state_key or self.fixed_hand_id
+        return self.fixed_hand_id
 
 
 @dataclass(frozen=True)
@@ -106,8 +95,6 @@ class FixedHandMarginSplit:
 @dataclass(frozen=True)
 class FixedHandMarginTrainConfig:
     variant: Literal["M1", "M2"] = "M1"
-    head_mode: Literal["single", "opening_raise"] = "single"
-    context_feature_mode: Literal["old", "minimal"] = "old"
     seed: int = 411
     epochs: int = 40
     batch_size: int = 128
@@ -134,7 +121,7 @@ class FixedHandMarginTrainConfig:
 
 @dataclass(frozen=True)
 class FixedHandMarginTrainResult:
-    model: BiddingMarginHeteroscedasticModel | BiddingMarginDecisionHeadModel
+    model: BiddingMarginHeteroscedasticModel
     split: FixedHandMarginSplit
     config: FixedHandMarginTrainConfig
     device: ResolvedTorchDevice
@@ -151,7 +138,6 @@ class FixedHandMarginTrainResult:
 class FixedHandBatch(NamedTuple):
     model_input: Tensor
     action_index: Tensor
-    decision_context: Tensor
     mean: Tensor
     std: Tensor
 
@@ -162,11 +148,9 @@ class _FixedHandDataset(Dataset[FixedHandBatch]):
         samples: Iterable[FixedHandMarginSample],
         *,
         standardization: Standardization,
-        context_feature_mode: Literal["old", "minimal"],
     ) -> None:
         self._samples = tuple(samples)
         self._standardization = standardization
-        self._context_feature_mode = context_feature_mode
 
     def __len__(self) -> int:
         return len(self._samples)
@@ -174,15 +158,8 @@ class _FixedHandDataset(Dataset[FixedHandBatch]):
     def __getitem__(self, index: int) -> FixedHandBatch:
         sample = self._samples[index]
         return FixedHandBatch(
-            model_input=torch.as_tensor(
-                _sample_model_input(sample, self._context_feature_mode),
-                dtype=torch.float32,
-            ),
+            model_input=torch.as_tensor(sample.model_input, dtype=torch.float32),
             action_index=torch.tensor(sample.forced_action_index, dtype=torch.long),
-            decision_context=torch.tensor(
-                1 if sample.decision_context == "raise" else 0,
-                dtype=torch.long,
-            ),
             mean=self._standardization.encode_tensor(
                 torch.tensor(sample.empirical_margin_mean, dtype=torch.float32)
             ),
@@ -222,7 +199,9 @@ def create_fixed_hand_margin_split(
     dataset: FixedHandMarginDataset,
     config: FixedHandMarginTrainConfig,
 ) -> FixedHandMarginSplit:
-    by_hand = _connected_split_groups(dataset.samples)
+    by_hand: dict[str, list[FixedHandMarginSample]] = defaultdict(list)
+    for sample in dataset.samples:
+        by_hand[sample.fixed_hand_id].append(sample)
     final_ids = sorted(
         hand_id
         for hand_id, samples in by_hand.items()
@@ -257,51 +236,12 @@ def create_fixed_hand_margin_split(
     )
 
 
-def _connected_split_groups(
-    samples: Sequence[FixedHandMarginSample],
-) -> dict[str, list[FixedHandMarginSample]]:
-    parent: dict[str, str] = {}
-
-    def find(key: str) -> str:
-        parent.setdefault(key, key)
-        while parent[key] != key:
-            parent[key] = parent[parent[key]]
-            key = parent[key]
-        return key
-
-    def union(left: str, right: str) -> None:
-        left_root = find(left)
-        right_root = find(right)
-        if left_root != right_root:
-            parent[right_root] = left_root
-
-    for sample in samples:
-        hand_key = f"hand:{sample.fixed_hand_id}"
-        find(hand_key)
-        if sample.source_state_key:
-            union(hand_key, f"state:{sample.source_state_key}")
-
-    by_root: dict[str, list[FixedHandMarginSample]] = defaultdict(list)
-    for sample in samples:
-        by_root[find(f"hand:{sample.fixed_hand_id}")].append(sample)
-
-    by_hand: dict[str, list[FixedHandMarginSample]] = {}
-    for group_samples in by_root.values():
-        group_id = min(sample.fixed_hand_id for sample in group_samples)
-        by_hand[group_id] = group_samples
-    return by_hand
-
-
 def train_fixed_hand_margin_model(
     dataset: FixedHandMarginDataset,
     config: FixedHandMarginTrainConfig,
 ) -> FixedHandMarginTrainResult:
     if config.variant not in {"M1", "M2"}:
         raise ValueError("variant must be M1 or M2.")
-    if config.head_mode not in {"single", "opening_raise"}:
-        raise ValueError("head_mode must be single or opening_raise.")
-    if config.context_feature_mode not in {"old", "minimal"}:
-        raise ValueError("context_feature_mode must be old or minimal.")
     device = resolve_torch_device(config.device)
     torch.manual_seed(config.seed)
     np.random.seed(config.seed)
@@ -311,23 +251,16 @@ def train_fixed_hand_margin_model(
         raise ValueError("train/validation/final splits must all contain samples.")
     standardization = _standardization(split.train_samples, enabled=config.target_standardization)
     constant_sigma = float(np.mean([sample.empirical_margin_std for sample in split.train_samples]))
-    model_config = BiddingMarginHeteroscedasticModelConfig(
-        input_dim=_input_feature_count(config.context_feature_mode),
-        hidden_dims=config.hidden_dims,
-        dropout=config.dropout,
-        log_variance_min=math.log(max(config.min_sigma, 1e-6) ** 2),
-        log_variance_max=math.log(20.0**2),
-    )
-    if config.head_mode == "opening_raise":
-        torch.manual_seed(config.seed)
-        model: BiddingMarginHeteroscedasticModel | BiddingMarginDecisionHeadModel = (
-            BiddingMarginDecisionHeadModel(model_config).to(device.torch_device)
-        )
-    else:
-        model = create_seeded_bidding_margin_model(
-            model_config,
-            seed=config.seed,
-        ).to(device.torch_device)
+    model = create_seeded_bidding_margin_model(
+        BiddingMarginHeteroscedasticModelConfig(
+            input_dim=BIDDING_MODEL_INPUT_FEATURE_COUNT,
+            hidden_dims=config.hidden_dims,
+            dropout=config.dropout,
+            log_variance_min=math.log(max(config.min_sigma, 1e-6) ** 2),
+            log_variance_max=math.log(20.0**2),
+        ),
+        seed=config.seed,
+    ).to(device.torch_device)
     optimizer = optim.AdamW(
         model.parameters(),
         lr=config.learning_rate,
@@ -336,11 +269,7 @@ def train_fixed_hand_margin_model(
     generator = torch.Generator()
     generator.manual_seed(config.seed)
     train_loader = DataLoader(
-        _FixedHandDataset(
-            split.train_samples,
-            standardization=standardization,
-            context_feature_mode=config.context_feature_mode,
-        ),
+        _FixedHandDataset(split.train_samples, standardization=standardization),
         batch_size=config.batch_size,
         shuffle=True,
         generator=generator,
@@ -357,16 +286,11 @@ def train_fixed_hand_margin_model(
             batch = FixedHandBatch(
                 model_input=batch.model_input.to(device.torch_device),
                 action_index=batch.action_index.to(device.torch_device),
-                decision_context=batch.decision_context.to(device.torch_device),
                 mean=batch.mean.to(device.torch_device),
                 std=batch.std.to(device.torch_device),
             )
             optimizer.zero_grad(set_to_none=True)
-            mean, log_variance = _forward_margin_model(
-                model,
-                batch.model_input,
-                batch.decision_context,
-            )
+            mean, log_variance = model(batch.model_input)
             loss = fixed_hand_margin_loss(
                 mean=mean,
                 log_variance=log_variance,
@@ -473,7 +397,7 @@ def fixed_hand_margin_loss(
 
 
 def predict_fixed_hand_margin_samples(
-    model: BiddingMarginHeteroscedasticModel | BiddingMarginDecisionHeadModel,
+    model: BiddingMarginHeteroscedasticModel,
     samples: Sequence[FixedHandMarginSample],
     *,
     device: ResolvedTorchDevice,
@@ -488,16 +412,11 @@ def predict_fixed_hand_margin_samples(
         for start in range(0, len(samples), 512):
             batch = samples[start : start + 512]
             model_input = torch.as_tensor(
-                np.stack([_sample_model_input_for_model(sample, model) for sample in batch]),
+                np.stack([sample.model_input for sample in batch]),
                 dtype=torch.float32,
                 device=device.torch_device,
             )
-            decision_context = torch.as_tensor(
-                [1 if sample.decision_context == "raise" else 0 for sample in batch],
-                dtype=torch.long,
-                device=device.torch_device,
-            )
-            mean, log_variance = _forward_margin_model(model, model_input, decision_context)
+            mean, log_variance = model(model_input)
             means.append(mean.detach().cpu().numpy())
             sigma = np.exp(0.5 * log_variance.detach().cpu().numpy())
             if standardization.enabled:
@@ -511,7 +430,7 @@ def predict_fixed_hand_margin_samples(
 
 
 def evaluate_fixed_hand_margin_model(
-    model: BiddingMarginHeteroscedasticModel | BiddingMarginDecisionHeadModel,
+    model: BiddingMarginHeteroscedasticModel,
     samples: Sequence[FixedHandMarginSample],
     *,
     device: ResolvedTorchDevice,
@@ -532,16 +451,6 @@ def evaluate_fixed_hand_margin_model(
         mean=predictions["mean"],
         sigma=predictions["sigma"],
     )
-
-
-def _forward_margin_model(
-    model: BiddingMarginHeteroscedasticModel | BiddingMarginDecisionHeadModel,
-    model_input: Tensor,
-    decision_context: Tensor,
-) -> tuple[Tensor, Tensor]:
-    if isinstance(model, BiddingMarginDecisionHeadModel):
-        return model(model_input, decision_context)
-    return model(model_input)
 
 
 def fixed_hand_margin_evaluation_report(
@@ -574,54 +483,7 @@ def fixed_hand_margin_evaluation_report(
         "sameHandRanking": same_hand_ranking(samples, score=selected_mean, teacher=truth),
         "sameHandWinRanking": same_hand_ranking(samples, score=p_win, teacher=truth_win_rate),
         "napoleonEv400": ev400_summary(samples, p_win),
-        "byDecisionContext": by_decision_context_report(
-            samples,
-            mean=mean,
-            sigma=sigma,
-        ),
     }
-
-
-def by_decision_context_report(
-    samples: Sequence[FixedHandMarginSample],
-    *,
-    mean: np.ndarray,
-    sigma: np.ndarray,
-) -> dict[str, object]:
-    report: dict[str, object] = {}
-    for context in ("opening", "raise"):
-        indexes = [index for index, sample in enumerate(samples) if sample.decision_context == context]
-        if not indexes:
-            report[context] = {"sampleCount": 0}
-            continue
-        selected_samples = tuple(samples[index] for index in indexes)
-        selected_mean = mean[np.asarray(indexes, dtype=np.int64)]
-        selected_sigma = sigma[np.asarray(indexes, dtype=np.int64)]
-        selected_prediction, selected_prediction_sigma = selected_prediction_arrays(
-            selected_samples,
-            selected_mean,
-            selected_sigma,
-        )
-        truth = np.asarray(
-            [sample.empirical_margin_mean for sample in selected_samples],
-            dtype=np.float64,
-        )
-        p_win = gaussian_success_probability(selected_prediction, selected_prediction_sigma)
-        report[context] = {
-            "sampleCount": len(selected_samples),
-            "fixedHandCount": len({sample.fixed_hand_id for sample in selected_samples}),
-            "mean": {
-                **regression_metrics(selected_prediction, truth),
-                "bias": float(np.mean(selected_prediction - truth)) if truth.size else None,
-            },
-            "sameHandRanking": same_hand_ranking(
-                selected_samples,
-                score=selected_prediction,
-                teacher=truth,
-            ),
-            "napoleonEv400": ev400_summary(selected_samples, p_win),
-        }
-    return report
 
 
 def selected_prediction_arrays(
@@ -707,14 +569,11 @@ def save_fixed_hand_margin_artifact(
     output.mkdir(parents=True, exist_ok=True)
     checkpoint_path = output / "checkpoint.pt"
     report_path = output / "report.json"
-    model_config = result.model.config.to_dict()
-    if isinstance(result.model, BiddingMarginDecisionHeadModel):
-        model_config["architectureId"] = BIDDING_MARGIN_DECISION_HEAD_ARCHITECTURE_ID
     checkpoint = {
         "checkpointSchemaVersion": FIXED_HAND_MARGIN_CHECKPOINT_SCHEMA_VERSION,
         "modelType": FIXED_HAND_MARGIN_MODEL_TYPE,
         "variant": result.config.variant,
-        "modelConfig": model_config,
+        "modelConfig": result.model.config.to_dict(),
         "modelState": cpu_state_dict(result.model),
         "targetStandardization": result.target_standardization.to_dict(),
         "constantSigma": result.constant_sigma,
@@ -748,7 +607,7 @@ def save_fixed_hand_margin_artifact(
 
 def load_fixed_hand_margin_checkpoint(
     path: Path | str,
-) -> tuple[BiddingMarginHeteroscedasticModel | BiddingMarginDecisionHeadModel, dict[str, object]]:
+) -> tuple[BiddingMarginHeteroscedasticModel, dict[str, object]]:
     try:
         raw = torch.load(Path(path), map_location="cpu", weights_only=True)
     except (OSError, RuntimeError, pickle.UnpicklingError) as error:
@@ -762,13 +621,9 @@ def load_fixed_hand_margin_checkpoint(
     config_raw = raw.get("modelConfig")
     if not isinstance(config_raw, dict):
         raise FixedHandMarginCheckpointError("checkpoint modelConfig must be an object.")
-    config = BiddingMarginHeteroscedasticModelConfig.from_dict(config_raw)
-    if config_raw.get("architectureId") == BIDDING_MARGIN_DECISION_HEAD_ARCHITECTURE_ID:
-        model: BiddingMarginHeteroscedasticModel | BiddingMarginDecisionHeadModel = (
-            BiddingMarginDecisionHeadModel(config)
-        )
-    else:
-        model = BiddingMarginHeteroscedasticModel(config)
+    model = BiddingMarginHeteroscedasticModel(
+        BiddingMarginHeteroscedasticModelConfig.from_dict(config_raw)
+    )
     state = raw.get("modelState")
     if not isinstance(state, dict):
         raise FixedHandMarginCheckpointError("checkpoint modelState must be a state dict.")
@@ -809,72 +664,6 @@ def _standardization(
     )
 
 
-def _input_feature_count(mode: Literal["old", "minimal"]) -> int:
-    if mode == "old":
-        return BIDDING_MODEL_INPUT_FEATURE_COUNT
-    if mode == "minimal":
-        return BIDDING_MODEL_INPUT_FEATURE_COUNT + MINIMAL_CONTEXT_FEATURE_COUNT
-    raise ValueError("unsupported context feature mode.")
-
-
-def _sample_model_input_for_model(
-    sample: FixedHandMarginSample,
-    model: BiddingMarginHeteroscedasticModel | BiddingMarginDecisionHeadModel,
-) -> np.ndarray:
-    if model.config.input_dim == BIDDING_MODEL_INPUT_FEATURE_COUNT:
-        return _sample_model_input(sample, "old")
-    if model.config.input_dim == BIDDING_MODEL_INPUT_FEATURE_COUNT + MINIMAL_CONTEXT_FEATURE_COUNT:
-        return _sample_model_input(sample, "minimal")
-    raise ValueError(f"unsupported fixed-hand margin input_dim {model.config.input_dim}.")
-
-
-def _sample_model_input(
-    sample: FixedHandMarginSample,
-    mode: Literal["old", "minimal"],
-) -> np.ndarray:
-    if mode == "old":
-        return sample.model_input
-    return np.concatenate([sample.model_input, minimal_context_features(
-        candidate_seat_index=sample.candidate_seat_index,
-        decision_context=sample.decision_context,
-        current_bid_target_point_cards=sample.current_bid_target_point_cards,
-        current_bid_suit=sample.current_bid_suit,
-        current_bidder_seat_index=sample.current_bidder_seat_index,
-        consecutive_pass_count=sample.consecutive_pass_count,
-        bidding_step=sample.bidding_step,
-    )]).astype(np.float32)
-
-
-def minimal_context_features(
-    *,
-    candidate_seat_index: int,
-    decision_context: Literal["opening", "raise"],
-    current_bid_target_point_cards: int | None,
-    current_bid_suit: str | None,
-    current_bidder_seat_index: int | None,
-    consecutive_pass_count: int,
-    bidding_step: int,
-) -> np.ndarray:
-    has_current_bid = 1.0 if current_bid_target_point_cards is not None else 0.0
-    target = 0.0 if current_bid_target_point_cards is None else (current_bid_target_point_cards - 13) / 6.0
-    suit_order = ("spades", "hearts", "diamonds", "clubs")
-    suit = [1.0 if current_bid_suit == item else 0.0 for item in suit_order]
-    relative = [0.0] * 5
-    if current_bidder_seat_index is not None:
-        relative[(current_bidder_seat_index - candidate_seat_index) % 5] = 1.0
-    return np.asarray(
-        [
-            has_current_bid,
-            target,
-            *suit,
-            *relative,
-            min(max(bidding_step, 0), 28) / 28.0,
-            min(max(consecutive_pass_count, 0), 4) / 4.0,
-        ],
-        dtype=np.float32,
-    )
-
-
 def _parse_fixed_hand_sample(raw: object) -> FixedHandMarginSample:
     if not isinstance(raw, dict):
         raise FixedHandMarginDatasetError("sample must be an object.")
@@ -884,17 +673,9 @@ def _parse_fixed_hand_sample(raw: object) -> FixedHandMarginSample:
     return FixedHandMarginSample(
         fixed_hand_id=_string(raw, "fixedHandId"),
         hand_ids=tuple(str(value) for value in _list(raw, "handIds")),
-        candidate_seat_index=_optional_int(raw, "candidateSeatIndex", 0),
-        source_state_key=_nullable_string(raw.get("sourceStateKey")),
         forced_action_index=_int(raw, "forcedActionIndex"),
         forced_target_point_cards=_int(raw, "forcedTargetPointCards"),
         forced_suit=_string(raw, "forcedSuit"),
-        decision_context=_decision_context(raw.get("decisionContext")),
-        current_bid_target_point_cards=_nullable_int(raw.get("currentBidTargetPointCards")),
-        current_bid_suit=_nullable_string(raw.get("currentBidSuit")),
-        current_bidder_seat_index=_nullable_int(raw.get("currentBidderSeatIndex")),
-        consecutive_pass_count=_optional_int(raw, "consecutivePassCount", 0),
-        bidding_step=_optional_int(raw, "biddingStep", 0),
         model_input=model_input,
         rollout_count=_int(raw, "rolloutCount"),
         empirical_margin_mean=_float(raw, "empiricalMarginMean"),
@@ -921,12 +702,6 @@ def _int(raw: dict[str, object], key: str) -> int:
     return value
 
 
-def _optional_int(raw: dict[str, object], key: str, fallback: int) -> int:
-    if key not in raw:
-        return fallback
-    return _int(raw, key)
-
-
 def _float(raw: dict[str, object], key: str) -> float:
     value = raw.get(key)
     if not isinstance(value, int | float):
@@ -946,22 +721,6 @@ def _nullable_string(value: object) -> str | None:
         return None
     if not isinstance(value, str):
         raise FixedHandMarginDatasetError("nullable string field has invalid type.")
-    return value
-
-
-def _decision_context(value: object) -> Literal["opening", "raise"]:
-    if value is None:
-        return "opening"
-    if value not in {"opening", "raise"}:
-        raise FixedHandMarginDatasetError("decisionContext must be opening or raise.")
-    return cast(Literal["opening", "raise"], value)
-
-
-def _nullable_int(value: object) -> int | None:
-    if value is None:
-        return None
-    if not isinstance(value, int):
-        raise FixedHandMarginDatasetError("nullable integer field has invalid type.")
     return value
 
 

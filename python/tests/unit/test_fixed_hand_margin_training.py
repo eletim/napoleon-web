@@ -36,9 +36,6 @@ def test_fixed_hand_split_has_no_hand_leakage(tmp_path: Path) -> None:
     assert train.isdisjoint(final)
     assert validation.isdisjoint(final)
     assert "hand-0" in final
-    assert source_state_keys(split.train_samples).isdisjoint(source_state_keys(split.validation_samples))
-    assert source_state_keys(split.train_samples).isdisjoint(source_state_keys(split.final_samples))
-    assert source_state_keys(split.validation_samples).isdisjoint(source_state_keys(split.final_samples))
 
 
 def test_napoleon_fixed_sample_type_loads_with_hand_level_split(tmp_path: Path) -> None:
@@ -60,9 +57,9 @@ def test_napoleon_fixed_sample_type_loads_with_hand_level_split(tmp_path: Path) 
     assert train.isdisjoint(validation)
     assert train.isdisjoint(final)
     assert validation.isdisjoint(final)
-    assert source_state_keys(split.train_samples).isdisjoint(source_state_keys(split.validation_samples))
-    assert source_state_keys(split.train_samples).isdisjoint(source_state_keys(split.final_samples))
-    assert source_state_keys(split.validation_samples).isdisjoint(source_state_keys(split.final_samples))
+    assert {sample.fixed_hand_id for sample in split.train_samples} == train
+    assert {sample.fixed_hand_id for sample in split.validation_samples} == validation
+    assert {sample.fixed_hand_id for sample in split.final_samples} == final
 
 
 def test_selected_action_only_mean_loss_fixture() -> None:
@@ -142,41 +139,6 @@ def test_checkpoint_save_load_roundtrip(tmp_path: Path) -> None:
     assert model.mean_head.out_features == 29
 
 
-def test_opening_raise_head_training_checkpoint_roundtrip(tmp_path: Path) -> None:
-    dataset = write_dataset(tmp_path / "data", hand_count=8, actions_per_hand=2)
-    result = train_fixed_hand_margin_model(
-        dataset,
-        FixedHandMarginTrainConfig(
-            variant="M2",
-            head_mode="opening_raise",
-            context_feature_mode="minimal",
-            seed=8,
-            epochs=2,
-            batch_size=4,
-            hidden_dims=(16,),
-            validation_ratio=0.25,
-            final_ratio=0.25,
-            patience=2,
-        ),
-    )
-    artifact = save_fixed_hand_margin_artifact(
-        tmp_path / "head-artifact",
-        result=result,
-        dataset=dataset,
-    )
-    checkpoint_path = artifact["checkpointPath"]
-    assert isinstance(checkpoint_path, str)
-    model, raw = load_fixed_hand_margin_checkpoint(checkpoint_path)
-    assert raw["variant"] == "M2"
-    assert raw["trainingConfig"]["head_mode"] == "opening_raise"
-    assert raw["trainingConfig"]["context_feature_mode"] == "minimal"
-    assert hasattr(model, "opening_mean_head")
-    assert hasattr(model, "raise_mean_head")
-    by_context = cast(dict[str, object], result.final_report["byDecisionContext"])
-    assert cast(dict[str, object], by_context["opening"])["sampleCount"] > 0
-    assert cast(dict[str, object], by_context["raise"])["sampleCount"] > 0
-
-
 def test_empirical_probability_metric_fixture() -> None:
     samples = tuple(sample("hand-a", 1, 1.0, 2.0, 0.75) for _ in range(2))
     mean = np.zeros((2, 29), dtype=np.float64)
@@ -248,17 +210,9 @@ def sample_dict(hand_index: int, action_index: int, *, sample_type: str) -> dict
         "schemaVersion": 1,
         "fixedHandId": f"hand-{hand_index}",
         "handIds": [f"card-{index}" for index in range(10)],
-        "candidateSeatIndex": hand_index % 5,
-        "sourceStateKey": f"state-{hand_index // 2}",
         "forcedActionIndex": action_index,
         "forcedTargetPointCards": 13 + action_index,
         "forcedSuit": "spades",
-        "decisionContext": "raise" if action_index % 2 == 0 else "opening",
-        "currentBidTargetPointCards": 13 if action_index % 2 == 0 else None,
-        "currentBidSuit": "hearts" if action_index % 2 == 0 else None,
-        "currentBidderSeatIndex": 4 if action_index % 2 == 0 else None,
-        "consecutivePassCount": 0,
-        "biddingStep": 1 if action_index % 2 == 0 else 0,
         "modelInput": [
             float((hand_index + action_index + index) % 7)
             for index in range(BIDDING_MODEL_INPUT_FEATURE_COUNT)
@@ -281,24 +235,12 @@ def sample(
     return FixedHandMarginSample(
         fixed_hand_id=hand_id,
         hand_ids=tuple(f"card-{index}" for index in range(10)),
-        candidate_seat_index=0,
-        source_state_key=None,
         forced_action_index=action_index,
         forced_target_point_cards=13,
         forced_suit="spades",
-        decision_context="opening",
-        current_bid_target_point_cards=None,
-        current_bid_suit=None,
-        current_bidder_seat_index=None,
-        consecutive_pass_count=0,
-        bidding_step=0,
         model_input=np.zeros(BIDDING_MODEL_INPUT_FEATURE_COUNT, dtype=np.float32),
         rollout_count=50,
         empirical_margin_mean=empirical_mean,
         empirical_margin_std=empirical_std,
         empirical_win_rate=empirical_win_rate,
     )
-
-
-def source_state_keys(samples: tuple[FixedHandMarginSample, ...]) -> set[str]:
-    return {sample.source_state_key for sample in samples if sample.source_state_key is not None}

@@ -2,7 +2,6 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { BIDDING_MODEL_INPUT_LAYOUT } from "@napoleon/ai-observation";
 import { createDeck } from "@napoleon/game-core";
 import {
   FIXED_HAND_BIDDING_MARGIN_DATASET_SAMPLE_TYPE,
@@ -174,42 +173,6 @@ describe("generateFixedHandBiddingMarginDataset", () => {
     });
   });
 
-  it("encodes raise context for Napoleon-fixed samples without running downstream bidding", async () => {
-    await withTempDir(async (directory) => {
-      const spec = fixedSpec({
-        actionIndex: 5,
-        targetPointCards: 14,
-        suit: "spades",
-        decisionContext: "raise",
-        currentBidTargetPointCards: 13,
-        currentBidSuit: "hearts",
-        currentBidderSeatIndex: 3,
-        consecutivePassCount: 1,
-        biddingStep: 2
-      });
-      const result = await generateNapoleonFixedMarginDataset({
-        outputDirectory: join(directory, "napoleon-fixed-raise"),
-        pairCount: 1,
-        repeats: 1,
-        randomSeed: 425,
-        reservedHands: [spec],
-        gamesPerShard: 10
-      });
-      const sample = result.samples[0];
-      const highestBidPresent = sliceValue(sample.modelInput, "highestBidPresent");
-      expect(sample.decisionContext).toBe("raise");
-      expect(sample.currentBidTargetPointCards).toBe(13);
-      expect(sample.currentBidSuit).toBe("hearts");
-      expect(sample.currentBidderSeatIndex).toBe(3);
-      expect(sample.consecutivePassCount).toBe(1);
-      expect(sample.biddingStep).toBe(2);
-      expect(highestBidPresent).toBe(1);
-      expect(sample.legalBidMask[sample.forcedActionIndex]).toBe(1);
-      expect(result.rawRollouts[0].decisionContext).toBe("raise");
-      expect(result.rawRollouts[0].invariantChecks.downstreamBiddingActionCount).toBe(0);
-    });
-  });
-
   it("deterministically reshuffles only hidden deal for Napoleon-fixed repeats", async () => {
     await withTempDir(async (directory) => {
       const spec = fixedSpec();
@@ -235,14 +198,13 @@ describe("generateFixedHandBiddingMarginDataset", () => {
   });
 });
 
-function fixedSpec(actionOverride: Partial<FixedHandBiddingActionSpec> = {}): FixedHandSpec {
+function fixedSpec(): FixedHandSpec {
   const handIds = createDeck().slice(0, 10).map((card) => card.id);
   const action: FixedHandBiddingActionSpec = {
     actionIndex: 1,
     targetPointCards: 13,
     suit: "spades",
-    label: "spades13",
-    ...actionOverride
+    label: "spades13"
   };
   return {
     fixedHandId: "fixture-hand",
@@ -256,14 +218,6 @@ function fixedSpec(actionOverride: Partial<FixedHandBiddingActionSpec> = {}): Fi
     reason: "issue409-fixture",
     actions: [action]
   };
-}
-
-function sliceValue(modelInput: readonly number[], name: string): number {
-  const slice = BIDDING_MODEL_INPUT_LAYOUT.find((item) => item.name === name);
-  if (slice === undefined || slice.stop - slice.start !== 1) {
-    throw new Error(`missing scalar slice ${name}`);
-  }
-  return modelInput[slice.start];
 }
 
 function rollout(contractMargin: number, contractSuccess: boolean) {

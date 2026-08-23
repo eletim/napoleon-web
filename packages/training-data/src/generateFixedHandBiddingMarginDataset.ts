@@ -17,8 +17,7 @@ import {
   createDeck,
   createInitialGame,
   createPlayerView,
-  getLegalActions,
-  isBidHigher
+  getLegalActions
 } from "@napoleon/game-core";
 import type { Card, GameAction, GameResult, PlayerId, Suit } from "@napoleon/game-core";
 import {
@@ -44,16 +43,16 @@ import {
 
 export const FIXED_HAND_BIDDING_MARGIN_DATASET_SAMPLE_TYPE =
   "fixed-hand-bidding-margin-sample" as const;
-export const FIXED_HAND_BIDDING_MARGIN_SAMPLE_SCHEMA_VERSION = 2 as const;
-export const FIXED_HAND_BIDDING_MARGIN_DATASET_SCHEMA_VERSION = 2 as const;
-export const FIXED_HAND_BIDDING_MARGIN_DATASET_GENERATOR_VERSION = 2 as const;
+export const FIXED_HAND_BIDDING_MARGIN_SAMPLE_SCHEMA_VERSION = 1 as const;
+export const FIXED_HAND_BIDDING_MARGIN_DATASET_SCHEMA_VERSION = 1 as const;
+export const FIXED_HAND_BIDDING_MARGIN_DATASET_GENERATOR_VERSION = 1 as const;
 export const FIXED_HAND_BIDDING_MARGIN_TEACHER_ID =
   "fixed-hand-action-hidden-deal-empirical-margin-mean-v1" as const;
 export const NAPOLEON_FIXED_MARGIN_DATASET_SAMPLE_TYPE =
   "napoleon-fixed-contract-margin-sample" as const;
-export const NAPOLEON_FIXED_MARGIN_SAMPLE_SCHEMA_VERSION = 2 as const;
-export const NAPOLEON_FIXED_MARGIN_DATASET_SCHEMA_VERSION = 2 as const;
-export const NAPOLEON_FIXED_MARGIN_DATASET_GENERATOR_VERSION = 2 as const;
+export const NAPOLEON_FIXED_MARGIN_SAMPLE_SCHEMA_VERSION = 1 as const;
+export const NAPOLEON_FIXED_MARGIN_DATASET_SCHEMA_VERSION = 1 as const;
+export const NAPOLEON_FIXED_MARGIN_DATASET_GENERATOR_VERSION = 1 as const;
 export const NAPOLEON_FIXED_MARGIN_TEACHER_ID =
   "napoleon-fixed-contract-hidden-deal-empirical-margin-mean-v1" as const;
 
@@ -62,20 +61,11 @@ const PLAYER_IDS = ["player-0", "player-1", "player-2", "player-3", "player-4"] 
 const TARGETS = [13, 14, 15, 16, 17, 18, 19] as const;
 const SUITS = BIDDING_HISTORY_SUIT_ORDER;
 const CARD_BY_ID = new Map(createDeck().map((card) => [card.id, card]));
-const DECISION_CONTEXTS = ["opening", "raise"] as const;
-
-export type FixedHandBiddingDecisionContext = typeof DECISION_CONTEXTS[number];
 
 export interface FixedHandBiddingActionSpec {
   actionIndex: number;
   targetPointCards: number;
   suit: Suit;
-  decisionContext?: FixedHandBiddingDecisionContext;
-  currentBidTargetPointCards?: number | null;
-  currentBidSuit?: Suit | null;
-  currentBidderSeatIndex?: number | null;
-  consecutivePassCount?: number | null;
-  biddingStep?: number | null;
   label?: string;
   sourceNnMu?: number | null;
   sourceNnSigma?: number | null;
@@ -102,7 +92,6 @@ export interface GenerateFixedHandBiddingMarginDatasetOptions {
   randomSeed: number;
   candidateSeatIndex?: number;
   actionCountPerHand?: number;
-  decisionContextMode?: "opening" | "raise" | "mixed";
   gamesPerShard?: number;
   reservedHands?: readonly FixedHandSpec[];
   reserveHandsForFinal?: boolean;
@@ -135,12 +124,6 @@ export interface FixedHandBiddingMarginSample {
   forcedTargetPointCards: number;
   forcedSuit: Suit;
   forcedActionLabel: string;
-  decisionContext: FixedHandBiddingDecisionContext;
-  currentBidTargetPointCards: number | null;
-  currentBidSuit: Suit | null;
-  currentBidderSeatIndex: number | null;
-  consecutivePassCount: number;
-  biddingStep: number;
   modelInput: readonly number[];
   legalBidMask: readonly number[];
   rolloutCount: number;
@@ -168,12 +151,6 @@ export interface NapoleonFixedMarginRawRollout {
   forcedActionIndex: number;
   forcedTargetPointCards: number;
   forcedSuit: Suit;
-  decisionContext: FixedHandBiddingDecisionContext;
-  currentBidTargetPointCards: number | null;
-  currentBidSuit: Suit | null;
-  currentBidderSeatIndex: number | null;
-  consecutivePassCount: number;
-  biddingStep: number;
   repeatIndex: number;
   hiddenDealSeed: number;
   finalAdjutant: {
@@ -312,7 +289,6 @@ export interface FixedHandBiddingMarginDatasetSummary {
   suitCounts: Record<Suit, number>;
   targetCounts: Record<string, number>;
   splitHintCounts: Record<string, number>;
-  decisionContextCounts: Record<string, number>;
 }
 
 export interface NumericSummary {
@@ -544,8 +520,7 @@ export function createFixedHandActionPlan(
     handCount: randomHandCount,
     actionCountPerHand,
     randomSeed: options.randomSeed,
-    candidateSeatIndex: options.candidateSeatIndex ?? 0,
-    decisionContextMode: options.decisionContextMode ?? "opening"
+    candidateSeatIndex: options.candidateSeatIndex ?? 0
   });
   const merged = [...reserved, ...randomHands];
   let remainingPairs = options.pairCount;
@@ -566,7 +541,6 @@ export function createRandomFixedHands(options: {
   actionCountPerHand: number;
   randomSeed: number;
   candidateSeatIndex: number;
-  decisionContextMode?: "opening" | "raise" | "mixed";
 }): readonly FixedHandSpec[] {
   const rng = createSeededRandom(deriveSeed(options.randomSeed, "fixed-hand-specs"));
   const hands: FixedHandSpec[] = [];
@@ -596,9 +570,7 @@ export function createRandomFixedHands(options: {
         hand,
         strongestSuit: strength.suit,
         actionCount: options.actionCountPerHand,
-        rng,
-        decisionContextMode: options.decisionContextMode ?? "opening",
-        candidateSeatIndex: options.candidateSeatIndex
+        rng
       })
     });
   }
@@ -724,7 +696,6 @@ export function aggregateFixedHandBidRollouts(options: {
   }
   const margins = options.rows.map((row) => row.contractMargin);
   const first = options.rows[0];
-  const context = actionDecisionContext(options.action);
   return {
     sampleType: FIXED_HAND_BIDDING_MARGIN_DATASET_SAMPLE_TYPE,
     schemaVersion: FIXED_HAND_BIDDING_MARGIN_SAMPLE_SCHEMA_VERSION,
@@ -741,12 +712,6 @@ export function aggregateFixedHandBidRollouts(options: {
     forcedTargetPointCards: options.action.targetPointCards,
     forcedSuit: options.action.suit,
     forcedActionLabel: options.action.label ?? actionLabel(options.action),
-    decisionContext: context.decisionContext,
-    currentBidTargetPointCards: context.currentBidTargetPointCards,
-    currentBidSuit: context.currentBidSuit,
-    currentBidderSeatIndex: context.currentBidderSeatIndex,
-    consecutivePassCount: context.consecutivePassCount,
-    biddingStep: context.biddingStep,
     modelInput: first.modelInput,
     legalBidMask: first.legalBidMask,
     rolloutCount: options.rows.length,
@@ -777,7 +742,6 @@ export function aggregateNapoleonFixedRollouts(options: {
   }
   const margins = options.rows.map((row) => row.contractMargin);
   const first = options.rows[0];
-  const context = actionDecisionContext(options.action);
   return {
     sampleType: NAPOLEON_FIXED_MARGIN_DATASET_SAMPLE_TYPE,
     schemaVersion: NAPOLEON_FIXED_MARGIN_SAMPLE_SCHEMA_VERSION,
@@ -794,12 +758,6 @@ export function aggregateNapoleonFixedRollouts(options: {
     forcedTargetPointCards: options.action.targetPointCards,
     forcedSuit: options.action.suit,
     forcedActionLabel: options.action.label ?? actionLabel(options.action),
-    decisionContext: context.decisionContext,
-    currentBidTargetPointCards: context.currentBidTargetPointCards,
-    currentBidSuit: context.currentBidSuit,
-    currentBidderSeatIndex: context.currentBidderSeatIndex,
-    consecutivePassCount: context.consecutivePassCount,
-    biddingStep: context.biddingStep,
     modelInput: first.modelInput,
     legalBidMask: first.legalBidMask,
     rolloutCount: options.rows.length,
@@ -835,8 +793,7 @@ export function summarizeFixedHandBiddingMarginSamples(
     empiricalWinRate: numericSummary(samples.map((sample) => sample.empiricalWinRate)),
     suitCounts: suitCounts(samples, (sample) => sample.forcedSuit),
     targetCounts: countBy(samples, (sample) => String(sample.forcedTargetPointCards)),
-    splitHintCounts: countBy(samples, (sample) => sample.splitHint ?? "none"),
-    decisionContextCounts: countBy(samples, (sample) => sample.decisionContext)
+    splitHintCounts: countBy(samples, (sample) => sample.splitHint ?? "none")
   };
 }
 
@@ -937,22 +894,13 @@ async function runNapoleonFixedContractRollout(options: {
   reshuffleSeed: number;
 }): Promise<NapoleonFixedRolloutRow> {
   const candidatePlayerId = PLAYER_IDS[options.spec.candidateSeatIndex];
-  const decisionSetup = createDecisionContextState({
-    seed: options.reshuffleSeed,
-    spec: options.spec,
-    action: options.action
-  });
   const initialState = createFixedHandInitialState({
     seed: options.reshuffleSeed,
     candidateSeatIndex: options.spec.candidateSeatIndex,
     handIds: options.spec.handIds
   });
   assertDeckConservation(initialState);
-  const candidateObservation = createObservation(
-    decisionSetup.state,
-    candidatePlayerId,
-    decisionSetup.publicActionHistory
-  );
+  const candidateObservation = createObservation(initialState, candidatePlayerId, []);
   const encoded = encodeBiddingObservation(
     candidateObservation,
     candidateObservation.view.players.map((player) => player.id)
@@ -961,11 +909,11 @@ async function runNapoleonFixedContractRollout(options: {
   if (Number(legalBidMask[options.action.actionIndex]) !== 1) {
     throw new Error(`contract action ${options.action.actionIndex} is illegal in fixed-hand context.`);
   }
-  const candidateHandBeforeContract = handIdsForPlayer(decisionSetup.state, candidatePlayerId);
+  const candidateHandBeforeContract = handIdsForPlayer(initialState, candidatePlayerId);
   if (!sameStringArray(candidateHandBeforeContract, [...options.spec.handIds].sort())) {
     throw new Error("candidate hand changed before Napoleon-fixed contract start.");
   }
-  let state = createContractEstablishedState(decisionSetup.state, {
+  let state = createContractEstablishedState(initialState, {
     napoleonPlayerId: candidatePlayerId,
     trumpSuit: options.action.suit,
     targetPointCards: options.action.targetPointCards
@@ -1041,12 +989,6 @@ async function runNapoleonFixedContractRollout(options: {
     forcedActionIndex: options.action.actionIndex,
     forcedTargetPointCards: options.action.targetPointCards,
     forcedSuit: options.action.suit,
-    decisionContext: decisionSetup.context.decisionContext,
-    currentBidTargetPointCards: decisionSetup.context.currentBidTargetPointCards,
-    currentBidSuit: decisionSetup.context.currentBidSuit,
-    currentBidderSeatIndex: decisionSetup.context.currentBidderSeatIndex,
-    consecutivePassCount: decisionSetup.context.consecutivePassCount,
-    biddingStep: decisionSetup.context.biddingStep,
     repeatIndex: options.repeatIndex,
     hiddenDealSeed: options.reshuffleSeed,
     finalAdjutant: {
@@ -1210,7 +1152,7 @@ function normalizeFixedHandSpec(spec: FixedHandSpec): FixedHandSpec {
     ...spec,
     strongestSuit: spec.strongestSuit ?? strength.suit,
     strongestSuitScore: spec.strongestSuitScore ?? strength.score,
-    actions: spec.actions.map((action) => normalizeBidAction(action, spec.candidateSeatIndex))
+    actions: spec.actions.map((action) => normalizeBidAction(action))
   };
 }
 
@@ -1219,38 +1161,24 @@ function selectBidActionsForHand(options: {
   strongestSuit: Suit;
   actionCount: number;
   rng: () => number;
-  decisionContextMode: "opening" | "raise" | "mixed";
-  candidateSeatIndex: number;
 }): readonly FixedHandBiddingActionSpec[] {
   const candidates: FixedHandBiddingActionSpec[] = [];
   const alternateSuits = SUITS.filter((suit) => suit !== options.strongestSuit);
   const highStrongestTarget = 15 + Math.floor(options.rng() * 5);
   const randomTarget = TARGETS[Math.floor(options.rng() * TARGETS.length)];
   const randomSuit = SUITS[Math.floor(options.rng() * SUITS.length)];
-  candidates.push(normalizeBidAction({ actionIndex: bidActionIndex(13, options.strongestSuit), targetPointCards: 13, suit: options.strongestSuit }, options.candidateSeatIndex));
-  candidates.push(normalizeBidAction({ actionIndex: bidActionIndex(highStrongestTarget, options.strongestSuit), targetPointCards: highStrongestTarget, suit: options.strongestSuit }, options.candidateSeatIndex));
-  candidates.push(normalizeBidAction({ actionIndex: bidActionIndex(13, alternateSuits[0]), targetPointCards: 13, suit: alternateSuits[0] }, options.candidateSeatIndex));
-  candidates.push(normalizeBidAction({ actionIndex: bidActionIndex(randomTarget, randomSuit), targetPointCards: randomTarget, suit: randomSuit }, options.candidateSeatIndex));
+  candidates.push(normalizeBidAction({ actionIndex: bidActionIndex(13, options.strongestSuit), targetPointCards: 13, suit: options.strongestSuit }));
+  candidates.push(normalizeBidAction({ actionIndex: bidActionIndex(highStrongestTarget, options.strongestSuit), targetPointCards: highStrongestTarget, suit: options.strongestSuit }));
+  candidates.push(normalizeBidAction({ actionIndex: bidActionIndex(13, alternateSuits[0]), targetPointCards: 13, suit: alternateSuits[0] }));
+  candidates.push(normalizeBidAction({ actionIndex: bidActionIndex(randomTarget, randomSuit), targetPointCards: randomTarget, suit: randomSuit }));
   while (candidates.length < options.actionCount * 2) {
     const target = TARGETS[Math.floor(options.rng() * TARGETS.length)];
     const suit = SUITS[Math.floor(options.rng() * SUITS.length)];
-    candidates.push(normalizeBidAction({ actionIndex: bidActionIndex(target, suit), targetPointCards: target, suit }, options.candidateSeatIndex));
+    candidates.push(normalizeBidAction({ actionIndex: bidActionIndex(target, suit), targetPointCards: target, suit }));
   }
   const unique = new Map<number, FixedHandBiddingActionSpec>();
   for (const candidate of candidates) {
-    const decisionContext =
-      options.decisionContextMode === "mixed"
-        ? (unique.size % 2 === 0 ? "opening" : "raise")
-        : options.decisionContextMode;
-    const action = decisionContext === "raise"
-      ? ensureRaisableAction(candidate, options.candidateSeatIndex)
-      : candidate;
-    unique.set(action.actionIndex, withGeneratedDecisionContext({
-      action,
-      decisionContext,
-      candidateSeatIndex: options.candidateSeatIndex,
-      rng: options.rng
-    }));
+    unique.set(candidate.actionIndex, candidate);
   }
   return [...unique.values()].slice(0, options.actionCount);
 }
@@ -1269,233 +1197,7 @@ function bidActionIndex(targetPointCards: number, suit: Suit): number {
   throw new Error(`cannot encode bid ${targetPointCards} ${suit}.`);
 }
 
-function withGeneratedDecisionContext(options: {
-  action: FixedHandBiddingActionSpec;
-  decisionContext: FixedHandBiddingDecisionContext;
-  candidateSeatIndex: number;
-  rng: () => number;
-}): FixedHandBiddingActionSpec {
-  validateDecisionContext(options.decisionContext);
-  if (options.decisionContext === "opening") {
-    return {
-      ...options.action,
-      decisionContext: "opening",
-      currentBidTargetPointCards: null,
-      currentBidSuit: null,
-      currentBidderSeatIndex: null,
-      consecutivePassCount: 0,
-      biddingStep: 0
-    };
-  }
-
-  const passCount = options.action.consecutivePassCount ?? Math.floor(options.rng() * 4);
-  if (!Number.isInteger(passCount) || passCount < 0 || passCount > PLAYER_COUNT - 2) {
-    throw new Error("raise consecutivePassCount must be between 0 and 3.");
-  }
-  const currentBid =
-    options.action.currentBidTargetPointCards !== undefined &&
-    options.action.currentBidSuit !== undefined &&
-    options.action.currentBidTargetPointCards !== null &&
-    options.action.currentBidSuit !== null
-      ? {
-          targetPointCards: options.action.currentBidTargetPointCards,
-          suit: options.action.currentBidSuit
-        }
-      : lowerBidForAction(options.action.actionIndex, options.rng);
-  if (!isBidHigher(
-    { playerId: PLAYER_IDS[options.candidateSeatIndex], targetPointCards: options.action.targetPointCards, suit: options.action.suit },
-    { playerId: PLAYER_IDS[modSeat(options.candidateSeatIndex + PLAYER_COUNT - 1)], ...currentBid }
-  )) {
-    throw new Error("raise current bid must be lower than the forced bid.");
-  }
-  const currentBidderSeatIndex =
-    options.action.currentBidderSeatIndex ??
-    modSeat(options.candidateSeatIndex - passCount - 1);
-  validateSeat(currentBidderSeatIndex);
-  return {
-    ...options.action,
-    decisionContext: "raise",
-    currentBidTargetPointCards: currentBid.targetPointCards,
-    currentBidSuit: currentBid.suit,
-    currentBidderSeatIndex,
-    consecutivePassCount: passCount,
-    biddingStep: options.action.biddingStep ?? passCount + 1
-  };
-}
-
-function lowerBidForAction(
-  actionIndex: number,
-  rng: () => number
-): { targetPointCards: number; suit: Suit } {
-  const forced = decodeBiddingQActionIndex(actionIndex);
-  if (forced.type !== "bid") {
-    throw new Error("raise context requires a BID forced action.");
-  }
-  if (forced.targetPointCards === undefined || forced.suit === undefined) {
-    throw new Error("raise context forced BID is missing target/suit.");
-  }
-  const forcedBid = {
-    targetPointCards: forced.targetPointCards,
-    suit: forced.suit
-  };
-  const lowerBids = Array.from({ length: BIDDING_ACTION_COUNT - 1 }, (_value, index) => {
-    const decoded = decodeBiddingQActionIndex(index + 1);
-    if (decoded.type !== "bid") {
-      throw new Error("BID action range decoded to non-BID.");
-    }
-    if (decoded.targetPointCards === undefined || decoded.suit === undefined) {
-      throw new Error("lower raise context BID is missing target/suit.");
-    }
-    return {
-      targetPointCards: decoded.targetPointCards,
-      suit: decoded.suit
-    };
-  }).filter((candidate) => isBidHigher(
-    { playerId: PLAYER_IDS[0], ...forcedBid },
-    { playerId: PLAYER_IDS[1], targetPointCards: candidate.targetPointCards, suit: candidate.suit }
-  ));
-  if (lowerBids.length === 0) {
-    throw new Error("raise context requires a forced bid above the minimum bid.");
-  }
-  const decoded = lowerBids[Math.floor(rng() * lowerBids.length)];
-  return {
-    targetPointCards: decoded.targetPointCards,
-    suit: decoded.suit
-  };
-}
-
-function ensureRaisableAction(
-  action: FixedHandBiddingActionSpec,
-  candidateSeatIndex: number
-): FixedHandBiddingActionSpec {
-  try {
-    lowerBidForAction(action.actionIndex, () => 0);
-    return action;
-  } catch {
-    const targetPointCards = Math.min(14, TARGETS[TARGETS.length - 1]);
-    return normalizeBidAction({
-      actionIndex: bidActionIndex(targetPointCards, action.suit),
-      targetPointCards,
-      suit: action.suit
-    }, candidateSeatIndex);
-  }
-}
-
-function actionDecisionContext(action: FixedHandBiddingActionSpec): {
-  decisionContext: FixedHandBiddingDecisionContext;
-  currentBidTargetPointCards: number | null;
-  currentBidSuit: Suit | null;
-  currentBidderSeatIndex: number | null;
-  consecutivePassCount: number;
-  biddingStep: number;
-} {
-  const decisionContext = action.decisionContext ?? "opening";
-  validateDecisionContext(decisionContext);
-  return {
-    decisionContext,
-    currentBidTargetPointCards: action.currentBidTargetPointCards ?? null,
-    currentBidSuit: action.currentBidSuit ?? null,
-    currentBidderSeatIndex: action.currentBidderSeatIndex ?? null,
-    consecutivePassCount: action.consecutivePassCount ?? 0,
-    biddingStep: action.biddingStep ?? 0
-  };
-}
-
-function createDecisionContextState(options: {
-  seed: number;
-  spec: FixedHandSpec;
-  action: FixedHandBiddingActionSpec;
-}): {
-  state: ReturnType<typeof createFixedHandInitialState>;
-  publicActionHistory: readonly {
-    step: number;
-    playerId: PlayerId;
-    phase: "bidding";
-    action: PublicBiddingAction;
-  }[];
-  context: ReturnType<typeof actionDecisionContext>;
-} {
-  const state = createFixedHandInitialState({
-    seed: options.seed,
-    candidateSeatIndex: options.spec.candidateSeatIndex,
-    handIds: options.spec.handIds
-  });
-  const context = actionDecisionContext(options.action);
-  if (context.decisionContext === "opening") {
-    return { state, publicActionHistory: [], context };
-  }
-  if (
-    context.currentBidTargetPointCards === null ||
-    context.currentBidSuit === null ||
-    context.currentBidderSeatIndex === null
-  ) {
-    throw new Error("raise decision context requires current bid target/suit/bidder.");
-  }
-  const candidatePlayerId = PLAYER_IDS[options.spec.candidateSeatIndex];
-  const currentBidderPlayerId = PLAYER_IDS[context.currentBidderSeatIndex];
-  const history: Array<{
-    step: number;
-    playerId: PlayerId;
-    phase: "bidding";
-    action: PublicBiddingAction;
-  }> = [{
-    step: 1,
-    playerId: currentBidderPlayerId,
-    phase: "bidding",
-    action: {
-      type: "bid",
-      playerId: currentBidderPlayerId,
-      targetPointCards: context.currentBidTargetPointCards,
-      suit: context.currentBidSuit
-    }
-  }];
-  for (let index = 0; index < context.consecutivePassCount; index += 1) {
-    const passerSeatIndex = modSeat(context.currentBidderSeatIndex + index + 1);
-    const passerPlayerId = PLAYER_IDS[passerSeatIndex];
-    if (passerPlayerId === candidatePlayerId) {
-      throw new Error("raise pass history must end before candidate acts.");
-    }
-    history.push({
-      step: index + 2,
-      playerId: passerPlayerId,
-      phase: "bidding",
-      action: { type: "pass", playerId: passerPlayerId }
-    });
-  }
-  return {
-    state: {
-      ...state,
-      currentPlayerId: candidatePlayerId,
-      bidding: {
-        starterPlayerId: currentBidderPlayerId,
-        highestBid: {
-          playerId: currentBidderPlayerId,
-          targetPointCards: context.currentBidTargetPointCards,
-          suit: context.currentBidSuit
-        },
-        consecutivePassCount: context.consecutivePassCount,
-        history: history.map((entry) => entry.action)
-      }
-    },
-    publicActionHistory: history,
-    context
-  };
-}
-
-function validateDecisionContext(value: string): asserts value is FixedHandBiddingDecisionContext {
-  if (!(DECISION_CONTEXTS as readonly string[]).includes(value)) {
-    throw new Error(`unsupported decisionContext ${value}.`);
-  }
-}
-
-function modSeat(value: number): number {
-  return ((value % PLAYER_COUNT) + PLAYER_COUNT) % PLAYER_COUNT;
-}
-
-function normalizeBidAction(
-  action: FixedHandBiddingActionSpec,
-  candidateSeatIndex: number
-): FixedHandBiddingActionSpec {
+function normalizeBidAction(action: FixedHandBiddingActionSpec): FixedHandBiddingActionSpec {
   const decoded = decodeBiddingQActionIndex(action.actionIndex);
   if (decoded.type !== "bid") {
     throw new Error("fixed-hand margin dataset only supports BID actions.");
@@ -1503,21 +1205,8 @@ function normalizeBidAction(
   if (decoded.targetPointCards !== action.targetPointCards || decoded.suit !== action.suit) {
     throw new Error("actionIndex does not match target/suit.");
   }
-  validateDecisionContext(action.decisionContext ?? "opening");
-  const normalized = withGeneratedDecisionContext({
-    action,
-    decisionContext: action.decisionContext ?? "opening",
-    candidateSeatIndex,
-    rng: () => 0
-  });
   return {
     ...action,
-    decisionContext: normalized.decisionContext,
-    currentBidTargetPointCards: normalized.currentBidTargetPointCards ?? null,
-    currentBidSuit: normalized.currentBidSuit ?? null,
-    currentBidderSeatIndex: normalized.currentBidderSeatIndex ?? null,
-    consecutivePassCount: normalized.consecutivePassCount ?? 0,
-    biddingStep: normalized.biddingStep ?? 0,
     label: action.label ?? actionLabel(action)
   };
 }

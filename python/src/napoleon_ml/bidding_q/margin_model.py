@@ -12,7 +12,6 @@ from napoleon_ml.dataset.constants import BIDDING_ACTION_COUNT
 from napoleon_ml.dataset.tensors import BIDDING_MODEL_INPUT_FEATURE_COUNT
 
 BIDDING_MARGIN_HETEROSCEDASTIC_ARCHITECTURE_ID = "bidding-margin-heteroscedastic-mlp-v1"
-BIDDING_MARGIN_DECISION_HEAD_ARCHITECTURE_ID = "bidding-margin-opening-raise-head-mlp-v1"
 
 
 @dataclass(frozen=True)
@@ -52,10 +51,7 @@ class BiddingMarginHeteroscedasticModelConfig:
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> BiddingMarginHeteroscedasticModelConfig:
         architecture_id = value.get("architectureId")
-        if architecture_id not in {
-            BIDDING_MARGIN_HETEROSCEDASTIC_ARCHITECTURE_ID,
-            BIDDING_MARGIN_DECISION_HEAD_ARCHITECTURE_ID,
-        }:
+        if architecture_id != BIDDING_MARGIN_HETEROSCEDASTIC_ARCHITECTURE_ID:
             raise ValueError(
                 f"architectureId must be {BIDDING_MARGIN_HETEROSCEDASTIC_ARCHITECTURE_ID!r}, "
                 f"got {architecture_id!r}."
@@ -111,57 +107,6 @@ class BiddingMarginHeteroscedasticModel(nn.Module):
             max=self.config.log_variance_max,
         )
         return mean, log_variance
-
-
-class BiddingMarginDecisionHeadModel(nn.Module):
-    """Shared trunk with separate opening/raise mean and log-variance heads."""
-
-    def __init__(self, config: BiddingMarginHeteroscedasticModelConfig) -> None:
-        super().__init__()
-        self.config = config
-        layers: list[nn.Module] = []
-        input_dim = config.input_dim
-        for hidden_dim in config.hidden_dims:
-            layers.append(nn.Linear(input_dim, hidden_dim))
-            layers.append(nn.ReLU())
-            if config.dropout > 0.0:
-                layers.append(nn.Dropout(config.dropout))
-            input_dim = hidden_dim
-        self.encoder = nn.Sequential(*layers)
-        self.opening_mean_head = nn.Linear(input_dim, BIDDING_ACTION_COUNT)
-        self.opening_log_variance_head = nn.Linear(input_dim, BIDDING_ACTION_COUNT)
-        self.raise_mean_head = nn.Linear(input_dim, BIDDING_ACTION_COUNT)
-        self.raise_log_variance_head = nn.Linear(input_dim, BIDDING_ACTION_COUNT)
-
-    def forward(self, model_input: Tensor, decision_context: Tensor) -> tuple[Tensor, Tensor]:
-        if model_input.ndim != 2:
-            raise ValueError(
-                f"model_input must have shape (batch, features), got {tuple(model_input.shape)}."
-            )
-        if model_input.shape[1] != self.config.input_dim:
-            raise ValueError(
-                f"model_input feature count must be {self.config.input_dim}, "
-                f"got {model_input.shape[1]}."
-            )
-        if decision_context.shape != (model_input.shape[0],):
-            raise ValueError("decision_context must have shape (batch,).")
-        encoded = self.encoder(model_input)
-        opening_mean = self.opening_mean_head(encoded)
-        opening_log_variance = self._clamp_log_variance(self.opening_log_variance_head(encoded))
-        raise_mean = self.raise_mean_head(encoded)
-        raise_log_variance = self._clamp_log_variance(self.raise_log_variance_head(encoded))
-        is_raise = decision_context.to(dtype=torch.bool).reshape(-1, 1)
-        return (
-            torch.where(is_raise, raise_mean, opening_mean),
-            torch.where(is_raise, raise_log_variance, opening_log_variance),
-        )
-
-    def _clamp_log_variance(self, value: Tensor) -> Tensor:
-        return torch.clamp(
-            value,
-            min=self.config.log_variance_min,
-            max=self.config.log_variance_max,
-        )
 
 
 def margin_sigma_from_log_variance(log_variance: Tensor) -> Tensor:
