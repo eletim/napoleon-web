@@ -32,7 +32,10 @@ for (const input of inputs) {
   for (const shard of manifest.shards ?? []) {
     const text = await readFile(join(input, shard.file), "utf8");
     for (const line of text.split(/\n/)) {
-      if (line.trim()) rows.push(JSON.parse(line));
+      if (!line.trim()) continue;
+      const row = JSON.parse(line);
+      delete row.rawRolloutShard;
+      rows.push(row);
     }
   }
 }
