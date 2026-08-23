@@ -40,6 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--patience", type=int, default=8)
     parser.add_argument("--seed", type=int, default=411)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="cpu")
+    parser.add_argument("--init-checkpoint", type=Path)
     parser.add_argument("--json", action="store_true")
     return parser
 
@@ -77,6 +78,7 @@ def _run(args: argparse.Namespace) -> int:
         weight_decay=args.weight_decay,
         patience=args.patience,
         device=args.device,
+        init_checkpoint_path=str(args.init_checkpoint) if args.init_checkpoint is not None else None,
     )
     result = train_fixed_hand_margin_model(dataset, config)
     artifact = save_fixed_hand_margin_artifact(args.output_dir, result=result, dataset=dataset)
