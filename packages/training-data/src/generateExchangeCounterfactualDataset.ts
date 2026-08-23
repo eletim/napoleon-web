@@ -13,10 +13,18 @@ import type {
   PlayerObservation,
   PublicActionRecord
 } from "@napoleon/ai";
+import type { EncodedBiddingHistory } from "@napoleon/ai-observation";
 import {
   CARD_COUNT,
   CARD_IDS,
+  BIDDING_ACTION_TYPE_BID,
+  BIDDING_BID_OWNER_CLASS_COUNT,
+  BIDDING_BID_POSITION_COUNT,
+  BIDDING_BID_POSITION_SUIT_ORDER,
+  BIDDING_HISTORY_SUIT_ORDER,
   EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
+  MAX_BIDDING_ACTION_COUNT,
+  MIN_BIDDING_TARGET_POINT_CARDS,
   PLAYER_COUNT,
   createExchangeModelInput,
   createRelativePlayerOrder,
@@ -64,6 +72,8 @@ export const EXCHANGE_COUNTERFACTUAL_TEACHER_ID =
 export const EXCHANGE_COUNTERFACTUAL_DISCARD_ACTION_SPACE_ID =
   "exchange-unordered-13c3-discard-combinations-v1" as const;
 export const EXCHANGE_COUNTERFACTUAL_COMBINATION_COUNT = 286 as const;
+export const EXCHANGE_COMPACT_STATE_FEATURE_COUNT = 343 as const;
+export const EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT = 396 as const;
 
 const DEFAULT_PLAYER_IDS: readonly PlayerId[] = [
   "player-0",
@@ -135,8 +145,11 @@ export interface ExchangeCounterfactualSample {
   contractTargetPointCards: number;
   contractSuit: string;
   calledAdjutantCardId: string;
+  originalHandCardIds: readonly string[];
+  kittyPickupCardIds: readonly string[];
   pickupHandCardIds: readonly string[];
   modelInput: readonly number[];
+  compactExchangeStateInput: readonly number[];
   legalDiscardCardMask: readonly number[];
   candidateDiscardCardIds: readonly string[];
   candidateDiscardMask: readonly number[];
@@ -175,6 +188,11 @@ export interface ExchangeCounterfactualInvariantChecks {
   candidateDiscardFromPickupHand: boolean;
   unorderedCombinationCanonical: boolean;
   modelInputFeatureCount2671: boolean;
+  compactStateFeatureCount343: boolean;
+  compactValueInputFeatureCount396: boolean;
+  originalHandCount10: boolean;
+  kittyPickupCount3: boolean;
+  originalPlusKittyEqualsPickupHand: boolean;
   legalDiscardMaskMatchesPickupHand: boolean;
   sameSourceHiddenDeal: boolean;
   standardGameResult: boolean;
@@ -267,6 +285,13 @@ export interface ExchangeCounterfactualDatasetManifest {
     featureCount: typeof EXCHANGE_MODEL_INPUT_FEATURE_COUNT;
     hiddenOpponentHandsIncluded: false;
   };
+  compactExchangeValueInput: {
+    stateFeatureCount: typeof EXCHANGE_COMPACT_STATE_FEATURE_COUNT;
+    candidateDiscardMaskFeatureCount: typeof CARD_COUNT;
+    featureCount: typeof EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT;
+    layout: readonly string[];
+    biddingHistorySemantics: "compact278-bid-owner-table";
+  };
   teacherUsesCompleteHiddenState: true;
   permutationActionsIncluded: false;
   startSeed: number;
@@ -308,7 +333,10 @@ interface SourceExchangeState {
   sourceStateKey: string;
   fixedHandId: string;
   modelInput: readonly number[];
+  compactExchangeStateInput: readonly number[];
   legalDiscardCardMask: readonly number[];
+  originalHandCardIds: readonly string[];
+  kittyPickupCardIds: readonly string[];
   pickupHandCards: readonly Card[];
   pickupHandCardIds: readonly string[];
   ruleBasedDiscardCardIds: readonly string[];
@@ -739,6 +767,22 @@ function createManifest(input: {
       featureCount: EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
       hiddenOpponentHandsIncluded: false
     },
+    compactExchangeValueInput: {
+      stateFeatureCount: EXCHANGE_COMPACT_STATE_FEATURE_COUNT,
+      candidateDiscardMaskFeatureCount: CARD_COUNT,
+      featureCount: EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT,
+      layout: [
+        "originalHandMask53",
+        "kittyPickupMask53",
+        "calledAdjutantCardMask53",
+        "contractSuitOneHot4",
+        "contractTargetPointCards13to19OneHot7",
+        "biddingStarterRelativePlayerOneHot5",
+        "biddingBidOwnerTable28x6",
+        "candidateDiscardMask53"
+      ],
+      biddingHistorySemantics: "compact278-bid-owner-table"
+    },
     teacherUsesCompleteHiddenState: true,
     permutationActionsIncluded: false,
     startSeed: input.options.startSeed,
@@ -777,6 +821,10 @@ async function tryCreateSourceExchangeState(input: ReturnType<
     playerIds: input.playerIds,
     rng: createSeededRandom(deriveSeed(input.dealSeed, "game"))
   });
+  const biddingStarterPlayerId = state.bidding?.starterPlayerId;
+  if (biddingStarterPlayerId === undefined) {
+    throw new Error(`Initial game is missing bidding starter for seed ${input.dealSeed}.`);
+  }
   const biddingAgents = createAgents(input, input.dealSeed, "bidding");
   const publicActionHistory: PublicActionRecord[] = [];
   let decisionStep = 0;
@@ -814,6 +862,9 @@ async function tryCreateSourceExchangeState(input: ReturnType<
   }
 
   const napoleonPlayerId = state.contract.napoleonPlayerId;
+  const originalHandCards = [...getPlayerHand(state, napoleonPlayerId)].sort(compareCardsByEncoderOrder);
+  const originalHandCardIds = originalHandCards.map((card) => card.id);
+  const kittyPickupCardIds = canonicalCardIds(state.unusedCards.map((card) => card.id));
   const adjutantAgent = createAgent(input, input.dealSeed, "adjutant", napoleonPlayerId);
   const adjutantLegalActions = getLegalActions(state, napoleonPlayerId);
   const adjutantObservation = createObservation({
@@ -849,6 +900,15 @@ async function tryCreateSourceExchangeState(input: ReturnType<
     biddingHistory
   );
   const { modelInput, legalDiscardCardMask } = createExchangeModelInput(encodedExchangeObservation);
+  const compactExchangeStateInput = createCompactExchangeStateInput({
+    originalHandCardIds,
+    kittyPickupCardIds,
+    calledAdjutantCardId: requiredAdjutant(state).calledCardId,
+    contractSuit: state.contract.trumpSuit,
+    contractTargetPointCards: state.contract.targetPointCards,
+    biddingStarterRelativePlayerIndex: relativePlayerIds.indexOf(biddingStarterPlayerId),
+    biddingHistory
+  });
   const self = getPlayerHand(state, napoleonPlayerId);
   const pickupHandCards = [...self].sort(compareCardsByEncoderOrder);
   const pickupHandCardIds = pickupHandCards.map((card) => card.id);
@@ -894,7 +954,10 @@ async function tryCreateSourceExchangeState(input: ReturnType<
     sourceStateKey,
     fixedHandId,
     modelInput: Array.from(modelInput),
+    compactExchangeStateInput,
     legalDiscardCardMask: [...legalDiscardCardMask],
+    originalHandCardIds,
+    kittyPickupCardIds,
     pickupHandCards,
     pickupHandCardIds,
     ruleBasedDiscardCardIds,
@@ -913,6 +976,15 @@ async function createSourceSamples(
     napoleonHandCount13: source.pickupHandCardIds.length === 13,
     candidateCount286: combinations.length === EXCHANGE_COUNTERFACTUAL_COMBINATION_COUNT,
     modelInputFeatureCount2671: source.modelInput.length === EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
+    compactStateFeatureCount343: source.compactExchangeStateInput.length === EXCHANGE_COMPACT_STATE_FEATURE_COUNT,
+    compactValueInputFeatureCount396: source.compactExchangeStateInput.length + CARD_COUNT ===
+      EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT,
+    originalHandCount10: source.originalHandCardIds.length === 10,
+    kittyPickupCount3: source.kittyPickupCardIds.length === 3,
+    originalPlusKittyEqualsPickupHand: sameStringArray(
+      canonicalCardIds([...source.originalHandCardIds, ...source.kittyPickupCardIds]),
+      source.pickupHandCardIds
+    ),
     legalDiscardMaskMatchesPickupHand: sameNumberArray(
       source.legalDiscardCardMask,
       createCardMask(source.pickupHandCardIds)
@@ -970,8 +1042,11 @@ async function createSourceSamples(
       contractTargetPointCards: contract.targetPointCards,
       contractSuit: contract.trumpSuit,
       calledAdjutantCardId: requiredAdjutant(source.state).calledCardId,
+      originalHandCardIds: source.originalHandCardIds,
+      kittyPickupCardIds: source.kittyPickupCardIds,
       pickupHandCardIds: source.pickupHandCardIds,
       modelInput: source.modelInput,
+      compactExchangeStateInput: source.compactExchangeStateInput,
       legalDiscardCardMask: source.legalDiscardCardMask,
       candidateDiscardCardIds,
       candidateDiscardMask,
@@ -1185,6 +1260,108 @@ function createCardMask(cardIds: readonly string[]): readonly number[] {
     mask[index] = 1;
   }
   return mask;
+}
+
+function createCompactExchangeStateInput(input: {
+  originalHandCardIds: readonly string[];
+  kittyPickupCardIds: readonly string[];
+  calledAdjutantCardId: string;
+  contractSuit: Suit;
+  contractTargetPointCards: number;
+  biddingStarterRelativePlayerIndex: number;
+  biddingHistory: EncodedBiddingHistory;
+}): readonly number[] {
+  const values: number[] = [];
+  append(values, createCardMask(input.originalHandCardIds));
+  append(values, createCardMask(input.kittyPickupCardIds));
+  append(values, createCardMask([input.calledAdjutantCardId]));
+  appendOneHot(values, BIDDING_HISTORY_SUIT_ORDER.indexOf(input.contractSuit), 4, "contractSuit");
+  appendOneHot(
+    values,
+    input.contractTargetPointCards - MIN_BIDDING_TARGET_POINT_CARDS,
+    7,
+    "contractTargetPointCards"
+  );
+  appendOneHot(
+    values,
+    input.biddingStarterRelativePlayerIndex,
+    PLAYER_COUNT,
+    "biddingStarterRelativePlayer"
+  );
+  appendBiddingBidOwnerTable(values, input.biddingHistory);
+
+  if (values.length !== EXCHANGE_COMPACT_STATE_FEATURE_COUNT) {
+    throw new Error(
+      `compactExchangeStateInput length must be ${EXCHANGE_COMPACT_STATE_FEATURE_COUNT}, got ${values.length}.`
+    );
+  }
+  return values;
+}
+
+function appendBiddingBidOwnerTable(
+  target: number[],
+  biddingHistory: EncodedBiddingHistory
+): void {
+  const table = Array(BIDDING_BID_POSITION_COUNT * BIDDING_BID_OWNER_CLASS_COUNT).fill(0);
+  for (let positionIndex = 0; positionIndex < BIDDING_BID_POSITION_COUNT; positionIndex += 1) {
+    table[positionIndex * BIDDING_BID_OWNER_CLASS_COUNT] = 1;
+  }
+
+  let highestSeenPosition = -1;
+  for (let slotIndex = 0; slotIndex < MAX_BIDDING_ACTION_COUNT; slotIndex += 1) {
+    if (biddingHistory.actionMask[slotIndex] === 0) {
+      continue;
+    }
+    if (biddingHistory.actionTypeIndices[slotIndex] !== BIDDING_ACTION_TYPE_BID) {
+      continue;
+    }
+
+    const playerIndex = biddingHistory.playerIndices[slotIndex];
+    const suit = BIDDING_HISTORY_SUIT_ORDER[biddingHistory.suitIndices[slotIndex]];
+    const suitPosition = BIDDING_BID_POSITION_SUIT_ORDER.indexOf(suit);
+    const targetPointCards = biddingHistory.targetPointCards[slotIndex];
+
+    if (playerIndex < 0 || playerIndex >= PLAYER_COUNT) {
+      throw new Error(`biddingHistory[${slotIndex}].playerIndex must be between 0 and 4.`);
+    }
+    if (suitPosition < 0) {
+      throw new Error(`biddingHistory[${slotIndex}].suitIndex is not a bid position suit.`);
+    }
+
+    const targetOffset = targetPointCards - MIN_BIDDING_TARGET_POINT_CARDS;
+    const positionIndex = targetOffset * BIDDING_BID_POSITION_SUIT_ORDER.length + suitPosition;
+    if (positionIndex <= highestSeenPosition) {
+      throw new Error("Bidding bid positions must be strictly increasing.");
+    }
+    highestSeenPosition = positionIndex;
+
+    const tableOffset = positionIndex * BIDDING_BID_OWNER_CLASS_COUNT;
+    if (table[tableOffset] !== 1) {
+      throw new Error(`Duplicate bid position in bidding history at position ${positionIndex}.`);
+    }
+    table[tableOffset] = 0;
+    table[tableOffset + playerIndex + 1] = 1;
+  }
+
+  append(target, table);
+}
+
+function appendOneHot(
+  target: number[],
+  index: number,
+  classCount: number,
+  fieldName: string
+): void {
+  if (!Number.isInteger(index) || index < 0 || index >= classCount) {
+    throw new Error(`${fieldName} index must be in [0, ${classCount - 1}], got ${index}.`);
+  }
+  for (let classIndex = 0; classIndex < classCount; classIndex += 1) {
+    target.push(classIndex === index ? 1 : 0);
+  }
+}
+
+function append(target: number[], values: readonly number[]): void {
+  target.push(...values);
 }
 
 function createSpecialBuriedFlags(

@@ -17,6 +17,10 @@ from napoleon_ml.dataset.tensors import EXCHANGE_MODEL_INPUT_FEATURE_COUNT
 EXCHANGE_COUNTERFACTUAL_SAMPLE_TYPE = "exchange-counterfactual-value-v1"
 EXCHANGE_COUNTERFACTUAL_COMBINATION_COUNT = 286
 EXCHANGE_VALUE_INPUT_FEATURE_COUNT = EXCHANGE_MODEL_INPUT_FEATURE_COUNT + CARD_COUNT
+EXCHANGE_COMPACT_STATE_FEATURE_COUNT = 343
+EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT = EXCHANGE_COMPACT_STATE_FEATURE_COUNT + CARD_COUNT
+EXCHANGE_VALUE_INPUT_VARIANTS = ("legacy2724", "compact396")
+ExchangeValueInputVariant = str
 
 
 @dataclass(frozen=True)
@@ -27,8 +31,11 @@ class ExchangeCounterfactualSample:
     source_index: int
     candidate_index: int
     candidate_key: str
+    original_hand_card_ids: tuple[str, ...] | None
+    kitty_pickup_card_ids: tuple[str, ...] | None
     pickup_hand_card_ids: tuple[str, ...]
     model_input: np.ndarray
+    compact_exchange_state_input: np.ndarray | None
     legal_discard_card_mask: np.ndarray
     candidate_discard_card_ids: tuple[str, ...]
     candidate_discard_mask: np.ndarray
@@ -47,8 +54,26 @@ class ExchangeCounterfactualSample:
         return np.concatenate((self.model_input, self.candidate_discard_mask)).astype(np.float32)
 
     @property
+    def compact_value_input(self) -> np.ndarray:
+        if self.compact_exchange_state_input is None:
+            raise ValueError(
+                "compact396 input is unavailable; regenerate the exchange counterfactual "
+                "dataset with compactExchangeStateInput."
+            )
+        return np.concatenate(
+            (self.compact_exchange_state_input, self.candidate_discard_mask)
+        ).astype(np.float32)
+
+    @property
     def pickup_hand_key(self) -> str:
         return "|".join(self.pickup_hand_card_ids)
+
+    def value_input_for_variant(self, input_variant: ExchangeValueInputVariant) -> np.ndarray:
+        if input_variant == "legacy2724":
+            return self.value_input
+        if input_variant == "compact396":
+            return self.compact_value_input
+        raise ValueError(f"unsupported exchange value input variant: {input_variant}.")
 
 
 @dataclass(frozen=True)
@@ -280,12 +305,26 @@ def _validate_manifest_shape(manifest: dict[str, Any]) -> None:
         raise ValueError("manifest.cardCount mismatch.")
     if manifest.get("modelInput", {}).get("featureCount") != EXCHANGE_MODEL_INPUT_FEATURE_COUNT:
         raise ValueError("manifest.modelInput.featureCount must be 2671.")
+    compact = manifest.get("compactExchangeValueInput")
+    if compact is not None:
+        if not isinstance(compact, dict):
+            raise ValueError("manifest.compactExchangeValueInput must be an object.")
+        if compact.get("stateFeatureCount") != EXCHANGE_COMPACT_STATE_FEATURE_COUNT:
+            raise ValueError("manifest.compactExchangeValueInput.stateFeatureCount must be 343.")
+        if compact.get("featureCount") != EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT:
+            raise ValueError("manifest.compactExchangeValueInput.featureCount must be 396.")
 
 
 def _parse_sample(raw: dict[str, Any], *, context: str) -> ExchangeCounterfactualSample:
     if raw.get("sampleType") != EXCHANGE_COUNTERFACTUAL_SAMPLE_TYPE:
         raise ValueError(f"{context}: sampleType mismatch.")
     model_input = _float_array(raw.get("modelInput"), EXCHANGE_MODEL_INPUT_FEATURE_COUNT, context)
+    compact_state_input = _optional_float_array(
+        raw.get("compactExchangeStateInput"),
+        EXCHANGE_COMPACT_STATE_FEATURE_COUNT,
+        context,
+        "compactExchangeStateInput",
+    )
     discard_mask = _float_array(raw.get("candidateDiscardMask"), CARD_COUNT, context)
     legal_mask = _float_array(raw.get("legalDiscardCardMask"), CARD_COUNT, context)
     if int(discard_mask.sum()) != 3:
@@ -299,8 +338,21 @@ def _parse_sample(raw: dict[str, Any], *, context: str) -> ExchangeCounterfactua
         source_index=_require_int(raw, "sourceIndex"),
         candidate_index=_require_int(raw, "candidateIndex"),
         candidate_key=_require_str(raw, "candidateKey"),
+        original_hand_card_ids=_optional_str_tuple(
+            raw.get("originalHandCardIds"),
+            10,
+            context,
+            "originalHandCardIds",
+        ),
+        kitty_pickup_card_ids=_optional_str_tuple(
+            raw.get("kittyPickupCardIds"),
+            3,
+            context,
+            "kittyPickupCardIds",
+        ),
         pickup_hand_card_ids=_str_tuple(raw.get("pickupHandCardIds"), 13, context),
         model_input=model_input,
+        compact_exchange_state_input=compact_state_input,
         legal_discard_card_mask=legal_mask,
         candidate_discard_card_ids=_str_tuple(raw.get("candidateDiscardCardIds"), 3, context),
         candidate_discard_mask=discard_mask,
@@ -332,6 +384,16 @@ def _validate_dataset(dataset: ExchangeCounterfactualDataset) -> None:
             raise ValueError(f"{key}: candidate indices must be 0..285.")
         if sum(1 for sample in rows if sample.is_rule_based_action) != 1:
             raise ValueError(f"{key}: expected exactly one RuleBased candidate.")
+        compact_inputs = [
+            sample.compact_exchange_state_input for sample in rows
+            if sample.compact_exchange_state_input is not None
+        ]
+        if compact_inputs and len(compact_inputs) != len(rows):
+            raise ValueError(f"{key}: compactExchangeStateInput must be present for every row.")
+        if compact_inputs:
+            first = compact_inputs[0]
+            if not all(bool(np.array_equal(first, value)) for value in compact_inputs[1:]):
+                raise ValueError(f"{key}: compactExchangeStateInput must be source-stable.")
 
 
 def _state_keys_in_source_order(
@@ -385,6 +447,19 @@ def _float_array(value: object, length: int, context: str) -> np.ndarray:
     return np.asarray([float(item) for item in value], dtype=np.float32)
 
 
+def _optional_float_array(
+    value: object,
+    length: int,
+    context: str,
+    field_name: str,
+) -> np.ndarray | None:
+    if value is None:
+        return None
+    if not isinstance(value, list) or len(value) != length:
+        raise ValueError(f"{context}: {field_name} must be length {length} numeric array.")
+    return np.asarray([float(item) for item in value], dtype=np.float32)
+
+
 def _str_tuple(value: object, length: int, context: str) -> tuple[str, ...]:
     if (
         not isinstance(value, list)
@@ -392,6 +467,23 @@ def _str_tuple(value: object, length: int, context: str) -> tuple[str, ...]:
         or not all(isinstance(item, str) for item in value)
     ):
         raise ValueError(f"{context}: expected length {length} string array.")
+    return tuple(value)
+
+
+def _optional_str_tuple(
+    value: object,
+    length: int,
+    context: str,
+    field_name: str,
+) -> tuple[str, ...] | None:
+    if value is None:
+        return None
+    if (
+        not isinstance(value, list)
+        or len(value) != length
+        or not all(isinstance(item, str) for item in value)
+    ):
+        raise ValueError(f"{context}: {field_name} must be length {length} string array.")
     return tuple(value)
 
 

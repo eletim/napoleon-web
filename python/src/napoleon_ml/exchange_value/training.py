@@ -29,9 +29,13 @@ from napoleon_ml.policy.device import (
 )
 
 from .dataset import (
+    EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT,
     EXCHANGE_COUNTERFACTUAL_COMBINATION_COUNT,
+    EXCHANGE_VALUE_INPUT_FEATURE_COUNT,
+    EXCHANGE_VALUE_INPUT_VARIANTS,
     ExchangeCounterfactualDataset,
     ExchangeCounterfactualSample,
+    ExchangeValueInputVariant,
     ExchangeValueSplit,
     create_exchange_value_split,
     dataset_provenance,
@@ -58,6 +62,7 @@ class ExchangeValueTrainConfig:
     learning_rate: float = 1e-3
     hidden_dims: tuple[int, ...] = (512, 512, 256, 256)
     dropout: float = 0.0
+    input_variant: ExchangeValueInputVariant = "legacy2724"
     train_ratio: float = 0.8
     validation_ratio: float = 0.1
     final_ratio: float = 0.1
@@ -111,9 +116,11 @@ class _ExchangeValueDataset(Dataset[ExchangeValueBatch]):
         samples: Iterable[ExchangeCounterfactualSample],
         *,
         standardization: Standardization,
+        input_variant: ExchangeValueInputVariant,
     ) -> None:
         self.samples = tuple(samples)
         self.standardization = standardization
+        self.input_variant = input_variant
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -124,7 +131,10 @@ class _ExchangeValueDataset(Dataset[ExchangeValueBatch]):
             torch.tensor(sample.contract_margin, dtype=torch.float32)
         )
         return ExchangeValueBatch(
-            value_input=torch.as_tensor(sample.value_input, dtype=torch.float32),
+            value_input=torch.as_tensor(
+                sample.value_input_for_variant(self.input_variant),
+                dtype=torch.float32,
+            ),
             contract_margin=margin,
         )
 
@@ -135,6 +145,7 @@ class _ExchangeValueStateDataset(Dataset[ExchangeValueStateBatch]):
         samples: Iterable[ExchangeCounterfactualSample],
         *,
         standardization: Standardization,
+        input_variant: ExchangeValueInputVariant,
     ) -> None:
         by_state: dict[str, list[ExchangeCounterfactualSample]] = defaultdict(list)
         for sample in samples:
@@ -144,13 +155,16 @@ class _ExchangeValueStateDataset(Dataset[ExchangeValueStateBatch]):
             for group in by_state.values()
         )
         self.standardization = standardization
+        self.input_variant = input_variant
 
     def __len__(self) -> int:
         return len(self.groups)
 
     def __getitem__(self, index: int) -> ExchangeValueStateBatch:
         group = self.groups[index]
-        value_input = np.stack([sample.value_input for sample in group])
+        value_input = np.stack([
+            sample.value_input_for_variant(self.input_variant) for sample in group
+        ])
         margin = np.asarray([sample.contract_margin for sample in group], dtype=np.float32)
         margin_tensor = self.standardization.encode_tensor(torch.as_tensor(margin))
         return ExchangeValueStateBatch(
@@ -179,6 +193,7 @@ def train_exchange_value_model(
         enabled=config.target_standardization,
     )
     model_config = ExchangeValueMlpConfig(
+        input_dim=_input_dim_for_variant(config.input_variant),
         hidden_dims=config.hidden_dims,
         dropout=config.dropout,
     )
@@ -195,6 +210,7 @@ def train_exchange_value_model(
         train_state_loader = _create_state_loader(
             split.train_samples,
             standardization=standardization,
+            input_variant=config.input_variant,
             batch_size=config.pairwise_state_batch_size,
             seed=config.seed,
             shuffle=True,
@@ -202,6 +218,7 @@ def train_exchange_value_model(
         validation_state_loader = _create_state_loader(
             split.validation_samples,
             standardization=standardization,
+            input_variant=config.input_variant,
             batch_size=config.pairwise_state_batch_size,
             seed=config.seed,
             shuffle=False,
@@ -210,6 +227,7 @@ def train_exchange_value_model(
         train_sample_loader = _create_loader(
             split.train_samples,
             standardization=standardization,
+            input_variant=config.input_variant,
             batch_size=config.batch_size,
             seed=config.seed,
             shuffle=True,
@@ -217,6 +235,7 @@ def train_exchange_value_model(
         validation_sample_loader = _create_loader(
             split.validation_samples,
             standardization=standardization,
+            input_variant=config.input_variant,
             batch_size=config.batch_size,
             seed=config.seed,
             shuffle=False,
@@ -284,6 +303,7 @@ def train_exchange_value_model(
         split="train",
         device=device,
         standardization=standardization,
+        input_variant=config.input_variant,
     )
     validation_report = evaluate_exchange_value_model(
         model,
@@ -291,6 +311,7 @@ def train_exchange_value_model(
         split="validation",
         device=device,
         standardization=standardization,
+        input_variant=config.input_variant,
     )
     final_report = evaluate_exchange_value_model(
         model,
@@ -298,6 +319,7 @@ def train_exchange_value_model(
         split="final",
         device=device,
         standardization=standardization,
+        input_variant=config.input_variant,
     )
     return ExchangeValueTrainResult(
         model=model,
@@ -321,6 +343,7 @@ def evaluate_exchange_value_model(
     split: str,
     device: ResolvedTorchDevice,
     standardization: Standardization,
+    input_variant: ExchangeValueInputVariant = "legacy2724",
 ) -> dict[str, object]:
     sample_tuple = tuple(samples)
     predictions = predict_exchange_value_samples(
@@ -328,6 +351,7 @@ def evaluate_exchange_value_model(
         sample_tuple,
         device=device,
         standardization=standardization,
+        input_variant=input_variant,
     )
     return exchange_value_evaluation_report(sample_tuple, predictions=predictions, split=split)
 
@@ -338,6 +362,7 @@ def predict_exchange_value_samples(
     *,
     device: ResolvedTorchDevice,
     standardization: Standardization,
+    input_variant: ExchangeValueInputVariant = "legacy2724",
 ) -> np.ndarray:
     model.eval()
     batches: list[np.ndarray] = []
@@ -345,7 +370,7 @@ def predict_exchange_value_samples(
         for start in range(0, len(samples), 2048):
             batch = samples[start : start + 2048]
             value_input = torch.as_tensor(
-                np.stack([sample.value_input for sample in batch]),
+                np.stack([sample.value_input_for_variant(input_variant) for sample in batch]),
                 dtype=torch.float32,
                 device=device.torch_device,
             )
@@ -559,6 +584,7 @@ def _create_loader(
     samples: Iterable[ExchangeCounterfactualSample],
     *,
     standardization: Standardization,
+    input_variant: ExchangeValueInputVariant,
     batch_size: int,
     seed: int,
     shuffle: bool,
@@ -566,7 +592,11 @@ def _create_loader(
     generator = torch.Generator()
     generator.manual_seed(seed)
     return DataLoader(
-        _ExchangeValueDataset(samples, standardization=standardization),
+        _ExchangeValueDataset(
+            samples,
+            standardization=standardization,
+            input_variant=input_variant,
+        ),
         batch_size=batch_size,
         shuffle=shuffle,
         generator=generator,
@@ -577,6 +607,7 @@ def _create_state_loader(
     samples: Iterable[ExchangeCounterfactualSample],
     *,
     standardization: Standardization,
+    input_variant: ExchangeValueInputVariant,
     batch_size: int,
     seed: int,
     shuffle: bool,
@@ -584,7 +615,11 @@ def _create_state_loader(
     generator = torch.Generator()
     generator.manual_seed(seed)
     return DataLoader(
-        _ExchangeValueStateDataset(samples, standardization=standardization),
+        _ExchangeValueStateDataset(
+            samples,
+            standardization=standardization,
+            input_variant=input_variant,
+        ),
         batch_size=batch_size,
         shuffle=shuffle,
         generator=generator,
@@ -855,6 +890,11 @@ def _validate_train_config(config: ExchangeValueTrainConfig) -> None:
         raise ValueError("batch_size must be positive.")
     if config.learning_rate <= 0.0:
         raise ValueError("learning_rate must be positive.")
+    if config.input_variant not in EXCHANGE_VALUE_INPUT_VARIANTS:
+        raise ValueError(
+            "input_variant must be one of "
+            f"{', '.join(EXCHANGE_VALUE_INPUT_VARIANTS)}."
+        )
     if config.loss not in {"mse", "huber"}:
         raise ValueError("loss must be mse or huber.")
     if config.huber_delta <= 0.0:
@@ -865,6 +905,14 @@ def _validate_train_config(config: ExchangeValueTrainConfig) -> None:
         raise ValueError("pairwise_state_batch_size must be positive.")
     if config.patience <= 0:
         raise ValueError("patience must be positive.")
+
+
+def _input_dim_for_variant(input_variant: ExchangeValueInputVariant) -> int:
+    if input_variant == "legacy2724":
+        return EXCHANGE_VALUE_INPUT_FEATURE_COUNT
+    if input_variant == "compact396":
+        return EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT
+    raise ValueError(f"unsupported exchange value input variant: {input_variant}.")
 
 
 def _configure_reproducibility(seed: int) -> None:

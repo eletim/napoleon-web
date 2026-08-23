@@ -7,6 +7,8 @@ import { CARD_IDS, EXCHANGE_MODEL_INPUT_FEATURE_COUNT } from "@napoleon/ai-obser
 import {
   EXCHANGE_COUNTERFACTUAL_COMBINATION_COUNT,
   EXCHANGE_COUNTERFACTUAL_DATASET_SAMPLE_TYPE,
+  EXCHANGE_COMPACT_STATE_FEATURE_COUNT,
+  EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT,
   enumerateExchangeDiscardCombinations,
   generateExchangeCounterfactualDataset,
   validateGenerateExchangeCounterfactualDatasetOptions
@@ -56,6 +58,15 @@ describe("generateExchangeCounterfactualDataset", () => {
       expect(result.manifest.rolloutCount).toBe(EXCHANGE_COUNTERFACTUAL_COMBINATION_COUNT);
       expect(result.manifest.modelInput.featureCount).toBe(EXCHANGE_MODEL_INPUT_FEATURE_COUNT);
       expect(result.manifest.modelInput.hiddenOpponentHandsIncluded).toBe(false);
+      expect(result.manifest.compactExchangeValueInput.stateFeatureCount).toBe(
+        EXCHANGE_COMPACT_STATE_FEATURE_COUNT
+      );
+      expect(result.manifest.compactExchangeValueInput.featureCount).toBe(
+        EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT
+      );
+      expect(result.manifest.compactExchangeValueInput.biddingHistorySemantics).toBe(
+        "compact278-bid-owner-table"
+      );
       expect(result.manifest.permutationActionsIncluded).toBe(false);
       expect(result.manifest.summary.invariantFailureCount).toBe(0);
       expect(result.manifest.summary.candidateCountPerState.min).toBe(
@@ -77,12 +88,22 @@ describe("generateExchangeCounterfactualDataset", () => {
       expect(new Set(rows.map((row) => row.sourceStateKey)).size).toBe(1);
       expect(new Set(rows.map((row) => row.hiddenDealChecksum)).size).toBe(1);
       expect(rows.filter((row) => row.isRuleBasedAction)).toHaveLength(1);
+      expect(new Set(rows.map((row) => row.compactExchangeStateInput.join(","))).size).toBe(1);
 
       for (const row of rows) {
         expect(row.modelInput).toHaveLength(EXCHANGE_MODEL_INPUT_FEATURE_COUNT);
+        expect(row.compactExchangeStateInput).toHaveLength(EXCHANGE_COMPACT_STATE_FEATURE_COUNT);
+        expect(row.compactExchangeStateInput.length + row.candidateDiscardMask.length).toBe(
+          EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT
+        );
         expect(row.legalDiscardCardMask).toHaveLength(CARD_IDS.length);
         expect(sum(row.legalDiscardCardMask)).toBe(13);
+        expect(row.originalHandCardIds).toHaveLength(10);
+        expect(row.kittyPickupCardIds).toHaveLength(3);
         expect(row.pickupHandCardIds).toHaveLength(13);
+        expect(canonical([...row.originalHandCardIds, ...row.kittyPickupCardIds])).toEqual(
+          row.pickupHandCardIds
+        );
         expect(row.candidateDiscardCardIds).toHaveLength(3);
         expect(new Set(row.candidateDiscardCardIds).size).toBe(3);
         expect(isCanonical(row.candidateDiscardCardIds)).toBe(true);
@@ -176,8 +197,11 @@ async function readSamples(path: string): Promise<ExchangeCounterfactualSample[]
 }
 
 function isCanonical(cardIds: readonly string[]): boolean {
-  const sorted = [...cardIds].sort((left, right) => CARD_IDS.indexOf(left) - CARD_IDS.indexOf(right));
-  return cardIds.every((cardId, index) => cardId === sorted[index]);
+  return cardIds.every((cardId, index) => cardId === canonical(cardIds)[index]);
+}
+
+function canonical(cardIds: readonly string[]): readonly string[] {
+  return [...cardIds].sort((left, right) => CARD_IDS.indexOf(left) - CARD_IDS.indexOf(right));
 }
 
 function sum(values: readonly number[]): number {
