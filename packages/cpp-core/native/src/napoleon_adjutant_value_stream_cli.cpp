@@ -40,6 +40,18 @@ int main(int argc, char** argv) {
         options.mode = argv[++index];
       } else if (arg == "--output-directory" && index + 1 < argc) {
         options.output_directory = argv[++index];
+      } else if (arg == "--bidding-policy-id" && index + 1 < argc) {
+        options.bidding_policy_id = argv[++index];
+      } else if (arg == "--bidding-margin-onnx" && index + 1 < argc) {
+        options.bidding_margin_onnx_path = argv[++index];
+      } else if (arg == "--playing-policy-id" && index + 1 < argc) {
+        options.playing_policy_id = argv[++index];
+      } else if (arg == "--playing-policy-onnx" && index + 1 < argc) {
+        options.playing_policy_onnx_path = argv[++index];
+      } else if (arg == "--playing-critic-onnx" && index + 1 < argc) {
+        options.playing_critic_onnx_path = argv[++index];
+      } else if (arg == "--policy-device" && index + 1 < argc) {
+        options.policy_device = argv[++index];
       } else if (arg == "--start-seed" && index + 1 < argc) {
         options.start_seed = parse_uint32(arg, argv[++index]);
       } else if (arg == "--states" && index + 1 < argc) {
@@ -58,6 +70,9 @@ int main(int argc, char** argv) {
         throw std::runtime_error(
             "usage: napoleon_adjutant_value_stream_cli --mode proposal|full-gold "
             "--output-directory <path> --states <N> --start-seed <uint32> "
+            "[--bidding-policy-id frozen-raise-v1] [--bidding-margin-onnx <path>] "
+            "[--playing-policy-id ppo-separated-v1000] [--playing-policy-onnx <path>] "
+            "[--playing-critic-onnx <path>] [--policy-device cpu|cuda] "
             "[--max-deal-attempts <N>] [--proposal-top-k <N>] "
             "[--diversity-count <N>] [--scorer-top-k <N>] [--agent-seed <uint32>]");
       }

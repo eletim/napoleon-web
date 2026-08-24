@@ -34,6 +34,15 @@ struct JointTeacherReport {
 struct AdjutantValueStreamOptions {
   std::string mode = "proposal";
   std::string output_directory;
+  std::string bidding_policy_id = "frozen-raise-v1";
+  std::string bidding_margin_onnx_path =
+      "benchmarks/bidding-margin-policies/frozen-raise-v1/margin.onnx";
+  std::string playing_policy_id = "ppo-separated-v1000";
+  std::string playing_policy_onnx_path =
+      "benchmarks/playing-policies/ppo-separated-v1000/policy.onnx";
+  std::string playing_critic_onnx_path =
+      "benchmarks/playing-policies/ppo-separated-v1000/critic.onnx";
+  std::string policy_device = "cpu";
   std::uint32_t start_seed = 446000000;
   int requested_source_states = 10000;
   int max_deal_attempts = 250000;

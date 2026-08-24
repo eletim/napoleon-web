@@ -39,6 +39,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--diversity-count", type=int, default=8)
     parser.add_argument("--scorer-top-k", type=int, default=64)
     parser.add_argument("--agent-seed", type=int, default=446)
+    parser.add_argument("--bidding-policy-id", default="frozen-raise-v1")
+    parser.add_argument(
+        "--bidding-margin-onnx",
+        type=Path,
+        default=Path("benchmarks/bidding-margin-policies/frozen-raise-v1/margin.onnx"),
+    )
+    parser.add_argument("--playing-policy-id", default="ppo-separated-v1000")
+    parser.add_argument(
+        "--playing-policy-onnx",
+        type=Path,
+        default=Path("benchmarks/playing-policies/ppo-separated-v1000/policy.onnx"),
+    )
+    parser.add_argument(
+        "--playing-critic-onnx",
+        type=Path,
+        default=Path("benchmarks/playing-policies/ppo-separated-v1000/critic.onnx"),
+    )
+    parser.add_argument("--policy-device", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--score-batch-size", type=int, default=8192)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     return parser
@@ -79,6 +97,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         str(args.scorer_top_k),
         "--agent-seed",
         str(args.agent_seed),
+        "--bidding-policy-id",
+        args.bidding_policy_id,
+        "--bidding-margin-onnx",
+        str(args.bidding_margin_onnx),
+        "--playing-policy-id",
+        args.playing_policy_id,
+        "--playing-policy-onnx",
+        str(args.playing_policy_onnx),
+        "--playing-critic-onnx",
+        str(args.playing_critic_onnx),
+        "--policy-device",
+        args.policy_device,
     ]
     if args.max_deal_attempts is not None:
         command.extend(["--max-deal-attempts", str(args.max_deal_attempts)])

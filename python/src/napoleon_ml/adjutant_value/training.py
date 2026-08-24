@@ -460,21 +460,58 @@ def full_gold_decomposition(
 
 
 def proposal_gold_metrics(source_diagnostics: Any) -> dict[str, object]:
-    totals = {"top4": 0, "top8": 0, "top16": 0, "top32": 0, "top64": 0}
-    regret_sum = 0.0
+    totals = {
+        "top4": 0,
+        "top8": 0,
+        "top16": 0,
+        "top32": 0,
+        "top64": 0,
+        "top16PlusRuleBased": 0,
+        "fullProposal": 0,
+        "ruleBasedExchange": 0,
+    }
+    regret_top16_sum = 0.0
+    regret_top16_plus_rb_sum = 0.0
+    regret_full_proposal_sum = 0.0
     count = 0
     for diagnostic in source_diagnostics:
         containment = diagnostic.get("proposalGoldContainment", {})
         for key in totals:
             totals[key] += int(containment.get(key, 0))
-        regret_sum += float(diagnostic.get("proposalBestRegretSum", 0.0))
+        regret_top16_sum += float(diagnostic.get("proposalBestRegretTop16Sum", 0.0))
+        regret_top16_plus_rb_sum += float(
+            diagnostic.get("proposalBestRegretTop16PlusRuleBasedSum", 0.0)
+        )
+        regret_full_proposal_sum += float(diagnostic.get("proposalBestRegretSum", 0.0))
         count += ADJUTANT_CANDIDATE_COUNT
     return {
         "candidateCount": count,
         "topKContainment": {
             key: 0.0 if count == 0 else value / count for key, value in totals.items()
         },
-        "proposalBestRegretMean": 0.0 if count == 0 else regret_sum / count,
+        "regretMean": {
+            "top16": 0.0 if count == 0 else regret_top16_sum / count,
+            "top16PlusRuleBased": 0.0 if count == 0 else regret_top16_plus_rb_sum / count,
+            "fullProposalTop16RuleBasedDiversity": (
+                0.0 if count == 0 else regret_full_proposal_sum / count
+            ),
+        },
+        "ruleBasedAdditiveEffect": {
+            "containmentDelta": 0.0
+            if count == 0
+            else (totals["top16PlusRuleBased"] - totals["top16"]) / count,
+            "regretReduction": 0.0
+            if count == 0
+            else (regret_top16_sum - regret_top16_plus_rb_sum) / count,
+        },
+        "diversityRandomAdditiveEffect": {
+            "containmentDelta": 0.0
+            if count == 0
+            else (totals["fullProposal"] - totals["top16PlusRuleBased"]) / count,
+            "regretReduction": 0.0
+            if count == 0
+            else (regret_top16_plus_rb_sum - regret_full_proposal_sum) / count,
+        },
     }
 
 
