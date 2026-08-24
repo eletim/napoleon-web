@@ -226,12 +226,33 @@
             "median": 1.0,
             "min": 1.0
           },
+          "modelSelectedPredictedValueStdDev": {
+            "count": 100,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0
+          },
+          "stateMeanPredictedValueStdDev": {
+            "count": 100,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0
+          },
           "teacherBestDiscardUniqueCount": {
             "count": 100,
             "max": 1.0,
             "mean": 1.0,
             "median": 1.0,
             "min": 1.0
+          },
+          "teacherBestPredictedValueStdDev": {
+            "count": 100,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0
           }
         },
         "scalar": {
@@ -512,12 +533,33 @@
             "median": 4.0,
             "min": 3.0
           },
+          "modelSelectedPredictedValueStdDev": {
+            "count": 20,
+            "max": 1.6858052123300744,
+            "mean": 0.9769638089256709,
+            "median": 0.9470066084424162,
+            "min": 0.4858917232135913
+          },
+          "stateMeanPredictedValueStdDev": {
+            "count": 20,
+            "max": 1.752345594274685,
+            "mean": 0.9993748259512383,
+            "median": 0.9760389239482012,
+            "min": 0.4901765169466681
+          },
           "teacherBestDiscardUniqueCount": {
             "count": 20,
             "max": 5.0,
             "mean": 4.95,
             "median": 5.0,
             "min": 4.0
+          },
+          "teacherBestPredictedValueStdDev": {
+            "count": 20,
+            "max": 1.720238276435631,
+            "mean": 1.0704180513672124,
+            "median": 1.0300372556140358,
+            "min": 0.4971854923889996
           }
         },
         "scalar": {
@@ -798,12 +840,33 @@
             "median": 6.5,
             "min": 3.0
           },
+          "modelSelectedPredictedValueStdDev": {
+            "count": 10,
+            "max": 1.5176689141722939,
+            "mean": 1.0356992968340157,
+            "median": 1.0116686884817734,
+            "min": 0.5226869402291195
+          },
+          "stateMeanPredictedValueStdDev": {
+            "count": 10,
+            "max": 1.451709464603759,
+            "mean": 1.0412339748449144,
+            "median": 1.0622402901915478,
+            "min": 0.5304436491093999
+          },
           "teacherBestDiscardUniqueCount": {
             "count": 10,
             "max": 10.0,
             "mean": 9.5,
             "median": 9.5,
             "min": 9.0
+          },
+          "teacherBestPredictedValueStdDev": {
+            "count": 10,
+            "max": 1.6164753232342752,
+            "mean": 1.2112319328254522,
+            "median": 1.2131238176015129,
+            "min": 0.8902503504902768
           }
         },
         "scalar": {

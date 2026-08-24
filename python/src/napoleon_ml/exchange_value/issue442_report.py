@@ -305,6 +305,10 @@ def render_issue442_markdown(report: dict[str, Any]) -> str:
                         f"- Model-selected discard unique count mean: "
                         f"{float(_summary_mean(same, 'modelSelectedDiscardUniqueCount')):.2f}"
                     ),
+                    (
+                        f"- Predicted value consistency stddev mean: "
+                        f"{float(_summary_mean(same, 'modelSelectedPredictedValueStdDev')):.3f}"
+                    ),
                 ]
             )
         lines.append("")

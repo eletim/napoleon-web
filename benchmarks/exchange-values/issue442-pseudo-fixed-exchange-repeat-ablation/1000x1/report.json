@@ -259,12 +259,33 @@
         "median": 1.0,
         "min": 1.0
       },
+      "modelSelectedPredictedValueStdDev": {
+        "count": 100,
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0
+      },
+      "stateMeanPredictedValueStdDev": {
+        "count": 100,
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0
+      },
       "teacherBestDiscardUniqueCount": {
         "count": 100,
         "max": 1.0,
         "mean": 1.0,
         "median": 1.0,
         "min": 1.0
+      },
+      "teacherBestPredictedValueStdDev": {
+        "count": 100,
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0
       }
     },
     "sampleCount": 28600,
@@ -474,12 +495,33 @@
         "median": 1.0,
         "min": 1.0
       },
+      "modelSelectedPredictedValueStdDev": {
+        "count": 800,
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0
+      },
+      "stateMeanPredictedValueStdDev": {
+        "count": 800,
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0
+      },
       "teacherBestDiscardUniqueCount": {
         "count": 800,
         "max": 1.0,
         "mean": 1.0,
         "median": 1.0,
         "min": 1.0
+      },
+      "teacherBestPredictedValueStdDev": {
+        "count": 800,
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0
       }
     },
     "sampleCount": 228800,
@@ -689,12 +731,33 @@
         "median": 1.0,
         "min": 1.0
       },
+      "modelSelectedPredictedValueStdDev": {
+        "count": 100,
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0
+      },
+      "stateMeanPredictedValueStdDev": {
+        "count": 100,
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0
+      },
       "teacherBestDiscardUniqueCount": {
         "count": 100,
         "max": 1.0,
         "mean": 1.0,
         "median": 1.0,
         "min": 1.0
+      },
+      "teacherBestPredictedValueStdDev": {
+        "count": 100,
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0
       }
     },
     "sampleCount": 28600,

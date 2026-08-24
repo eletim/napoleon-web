@@ -322,7 +322,7 @@ def test_same_thirteen_aggregation_tracks_teacher_and_model_variation(tmp_path: 
     dataset = load_exchange_counterfactual_dataset(tmp_path)
     predictions = np.asarray(
         [
-            100.0
+            100.0 + float(sample.source_index)
             if sample.candidate_index == (sample.source_index % 2)
             else -float(sample.candidate_index)
             for sample in dataset.raw_samples
@@ -339,9 +339,15 @@ def test_same_thirteen_aggregation_tracks_teacher_and_model_variation(tmp_path: 
     same_thirteen = cast(dict[str, object], report["sameThirteen"])
     teacher_unique = cast(dict[str, object], same_thirteen["teacherBestDiscardUniqueCount"])
     model_unique = cast(dict[str, object], same_thirteen["modelSelectedDiscardUniqueCount"])
+    model_consistency = cast(
+        dict[str, object],
+        same_thirteen["modelSelectedPredictedValueStdDev"],
+    )
     assert same_thirteen["groupCount"] == 2
     assert teacher_unique["mean"] == 2.0
     assert model_unique["mean"] == 2.0
+    assert model_consistency["count"] == 2
+    assert cast(float, model_consistency["mean"]) > 0.0
 
 
 def test_training_smoke_checkpoint_save_load_and_deterministic_eval(tmp_path: Path) -> None:

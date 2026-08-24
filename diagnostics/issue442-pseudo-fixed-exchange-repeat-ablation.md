@@ -55,6 +55,7 @@ Base: `feature/issue-202-non-playing-ai`
 - Same-13 group mean relative reward regret: 20.88
 - Teacher-best discard unique count mean: 4.95
 - Model-selected discard unique count mean: 3.95
+- Predicted value consistency stddev mean: 0.977
 
 ### 100x10
 
@@ -78,6 +79,7 @@ Base: `feature/issue-202-non-playing-ai`
 - Same-13 group mean relative reward regret: 18.98
 - Teacher-best discard unique count mean: 9.50
 - Model-selected discard unique count mean: 6.20
+- Predicted value consistency stddev mean: 1.036
 
 ## Conclusion
 
