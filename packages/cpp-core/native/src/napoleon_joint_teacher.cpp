@@ -7,7 +7,10 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <iomanip>
+#include <iostream>
 #include <limits>
 #include <numeric>
 #include <optional>
@@ -963,6 +966,496 @@ std::string render_report(
   return out.str();
 }
 
+constexpr std::uint32_t kStreamRequestMagic = 0x3151544aU;
+constexpr std::uint32_t kStreamResponseMagic = 0x3153544aU;
+constexpr std::uint32_t kStreamDoneMagic = 0x3044544aU;
+
+struct StreamSourceDiagnostic {
+  std::uint32_t seed = 0;
+  int source_index = 0;
+  int napoleon_index = 0;
+  Suit contract_suit = Suit::Spades;
+  int contract_target = 13;
+  Card rule_based_adjutant;
+  int rule_based_adjutant_index = 0;
+  double rb_adj_rb_exchange_margin = 0.0;
+  double rb_adj_optimized_exchange_margin = 0.0;
+  double best_adjutant_margin = 0.0;
+  int best_adjutant_index = 0;
+  int terminal_rollouts = 0;
+  int proposal_gold_containment_top4 = 0;
+  int proposal_gold_containment_top8 = 0;
+  int proposal_gold_containment_top16 = 0;
+  int proposal_gold_containment_top32 = 0;
+  int proposal_gold_containment_top64 = 0;
+  double proposal_best_regret_sum = 0.0;
+};
+
+template <typename T>
+void write_binary(std::ostream& out, const T& value) {
+  out.write(reinterpret_cast<const char*>(&value), sizeof(T));
+  if (!out) {
+    throw std::runtime_error("failed to write binary stream");
+  }
+}
+
+template <typename T>
+T read_binary(std::istream& in, const char* name) {
+  T value{};
+  in.read(reinterpret_cast<char*>(&value), sizeof(T));
+  if (!in) {
+    throw std::runtime_error(std::string("failed to read ") + name);
+  }
+  return value;
+}
+
+void write_float_vector(std::ofstream& out, const std::vector<float>& values) {
+  out.write(
+      reinterpret_cast<const char*>(values.data()),
+      static_cast<std::streamsize>(values.size() * sizeof(float)));
+  if (!out) {
+    throw std::runtime_error("failed to write feature vector");
+  }
+}
+
+void write_float_value(std::ofstream& out, float value) {
+  out.write(reinterpret_cast<const char*>(&value), sizeof(float));
+  if (!out) {
+    throw std::runtime_error("failed to write label value");
+  }
+}
+
+void write_uint32_value(std::ofstream& out, std::uint32_t value) {
+  out.write(reinterpret_cast<const char*>(&value), sizeof(std::uint32_t));
+  if (!out) {
+    throw std::runtime_error("failed to write uint32 value");
+  }
+}
+
+void write_uint8_value(std::ofstream& out, std::uint8_t value) {
+  out.write(reinterpret_cast<const char*>(&value), sizeof(std::uint8_t));
+  if (!out) {
+    throw std::runtime_error("failed to write uint8 value");
+  }
+}
+
+std::vector<std::uint32_t> read_top_indices_response(
+    std::istream& in,
+    int source_index,
+    int expected_top_k) {
+  const std::uint32_t magic = read_binary<std::uint32_t>(in, "response magic");
+  if (magic != kStreamResponseMagic) {
+    throw std::runtime_error("invalid scorer response magic");
+  }
+  const std::uint32_t response_source_index =
+      read_binary<std::uint32_t>(in, "response source index");
+  const std::uint32_t adjutant_count =
+      read_binary<std::uint32_t>(in, "response adjutant count");
+  const std::uint32_t top_k = read_binary<std::uint32_t>(in, "response top-k");
+  if (response_source_index != static_cast<std::uint32_t>(source_index) ||
+      adjutant_count != kAdjutantCandidateCount ||
+      top_k != static_cast<std::uint32_t>(expected_top_k)) {
+    throw std::runtime_error("scorer response shape mismatch");
+  }
+  std::vector<std::uint32_t> indices(
+      static_cast<std::size_t>(kAdjutantCandidateCount * expected_top_k));
+  in.read(
+      reinterpret_cast<char*>(indices.data()),
+      static_cast<std::streamsize>(indices.size() * sizeof(std::uint32_t)));
+  if (!in) {
+    throw std::runtime_error("failed to read scorer top indices");
+  }
+  return indices;
+}
+
+void send_scorer_request(
+    std::ostream& out,
+    int source_index,
+    const std::vector<float>& compact396_inputs) {
+  write_binary(out, kStreamRequestMagic);
+  write_binary(out, static_cast<std::uint32_t>(source_index));
+  write_binary(out, static_cast<std::uint32_t>(kAdjutantCandidateCount));
+  write_binary(out, static_cast<std::uint32_t>(kExchangeDiscardCombinationCount));
+  write_binary(out, static_cast<std::uint32_t>(kExchangeCompactValueInputFeatureCount));
+  out.write(
+      reinterpret_cast<const char*>(compact396_inputs.data()),
+      static_cast<std::streamsize>(compact396_inputs.size() * sizeof(float)));
+  if (!out) {
+    throw std::runtime_error("failed to write scorer request matrix");
+  }
+  out.flush();
+}
+
+int find_discard_index(
+    const std::vector<std::vector<Card>>& combinations,
+    const std::vector<Card>& discard) {
+  const std::string target = cards_key(discard);
+  for (std::size_t index = 0; index < combinations.size(); ++index) {
+    if (cards_key(combinations[index]) == target) {
+      return static_cast<int>(index);
+    }
+  }
+  throw std::runtime_error("discard combination not found");
+}
+
+std::vector<int> deterministic_diversity_indices(
+    int state_index,
+    int adjutant_index,
+    const std::unordered_set<int>& excluded,
+    int count) {
+  std::vector<int> candidates;
+  candidates.reserve(kExchangeDiscardCombinationCount);
+  for (int index = 0; index < kExchangeDiscardCombinationCount; ++index) {
+    if (excluded.count(index) == 0) {
+      candidates.push_back(index);
+    }
+  }
+  std::sort(candidates.begin(), candidates.end(), [&](int left, int right) {
+    const std::uint32_t left_key =
+        static_cast<std::uint32_t>((left + 1) * 2654435761U) ^
+        static_cast<std::uint32_t>((state_index + 17) * 2246822519U) ^
+        static_cast<std::uint32_t>((adjutant_index + 31) * 3266489917U);
+    const std::uint32_t right_key =
+        static_cast<std::uint32_t>((right + 1) * 2654435761U) ^
+        static_cast<std::uint32_t>((state_index + 17) * 2246822519U) ^
+        static_cast<std::uint32_t>((adjutant_index + 31) * 3266489917U);
+    if (left_key != right_key) {
+      return left_key < right_key;
+    }
+    return left < right;
+  });
+  if (count < static_cast<int>(candidates.size())) {
+    candidates.resize(static_cast<std::size_t>(count));
+  }
+  return candidates;
+}
+
+std::vector<int> proposal_indices_for_adjutant(
+    const std::vector<std::uint32_t>& top_indices,
+    int adjutant_index,
+    int scorer_top_k,
+    int proposal_top_k,
+    int rb_discard_index,
+    int diversity_count,
+    int state_index) {
+  std::vector<int> proposal;
+  std::unordered_set<int> seen;
+  const int base = adjutant_index * scorer_top_k;
+  for (int index = 0; index < std::min(proposal_top_k, scorer_top_k); ++index) {
+    const int candidate = static_cast<int>(top_indices[static_cast<std::size_t>(base + index)]);
+    if (candidate < 0 || candidate >= kExchangeDiscardCombinationCount) {
+      throw std::runtime_error("scorer top index out of range");
+    }
+    if (seen.insert(candidate).second) {
+      proposal.push_back(candidate);
+    }
+  }
+  if (seen.insert(rb_discard_index).second) {
+    proposal.push_back(rb_discard_index);
+  }
+  for (int candidate : deterministic_diversity_indices(
+           state_index,
+           adjutant_index,
+           seen,
+           diversity_count)) {
+    if (seen.insert(candidate).second) {
+      proposal.push_back(candidate);
+    }
+  }
+  return proposal;
+}
+
+bool topk_contains(
+    const std::vector<std::uint32_t>& top_indices,
+    int adjutant_index,
+    int scorer_top_k,
+    int k,
+    int target_index) {
+  const int base = adjutant_index * scorer_top_k;
+  for (int offset = 0; offset < std::min(k, scorer_top_k); ++offset) {
+    if (static_cast<int>(top_indices[static_cast<std::size_t>(base + offset)]) == target_index) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void write_stream_manifest(
+    const std::filesystem::path& output_dir,
+    const AdjutantValueStreamOptions& options,
+    const std::vector<StreamSourceDiagnostic>& diagnostics,
+    int sample_count,
+    int terminal_rollout_count) {
+  std::ostringstream out;
+  out << "{\"datasetSchemaVersion\":1"
+      << ",\"sampleType\":\"adjutant-joint-value-v1\""
+      << ",\"teacherId\":\"issue446-compact396-proposal-joint-teacher-v1\""
+      << ",\"mode\":";
+  json_escape(out, options.mode);
+  out << ",\"featureCount\":" << kAdjutantCompactValueInputFeatureCount
+      << ",\"stateFeatureCount\":" << kAdjutantCompactStateFeatureCount
+      << ",\"candidateCountPerState\":" << kAdjutantCandidateCount
+      << ",\"sourceStateCount\":" << diagnostics.size()
+      << ",\"sampleCount\":" << sample_count
+      << ",\"terminalRolloutCount\":" << terminal_rollout_count
+      << ",\"runtimeOrder\":[\"adjutant\",\"kitty-pickup\",\"exchange\",\"playing\"]"
+      << ",\"compact290Audit\":" << compact290_audit_json()
+      << ",\"proposal\":{\"compact396TopK\":" << options.proposal_top_k
+      << ",\"scorerReturnedTopK\":" << options.scorer_top_k
+      << ",\"ruleBasedExchange\":true"
+      << ",\"diversityRandomCount\":" << options.diversity_count << "}"
+      << ",\"files\":{\"features\":\"features.f32\",\"contractMargin\":\"contract-margin.f32\","
+      << "\"relativeReward\":\"relative-reward.f32\",\"stateIndex\":\"state-index.u32\","
+      << "\"candidateCard\":\"candidate-card.u8\"}"
+      << ",\"sourceDiagnostics\":[";
+  for (std::size_t index = 0; index < diagnostics.size(); ++index) {
+    if (index != 0) {
+      out << ',';
+    }
+    const StreamSourceDiagnostic& diagnostic = diagnostics[index];
+    out << "{\"sourceIndex\":" << diagnostic.source_index
+        << ",\"seed\":" << diagnostic.seed
+        << ",\"napoleonSeatIndex\":" << diagnostic.napoleon_index
+        << ",\"contractSuit\":";
+    json_escape(out, suit_id(diagnostic.contract_suit));
+    out << ",\"contractTarget\":" << diagnostic.contract_target
+        << ",\"ruleBasedAdjutant\":";
+    json_escape(out, card_id(diagnostic.rule_based_adjutant));
+    out << ",\"ruleBasedAdjutantIndex\":" << diagnostic.rule_based_adjutant_index
+        << ",\"rbAdjRbExchangeMargin\":" << diagnostic.rb_adj_rb_exchange_margin
+        << ",\"rbAdjOptimizedExchangeMargin\":" << diagnostic.rb_adj_optimized_exchange_margin
+        << ",\"bestAdjutantIndex\":" << diagnostic.best_adjutant_index
+        << ",\"bestAdjutantMargin\":" << diagnostic.best_adjutant_margin
+        << ",\"terminalRollouts\":" << diagnostic.terminal_rollouts
+        << ",\"proposalGoldContainment\":{\"top4\":" << diagnostic.proposal_gold_containment_top4
+        << ",\"top8\":" << diagnostic.proposal_gold_containment_top8
+        << ",\"top16\":" << diagnostic.proposal_gold_containment_top16
+        << ",\"top32\":" << diagnostic.proposal_gold_containment_top32
+        << ",\"top64\":" << diagnostic.proposal_gold_containment_top64 << "}"
+        << ",\"proposalBestRegretSum\":" << diagnostic.proposal_best_regret_sum
+        << '}';
+  }
+  out << "]}";
+
+  std::ofstream manifest(output_dir / "manifest.json");
+  if (!manifest) {
+    throw std::runtime_error("failed to open stream manifest");
+  }
+  manifest << out.str() << '\n';
+}
+
+AdjutantValueStreamReport run_stream_teacher_impl(
+    const AdjutantValueStreamOptions& options,
+    std::istream& scorer_response,
+    std::ostream& scorer_request) {
+  if (options.mode != "proposal" && options.mode != "full-gold") {
+    throw std::runtime_error("--mode must be proposal or full-gold");
+  }
+  if (options.output_directory.empty()) {
+    throw std::runtime_error("output directory is required");
+  }
+  if (options.requested_source_states <= 0 || options.max_deal_attempts <= 0 ||
+      options.proposal_top_k <= 0 || options.diversity_count < 0 ||
+      options.scorer_top_k < options.proposal_top_k || options.scorer_top_k > 286) {
+    throw std::runtime_error("invalid stream teacher options");
+  }
+
+  const std::filesystem::path output_dir(options.output_directory);
+  std::filesystem::create_directories(output_dir);
+  std::ofstream features(output_dir / "features.f32", std::ios::binary);
+  std::ofstream margins(output_dir / "contract-margin.f32", std::ios::binary);
+  std::ofstream rewards(output_dir / "relative-reward.f32", std::ios::binary);
+  std::ofstream state_indices(output_dir / "state-index.u32", std::ios::binary);
+  std::ofstream candidate_cards(output_dir / "candidate-card.u8", std::ios::binary);
+  if (!features || !margins || !rewards || !state_indices || !candidate_cards) {
+    throw std::runtime_error("failed to open stream dataset output files");
+  }
+
+  std::vector<StreamSourceDiagnostic> diagnostics;
+  int sample_count = 0;
+  int terminal_rollout_count = 0;
+
+  for (int attempt = 0; attempt < options.max_deal_attempts &&
+       static_cast<int>(diagnostics.size()) < options.requested_source_states; ++attempt) {
+    const std::uint32_t seed = options.start_seed + static_cast<std::uint32_t>(attempt);
+    GameState source = create_choosing_source_state(
+        seed,
+        options.agent_seed + static_cast<std::uint32_t>(attempt));
+    if (source.phase != Phase::ChoosingAdjutant || !source.contract.has_value()) {
+      continue;
+    }
+    const int source_index = static_cast<int>(diagnostics.size());
+    const int napoleon = source.contract->napoleon_player_index;
+    SeededRandom rb_adj_rng(options.agent_seed ^ seed);
+    const Action rb_adjutant_action =
+        select_rule_based_action(source, source.current_player_index, rb_adj_rng);
+    if (rb_adjutant_action.type != Action::Type::ChooseAdjutant) {
+      throw std::runtime_error("RuleBased adjutant selection failed");
+    }
+    const int rb_adjutant_index = static_cast<int>(rb_adjutant_action.card.id);
+
+    std::vector<GameState> exchange_states;
+    std::vector<std::vector<std::vector<Card>>> discard_combinations_by_adjutant;
+    std::vector<float> compact396_inputs;
+    compact396_inputs.reserve(
+        static_cast<std::size_t>(
+            kAdjutantCandidateCount * kExchangeDiscardCombinationCount *
+            kExchangeCompactValueInputFeatureCount));
+
+    for (Card adjutant : create_deck()) {
+      GameState exchange_state = source;
+      apply_action(exchange_state, choose_adjutant_action(napoleon, adjutant));
+      const auto& hand = exchange_state.hands[static_cast<std::size_t>(napoleon)];
+      if (exchange_state.phase != Phase::Exchanging || hand.size() != 13) {
+        throw std::runtime_error("adjutant fixed state did not reach exchange");
+      }
+      std::vector<std::vector<Card>> combinations = enumerate_discard_combinations(hand);
+      if (static_cast<int>(combinations.size()) != kExchangeDiscardCombinationCount) {
+        throw std::runtime_error("expected 286 exchange candidates in stream teacher");
+      }
+      for (const std::vector<Card>& discard : combinations) {
+        std::vector<float> input = create_exchange_compact396_input(source, exchange_state, discard);
+        compact396_inputs.insert(compact396_inputs.end(), input.begin(), input.end());
+      }
+      exchange_states.push_back(exchange_state);
+      discard_combinations_by_adjutant.push_back(std::move(combinations));
+    }
+
+    send_scorer_request(scorer_request, source_index, compact396_inputs);
+    const std::vector<std::uint32_t> top_indices =
+        read_top_indices_response(scorer_response, source_index, options.scorer_top_k);
+
+    StreamSourceDiagnostic diagnostic;
+    diagnostic.seed = seed;
+    diagnostic.source_index = source_index;
+    diagnostic.napoleon_index = napoleon;
+    diagnostic.contract_suit = source.contract->trump_suit;
+    diagnostic.contract_target = source.contract->target_point_cards;
+    diagnostic.rule_based_adjutant = rb_adjutant_action.card;
+    diagnostic.rule_based_adjutant_index = rb_adjutant_index;
+    diagnostic.best_adjutant_margin = -std::numeric_limits<double>::infinity();
+
+    for (int adjutant_index = 0; adjutant_index < kAdjutantCandidateCount; ++adjutant_index) {
+      Card adjutant{static_cast<std::uint8_t>(adjutant_index)};
+      const GameState& exchange_state = exchange_states[static_cast<std::size_t>(adjutant_index)];
+      const auto& combinations =
+          discard_combinations_by_adjutant[static_cast<std::size_t>(adjutant_index)];
+
+      SeededRandom rb_ex_rng(seed ^ static_cast<std::uint32_t>(adjutant_index * 7919));
+      const Action rb_discard_action = select_rule_based_action(exchange_state, napoleon, rb_ex_rng);
+      if (rb_discard_action.type != Action::Type::DiscardCards) {
+        throw std::runtime_error("RuleBased exchange selection failed");
+      }
+      const int rb_discard_index = find_discard_index(combinations, rb_discard_action.cards);
+      const std::vector<int> proposal_indices = proposal_indices_for_adjutant(
+          top_indices,
+          adjutant_index,
+          options.scorer_top_k,
+          options.proposal_top_k,
+          rb_discard_index,
+          options.diversity_count,
+          source_index);
+
+      std::optional<ExchangeEvaluation> gold_best;
+      std::optional<ExchangeEvaluation> proposal_best;
+      std::optional<ExchangeEvaluation> rb_exchange_eval;
+      double exchange_spread = 0.0;
+
+      if (options.mode == "full-gold") {
+        gold_best = best_exchange_exhaustive(
+            source,
+            exchange_state,
+            seed + static_cast<std::uint32_t>(adjutant_index * 1009),
+            terminal_rollout_count,
+            exchange_spread);
+        diagnostic.terminal_rollouts += kExchangeDiscardCombinationCount;
+        const int gold_index = gold_best->candidate_index;
+        diagnostic.proposal_gold_containment_top4 +=
+            topk_contains(top_indices, adjutant_index, options.scorer_top_k, 4, gold_index) ? 1 : 0;
+        diagnostic.proposal_gold_containment_top8 +=
+            topk_contains(top_indices, adjutant_index, options.scorer_top_k, 8, gold_index) ? 1 : 0;
+        diagnostic.proposal_gold_containment_top16 +=
+            topk_contains(top_indices, adjutant_index, options.scorer_top_k, 16, gold_index) ? 1 : 0;
+        diagnostic.proposal_gold_containment_top32 +=
+            topk_contains(top_indices, adjutant_index, options.scorer_top_k, 32, gold_index) ? 1 : 0;
+        diagnostic.proposal_gold_containment_top64 +=
+            topk_contains(top_indices, adjutant_index, options.scorer_top_k, 64, gold_index) ? 1 : 0;
+      }
+
+      proposal_best = best_exchange_from_candidates(
+          source,
+          exchange_state,
+          [&]() {
+            std::vector<std::vector<Card>> selected;
+            selected.reserve(proposal_indices.size());
+            for (int index : proposal_indices) {
+              selected.push_back(combinations[static_cast<std::size_t>(index)]);
+            }
+            return selected;
+          }(),
+          seed ^ static_cast<std::uint32_t>(adjutant_index * 3571 + 17),
+          terminal_rollout_count);
+      diagnostic.terminal_rollouts += static_cast<int>(proposal_indices.size());
+
+      rb_exchange_eval = evaluate_discard(
+          source,
+          exchange_state,
+          rb_discard_action.cards,
+          rb_discard_index,
+          seed ^ static_cast<std::uint32_t>(adjutant_index * 3571 + 23));
+      ++terminal_rollout_count;
+      ++diagnostic.terminal_rollouts;
+
+      const RolloutValue label =
+          options.mode == "full-gold" ? gold_best->value : proposal_best->value;
+      if (options.mode == "full-gold") {
+        diagnostic.proposal_best_regret_sum +=
+            gold_best->value.margin - proposal_best->value.margin;
+      }
+
+      if (adjutant_index == rb_adjutant_index) {
+        diagnostic.rb_adj_rb_exchange_margin = rb_exchange_eval->value.margin;
+        diagnostic.rb_adj_optimized_exchange_margin =
+            options.mode == "full-gold" ? gold_best->value.margin : proposal_best->value.margin;
+      }
+      if (label.margin > diagnostic.best_adjutant_margin + kEpsilon) {
+        diagnostic.best_adjutant_margin = label.margin;
+        diagnostic.best_adjutant_index = adjutant_index;
+      }
+
+      const std::vector<float> compact290 = create_adjutant_compact290_input(source, adjutant);
+      write_float_vector(features, compact290);
+      write_float_value(margins, static_cast<float>(label.margin));
+      write_float_value(rewards, static_cast<float>(label.relative_reward));
+      write_uint32_value(state_indices, static_cast<std::uint32_t>(source_index));
+      write_uint8_value(candidate_cards, static_cast<std::uint8_t>(adjutant_index));
+      ++sample_count;
+    }
+    diagnostics.push_back(diagnostic);
+    std::cerr << "[adjutant-stream] mode=" << options.mode
+              << " states=" << diagnostics.size() << "/" << options.requested_source_states
+              << " samples=" << sample_count
+              << " terminalRollouts=" << terminal_rollout_count << '\n';
+  }
+
+  write_binary(scorer_request, kStreamDoneMagic);
+  scorer_request.flush();
+  write_stream_manifest(
+      output_dir,
+      options,
+      diagnostics,
+      sample_count,
+      terminal_rollout_count);
+  std::ifstream manifest_in(output_dir / "manifest.json");
+  std::ostringstream manifest_buffer;
+  manifest_buffer << manifest_in.rdbuf();
+  return AdjutantValueStreamReport{
+      static_cast<int>(diagnostics.size()),
+      sample_count,
+      terminal_rollout_count,
+      manifest_buffer.str()};
+}
+
 }  // namespace
 
 JointTeacherReport run_joint_teacher_diagnostic(const JointTeacherOptions& options) {
@@ -980,6 +1473,13 @@ JointTeacherReport run_joint_teacher_diagnostic(const JointTeacherOptions& optio
       static_cast<int>(diagnostics.size()),
       static_cast<int>(diagnostics.size()),
       terminal_rollouts};
+}
+
+AdjutantValueStreamReport run_adjutant_value_stream_teacher(
+    const AdjutantValueStreamOptions& options,
+    std::istream& scorer_response,
+    std::ostream& scorer_request) {
+  return run_stream_teacher_impl(options, scorer_response, scorer_request);
 }
 
 std::string compact290_audit_json() {
