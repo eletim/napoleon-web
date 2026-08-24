@@ -27,6 +27,15 @@ from .training import (
     save_exchange_value_artifact,
     train_exchange_value_model,
 )
+from .issue442_report import (
+    ISSUE438_COMPACT396_BASELINE,
+    ISSUE442_LAYOUTS,
+    Issue442Layout,
+    collect_issue442_layout_summary,
+    collect_issue442_report,
+    issue442_conclusion,
+    render_issue442_markdown,
+)
 
 __all__ = [
     "EXCHANGE_COUNTERFACTUAL_SAMPLE_TYPE",
@@ -43,11 +52,18 @@ __all__ = [
     "ExchangeValueSplit",
     "ExchangeValueTrainConfig",
     "ExchangeValueTrainResult",
+    "ISSUE438_COMPACT396_BASELINE",
+    "ISSUE442_LAYOUTS",
+    "Issue442Layout",
+    "collect_issue442_layout_summary",
+    "collect_issue442_report",
     "create_exchange_value_split",
     "create_seeded_exchange_value_model",
     "evaluate_exchange_value_model",
+    "issue442_conclusion",
     "load_exchange_counterfactual_dataset",
     "load_exchange_value_checkpoint",
+    "render_issue442_markdown",
     "save_exchange_value_artifact",
     "train_exchange_value_model",
 ]
