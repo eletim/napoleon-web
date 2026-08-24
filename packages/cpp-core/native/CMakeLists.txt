@@ -11,6 +11,7 @@ option(NAPOLEON_ENABLE_ONNXRUNTIME "Enable C++ ONNX Runtime policy backend" OFF)
 add_library(napoleon_core
   src/napoleon_core.cpp
   src/napoleon_observation.cpp
+  src/napoleon_joint_teacher.cpp
   src/napoleon_onnx_policy.cpp
   src/napoleon_evaluation.cpp
   src/napoleon_roster.cpp
@@ -80,6 +81,13 @@ add_executable(napoleon_eval_cli
 
 target_link_libraries(napoleon_eval_cli PRIVATE napoleon_core)
 target_compile_options(napoleon_eval_cli PRIVATE -Wall -Wextra -Wpedantic)
+
+add_executable(napoleon_joint_teacher_cli
+  src/napoleon_joint_teacher_cli.cpp
+)
+
+target_link_libraries(napoleon_joint_teacher_cli PRIVATE napoleon_core)
+target_compile_options(napoleon_joint_teacher_cli PRIVATE -Wall -Wextra -Wpedantic)
 
 enable_testing()
 add_test(NAME napoleon_core_self_test COMMAND napoleon_core_self_test)

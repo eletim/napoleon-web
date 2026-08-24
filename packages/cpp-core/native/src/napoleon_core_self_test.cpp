@@ -1,5 +1,6 @@
 #include "napoleon_core.hpp"
 #include "napoleon_evaluation.hpp"
+#include "napoleon_joint_teacher.hpp"
 #include "napoleon_onnx_policy.hpp"
 #include "napoleon_rule_based.hpp"
 #include "napoleon_roster.hpp"
@@ -245,6 +246,31 @@ int main() {
   assert(spec_manifest.find("current-plus-opponent-pool") != std::string::npos);
   assert(spec_manifest.find("rl-v740") != std::string::npos);
   assert(napoleon::roster_assignment_manifest_json(sampled_a).find("\"seats\"") !=
+         std::string::npos);
+
+  assert(napoleon::joint_teacher::kAdjutantCompactValueInputFeatureCount == 290);
+  assert(napoleon::joint_teacher::kExchangeCompactValueInputFeatureCount == 396);
+  const std::string compact_audit = napoleon::joint_teacher::compact290_audit_json();
+  assert(compact_audit.find("\"featureCount\":290") != std::string::npos);
+  assert(compact_audit.find("kittyPickup3") != std::string::npos);
+
+  napoleon::joint_teacher::JointTeacherOptions joint_options;
+  joint_options.start_seed = 444000000;
+  joint_options.requested_source_states = 1;
+  joint_options.max_deal_attempts = 25;
+  joint_options.exhaustive_state_count = 1;
+  joint_options.heuristic_top_k = 3;
+  joint_options.agent_seed = 444;
+  const napoleon::joint_teacher::JointTeacherReport joint_report =
+      napoleon::joint_teacher::run_joint_teacher_diagnostic(joint_options);
+  assert(joint_report.source_state_count == 1);
+  assert(joint_report.exhaustive_state_count == 1);
+  assert(joint_report.terminal_rollout_count >=
+         napoleon::joint_teacher::kAdjutantCandidateCount *
+             napoleon::joint_teacher::kExchangeDiscardCombinationCount);
+  assert(joint_report.json.find("\"runtimeOrder\"") != std::string::npos);
+  assert(joint_report.json.find("\"candidateCount\":53") != std::string::npos);
+  assert(joint_report.json.find("\"discardCandidatesPerAdjutant\":286") !=
          std::string::npos);
 
   int completed_rule_games = 0;
