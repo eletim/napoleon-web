@@ -1,0 +1,150 @@
+{
+  "artifactType": "napoleon-exchange-combination-value",
+  "checkpointPath": "benchmarks/exchange-values/issue442-pseudo-fixed-exchange-repeat-ablation/1000x1/checkpoint.pt",
+  "checkpointSchemaVersion": 1,
+  "checkpointSha256": "c329b86de6978ec4d5225ef3d9fb29b413c3cb16d814a65746701ce3b2517b2a",
+  "dataset": {
+    "adjutantPolicy": {
+      "description": "RuleBasedAgent adjutant selection",
+      "id": "rule-based-adjutant-v1"
+    },
+    "biddingPolicy": {
+      "description": "Candidate uses frozen-raise-v1 with PASS forbidden while legal BID exists; opponents use seeded Frozen/strong RuleBased/Conservative 1:1:1.",
+      "id": "pseudo-fixed-candidate-frozen-no-pass-opponent-1-1-1-v1",
+      "provenance": {
+        "candidateBasePolicy": {
+          "displayName": "Frozen bidding margin v1 (Issue #431 50k)",
+          "exportReportPath": "/home/eletim/napoleon_ws/napoleon-web-issue-202/benchmarks/bidding-margin-policies/frozen-raise-v1/export-report.json",
+          "exportReportSha256": "8c871120927f3e99ef4e37926733f73184cd4bce12a0bdda117a3e8962ce33f3",
+          "externalDataPath": "/home/eletim/napoleon_ws/napoleon-web-issue-202/benchmarks/bidding-margin-policies/frozen-raise-v1/margin.onnx.data",
+          "externalDataSha256": "37f5c882cbdf3b0a4deb4635a81d0eaa76d0987f305663451e8488ed92401872",
+          "id": "frozen-raise-v1",
+          "manifestPath": "/home/eletim/napoleon_ws/napoleon-web-issue-202/benchmarks/bidding-margin-policies/frozen-raise-v1/frozen-manifest.json",
+          "manifestSha256": "bc79cbd7895c6a2228d98bae55983fe1a96cd8ae5b655866e8fe373c51098c56",
+          "metadataPath": "/home/eletim/napoleon_ws/napoleon-web-issue-202/benchmarks/bidding-margin-policies/frozen-raise-v1/margin.json",
+          "metadataSha256": "6b3eb4f1d5d5f6f1d6986a7e960f0770292ae8b74dc184d8c237e476e17ce479",
+          "onnxPath": "/home/eletim/napoleon_ws/napoleon-web-issue-202/benchmarks/bidding-margin-policies/frozen-raise-v1/margin.onnx",
+          "onnxSha256": "f3454cca5d2ef667942431296b1260da114f255ce9a03594d32720b180c9c623"
+        },
+        "opponentMixRule": "per-seat-seeded-frozen-strong-conservative-1-1-1-v1"
+      }
+    },
+    "cardIdsSha256": "7ea0fdb58078f835bc5f7e6307a2a0c869430db343dd9e50ed1226f0452aaf38",
+    "endSeed": 442000999,
+    "path": "/tmp/issue442-pseudo-fixed-exchange-1000x1",
+    "playingPolicy": {
+      "description": "Repo-managed fixed playing policy rollout",
+      "id": "ppo-separated-v1000",
+      "provenance": {
+        "checkpointPath": "/home/eletim/napoleon_ws/napoleon-web-issue-202/benchmarks/playing-policies/ppo-separated-v1000/checkpoint.pt",
+        "checkpointSha256": "36c543b8e3026283269fd40b382abf12aeb085296a8de52e52d3bf65b4c24376",
+        "criticMetadataPath": "/home/eletim/napoleon_ws/napoleon-web-issue-202/benchmarks/playing-policies/ppo-separated-v1000/critic.json",
+        "criticMetadataSha256": "7d5e4d6d785666c1da26bc5e59bb3f92c8b7dd592e2a91dd747ddefc3ea7cdaa",
+        "criticOnnxPath": "/home/eletim/napoleon_ws/napoleon-web-issue-202/benchmarks/playing-policies/ppo-separated-v1000/critic.onnx",
+        "criticOnnxSha256": "3055882f3e63e2a096ee7cedee341bc97e033572bcb59f36f3f68e3d89f134d9",
+        "displayName": "PPO separated v1000",
+        "id": "ppo-separated-v1000",
+        "metadataPath": "/home/eletim/napoleon_ws/napoleon-web-issue-202/benchmarks/playing-policies/ppo-separated-v1000/policy.json",
+        "metadataSha256": "54f0f2837f0e0bad81c778114ab996259b5f3a05bda338a12d0fb32b1fb50616",
+        "onnxPath": "/home/eletim/napoleon_ws/napoleon-web-issue-202/benchmarks/playing-policies/ppo-separated-v1000/policy.onnx",
+        "onnxSha256": "54d7ba29222a12e99a91ab61ee7aa253fe3fab73200d78167d64bf9e7bb8887e",
+        "provenancePath": "/home/eletim/napoleon_ws/napoleon-web-issue-202/benchmarks/playing-policies/ppo-separated-v1000/provenance.json"
+      }
+    },
+    "sampleCount": 286000,
+    "sampleType": "exchange-counterfactual-value-v1",
+    "sourceCommit": "992f4e8ba5659c1d85cae53ca3c06a4e37afa6c3",
+    "sourceStateCount": 1000,
+    "startSeed": 442000000
+  },
+  "device": {
+    "cudaDeviceName": "NVIDIA GeForce RTX 4060",
+    "requestedDevice": "auto",
+    "resolvedDevice": "cuda"
+  },
+  "modelConfig": {
+    "architectureId": "exchange-combination-value-mlp-v1",
+    "dropout": 0.0,
+    "hidden_dims": [
+      512,
+      512,
+      256,
+      256
+    ],
+    "input_dim": 396,
+    "output": "scalarContractMargin"
+  },
+  "modelType": "exchange-combination-value",
+  "split": {
+    "finalSampleCount": 28600,
+    "finalStateCount": 100,
+    "finalStateKeyHash": "e2a04c401346995d7aa644ae50fc2578029caa52359cddfe7b703c0fccc6e166",
+    "leakageGuard": {
+      "dealSeed": {
+        "crossSplitLeakageCount": 0,
+        "uniqueCount": 1000
+      },
+      "fixedHandId": {
+        "crossSplitLeakageCount": 0,
+        "uniqueCount": 1000
+      },
+      "fixedThirteenGroupId": {
+        "crossSplitLeakageCount": 0,
+        "uniqueCount": 1000
+      },
+      "hiddenDealChecksum": {
+        "crossSplitLeakageCount": 0,
+        "uniqueCount": 1000
+      },
+      "pickupHand": {
+        "crossSplitLeakageCount": 0,
+        "uniqueCount": 1000
+      },
+      "sourceStateKey": {
+        "crossSplitLeakageCount": 0,
+        "uniqueCount": 1000
+      },
+      "status": "passed"
+    },
+    "trainSampleCount": 228800,
+    "trainStateCount": 800,
+    "trainStateKeyHash": "404a778110d4970026f27687c3435a24f4d6df5a28918e9d3703ae1fac37172a",
+    "validationSampleCount": 28600,
+    "validationStateCount": 100,
+    "validationStateKeyHash": "7515371cc3d0b5b36ce265ceab0e1ef7ce462738b337c22fdf7705cd21739bae"
+  },
+  "targetStandardization": {
+    "enabled": true,
+    "mean": -3.128854895104895,
+    "std": 3.537618205778241
+  },
+  "trainingConfig": {
+    "algorithm": "pointwise-contract-margin-regression-v1",
+    "batch_size": 512,
+    "device": "auto",
+    "dropout": 0.0,
+    "epochs": 60,
+    "final_ratio": 0.1,
+    "hidden_dims": [
+      512,
+      512,
+      256,
+      256
+    ],
+    "huber_delta": 1.0,
+    "input_variant": "compact396",
+    "learning_rate": 0.001,
+    "loss": "huber",
+    "min_delta": 0.0,
+    "optimizer": "AdamW",
+    "pairwise_loss_weight": 0.0,
+    "pairwise_state_batch_size": 4,
+    "patience": 8,
+    "seed": 436,
+    "target_standardization": true,
+    "train_ratio": 0.8,
+    "train_state_count": null,
+    "validation_ratio": 0.1,
+    "weight_decay": 0.0001
+  }
+}

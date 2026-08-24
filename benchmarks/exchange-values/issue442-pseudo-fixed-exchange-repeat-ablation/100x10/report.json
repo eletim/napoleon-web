@@ -1,0 +1,774 @@
+{
+  "bestEpoch": 2,
+  "bestMonitorValue": 0.41648413452235133,
+  "epochs": [
+    {
+      "best": true,
+      "epoch": 1,
+      "trainLoss": 0.24092023323465894,
+      "validationLoss": 0.41990361642587437
+    },
+    {
+      "best": true,
+      "epoch": 2,
+      "trainLoss": 0.20701048852263632,
+      "validationLoss": 0.41648413452235133
+    },
+    {
+      "best": false,
+      "epoch": 3,
+      "trainLoss": 0.20013663850047372,
+      "validationLoss": 0.4220224842991862
+    },
+    {
+      "best": false,
+      "epoch": 4,
+      "trainLoss": 0.19491525582083455,
+      "validationLoss": 0.4261710477500529
+    },
+    {
+      "best": false,
+      "epoch": 5,
+      "trainLoss": 0.19057682931840003,
+      "validationLoss": 0.4306962159546939
+    },
+    {
+      "best": false,
+      "epoch": 6,
+      "trainLoss": 0.18645734603171582,
+      "validationLoss": 0.43666336366346664
+    },
+    {
+      "best": false,
+      "epoch": 7,
+      "trainLoss": 0.1832106553257762,
+      "validationLoss": 0.43040824186551824
+    },
+    {
+      "best": false,
+      "epoch": 8,
+      "trainLoss": 0.1793396055406624,
+      "validationLoss": 0.43478347958384694
+    },
+    {
+      "best": false,
+      "epoch": 9,
+      "trainLoss": 0.17607270717204035,
+      "validationLoss": 0.43997666088851184
+    },
+    {
+      "best": false,
+      "epoch": 10,
+      "trainLoss": 0.17231027130063598,
+      "validationLoss": 0.4280485978076508
+    }
+  ],
+  "final": {
+    "buryContent": {
+      "modelSelected": {
+        "buriedPointCardCount": {
+          "0": 12,
+          "1": 53,
+          "2": 31,
+          "3": 4
+        },
+        "buriedTrumpCount": {
+          "count": 100,
+          "max": 2.0,
+          "mean": 0.4,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "specialCardBuryFrequency": {
+          "any": 0.33,
+          "calledAdjutant": 0.0,
+          "joker": 0.05,
+          "oruma": 0.0,
+          "seiJack": 0.0,
+          "uraJack": 0.03,
+          "yoromeki": 0.3
+        },
+        "stateCount": 100
+      },
+      "ruleBased": {
+        "buriedPointCardCount": {
+          "0": 87,
+          "1": 13,
+          "2": 0,
+          "3": 0
+        },
+        "buriedTrumpCount": {
+          "count": 100,
+          "max": 0.0,
+          "mean": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "specialCardBuryFrequency": {
+          "any": 0.0,
+          "calledAdjutant": 0.0,
+          "joker": 0.0,
+          "oruma": 0.0,
+          "seiJack": 0.0,
+          "uraJack": 0.0,
+          "yoromeki": 0.0
+        },
+        "stateCount": 100
+      },
+      "teacherBest": {
+        "buriedPointCardCount": {
+          "0": 17,
+          "1": 50,
+          "2": 29,
+          "3": 4
+        },
+        "buriedTrumpCount": {
+          "count": 100,
+          "max": 3.0,
+          "mean": 0.8,
+          "median": 1.0,
+          "min": 0.0
+        },
+        "specialCardBuryFrequency": {
+          "any": 0.34,
+          "calledAdjutant": 0.0,
+          "joker": 0.06,
+          "oruma": 0.1,
+          "seiJack": 0.02,
+          "uraJack": 0.02,
+          "yoromeki": 0.19
+        },
+        "stateCount": 100
+      }
+    },
+    "fixedThirteenGroupCount": 10,
+    "ranking": {
+      "exactTopAction": 0.02,
+      "modelSelectedRelativeRewardRegret": {
+        "count": 100,
+        "max": 45.0,
+        "mean": 18.975,
+        "median": 32.5,
+        "min": 0.0
+      },
+      "modelSelectedTeacherMarginRegret": {
+        "count": 100,
+        "max": 12.0,
+        "mean": 4.59,
+        "median": 4.0,
+        "min": 0.0
+      },
+      "modelSelectedTeacherRankPercentile": {
+        "count": 100,
+        "max": 1.0,
+        "mean": 0.6105964912280702,
+        "median": 0.6701754385964912,
+        "min": 0.010526315789473684
+      },
+      "modelVsRuleBasedMarginRegret": {
+        "loss": 37,
+        "meanRegretImprovement": 0.05,
+        "tie": 22,
+        "win": 41,
+        "winRate": 0.41
+      },
+      "pairwiseAccuracy": 0.5652734672108534,
+      "pairwiseCount": 3577449,
+      "ruleBasedRelativeRewardRegret": {
+        "count": 100,
+        "max": 45.0,
+        "mean": 17.075,
+        "median": 0.0,
+        "min": 0.0
+      },
+      "ruleBasedTeacherMarginRegret": {
+        "count": 100,
+        "max": 12.0,
+        "mean": 4.64,
+        "median": 4.0,
+        "min": 0.0
+      },
+      "ruleBasedTeacherRankPercentile": {
+        "count": 100,
+        "max": 0.9964912280701754,
+        "mean": 0.6050877192982456,
+        "median": 0.631578947368421,
+        "min": 0.021052631578947368
+      },
+      "stateCount": 100,
+      "top3Hit": 0.04,
+      "top5Hit": 0.04
+    },
+    "ruleBased": {
+      "modelVsRuleBasedMarginRegret": {
+        "loss": 37,
+        "meanRegretImprovement": 0.05,
+        "tie": 22,
+        "win": 41,
+        "winRate": 0.41
+      },
+      "relativeRewardRegret": {
+        "count": 100,
+        "max": 45.0,
+        "mean": 17.075,
+        "median": 0.0,
+        "min": 0.0
+      },
+      "teacherMarginRegret": {
+        "count": 100,
+        "max": 12.0,
+        "mean": 4.64,
+        "median": 4.0,
+        "min": 0.0
+      },
+      "teacherRankPercentile": {
+        "count": 100,
+        "max": 0.9964912280701754,
+        "mean": 0.6050877192982456,
+        "median": 0.631578947368421,
+        "min": 0.021052631578947368
+      }
+    },
+    "sameThirteen": {
+      "dealCountPerGroup": {
+        "count": 10,
+        "max": 10.0,
+        "mean": 10.0,
+        "median": 10.0,
+        "min": 10.0
+      },
+      "groupCount": 10,
+      "groupMeanMarginRegret": {
+        "count": 10,
+        "max": 6.6,
+        "mean": 4.59,
+        "median": 4.6,
+        "min": 3.0
+      },
+      "groupMeanRelativeRewardRegret": {
+        "count": 10,
+        "max": 35.0,
+        "mean": 18.975,
+        "median": 18.75,
+        "min": 7.75
+      },
+      "modelSelectedDiscardUniqueCount": {
+        "count": 10,
+        "max": 8.0,
+        "mean": 6.2,
+        "median": 6.5,
+        "min": 3.0
+      },
+      "modelSelectedPredictedValueStdDev": {
+        "count": 10,
+        "max": 1.5176689141722939,
+        "mean": 1.0356992968340157,
+        "median": 1.0116686884817734,
+        "min": 0.5226869402291195
+      },
+      "stateMeanPredictedValueStdDev": {
+        "count": 10,
+        "max": 1.451709464603759,
+        "mean": 1.0412339748449144,
+        "median": 1.0622402901915478,
+        "min": 0.5304436491093999
+      },
+      "teacherBestDiscardUniqueCount": {
+        "count": 10,
+        "max": 10.0,
+        "mean": 9.5,
+        "median": 9.5,
+        "min": 9.0
+      },
+      "teacherBestPredictedValueStdDev": {
+        "count": 10,
+        "max": 1.6164753232342752,
+        "mean": 1.2112319328254522,
+        "median": 1.2131238176015129,
+        "min": 0.8902503504902768
+      }
+    },
+    "sampleCount": 28600,
+    "scalar": {
+      "bias": -1.9232166557962245,
+      "mae": 3.0371382583604825,
+      "pearson": 0.24977002848711582,
+      "rmse": 3.704662939348651,
+      "sampleCount": 28600
+    },
+    "split": "final",
+    "stateCount": 100
+  },
+  "train": {
+    "buryContent": {
+      "modelSelected": {
+        "buriedPointCardCount": {
+          "0": 107,
+          "1": 317,
+          "2": 275,
+          "3": 101
+        },
+        "buriedTrumpCount": {
+          "count": 800,
+          "max": 2.0,
+          "mean": 0.12125,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "specialCardBuryFrequency": {
+          "any": 0.15,
+          "calledAdjutant": 0.0,
+          "joker": 0.01625,
+          "oruma": 0.0,
+          "seiJack": 0.0,
+          "uraJack": 0.00625,
+          "yoromeki": 0.1275
+        },
+        "stateCount": 800
+      },
+      "ruleBased": {
+        "buriedPointCardCount": {
+          "0": 737,
+          "1": 45,
+          "2": 18,
+          "3": 0
+        },
+        "buriedTrumpCount": {
+          "count": 800,
+          "max": 0.0,
+          "mean": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "specialCardBuryFrequency": {
+          "any": 0.0,
+          "calledAdjutant": 0.0,
+          "joker": 0.0,
+          "oruma": 0.0,
+          "seiJack": 0.0,
+          "uraJack": 0.0,
+          "yoromeki": 0.0
+        },
+        "stateCount": 800
+      },
+      "teacherBest": {
+        "buriedPointCardCount": {
+          "0": 191,
+          "1": 345,
+          "2": 224,
+          "3": 40
+        },
+        "buriedTrumpCount": {
+          "count": 800,
+          "max": 3.0,
+          "mean": 0.64,
+          "median": 1.0,
+          "min": 0.0
+        },
+        "specialCardBuryFrequency": {
+          "any": 0.245,
+          "calledAdjutant": 0.005,
+          "joker": 0.05625,
+          "oruma": 0.04125,
+          "seiJack": 0.04875,
+          "uraJack": 0.0325,
+          "yoromeki": 0.085
+        },
+        "stateCount": 800
+      }
+    },
+    "fixedThirteenGroupCount": 80,
+    "ranking": {
+      "exactTopAction": 0.02625,
+      "modelSelectedRelativeRewardRegret": {
+        "count": 800,
+        "max": 45.0,
+        "mean": 16.725,
+        "median": 0.0,
+        "min": 0.0
+      },
+      "modelSelectedTeacherMarginRegret": {
+        "count": 800,
+        "max": 12.0,
+        "mean": 3.79125,
+        "median": 4.0,
+        "min": 0.0
+      },
+      "modelSelectedTeacherRankPercentile": {
+        "count": 800,
+        "max": 1.0,
+        "mean": 0.7541008771929825,
+        "median": 0.8333333333333334,
+        "min": 0.021052631578947368
+      },
+      "modelVsRuleBasedMarginRegret": {
+        "loss": 212,
+        "meanRegretImprovement": 1.2825,
+        "tie": 122,
+        "win": 466,
+        "winRate": 0.5825
+      },
+      "pairwiseAccuracy": 0.6460653455388135,
+      "pairwiseCount": 28570336,
+      "ruleBasedRelativeRewardRegret": {
+        "count": 800,
+        "max": 45.0,
+        "mean": 20.94375,
+        "median": 32.5,
+        "min": 0.0
+      },
+      "ruleBasedTeacherMarginRegret": {
+        "count": 800,
+        "max": 13.0,
+        "mean": 5.07375,
+        "median": 5.0,
+        "min": 0.0
+      },
+      "ruleBasedTeacherRankPercentile": {
+        "count": 800,
+        "max": 1.0,
+        "mean": 0.5985657894736842,
+        "median": 0.6403508771929824,
+        "min": 0.0
+      },
+      "stateCount": 800,
+      "top3Hit": 0.0825,
+      "top5Hit": 0.11625
+    },
+    "ruleBased": {
+      "modelVsRuleBasedMarginRegret": {
+        "loss": 212,
+        "meanRegretImprovement": 1.2825,
+        "tie": 122,
+        "win": 466,
+        "winRate": 0.5825
+      },
+      "relativeRewardRegret": {
+        "count": 800,
+        "max": 45.0,
+        "mean": 20.94375,
+        "median": 32.5,
+        "min": 0.0
+      },
+      "teacherMarginRegret": {
+        "count": 800,
+        "max": 13.0,
+        "mean": 5.07375,
+        "median": 5.0,
+        "min": 0.0
+      },
+      "teacherRankPercentile": {
+        "count": 800,
+        "max": 1.0,
+        "mean": 0.5985657894736842,
+        "median": 0.6403508771929824,
+        "min": 0.0
+      }
+    },
+    "sameThirteen": {
+      "dealCountPerGroup": {
+        "count": 80,
+        "max": 10.0,
+        "mean": 10.0,
+        "median": 10.0,
+        "min": 10.0
+      },
+      "groupCount": 80,
+      "groupMeanMarginRegret": {
+        "count": 80,
+        "max": 6.4,
+        "mean": 3.7912499999999993,
+        "median": 3.7,
+        "min": 1.6
+      },
+      "groupMeanRelativeRewardRegret": {
+        "count": 80,
+        "max": 29.25,
+        "mean": 16.725,
+        "median": 17.75,
+        "min": 0.0
+      },
+      "modelSelectedDiscardUniqueCount": {
+        "count": 80,
+        "max": 9.0,
+        "mean": 5.6625,
+        "median": 6.0,
+        "min": 1.0
+      },
+      "modelSelectedPredictedValueStdDev": {
+        "count": 80,
+        "max": 3.2785565178806384,
+        "mean": 1.8904602376265252,
+        "median": 1.8294637911996603,
+        "min": 0.7315020116399208
+      },
+      "stateMeanPredictedValueStdDev": {
+        "count": 80,
+        "max": 3.2893351693332185,
+        "mean": 1.9627211844241117,
+        "median": 1.9240291409714643,
+        "min": 0.7538480081110768
+      },
+      "teacherBestDiscardUniqueCount": {
+        "count": 80,
+        "max": 10.0,
+        "mean": 9.6875,
+        "median": 10.0,
+        "min": 7.0
+      },
+      "teacherBestPredictedValueStdDev": {
+        "count": 80,
+        "max": 3.3434462105422176,
+        "mean": 2.012634742769099,
+        "median": 2.0150218352953178,
+        "min": 0.8621866969301394
+      }
+    },
+    "sampleCount": 228800,
+    "scalar": {
+      "bias": -0.46875839554919646,
+      "mae": 1.8660718355619617,
+      "pearson": 0.7649561715355727,
+      "rmse": 2.3495602707036087,
+      "sampleCount": 228800
+    },
+    "split": "train",
+    "stateCount": 800
+  },
+  "validation": {
+    "buryContent": {
+      "modelSelected": {
+        "buriedPointCardCount": {
+          "0": 19,
+          "1": 19,
+          "2": 34,
+          "3": 28
+        },
+        "buriedTrumpCount": {
+          "count": 100,
+          "max": 3.0,
+          "mean": 0.44,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "specialCardBuryFrequency": {
+          "any": 0.18,
+          "calledAdjutant": 0.0,
+          "joker": 0.0,
+          "oruma": 0.0,
+          "seiJack": 0.01,
+          "uraJack": 0.0,
+          "yoromeki": 0.17
+        },
+        "stateCount": 100
+      },
+      "ruleBased": {
+        "buriedPointCardCount": {
+          "0": 90,
+          "1": 10,
+          "2": 0,
+          "3": 0
+        },
+        "buriedTrumpCount": {
+          "count": 100,
+          "max": 0.0,
+          "mean": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "specialCardBuryFrequency": {
+          "any": 0.0,
+          "calledAdjutant": 0.0,
+          "joker": 0.0,
+          "oruma": 0.0,
+          "seiJack": 0.0,
+          "uraJack": 0.0,
+          "yoromeki": 0.0
+        },
+        "stateCount": 100
+      },
+      "teacherBest": {
+        "buriedPointCardCount": {
+          "0": 26,
+          "1": 33,
+          "2": 36,
+          "3": 5
+        },
+        "buriedTrumpCount": {
+          "count": 100,
+          "max": 2.0,
+          "mean": 0.61,
+          "median": 1.0,
+          "min": 0.0
+        },
+        "specialCardBuryFrequency": {
+          "any": 0.22,
+          "calledAdjutant": 0.01,
+          "joker": 0.0,
+          "oruma": 0.03,
+          "seiJack": 0.02,
+          "uraJack": 0.05,
+          "yoromeki": 0.13
+        },
+        "stateCount": 100
+      }
+    },
+    "fixedThirteenGroupCount": 10,
+    "ranking": {
+      "exactTopAction": 0.02,
+      "modelSelectedRelativeRewardRegret": {
+        "count": 100,
+        "max": 42.5,
+        "mean": 17.9,
+        "median": 0.0,
+        "min": 0.0
+      },
+      "modelSelectedTeacherMarginRegret": {
+        "count": 100,
+        "max": 10.0,
+        "mean": 5.1,
+        "median": 5.0,
+        "min": 0.0
+      },
+      "modelSelectedTeacherRankPercentile": {
+        "count": 100,
+        "max": 1.0,
+        "mean": 0.5989122807017544,
+        "median": 0.6210526315789474,
+        "min": 0.03859649122807018
+      },
+      "modelVsRuleBasedMarginRegret": {
+        "loss": 37,
+        "meanRegretImprovement": 0.5,
+        "tie": 14,
+        "win": 49,
+        "winRate": 0.49
+      },
+      "pairwiseAccuracy": 0.5675609769131656,
+      "pairwiseCount": 3555403,
+      "ruleBasedRelativeRewardRegret": {
+        "count": 100,
+        "max": 42.5,
+        "mean": 19.3,
+        "median": 32.5,
+        "min": 0.0
+      },
+      "ruleBasedTeacherMarginRegret": {
+        "count": 100,
+        "max": 14.0,
+        "mean": 5.6,
+        "median": 5.0,
+        "min": 1.0
+      },
+      "ruleBasedTeacherRankPercentile": {
+        "count": 100,
+        "max": 0.9929824561403509,
+        "mean": 0.5442456140350878,
+        "median": 0.6087719298245614,
+        "min": 0.007017543859649123
+      },
+      "stateCount": 100,
+      "top3Hit": 0.05,
+      "top5Hit": 0.05
+    },
+    "ruleBased": {
+      "modelVsRuleBasedMarginRegret": {
+        "loss": 37,
+        "meanRegretImprovement": 0.5,
+        "tie": 14,
+        "win": 49,
+        "winRate": 0.49
+      },
+      "relativeRewardRegret": {
+        "count": 100,
+        "max": 42.5,
+        "mean": 19.3,
+        "median": 32.5,
+        "min": 0.0
+      },
+      "teacherMarginRegret": {
+        "count": 100,
+        "max": 14.0,
+        "mean": 5.6,
+        "median": 5.0,
+        "min": 1.0
+      },
+      "teacherRankPercentile": {
+        "count": 100,
+        "max": 0.9929824561403509,
+        "mean": 0.5442456140350878,
+        "median": 0.6087719298245614,
+        "min": 0.007017543859649123
+      }
+    },
+    "sameThirteen": {
+      "dealCountPerGroup": {
+        "count": 10,
+        "max": 10.0,
+        "mean": 10.0,
+        "median": 10.0,
+        "min": 10.0
+      },
+      "groupCount": 10,
+      "groupMeanMarginRegret": {
+        "count": 10,
+        "max": 5.8,
+        "mean": 5.1,
+        "median": 5.4,
+        "min": 3.0
+      },
+      "groupMeanRelativeRewardRegret": {
+        "count": 10,
+        "max": 29.5,
+        "mean": 17.9,
+        "median": 18.375,
+        "min": 6.75
+      },
+      "modelSelectedDiscardUniqueCount": {
+        "count": 10,
+        "max": 10.0,
+        "mean": 6.9,
+        "median": 7.0,
+        "min": 3.0
+      },
+      "modelSelectedPredictedValueStdDev": {
+        "count": 10,
+        "max": 1.533967154116877,
+        "mean": 1.114099048664135,
+        "median": 1.064359247584018,
+        "min": 0.7918192501127883
+      },
+      "stateMeanPredictedValueStdDev": {
+        "count": 10,
+        "max": 1.458778709499656,
+        "mean": 1.0762182977036645,
+        "median": 1.0934262959579384,
+        "min": 0.6730028479851197
+      },
+      "teacherBestDiscardUniqueCount": {
+        "count": 10,
+        "max": 10.0,
+        "mean": 9.6,
+        "median": 10.0,
+        "min": 9.0
+      },
+      "teacherBestPredictedValueStdDev": {
+        "count": 10,
+        "max": 1.5909684851897736,
+        "mean": 1.245201045013918,
+        "median": 1.2578699499007437,
+        "min": 0.7701382248480195
+      }
+    },
+    "sampleCount": 28600,
+    "scalar": {
+      "bias": -0.37148133535485167,
+      "mae": 2.8211531094904547,
+      "pearson": 0.29139821564993706,
+      "rmse": 3.5026037566804393,
+      "sampleCount": 28600
+    },
+    "split": "validation",
+    "stateCount": 100
+  }
+}

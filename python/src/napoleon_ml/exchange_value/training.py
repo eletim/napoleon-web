@@ -741,6 +741,9 @@ def _same_thirteen_summary(
             ),
         )
         model_selected = max(group, key=lambda item: (item[1], -item[0].candidate_index))[0]
+        prediction_by_candidate = {
+            sample.candidate_index: prediction for sample, prediction in group
+        }
         group_id = best.fixed_thirteen_group_id
         by_group[group_id].append(
             {
@@ -751,6 +754,18 @@ def _same_thirteen_summary(
                 - model_selected.napoleon_relative_reward,
                 "modelDiscardKey": "|".join(model_selected.candidate_discard_card_ids),
                 "teacherBestDiscardKey": "|".join(best.candidate_discard_card_ids),
+                "modelSelectedPrediction": prediction_by_candidate[
+                    model_selected.candidate_index
+                ],
+                "teacherBestPrediction": prediction_by_candidate[best.candidate_index],
+                "stateMeanPrediction": float(
+                    np.mean(
+                        np.asarray(
+                            list(prediction_by_candidate.values()),
+                            dtype=np.float64,
+                        )
+                    )
+                ),
             }
         )
 
@@ -772,6 +787,30 @@ def _same_thirteen_summary(
                 ),
                 "teacherBestDiscardUniqueCount": len(
                     {str(row["teacherBestDiscardKey"]) for row in rows}
+                ),
+                "modelSelectedPredictedValueStdDev": float(
+                    np.std(
+                        np.asarray(
+                            [row["modelSelectedPrediction"] for row in rows],
+                            dtype=np.float64,
+                        )
+                    )
+                ),
+                "teacherBestPredictedValueStdDev": float(
+                    np.std(
+                        np.asarray(
+                            [row["teacherBestPrediction"] for row in rows],
+                            dtype=np.float64,
+                        )
+                    )
+                ),
+                "stateMeanPredictedValueStdDev": float(
+                    np.std(
+                        np.asarray(
+                            [row["stateMeanPrediction"] for row in rows],
+                            dtype=np.float64,
+                        )
+                    )
                 ),
             }
         )
@@ -799,6 +838,24 @@ def _same_thirteen_summary(
         "teacherBestDiscardUniqueCount": _numeric_summary(
             np.asarray(
                 [row["teacherBestDiscardUniqueCount"] for row in group_rows],
+                dtype=np.float64,
+            )
+        ),
+        "modelSelectedPredictedValueStdDev": _numeric_summary(
+            np.asarray(
+                [row["modelSelectedPredictedValueStdDev"] for row in group_rows],
+                dtype=np.float64,
+            )
+        ),
+        "teacherBestPredictedValueStdDev": _numeric_summary(
+            np.asarray(
+                [row["teacherBestPredictedValueStdDev"] for row in group_rows],
+                dtype=np.float64,
+            )
+        ),
+        "stateMeanPredictedValueStdDev": _numeric_summary(
+            np.asarray(
+                [row["stateMeanPredictedValueStdDev"] for row in group_rows],
                 dtype=np.float64,
             )
         ),

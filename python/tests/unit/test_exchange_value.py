@@ -15,12 +15,15 @@ from napoleon_ml.exchange_value import (
     EXCHANGE_COMPACT_STATE_FEATURE_COUNT,
     EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT,
     EXCHANGE_VALUE_INPUT_FEATURE_COUNT,
+    Issue442Layout,
     ExchangeValueMlpConfig,
     ExchangeValueMlpModel,
     ExchangeValueTrainConfig,
+    collect_issue442_layout_summary,
     create_exchange_value_split,
     load_exchange_counterfactual_dataset,
     load_exchange_value_checkpoint,
+    render_issue442_markdown,
     save_exchange_value_artifact,
     train_exchange_value_model,
 )
@@ -225,6 +228,28 @@ def test_group_split_guards_state_and_identity_leakage(tmp_path: Path) -> None:
         }.isdisjoint({sample.fixed_thirteen_group_id for sample in right})
 
 
+def test_group_split_preserves_fixed_thirteen_layout_counts(tmp_path: Path) -> None:
+    _write_dataset(tmp_path, states=20)
+    dataset = load_exchange_counterfactual_dataset(tmp_path)
+
+    split = create_exchange_value_split(dataset, seed=442)
+
+    assert len(split.train_state_keys) == 16
+    assert len(split.validation_state_keys) == 2
+    assert len(split.final_state_keys) == 2
+    assert len(split.train_samples) == 16 * 286
+    assert len(split.validation_samples) == 2 * 286
+    assert len(split.final_samples) == 2 * 286
+    for key in (
+        "sourceStateKey",
+        "fixedThirteenGroupId",
+        "dealSeed",
+        "hiddenDealChecksum",
+        "pickupHand",
+    ):
+        assert split.leakage_guard[key]["crossSplitLeakageCount"] == 0
+
+
 def test_model_uses_2671_plus_53_input_dimensions() -> None:
     model = ExchangeValueMlpModel(ExchangeValueMlpConfig(hidden_dims=(8,)))
     output = model(torch.zeros((2, EXCHANGE_VALUE_INPUT_FEATURE_COUNT), dtype=torch.float32))
@@ -277,6 +302,54 @@ def test_ranking_metrics_and_rule_based_fixture(tmp_path: Path) -> None:
     assert same_thirteen["groupCount"] == 1
 
 
+def test_same_thirteen_aggregation_tracks_teacher_and_model_variation(tmp_path: Path) -> None:
+    _write_dataset(tmp_path, states=4)
+    shard = tmp_path / "shard-00000.jsonl"
+    rows = [json.loads(line) for line in shard.read_text().splitlines()]
+    for row in rows:
+        if row["sourceIndex"] == 1 and row["candidateIndex"] == 2:
+            row["contractMargin"] = 30.0
+        if row["sourceIndex"] == 3 and row["candidateIndex"] == 3:
+            row["contractMargin"] = 30.0
+    shard_bytes = b"".join(
+        (json.dumps(row, separators=(",", ":")) + "\n").encode("utf-8") for row in rows
+    )
+    shard.write_bytes(shard_bytes)
+    manifest = json.loads((tmp_path / "manifest.json").read_text())
+    manifest["shards"][0]["byteLength"] = len(shard_bytes)
+    manifest["shards"][0]["sha256"] = hashlib.sha256(shard_bytes).hexdigest()
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    dataset = load_exchange_counterfactual_dataset(tmp_path)
+    predictions = np.asarray(
+        [
+            100.0 + float(sample.source_index)
+            if sample.candidate_index == (sample.source_index % 2)
+            else -float(sample.candidate_index)
+            for sample in dataset.raw_samples
+        ],
+        dtype=np.float32,
+    )
+
+    report = exchange_value_evaluation_report(
+        dataset.raw_samples,
+        predictions=predictions,
+        split="fixture",
+    )
+
+    same_thirteen = cast(dict[str, object], report["sameThirteen"])
+    teacher_unique = cast(dict[str, object], same_thirteen["teacherBestDiscardUniqueCount"])
+    model_unique = cast(dict[str, object], same_thirteen["modelSelectedDiscardUniqueCount"])
+    model_consistency = cast(
+        dict[str, object],
+        same_thirteen["modelSelectedPredictedValueStdDev"],
+    )
+    assert same_thirteen["groupCount"] == 2
+    assert teacher_unique["mean"] == 2.0
+    assert model_unique["mean"] == 2.0
+    assert model_consistency["count"] == 2
+    assert cast(float, model_consistency["mean"]) > 0.0
+
+
 def test_training_smoke_checkpoint_save_load_and_deterministic_eval(tmp_path: Path) -> None:
     dataset_dir = tmp_path / "dataset"
     dataset_dir.mkdir()
@@ -326,6 +399,71 @@ def test_compact_training_smoke_checkpoint_save_load(tmp_path: Path) -> None:
 
     assert loaded_model.config.input_dim == EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT
     assert checkpoint["trainingConfig"]["input_variant"] == "compact396"
+
+
+def test_issue442_report_validates_layout_counts_and_renders_baseline(tmp_path: Path) -> None:
+    dataset_dir = tmp_path / "dataset"
+    artifact_dir = tmp_path / "artifact"
+    dataset_dir.mkdir()
+    _write_dataset(dataset_dir, states=12)
+    manifest = json.loads((dataset_dir / "manifest.json").read_text())
+    manifest["pseudoFixedThirteen"] = {
+        "method": "pseudo-fixed-original10-kitty3-v1",
+        "fixedThirteenGroupCount": 6,
+        "acceptedDealsPerFixedThirteenGroup": 2,
+        "acceptedDealCount": 12,
+        "rejectedDealCount": 0,
+        "acceptanceRate": 1.0,
+        "rejectionReasons": {},
+        "targetDistribution": {"13": 12},
+        "suitDistribution": {"spades": 12},
+        "biddingHistoryActionCount": {"count": 12, "mean": 5.0},
+        "biddingHistoryUniqueHashCount": 12,
+        "opponentPolicyCounts": {"frozen-raise-v1": 24},
+        "opponentPolicyRatios": {"frozen-raise-v1": 1.0},
+        "groupContractDiversity": {
+            "targetMeanUniqueCount": 1.0,
+            "suitMeanUniqueCount": 1.0,
+            "targetSuitMeanUniqueCount": 1.0,
+        },
+    }
+    (dataset_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    dataset = load_exchange_counterfactual_dataset(dataset_dir)
+    result = train_exchange_value_model(
+        dataset,
+        ExchangeValueTrainConfig(
+            seed=123,
+            epochs=1,
+            batch_size=256,
+            hidden_dims=(16,),
+            input_variant="compact396",
+            device="cpu",
+        ),
+    )
+    save_exchange_value_artifact(artifact_dir, result=result, dataset=dataset)
+
+    summary = collect_issue442_layout_summary(
+        layout=Issue442Layout("fixture", 6, 2),
+        dataset_directory=dataset_dir,
+        artifact_directory=artifact_dir,
+    )
+    markdown = render_issue442_markdown(
+        {
+            "layouts": [summary],
+            "conclusion": {
+                "pseudoFixedRepeatsHelped": True,
+                "bestLayout": "fixture",
+                "adoptPseudoFixedTeacherCandidate": False,
+                "moveToAdjutantKittyJointIfNoImprovement": True,
+            },
+        }
+    )
+
+    assert summary["checks"]["sampleCount"] is True
+    assert summary["split"]["leakageGuard"]["fixedThirteenGroupId"][
+        "crossSplitLeakageCount"
+    ] == 0
+    assert "| #438 compact396 baseline | 0.409 | 0.592 | 4.60 | 12.30 | 4.59 |" in markdown
 
 
 def test_compact_variant_rejects_legacy_dataset_without_compact_state(tmp_path: Path) -> None:
