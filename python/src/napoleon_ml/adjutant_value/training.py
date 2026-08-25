@@ -158,7 +158,10 @@ def train_adjutant_value_model(
         if validation_loss < best_validation:
             best_validation = validation_loss
             best_epoch = epoch
-            best_state = {name: value.detach().cpu() for name, value in model.state_dict().items()}
+            best_state = {
+                name: value.detach().cpu().clone()
+                for name, value in model.state_dict().items()
+            }
             stale_epochs = 0
         else:
             stale_epochs += 1

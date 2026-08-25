@@ -2025,8 +2025,9 @@ void write_stream_manifest(
   json_escape(out, options.bidding_policy_id);
   out << ",\"playing\":";
   json_escape(out, options.playing_policy_id);
-  out << ",\"playingCritic\":\"ppo-separated-v1000/critic.onnx\""
-      << ",\"policyDevice\":";
+  out << ",\"playingCritic\":";
+  json_escape(out, options.playing_critic_onnx_path);
+  out << ",\"policyDevice\":";
   json_escape(out, options.policy_device);
   out << "}"
       << ",\"compact290Audit\":" << compact290_audit_json()
