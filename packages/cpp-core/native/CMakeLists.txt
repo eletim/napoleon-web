@@ -89,5 +89,12 @@ add_executable(napoleon_joint_teacher_cli
 target_link_libraries(napoleon_joint_teacher_cli PRIVATE napoleon_core)
 target_compile_options(napoleon_joint_teacher_cli PRIVATE -Wall -Wextra -Wpedantic)
 
+add_executable(napoleon_adjutant_value_stream_cli
+  src/napoleon_adjutant_value_stream_cli.cpp
+)
+
+target_link_libraries(napoleon_adjutant_value_stream_cli PRIVATE napoleon_core)
+target_compile_options(napoleon_adjutant_value_stream_cli PRIVATE -Wall -Wextra -Wpedantic)
+
 enable_testing()
 add_test(NAME napoleon_core_self_test COMMAND napoleon_core_self_test)

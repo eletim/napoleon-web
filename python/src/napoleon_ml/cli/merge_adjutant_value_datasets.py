@@ -1,0 +1,209 @@
+"""Merge Issue #446 adjutant-value dataset shards."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import shutil
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+FEATURE_COUNT = 290
+ADJUTANT_COUNT = 53
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output-directory", type=Path, required=True)
+    parser.add_argument("shards", nargs="+", type=Path)
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    merge_adjutant_value_datasets(args.shards, args.output_directory)
+    return 0
+
+
+def merge_adjutant_value_datasets(shards: Sequence[Path], output_directory: Path) -> None:
+    if not shards:
+        raise ValueError("at least one shard is required.")
+    _validate_distinct_paths(shards, output_directory)
+    manifests = [_load_manifest(path) for path in shards]
+    _validate_compatible(manifests)
+    _validate_unique_sources(shards, manifests)
+
+    output_directory.mkdir(parents=True, exist_ok=True)
+    for name in ("features.f32", "contract-margin.f32", "relative-reward.f32", "candidate-card.u8"):
+        with (output_directory / name).open("wb") as out:
+            for shard in shards:
+                with (shard / name).open("rb") as src:
+                    shutil.copyfileobj(src, out, length=1024 * 1024)
+
+    source_offset = 0
+    diagnostics: list[dict[str, Any]] = []
+    with (output_directory / "state-index.u32").open("wb") as out:
+        for shard, manifest in zip(shards, manifests, strict=True):
+            sample_count = int(manifest["sampleCount"])
+            state_indices = np.memmap(
+                shard / "state-index.u32",
+                mode="r",
+                dtype="<u4",
+                shape=(sample_count,),
+            )
+            adjusted = np.asarray(state_indices, dtype=np.uint32) + np.uint32(source_offset)
+            out.write(adjusted.astype("<u4", copy=False).tobytes(order="C"))
+            for diagnostic in manifest.get("sourceDiagnostics", []):
+                item = dict(diagnostic)
+                item["sourceIndex"] = int(item["sourceIndex"]) + source_offset
+                diagnostics.append(item)
+            source_offset += int(manifest["sourceStateCount"])
+
+    merged_manifest = dict(manifests[0])
+    merged_manifest["sourceStateCount"] = sum(int(item["sourceStateCount"]) for item in manifests)
+    merged_manifest["sampleCount"] = sum(int(item["sampleCount"]) for item in manifests)
+    merged_manifest["terminalRolloutCount"] = sum(
+        int(item["terminalRolloutCount"]) for item in manifests
+    )
+    merged_manifest["sourceDiagnostics"] = diagnostics
+    merged_manifest["sourceDistribution"] = _source_distribution(diagnostics)
+    seeds = [int(item["seed"]) for item in diagnostics if "seed" in item]
+    if seeds:
+        merged_manifest["startSeed"] = min(seeds)
+        merged_manifest["endSeed"] = max(seeds)
+    if "requestedSourceStateCount" in merged_manifest:
+        merged_manifest["requestedSourceStateCount"] = merged_manifest["sourceStateCount"]
+    merged_manifest["mergedShardCount"] = len(shards)
+    merged_manifest["mergedShards"] = [
+        {
+            "path": str(shard),
+            "manifestSha256": _sha256(shard / "manifest.json"),
+            "sourceStateCount": int(manifest["sourceStateCount"]),
+            "sampleCount": int(manifest["sampleCount"]),
+            "terminalRolloutCount": int(manifest["terminalRolloutCount"]),
+        }
+        for shard, manifest in zip(shards, manifests, strict=True)
+    ]
+    (output_directory / "manifest.json").write_text(
+        json.dumps(merged_manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _load_manifest(directory: Path) -> dict[str, Any]:
+    manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
+    sample_count = int(manifest["sampleCount"])
+    source_count = int(manifest["sourceStateCount"])
+    if sample_count != source_count * ADJUTANT_COUNT:
+        raise ValueError(f"{directory}: sampleCount must be sourceStateCount*53.")
+    if int(manifest["featureCount"]) != FEATURE_COUNT:
+        raise ValueError(f"{directory}: featureCount must be {FEATURE_COUNT}.")
+    scorer = manifest.get("proposalScorer")
+    if not isinstance(scorer, dict) or not scorer.get("checkpointSha256"):
+        raise ValueError(f"{directory}: proposalScorer checkpoint provenance is required.")
+    return manifest
+
+
+def _validate_compatible(manifests: Sequence[dict[str, Any]]) -> None:
+    keys = (
+        "datasetSchemaVersion",
+        "sampleType",
+        "teacherId",
+        "mode",
+        "featureCount",
+        "stateFeatureCount",
+        "candidateCountPerState",
+        "runtimeOrder",
+        "policyPath",
+        "proposal",
+        "proposalScorer",
+    )
+    first = manifests[0]
+    for manifest in manifests[1:]:
+        for key in keys:
+            if manifest.get(key) != first.get(key):
+                raise ValueError(f"incompatible shard manifest field: {key}")
+
+
+def _validate_distinct_paths(shards: Sequence[Path], output_directory: Path) -> None:
+    resolved_output = output_directory.resolve()
+    resolved_shards = [shard.resolve() for shard in shards]
+    if resolved_output in resolved_shards:
+        raise ValueError("output directory must not be one of the input shards.")
+    if len(set(resolved_shards)) != len(resolved_shards):
+        raise ValueError("input shard paths must be unique.")
+
+
+def _validate_unique_sources(
+    shards: Sequence[Path], manifests: Sequence[dict[str, Any]]
+) -> None:
+    seen: dict[tuple[str, str], Path] = {}
+    for shard, manifest in zip(shards, manifests, strict=True):
+        diagnostics = manifest.get("sourceDiagnostics")
+        if not isinstance(diagnostics, list) or len(diagnostics) != int(
+            manifest["sourceStateCount"]
+        ):
+            raise ValueError(
+                f"{shard}: sourceDiagnostics must contain one entry per source state."
+            )
+        for diagnostic in diagnostics:
+            if not isinstance(diagnostic, dict):
+                raise ValueError(f"{shard}: sourceDiagnostics entries must be objects.")
+            identities: list[tuple[str, str]] = []
+            for field in ("sourceStateKey", "seed", "hiddenDealChecksum"):
+                if field in diagnostic:
+                    identities.append((field, str(diagnostic[field])))
+            if "originalHandIdentity" in diagnostic and "biddingHistoryHash" in diagnostic:
+                identities.append(
+                    (
+                        "originalHand+biddingHistory",
+                        f"{diagnostic['originalHandIdentity']}:{diagnostic['biddingHistoryHash']}",
+                    )
+                )
+            if not identities:
+                raise ValueError(f"{shard}: source diagnostic has no stable identity.")
+            for identity in identities:
+                previous = seen.get(identity)
+                if previous is not None:
+                    field, value = identity
+                    raise ValueError(
+                        f"overlapping source identity {field}={value} in {previous} and {shard}."
+                    )
+                seen[identity] = shard
+
+
+def _source_distribution(diagnostics: Sequence[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    suits = {name: 0 for name in ("spades", "hearts", "diamonds", "clubs")}
+    targets = {str(target): 0 for target in range(13, 20)}
+    seats = {str(seat): 0 for seat in range(5)}
+    for diagnostic in diagnostics:
+        suit = diagnostic.get("contractSuit")
+        if isinstance(suit, str) and suit in suits:
+            suits[suit] += 1
+        target = str(diagnostic.get("contractTarget"))
+        if target in targets:
+            targets[target] += 1
+        seat = str(diagnostic.get("napoleonSeatIndex"))
+        if seat in seats:
+            seats[seat] += 1
+    return {
+        "contractSuit": suits,
+        "contractTarget": targets,
+        "napoleonSeatIndex": seats,
+    }
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

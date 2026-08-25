@@ -1,18 +1,28 @@
 #include "napoleon_joint_teacher.hpp"
 
 #include "napoleon_observation.hpp"
+#include "napoleon_onnx_policy.hpp"
 #include "napoleon_rule_based.hpp"
+
+#ifdef NAPOLEON_ENABLE_ONNXRUNTIME
+#include <onnxruntime_cxx_api.h>
+#endif
 
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <iomanip>
+#include <iostream>
 #include <limits>
+#include <memory>
 #include <numeric>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -79,6 +89,19 @@ struct RunningStats {
   }
 };
 
+constexpr double kFrozenRaiseV1TargetMean = -4.232175;
+constexpr double kFrozenRaiseV1TargetStd = 4.0394764226784385;
+
+[[maybe_unused]] onnx_policy::InferenceDevice parse_policy_device(const std::string& value) {
+  if (value == "cpu") {
+    return onnx_policy::InferenceDevice::Cpu;
+  }
+  if (value == "cuda") {
+    return onnx_policy::InferenceDevice::Cuda;
+  }
+  throw std::runtime_error("--policy-device must be cpu or cuda");
+}
+
 bool is_joker(Card card) {
   return card.id == 52;
 }
@@ -139,6 +162,197 @@ int card_model_index(Card card) {
 int relative_player_index(int self_player_index, int player_index) {
   return (player_index - self_player_index + kPlayerCount) % kPlayerCount;
 }
+
+#ifdef NAPOLEON_ENABLE_ONNXRUNTIME
+
+std::vector<Ort::Value> run_single_input_onnx(
+    Ort::Env& env,
+    Ort::MemoryInfo& memory_info,
+    std::unique_ptr<Ort::Session>& session,
+    const std::string& onnx_path,
+    onnx_policy::InferenceDevice device,
+    const std::vector<float>& input,
+    std::size_t feature_count,
+    const std::vector<const char*>& output_names) {
+  if (!session) {
+    Ort::SessionOptions options;
+    options.SetIntraOpNumThreads(1);
+    options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+    if (device == onnx_policy::InferenceDevice::Cuda) {
+      OrtCUDAProviderOptions cuda_options;
+      options.AppendExecutionProvider_CUDA(cuda_options);
+    }
+    session = std::make_unique<Ort::Session>(env, onnx_path.c_str(), options);
+  }
+  if (input.size() != feature_count) {
+    throw std::runtime_error("ONNX input feature count mismatch");
+  }
+
+  std::array<std::int64_t, 2> input_shape{
+      1,
+      static_cast<std::int64_t>(feature_count)};
+  Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
+      memory_info,
+      const_cast<float*>(input.data()),
+      input.size(),
+      input_shape.data(),
+      input_shape.size());
+  const char* input_names[] = {"model_input"};
+  return session->Run(
+      Ort::RunOptions{nullptr},
+      input_names,
+      &input_tensor,
+      1,
+      output_names.data(),
+      output_names.size());
+}
+
+class FrozenRaiseMarginSession {
+ public:
+  FrozenRaiseMarginSession(
+      std::string onnx_path,
+      onnx_policy::InferenceDevice device)
+      : env_(ORT_LOGGING_LEVEL_WARNING, "napoleon-frozen-raise-margin"),
+        memory_info_(Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)),
+        onnx_path_(std::move(onnx_path)),
+        device_(device) {}
+
+  std::pair<std::array<double, observation::kBiddingActionCount>,
+            std::array<double, observation::kBiddingActionCount>>
+  predict(const std::array<float, observation::kBiddingModelInputFeatureCount>& input) {
+    const std::vector<float> input_vector(input.begin(), input.end());
+    const std::vector<const char*> output_names{"mean", "log_variance"};
+    std::vector<Ort::Value> outputs = run_single_input_onnx(
+        env_,
+        memory_info_,
+        session_,
+        onnx_path_,
+        device_,
+        input_vector,
+        observation::kBiddingModelInputFeatureCount,
+        output_names);
+    if (outputs.size() != 2 || !outputs[0].IsTensor() || !outputs[1].IsTensor()) {
+      throw std::runtime_error("bidding margin ONNX must return mean and log_variance tensors");
+    }
+    for (const Ort::Value& output : outputs) {
+      const std::vector<std::int64_t> dims = output.GetTensorTypeAndShapeInfo().GetShape();
+      if (dims.size() != 2 || dims[0] != 1 ||
+          dims[1] != observation::kBiddingActionCount) {
+        throw std::runtime_error("bidding margin ONNX output shape mismatch");
+      }
+    }
+
+    const float* raw_mean = outputs[0].GetTensorData<float>();
+    const float* log_variance = outputs[1].GetTensorData<float>();
+    std::array<double, observation::kBiddingActionCount> mean{};
+    std::array<double, observation::kBiddingActionCount> sigma{};
+    for (int index = 0; index < observation::kBiddingActionCount; ++index) {
+      mean[static_cast<std::size_t>(index)] =
+          static_cast<double>(raw_mean[index]) * kFrozenRaiseV1TargetStd +
+          kFrozenRaiseV1TargetMean;
+      sigma[static_cast<std::size_t>(index)] = std::max(
+          std::exp(0.5 * static_cast<double>(log_variance[index])) *
+              kFrozenRaiseV1TargetStd,
+          1e-12);
+    }
+    return {mean, sigma};
+  }
+
+ private:
+  Ort::Env env_;
+  Ort::MemoryInfo memory_info_;
+  std::string onnx_path_;
+  onnx_policy::InferenceDevice device_;
+  std::unique_ptr<Ort::Session> session_;
+};
+
+class PlayingCriticSession {
+ public:
+  PlayingCriticSession(
+      std::string onnx_path,
+      onnx_policy::InferenceDevice device)
+      : env_(ORT_LOGGING_LEVEL_WARNING, "napoleon-playing-critic"),
+        memory_info_(Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)),
+        onnx_path_(std::move(onnx_path)),
+        device_(device) {}
+
+  double predict(const std::vector<float>& input) {
+    const std::vector<const char*> output_names{"value"};
+    std::vector<Ort::Value> outputs = run_single_input_onnx(
+        env_,
+        memory_info_,
+        session_,
+        onnx_path_,
+        device_,
+        input,
+        observation::kPlayingModelInputFeatureCount,
+        output_names);
+    if (outputs.size() != 1 || !outputs[0].IsTensor()) {
+      throw std::runtime_error("playing critic ONNX must return one value tensor");
+    }
+    const std::vector<std::int64_t> dims = outputs[0].GetTensorTypeAndShapeInfo().GetShape();
+    if (!((dims.size() == 1 && dims[0] == 1) ||
+          (dims.size() == 2 && dims[0] == 1 && dims[1] == 1))) {
+      throw std::runtime_error("playing critic ONNX output shape mismatch");
+    }
+    return static_cast<double>(outputs[0].GetTensorData<float>()[0]);
+  }
+
+ private:
+  Ort::Env env_;
+  Ort::MemoryInfo memory_info_;
+  std::string onnx_path_;
+  onnx_policy::InferenceDevice device_;
+  std::unique_ptr<Ort::Session> session_;
+};
+
+#endif
+
+struct PolicyRuntimeContext {
+  explicit PolicyRuntimeContext(const AdjutantValueStreamOptions& options)
+      : playing_policy_id(options.playing_policy_id) {
+    if (options.bidding_policy_id != "frozen-raise-v1") {
+      throw std::runtime_error("Issue #446 stream teacher requires bidding policy frozen-raise-v1");
+    }
+    if (options.playing_policy_id != "ppo-separated-v1000") {
+      throw std::runtime_error("Issue #446 stream teacher requires playing policy ppo-separated-v1000");
+    }
+#ifdef NAPOLEON_ENABLE_ONNXRUNTIME
+    const onnx_policy::InferenceDevice device = parse_policy_device(options.policy_device);
+    margin = std::make_unique<FrozenRaiseMarginSession>(
+        options.bidding_margin_onnx_path,
+        device);
+    critic = std::make_unique<PlayingCriticSession>(
+        options.playing_critic_onnx_path,
+        device);
+    playing_executor = std::make_unique<onnx_policy::BatchedPolicyExecutor>(
+        onnx_policy::BatchedPolicyConfig{2048, 1.0, options.agent_seed});
+    playing_executor->add_policy(
+        onnx_policy::PolicyKey{AgentType::CurrentPolicy, options.playing_policy_id},
+        onnx_policy::create_onnxruntime_policy_session(
+            onnx_policy::PolicySessionConfig{
+                onnx_policy::PolicyKey{AgentType::CurrentPolicy, options.playing_policy_id},
+                options.playing_policy_onnx_path,
+                "model_input",
+                "logits",
+                device,
+                observation::kPlayingModelInputFeatureCount,
+                observation::kCardCount}));
+#else
+    (void)options;
+    throw std::runtime_error(
+        "Issue #446 stream teacher requires C++ ONNX Runtime; configure with -DNAPOLEON_ENABLE_ONNXRUNTIME=ON");
+#endif
+  }
+
+  std::string playing_policy_id;
+  std::uint64_t sequence = 1;
+#ifdef NAPOLEON_ENABLE_ONNXRUNTIME
+  std::unique_ptr<FrozenRaiseMarginSession> margin;
+  std::unique_ptr<PlayingCriticSession> critic;
+  std::unique_ptr<onnx_policy::BatchedPolicyExecutor> playing_executor;
+#endif
+};
 
 int bidding_bid_position_suit_index(Suit suit) {
   switch (suit) {
@@ -474,6 +688,250 @@ Action choose_adjutant_action(int player_index, Card card) {
   return action;
 }
 
+bool hand_contains_card(const std::vector<Card>& hand, Card card) {
+  return std::any_of(hand.begin(), hand.end(), [&](Card candidate) {
+    return candidate.id == card.id;
+  });
+}
+
+std::optional<int> resolve_called_card_owner_for_virtual_state(
+    const GameState& state,
+    const Contract& contract,
+    Card called_card) {
+  for (int player_index = 0; player_index < kPlayerCount; ++player_index) {
+    if (hand_contains_card(state.hands[static_cast<std::size_t>(player_index)], called_card)) {
+      if (player_index == contract.napoleon_player_index) {
+        return std::nullopt;
+      }
+      return player_index;
+    }
+  }
+  return std::nullopt;
+}
+
+Card simple_adjutant_card_for_virtual_bid(const GameState& state, int player_index, Suit trump_suit) {
+  const auto& hand = state.hands[static_cast<std::size_t>(player_index)];
+  const std::vector<Card> priority{
+      parse_card_id("spades-A"),
+      sei_jack(trump_suit),
+      ura_jack(trump_suit),
+      Card{static_cast<std::uint8_t>(static_cast<int>(trump_suit) * 13 + static_cast<int>(Rank::Ace))},
+      Card{static_cast<std::uint8_t>(static_cast<int>(trump_suit) * 13 + static_cast<int>(Rank::King))},
+      Card{static_cast<std::uint8_t>(static_cast<int>(trump_suit) * 13 + static_cast<int>(Rank::Queen))},
+      Card{static_cast<std::uint8_t>(static_cast<int>(trump_suit) * 13 + static_cast<int>(Rank::Jack))},
+      Card{static_cast<std::uint8_t>(static_cast<int>(trump_suit) * 13 + static_cast<int>(Rank::Ten))},
+      Card{static_cast<std::uint8_t>(static_cast<int>(trump_suit) * 13 + static_cast<int>(Rank::Nine))},
+      Card{static_cast<std::uint8_t>(static_cast<int>(trump_suit) * 13 + static_cast<int>(Rank::Eight))},
+      Card{static_cast<std::uint8_t>(static_cast<int>(trump_suit) * 13 + static_cast<int>(Rank::Seven))},
+      Card{static_cast<std::uint8_t>(static_cast<int>(trump_suit) * 13 + static_cast<int>(Rank::Six))},
+      Card{static_cast<std::uint8_t>(static_cast<int>(trump_suit) * 13 + static_cast<int>(Rank::Five))},
+      Card{static_cast<std::uint8_t>(static_cast<int>(trump_suit) * 13 + static_cast<int>(Rank::Four))},
+      Card{static_cast<std::uint8_t>(static_cast<int>(trump_suit) * 13 + static_cast<int>(Rank::Three))},
+      Card{static_cast<std::uint8_t>(static_cast<int>(trump_suit) * 13 + static_cast<int>(Rank::Two))}};
+  for (Card card : priority) {
+    if (!hand_contains_card(hand, card)) {
+      return card;
+    }
+  }
+  for (Card card : create_deck()) {
+    if (!is_joker(card) && !hand_contains_card(hand, card)) {
+      return card;
+    }
+  }
+  return Card{52};
+}
+
+void append_virtual_bidding_action(GameState& state, const Action& action) {
+  BiddingHistoryEntry entry;
+  entry.is_bid = action.type == Action::Type::Bid;
+  entry.player_index = action.player_index;
+  if (entry.is_bid) {
+    entry.suit = action.suit;
+    entry.target_point_cards = action.target_point_cards;
+  }
+  state.public_bidding_history.push_back(entry);
+}
+
+[[maybe_unused]] GameState create_virtual_playing_state_for_bidding_action(
+    const GameState& source,
+    const Action& action) {
+  if (source.phase != Phase::Bidding || !source.bidding.has_value()) {
+    throw std::runtime_error("virtual bidding critic state requires bidding phase");
+  }
+  Contract contract;
+  Card called_adjutant = parse_card_id("spades-A");
+  if (action.type == Action::Type::Bid) {
+    contract = Contract{action.player_index, *action.suit, action.target_point_cards};
+    called_adjutant = simple_adjutant_card_for_virtual_bid(source, action.player_index, *action.suit);
+  } else if (source.bidding->highest_bid.has_value()) {
+    const Bid& highest_bid = *source.bidding->highest_bid;
+    contract = Contract{
+        highest_bid.player_index,
+        highest_bid.suit,
+        highest_bid.target_point_cards};
+  } else {
+    throw std::runtime_error("cannot build virtual playing state for all-pass bidding action");
+  }
+
+  GameState state = source;
+  append_virtual_bidding_action(state, action);
+  state.phase = Phase::Playing;
+  state.current_player_index = contract.napoleon_player_index;
+  state.current_trick.clear();
+  state.completed_tricks.clear();
+  state.trump_suit = contract.trump_suit;
+  state.contract = contract;
+  state.bidding = std::nullopt;
+  state.adjutant = AdjutantState{
+      called_adjutant,
+      resolve_called_card_owner_for_virtual_state(state, contract, called_adjutant),
+      false};
+  state.awarded_point_cards.clear();
+  state.excluded_cards.clear();
+  state.latest_event = BuriedCardsResolvedEvent{contract.napoleon_player_index, {}, 3};
+  state.result = std::nullopt;
+  state.trick_number = 1;
+  state.is_trick_complete = false;
+  state.is_game_over = false;
+  return state;
+}
+
+double clamp01(double value) {
+  return std::min(1.0, std::max(0.0, value));
+}
+
+[[maybe_unused]] double gaussian_success_probability(double mean, double sigma) {
+  if (!std::isfinite(mean) || !std::isfinite(sigma) || sigma <= 0.0) {
+    throw std::runtime_error("invalid frozen-raise-v1 Gaussian output");
+  }
+  return clamp01(0.5 * (1.0 + std::erf(mean / (sigma * std::sqrt(2.0)))));
+}
+
+[[maybe_unused]] double napoleon_relative_ev(double p_win, int target_point_cards) {
+  return p_win * ((7.0 * target_point_cards) / 4.0) +
+         (1.0 - p_win) * ((-3.0 * target_point_cards) / 4.0);
+}
+
+[[maybe_unused]] double critic_value_to_win_rate_equivalent(double value) {
+  if (!std::isfinite(value)) {
+    throw std::runtime_error("critic value must be finite");
+  }
+  return clamp01((value + 1.0) / 2.0);
+}
+
+[[maybe_unused]] double evaluate_pass_ev_with_policy(const GameState& state, PolicyRuntimeContext& policy) {
+  if (!state.bidding.has_value() || !state.bidding->highest_bid.has_value()) {
+    return 0.0;
+  }
+#ifdef NAPOLEON_ENABLE_ONNXRUNTIME
+  Action pass;
+  pass.type = Action::Type::Pass;
+  pass.player_index = state.current_player_index;
+  const GameState virtual_state = create_virtual_playing_state_for_bidding_action(state, pass);
+  const observation::PlayingModelInput input =
+      observation::create_playing_model_input(virtual_state, state.current_player_index);
+  const std::vector<float> model_input(input.model_input.begin(), input.model_input.end());
+  const double base_win_rate =
+      critic_value_to_win_rate_equivalent(policy.critic->predict(model_input));
+  const Contract& contract = *virtual_state.contract;
+  if (state.current_player_index == contract.napoleon_player_index) {
+    return base_win_rate * contract.target_point_cards + (1.0 - base_win_rate) * -3.0;
+  }
+  if (virtual_state.adjutant->player_index.has_value() &&
+      state.current_player_index == *virtual_state.adjutant->player_index) {
+    return base_win_rate * (contract.target_point_cards - 7.0);
+  }
+  return base_win_rate * 7.0;
+#else
+  (void)policy;
+  throw std::runtime_error("policy pass EV requires C++ ONNX Runtime");
+#endif
+}
+
+Action select_frozen_raise_bidding_action(GameState& state, PolicyRuntimeContext& policy) {
+  if (state.phase != Phase::Bidding) {
+    throw std::runtime_error("frozen-raise-v1 can select only bidding actions");
+  }
+#ifdef NAPOLEON_ENABLE_ONNXRUNTIME
+  const int player_index = state.current_player_index;
+  const observation::BiddingModelInput input =
+      observation::create_bidding_model_input(state, player_index);
+  const auto prediction = policy.margin->predict(input.model_input);
+  const auto& mean = prediction.first;
+  const auto& sigma = prediction.second;
+  const std::vector<Action> legal_actions = get_legal_actions(state, player_index);
+
+  std::optional<Action> legal_pass;
+  std::optional<Action> best_bid;
+  double best_bid_ev = -std::numeric_limits<double>::infinity();
+  int best_bid_index = observation::kBiddingActionCount;
+  for (const Action& action : legal_actions) {
+    const int action_index = observation::bidding_action_index(action);
+    if (action.type == Action::Type::Pass) {
+      legal_pass = action;
+      continue;
+    }
+    if (action.type != Action::Type::Bid) {
+      continue;
+    }
+    const double p_win = gaussian_success_probability(
+        mean[static_cast<std::size_t>(action_index)],
+        sigma[static_cast<std::size_t>(action_index)]);
+    const double ev = napoleon_relative_ev(p_win, action.target_point_cards);
+    if (ev > best_bid_ev + kEpsilon ||
+        (std::fabs(ev - best_bid_ev) <= kEpsilon && action_index < best_bid_index)) {
+      best_bid_ev = ev;
+      best_bid = action;
+      best_bid_index = action_index;
+    }
+  }
+
+  const double pass_ev = state.bidding->highest_bid.has_value()
+      ? evaluate_pass_ev_with_policy(state, policy)
+      : 0.0;
+  if (best_bid.has_value() && best_bid_ev > pass_ev) {
+    return *best_bid;
+  }
+  if (legal_pass.has_value()) {
+    return *legal_pass;
+  }
+  if (best_bid.has_value()) {
+    return *best_bid;
+  }
+  throw std::runtime_error("frozen-raise-v1 found no legal bidding action");
+#else
+  (void)policy;
+  throw std::runtime_error("frozen-raise-v1 requires C++ ONNX Runtime");
+#endif
+}
+
+Action select_playing_policy_action(GameState& state, PolicyRuntimeContext& policy) {
+  if (state.phase != Phase::Playing || state.is_trick_complete || state.is_game_over) {
+    throw std::runtime_error("playing policy can select only active playing actions");
+  }
+#ifdef NAPOLEON_ENABLE_ONNXRUNTIME
+  AgentRequest request;
+  request.request_id = policy.sequence;
+  request.game_id = 0;
+  request.game_index = 0;
+  request.seed = 0;
+  request.sequence = policy.sequence++;
+  request.player_index = state.current_player_index;
+  request.agent = AgentIdentity{AgentType::CurrentPolicy, policy.playing_policy_id};
+  request.phase = Phase::Playing;
+  request.legal_actions = get_legal_actions(state, state.current_player_index);
+  onnx_policy::attach_playing_model_input(state, state.current_player_index, request);
+  std::vector<onnx_policy::PolicyActionResult> results = policy.playing_executor->run({request});
+  if (results.size() != 1) {
+    throw std::runtime_error("playing policy returned an unexpected result count");
+  }
+  return results[0].result.action;
+#else
+  (void)policy;
+  throw std::runtime_error("playing policy requires C++ ONNX Runtime");
+#endif
+}
+
 RolloutValue finish_with_rule_based_playing(GameState state, std::uint32_t seed) {
   SeededRandom rng(seed);
   int guard = 0;
@@ -505,6 +963,127 @@ RolloutValue finish_with_rule_based_playing(GameState state, std::uint32_t seed)
       state.result->napoleon_team_point_cards};
 }
 
+RolloutValue finish_with_policy_playing(GameState state, PolicyRuntimeContext& policy) {
+  int guard = 0;
+  while (!state.is_game_over && state.phase != Phase::Finished) {
+    if (++guard > 1000) {
+      throw std::runtime_error("policy playing rollout did not terminate");
+    }
+    if (state.phase == Phase::Playing && state.is_trick_complete) {
+      Action action;
+      action.type = Action::Type::AdvanceToNextTrick;
+      apply_action(state, action);
+      continue;
+    }
+    if (state.phase != Phase::Playing) {
+      throw std::runtime_error("policy rollout expected playing state");
+    }
+    const Action action = select_playing_policy_action(state, policy);
+    apply_action(state, action);
+  }
+  if (!state.result.has_value() || state.result->result_type != "standard") {
+    throw std::runtime_error("standard result required");
+  }
+  const bool success = state.result->winner == "napoleon-team";
+  return RolloutValue{
+      static_cast<double>(state.result->napoleon_team_point_cards - state.result->target_point_cards),
+      success ? (7.0 * state.result->target_point_cards) / 4.0
+              : (-3.0 * state.result->target_point_cards) / 4.0,
+      success,
+      state.result->napoleon_team_point_cards};
+}
+
+[[maybe_unused]] RolloutValue rollout_value_from_finished_state(const GameState& state) {
+  if (!state.result.has_value() || state.result->result_type != "standard") {
+    throw std::runtime_error("standard result required");
+  }
+  const bool success = state.result->winner == "napoleon-team";
+  return RolloutValue{
+      static_cast<double>(state.result->napoleon_team_point_cards - state.result->target_point_cards),
+      success ? (7.0 * state.result->target_point_cards) / 4.0
+              : (-3.0 * state.result->target_point_cards) / 4.0,
+      success,
+      state.result->napoleon_team_point_cards};
+}
+
+std::vector<RolloutValue> finish_batch_with_policy_playing(
+    std::vector<GameState> states,
+    PolicyRuntimeContext& policy) {
+#ifdef NAPOLEON_ENABLE_ONNXRUNTIME
+  std::vector<char> finished(states.size(), 0);
+  std::size_t unfinished_count = states.size();
+  int guard = 0;
+  while (unfinished_count > 0) {
+    if (++guard > 1000) {
+      throw std::runtime_error("batched policy playing rollouts did not terminate");
+    }
+
+    std::vector<AgentRequest> requests;
+    requests.reserve(states.size());
+    std::unordered_map<std::uint64_t, std::size_t> request_index_by_id;
+    for (std::size_t index = 0; index < states.size(); ++index) {
+      if (finished[index]) {
+        continue;
+      }
+      GameState& state = states[index];
+      while (state.phase == Phase::Playing && state.is_trick_complete && !state.is_game_over) {
+        Action action;
+        action.type = Action::Type::AdvanceToNextTrick;
+        apply_action(state, action);
+      }
+      if (state.is_game_over || state.phase == Phase::Finished) {
+        finished[index] = 1;
+        --unfinished_count;
+        continue;
+      }
+      if (state.phase != Phase::Playing) {
+        throw std::runtime_error("batched policy rollout expected playing state");
+      }
+
+      AgentRequest request;
+      request.request_id = policy.sequence;
+      request.game_id = static_cast<std::uint32_t>(index);
+      request.game_index = static_cast<std::uint32_t>(index);
+      request.seed = 0;
+      request.sequence = policy.sequence++;
+      request.player_index = state.current_player_index;
+      request.agent = AgentIdentity{AgentType::CurrentPolicy, policy.playing_policy_id};
+      request.phase = Phase::Playing;
+      request.legal_actions = get_legal_actions(state, state.current_player_index);
+      onnx_policy::attach_playing_model_input(state, state.current_player_index, request);
+      request_index_by_id[request.request_id] = index;
+      requests.push_back(std::move(request));
+    }
+
+    if (requests.empty()) {
+      continue;
+    }
+    std::vector<onnx_policy::PolicyActionResult> results = policy.playing_executor->run(requests);
+    if (results.size() != requests.size()) {
+      throw std::runtime_error("batched playing policy returned an unexpected result count");
+    }
+    for (const auto& result : results) {
+      const auto index_it = request_index_by_id.find(result.result.request_id);
+      if (index_it == request_index_by_id.end()) {
+        throw std::runtime_error("batched playing policy returned an unknown request id");
+      }
+      apply_action(states[index_it->second], result.result.action);
+    }
+  }
+
+  std::vector<RolloutValue> values;
+  values.reserve(states.size());
+  for (const GameState& state : states) {
+    values.push_back(rollout_value_from_finished_state(state));
+  }
+  return values;
+#else
+  (void)states;
+  (void)policy;
+  throw std::runtime_error("batched playing policy requires C++ ONNX Runtime");
+#endif
+}
+
 bool better_value(const RolloutValue& left, const RolloutValue& right) {
   if (std::fabs(left.margin - right.margin) > kEpsilon) {
     return left.margin > right.margin;
@@ -524,10 +1103,15 @@ ExchangeEvaluation evaluate_discard(
     const GameState& exchange_state,
     const std::vector<Card>& discard,
     int candidate_index,
-    std::uint32_t rollout_seed) {
+    std::uint32_t rollout_seed,
+    PolicyRuntimeContext* policy = nullptr) {
   (void)create_exchange_compact396_input(choosing_source, exchange_state, discard);
   GameState playing = exchange_state;
   apply_action(playing, discard_action(playing.contract->napoleon_player_index, discard));
+  if (policy != nullptr) {
+    (void)rollout_seed;
+    return ExchangeEvaluation{discard, finish_with_policy_playing(playing, *policy), candidate_index};
+  }
   return ExchangeEvaluation{discard, finish_with_rule_based_playing(playing, rollout_seed), candidate_index};
 }
 
@@ -536,7 +1120,8 @@ ExchangeEvaluation best_exchange_exhaustive(
     const GameState& exchange_state,
     std::uint32_t rollout_seed,
     int& terminal_rollout_count,
-    double& spread) {
+    double& spread,
+    PolicyRuntimeContext* policy = nullptr) {
   const auto& hand = exchange_state.hands[static_cast<std::size_t>(
       exchange_state.contract->napoleon_player_index)];
   const std::vector<std::vector<Card>> combinations = enumerate_discard_combinations(hand);
@@ -547,13 +1132,42 @@ ExchangeEvaluation best_exchange_exhaustive(
   std::optional<ExchangeEvaluation> best;
   double min_margin = std::numeric_limits<double>::infinity();
   double max_margin = -std::numeric_limits<double>::infinity();
+  if (policy != nullptr) {
+    std::vector<GameState> playing_states;
+    playing_states.reserve(combinations.size());
+    for (const std::vector<Card>& discard : combinations) {
+      (void)create_exchange_compact396_input(choosing_source, exchange_state, discard);
+      GameState playing = exchange_state;
+      apply_action(playing, discard_action(playing.contract->napoleon_player_index, discard));
+      playing_states.push_back(std::move(playing));
+    }
+    const std::vector<RolloutValue> values =
+        finish_batch_with_policy_playing(std::move(playing_states), *policy);
+    terminal_rollout_count += static_cast<int>(values.size());
+    for (std::size_t index = 0; index < combinations.size(); ++index) {
+      ExchangeEvaluation evaluated{
+          combinations[index],
+          values[index],
+          static_cast<int>(index)};
+      min_margin = std::min(min_margin, evaluated.value.margin);
+      max_margin = std::max(max_margin, evaluated.value.margin);
+      if (!best.has_value() || better_value(evaluated.value, best->value) ||
+          (!better_value(best->value, evaluated.value) && cards_key(evaluated.discard) < cards_key(best->discard))) {
+        best = evaluated;
+      }
+    }
+    spread = max_margin - min_margin;
+    return *best;
+  }
+
   for (std::size_t index = 0; index < combinations.size(); ++index) {
     ExchangeEvaluation evaluated = evaluate_discard(
         choosing_source,
         exchange_state,
         combinations[index],
         static_cast<int>(index),
-        rollout_seed + static_cast<std::uint32_t>(index));
+        rollout_seed + static_cast<std::uint32_t>(index),
+        policy);
     ++terminal_rollout_count;
     min_margin = std::min(min_margin, evaluated.value.margin);
     max_margin = std::max(max_margin, evaluated.value.margin);
@@ -571,15 +1185,45 @@ ExchangeEvaluation best_exchange_from_candidates(
     const GameState& exchange_state,
     const std::vector<std::vector<Card>>& candidates,
     std::uint32_t rollout_seed,
-    int& terminal_rollout_count) {
+    int& terminal_rollout_count,
+    PolicyRuntimeContext* policy = nullptr) {
   std::optional<ExchangeEvaluation> best;
+  if (policy != nullptr) {
+    std::vector<GameState> playing_states;
+    playing_states.reserve(candidates.size());
+    for (const std::vector<Card>& discard : candidates) {
+      (void)create_exchange_compact396_input(choosing_source, exchange_state, discard);
+      GameState playing = exchange_state;
+      apply_action(playing, discard_action(playing.contract->napoleon_player_index, discard));
+      playing_states.push_back(std::move(playing));
+    }
+    const std::vector<RolloutValue> values =
+        finish_batch_with_policy_playing(std::move(playing_states), *policy);
+    terminal_rollout_count += static_cast<int>(values.size());
+    for (std::size_t index = 0; index < candidates.size(); ++index) {
+      ExchangeEvaluation evaluated{
+          candidates[index],
+          values[index],
+          static_cast<int>(index)};
+      if (!best.has_value() || better_value(evaluated.value, best->value) ||
+          (!better_value(best->value, evaluated.value) && cards_key(evaluated.discard) < cards_key(best->discard))) {
+        best = evaluated;
+      }
+    }
+    if (!best.has_value()) {
+      throw std::runtime_error("no exchange candidates evaluated");
+    }
+    return *best;
+  }
+
   for (std::size_t index = 0; index < candidates.size(); ++index) {
     ExchangeEvaluation evaluated = evaluate_discard(
         choosing_source,
         exchange_state,
         candidates[index],
         static_cast<int>(index),
-        rollout_seed + static_cast<std::uint32_t>(index));
+        rollout_seed + static_cast<std::uint32_t>(index),
+        policy);
     ++terminal_rollout_count;
     if (!best.has_value() || better_value(evaluated.value, best->value) ||
         (!better_value(best->value, evaluated.value) && cards_key(evaluated.discard) < cards_key(best->discard))) {
@@ -680,6 +1324,19 @@ GameState create_choosing_source_state(std::uint32_t seed, std::uint32_t agent_s
       throw std::runtime_error("bidding did not terminate");
     }
     const Action action = select_rule_based_action(state, state.current_player_index, rng);
+    apply_action(state, action);
+  }
+  return state;
+}
+
+GameState create_policy_choosing_source_state(std::uint32_t seed, PolicyRuntimeContext& policy) {
+  GameState state = create_initial_game(seed);
+  int guard = 0;
+  while (state.phase == Phase::Bidding) {
+    if (++guard > 200) {
+      throw std::runtime_error("policy bidding did not terminate");
+    }
+    const Action action = select_frozen_raise_bidding_action(state, policy);
     apply_action(state, action);
   }
   return state;
@@ -963,6 +1620,784 @@ std::string render_report(
   return out.str();
 }
 
+constexpr std::uint32_t kStreamRequestMagic = 0x3151544aU;
+constexpr std::uint32_t kStreamResponseMagic = 0x3153544aU;
+constexpr std::uint32_t kStreamDoneMagic = 0x3044544aU;
+
+struct StreamSourceDiagnostic {
+  std::uint32_t seed = 0;
+  int source_index = 0;
+  int napoleon_index = 0;
+  Suit contract_suit = Suit::Spades;
+  int contract_target = 13;
+  std::string hidden_deal_checksum;
+  std::string original_hand_identity;
+  std::string bidding_history_hash;
+  Card rule_based_adjutant;
+  int rule_based_adjutant_index = 0;
+  double rb_adj_rb_exchange_margin = 0.0;
+  double rb_adj_optimized_exchange_margin = 0.0;
+  double best_adjutant_margin = 0.0;
+  int best_adjutant_index = 0;
+  int terminal_rollouts = 0;
+  int proposal_gold_containment_top4 = 0;
+  int proposal_gold_containment_top8 = 0;
+  int proposal_gold_containment_top16 = 0;
+  int proposal_gold_containment_top32 = 0;
+  int proposal_gold_containment_top64 = 0;
+  int proposal_gold_containment_top16_plus_rb = 0;
+  int proposal_gold_containment_full_proposal = 0;
+  int rule_based_exchange_gold_count = 0;
+  double proposal_best_regret_top16_sum = 0.0;
+  double proposal_best_regret_top16_plus_rb_sum = 0.0;
+  double proposal_best_regret_sum = 0.0;
+};
+
+template <typename T>
+void write_binary(std::ostream& out, const T& value) {
+  out.write(reinterpret_cast<const char*>(&value), sizeof(T));
+  if (!out) {
+    throw std::runtime_error("failed to write binary stream");
+  }
+}
+
+template <typename T>
+T read_binary(std::istream& in, const char* name) {
+  T value{};
+  in.read(reinterpret_cast<char*>(&value), sizeof(T));
+  if (!in) {
+    throw std::runtime_error(std::string("failed to read ") + name);
+  }
+  return value;
+}
+
+void write_float_vector(std::ofstream& out, const std::vector<float>& values) {
+  out.write(
+      reinterpret_cast<const char*>(values.data()),
+      static_cast<std::streamsize>(values.size() * sizeof(float)));
+  if (!out) {
+    throw std::runtime_error("failed to write feature vector");
+  }
+}
+
+void write_float_value(std::ofstream& out, float value) {
+  out.write(reinterpret_cast<const char*>(&value), sizeof(float));
+  if (!out) {
+    throw std::runtime_error("failed to write label value");
+  }
+}
+
+void write_uint32_value(std::ofstream& out, std::uint32_t value) {
+  out.write(reinterpret_cast<const char*>(&value), sizeof(std::uint32_t));
+  if (!out) {
+    throw std::runtime_error("failed to write uint32 value");
+  }
+}
+
+void write_uint8_value(std::ofstream& out, std::uint8_t value) {
+  out.write(reinterpret_cast<const char*>(&value), sizeof(std::uint8_t));
+  if (!out) {
+    throw std::runtime_error("failed to write uint8 value");
+  }
+}
+
+std::vector<std::uint32_t> read_top_indices_response(
+    std::istream& in,
+    int source_index,
+    int expected_top_k) {
+  const std::uint32_t magic = read_binary<std::uint32_t>(in, "response magic");
+  if (magic != kStreamResponseMagic) {
+    throw std::runtime_error("invalid scorer response magic");
+  }
+  const std::uint32_t response_source_index =
+      read_binary<std::uint32_t>(in, "response source index");
+  const std::uint32_t adjutant_count =
+      read_binary<std::uint32_t>(in, "response adjutant count");
+  const std::uint32_t top_k = read_binary<std::uint32_t>(in, "response top-k");
+  if (response_source_index != static_cast<std::uint32_t>(source_index) ||
+      adjutant_count != kAdjutantCandidateCount ||
+      top_k != static_cast<std::uint32_t>(expected_top_k)) {
+    throw std::runtime_error("scorer response shape mismatch");
+  }
+  std::vector<std::uint32_t> indices(
+      static_cast<std::size_t>(kAdjutantCandidateCount * expected_top_k));
+  in.read(
+      reinterpret_cast<char*>(indices.data()),
+      static_cast<std::streamsize>(indices.size() * sizeof(std::uint32_t)));
+  if (!in) {
+    throw std::runtime_error("failed to read scorer top indices");
+  }
+  return indices;
+}
+
+void send_scorer_request(
+    std::ostream& out,
+    int source_index,
+    const std::vector<float>& compact396_inputs) {
+  write_binary(out, kStreamRequestMagic);
+  write_binary(out, static_cast<std::uint32_t>(source_index));
+  write_binary(out, static_cast<std::uint32_t>(kAdjutantCandidateCount));
+  write_binary(out, static_cast<std::uint32_t>(kExchangeDiscardCombinationCount));
+  write_binary(out, static_cast<std::uint32_t>(kExchangeCompactValueInputFeatureCount));
+  out.write(
+      reinterpret_cast<const char*>(compact396_inputs.data()),
+      static_cast<std::streamsize>(compact396_inputs.size() * sizeof(float)));
+  if (!out) {
+    throw std::runtime_error("failed to write scorer request matrix");
+  }
+  out.flush();
+}
+
+int find_discard_index(
+    const std::vector<std::vector<Card>>& combinations,
+    const std::vector<Card>& discard) {
+  const std::string target = cards_key(discard);
+  for (std::size_t index = 0; index < combinations.size(); ++index) {
+    if (cards_key(combinations[index]) == target) {
+      return static_cast<int>(index);
+    }
+  }
+  throw std::runtime_error("discard combination not found");
+}
+
+std::vector<int> deterministic_diversity_indices(
+    int state_index,
+    int adjutant_index,
+    const std::unordered_set<int>& excluded,
+    int count) {
+  std::vector<int> candidates;
+  candidates.reserve(kExchangeDiscardCombinationCount);
+  for (int index = 0; index < kExchangeDiscardCombinationCount; ++index) {
+    if (excluded.count(index) == 0) {
+      candidates.push_back(index);
+    }
+  }
+  std::sort(candidates.begin(), candidates.end(), [&](int left, int right) {
+    const std::uint32_t left_key =
+        static_cast<std::uint32_t>((left + 1) * 2654435761U) ^
+        static_cast<std::uint32_t>((state_index + 17) * 2246822519U) ^
+        static_cast<std::uint32_t>((adjutant_index + 31) * 3266489917U);
+    const std::uint32_t right_key =
+        static_cast<std::uint32_t>((right + 1) * 2654435761U) ^
+        static_cast<std::uint32_t>((state_index + 17) * 2246822519U) ^
+        static_cast<std::uint32_t>((adjutant_index + 31) * 3266489917U);
+    if (left_key != right_key) {
+      return left_key < right_key;
+    }
+    return left < right;
+  });
+  if (count < static_cast<int>(candidates.size())) {
+    candidates.resize(static_cast<std::size_t>(count));
+  }
+  return candidates;
+}
+
+std::vector<int> proposal_indices_for_adjutant(
+    const std::vector<std::uint32_t>& top_indices,
+    int adjutant_index,
+    int scorer_top_k,
+    int proposal_top_k,
+    int rb_discard_index,
+    int diversity_count,
+    int state_index) {
+  std::vector<int> proposal;
+  std::unordered_set<int> seen;
+  const int base = adjutant_index * scorer_top_k;
+  for (int index = 0; index < std::min(proposal_top_k, scorer_top_k); ++index) {
+    const int candidate = static_cast<int>(top_indices[static_cast<std::size_t>(base + index)]);
+    if (candidate < 0 || candidate >= kExchangeDiscardCombinationCount) {
+      throw std::runtime_error("scorer top index out of range");
+    }
+    if (seen.insert(candidate).second) {
+      proposal.push_back(candidate);
+    }
+  }
+  if (seen.insert(rb_discard_index).second) {
+    proposal.push_back(rb_discard_index);
+  }
+  for (int candidate : deterministic_diversity_indices(
+           state_index,
+           adjutant_index,
+           seen,
+           diversity_count)) {
+    if (seen.insert(candidate).second) {
+      proposal.push_back(candidate);
+    }
+  }
+  return proposal;
+}
+
+bool topk_contains(
+    const std::vector<std::uint32_t>& top_indices,
+    int adjutant_index,
+    int scorer_top_k,
+    int k,
+    int target_index) {
+  const int base = adjutant_index * scorer_top_k;
+  for (int offset = 0; offset < std::min(k, scorer_top_k); ++offset) {
+    if (static_cast<int>(top_indices[static_cast<std::size_t>(base + offset)]) == target_index) {
+      return true;
+    }
+  }
+  return false;
+}
+
+RolloutValue best_value_for_discard_indices(
+    const std::vector<std::optional<RolloutValue>>& values,
+    const std::vector<int>& discard_indices) {
+  std::optional<RolloutValue> best;
+  for (int discard_index : discard_indices) {
+    const std::optional<RolloutValue>& value = values[static_cast<std::size_t>(discard_index)];
+    if (!value.has_value()) {
+      throw std::runtime_error("missing discard value for regret calculation");
+    }
+    if (!best.has_value() || better_value(*value, *best)) {
+      best = *value;
+    }
+  }
+  if (!best.has_value()) {
+    throw std::runtime_error("empty discard set for regret calculation");
+  }
+  return *best;
+}
+
+std::vector<int> compact396_top_indices_for_adjutant(
+    const std::vector<std::uint32_t>& top_indices,
+    int adjutant_index,
+    int scorer_top_k,
+    int k) {
+  std::vector<int> result;
+  result.reserve(static_cast<std::size_t>(std::min(k, scorer_top_k)));
+  const int base = adjutant_index * scorer_top_k;
+  for (int offset = 0; offset < std::min(k, scorer_top_k); ++offset) {
+    result.push_back(static_cast<int>(top_indices[static_cast<std::size_t>(base + offset)]));
+  }
+  return result;
+}
+
+std::vector<int> append_unique_index(std::vector<int> values, int item) {
+  if (std::find(values.begin(), values.end(), item) == values.end()) {
+    values.push_back(item);
+  }
+  return values;
+}
+
+struct StreamDiscardJob {
+  int adjutant_index = 0;
+  int discard_index = 0;
+};
+
+std::vector<RolloutValue> evaluate_stream_discard_jobs_with_policy(
+    const std::vector<GameState>& exchange_states,
+    const std::vector<std::vector<std::vector<Card>>>& discard_combinations_by_adjutant,
+    const std::vector<StreamDiscardJob>& jobs,
+    PolicyRuntimeContext& policy) {
+  std::vector<GameState> playing_states;
+  playing_states.reserve(jobs.size());
+  for (const StreamDiscardJob& job : jobs) {
+    if (job.adjutant_index < 0 || job.adjutant_index >= kAdjutantCandidateCount ||
+        job.discard_index < 0 || job.discard_index >= kExchangeDiscardCombinationCount) {
+      throw std::runtime_error("stream discard job index out of range");
+    }
+    GameState playing = exchange_states[static_cast<std::size_t>(job.adjutant_index)];
+    const auto& combinations =
+        discard_combinations_by_adjutant[static_cast<std::size_t>(job.adjutant_index)];
+    apply_action(
+        playing,
+        discard_action(
+            playing.contract->napoleon_player_index,
+            combinations[static_cast<std::size_t>(job.discard_index)]));
+    playing_states.push_back(std::move(playing));
+  }
+  return finish_batch_with_policy_playing(std::move(playing_states), policy);
+}
+
+std::string stable_identity_hash(const std::string& value) {
+  std::uint64_t hash = 1469598103934665603ull;
+  for (unsigned char ch : value) {
+    hash ^= static_cast<std::uint64_t>(ch);
+    hash *= 1099511628211ull;
+  }
+  std::ostringstream out;
+  out << std::hex << std::setw(16) << std::setfill('0') << hash;
+  return out.str();
+}
+
+std::string cards_identity(std::vector<Card> cards) {
+  std::sort(cards.begin(), cards.end(), [](Card left, Card right) {
+    return left.id < right.id;
+  });
+  std::ostringstream out;
+  for (std::size_t index = 0; index < cards.size(); ++index) {
+    if (index != 0) {
+      out << ',';
+    }
+    out << card_id(cards[index]);
+  }
+  return out.str();
+}
+
+std::string hidden_deal_checksum(const GameState& state) {
+  std::ostringstream out;
+  for (int player = 0; player < kPlayerCount; ++player) {
+    if (player != 0) {
+      out << '|';
+    }
+    out << "p" << player << ':' << cards_identity(state.hands[static_cast<std::size_t>(player)]);
+  }
+  out << "|unused:" << cards_identity(state.unused_cards);
+  return stable_identity_hash(out.str());
+}
+
+std::string bidding_history_hash(const GameState& state) {
+  std::ostringstream out;
+  for (const BiddingHistoryEntry& entry : state.public_bidding_history) {
+    out << (entry.is_bid ? 'B' : 'P') << entry.player_index;
+    if (entry.suit.has_value()) {
+      out << ':' << suit_id(*entry.suit) << ':' << *entry.target_point_cards;
+    }
+    out << ';';
+  }
+  return stable_identity_hash(out.str());
+}
+
+void write_stream_distribution(
+    std::ostream& out,
+    const std::vector<StreamSourceDiagnostic>& diagnostics) {
+  std::array<int, 4> suit_counts{0, 0, 0, 0};
+  std::array<int, 7> target_counts{0, 0, 0, 0, 0, 0, 0};
+  std::array<int, kPlayerCount> seat_counts{0, 0, 0, 0, 0};
+  for (const StreamSourceDiagnostic& diagnostic : diagnostics) {
+    ++suit_counts[static_cast<std::size_t>(diagnostic.contract_suit)];
+    if (diagnostic.contract_target >= 13 && diagnostic.contract_target <= 19) {
+      ++target_counts[static_cast<std::size_t>(diagnostic.contract_target - 13)];
+    }
+    if (diagnostic.napoleon_index >= 0 && diagnostic.napoleon_index < kPlayerCount) {
+      ++seat_counts[static_cast<std::size_t>(diagnostic.napoleon_index)];
+    }
+  }
+  out << "{\"contractSuit\":{\"spades\":" << suit_counts[static_cast<std::size_t>(Suit::Spades)]
+      << ",\"hearts\":" << suit_counts[static_cast<std::size_t>(Suit::Hearts)]
+      << ",\"diamonds\":" << suit_counts[static_cast<std::size_t>(Suit::Diamonds)]
+      << ",\"clubs\":" << suit_counts[static_cast<std::size_t>(Suit::Clubs)] << "}"
+      << ",\"contractTarget\":{";
+  for (int target = 13; target <= 19; ++target) {
+    if (target != 13) {
+      out << ',';
+    }
+    out << '"' << target << "\":" << target_counts[static_cast<std::size_t>(target - 13)];
+  }
+  out << "},\"napoleonSeatIndex\":{";
+  for (int seat = 0; seat < kPlayerCount; ++seat) {
+    if (seat != 0) {
+      out << ',';
+    }
+    out << '"' << seat << "\":" << seat_counts[static_cast<std::size_t>(seat)];
+  }
+  out << "}}";
+}
+
+void write_stream_manifest(
+    const std::filesystem::path& output_dir,
+    const AdjutantValueStreamOptions& options,
+    const std::vector<StreamSourceDiagnostic>& diagnostics,
+    int sample_count,
+    int terminal_rollout_count) {
+  std::ostringstream out;
+  out << "{\"datasetSchemaVersion\":1"
+      << ",\"generatorVersion\":2"
+      << ",\"sampleType\":\"adjutant-joint-value-v1\""
+      << ",\"teacherId\":\"issue446-compact396-proposal-joint-teacher-v1\""
+      << ",\"mode\":";
+  json_escape(out, options.mode);
+  out << ",\"featureCount\":" << kAdjutantCompactValueInputFeatureCount
+      << ",\"stateFeatureCount\":" << kAdjutantCompactStateFeatureCount
+      << ",\"candidateCountPerState\":" << kAdjutantCandidateCount
+      << ",\"requestedSourceStateCount\":" << options.requested_source_states
+      << ",\"sourceStateCount\":" << diagnostics.size()
+      << ",\"sampleCount\":" << sample_count
+      << ",\"terminalRolloutCount\":" << terminal_rollout_count
+      << ",\"startSeed\":" << options.start_seed
+      << ",\"endSeed\":"
+      << (diagnostics.empty() ? options.start_seed : diagnostics.back().seed)
+      << ",\"maxDealAttempts\":" << options.max_deal_attempts
+      << ",\"runtimeOrder\":[\"adjutant\",\"kitty-pickup\",\"exchange\",\"playing\"]"
+      << ",\"policyPath\":{\"bidding\":";
+  json_escape(out, options.bidding_policy_id);
+  out << ",\"playing\":";
+  json_escape(out, options.playing_policy_id);
+  out << ",\"playingCritic\":";
+  json_escape(out, options.playing_critic_onnx_path);
+  out << ",\"policyDevice\":";
+  json_escape(out, options.policy_device);
+  out << "}"
+      << ",\"compact290Audit\":" << compact290_audit_json()
+      << ",\"proposal\":{\"compact396TopK\":" << options.proposal_top_k
+      << ",\"scorerReturnedTopK\":" << options.scorer_top_k
+      << ",\"ruleBasedExchange\":true"
+      << ",\"diversityRandomCount\":" << options.diversity_count << "}"
+      << ",\"sourceDistribution\":";
+  write_stream_distribution(out, diagnostics);
+  out
+      << ",\"files\":{\"features\":\"features.f32\",\"contractMargin\":\"contract-margin.f32\","
+      << "\"relativeReward\":\"relative-reward.f32\",\"stateIndex\":\"state-index.u32\","
+      << "\"candidateCard\":\"candidate-card.u8\"}"
+      << ",\"sourceDiagnostics\":[";
+  for (std::size_t index = 0; index < diagnostics.size(); ++index) {
+    if (index != 0) {
+      out << ',';
+    }
+    const StreamSourceDiagnostic& diagnostic = diagnostics[index];
+    out << "{\"sourceIndex\":" << diagnostic.source_index
+        << ",\"seed\":" << diagnostic.seed
+        << ",\"napoleonSeatIndex\":" << diagnostic.napoleon_index
+        << ",\"contractSuit\":";
+    json_escape(out, suit_id(diagnostic.contract_suit));
+    out << ",\"contractTarget\":" << diagnostic.contract_target
+        << ",\"hiddenDealChecksum\":";
+    json_escape(out, diagnostic.hidden_deal_checksum);
+    out << ",\"originalHandIdentity\":";
+    json_escape(out, diagnostic.original_hand_identity);
+    out << ",\"biddingHistoryHash\":";
+    json_escape(out, diagnostic.bidding_history_hash);
+    out
+        << ",\"ruleBasedAdjutant\":";
+    json_escape(out, card_id(diagnostic.rule_based_adjutant));
+    out << ",\"ruleBasedAdjutantIndex\":" << diagnostic.rule_based_adjutant_index
+        << ",\"rbAdjRbExchangeMargin\":" << diagnostic.rb_adj_rb_exchange_margin
+        << ",\"rbAdjOptimizedExchangeMargin\":" << diagnostic.rb_adj_optimized_exchange_margin
+        << ",\"bestAdjutantIndex\":" << diagnostic.best_adjutant_index
+        << ",\"bestAdjutantMargin\":" << diagnostic.best_adjutant_margin
+        << ",\"terminalRollouts\":" << diagnostic.terminal_rollouts
+        << ",\"proposalGoldContainment\":{\"top4\":" << diagnostic.proposal_gold_containment_top4
+        << ",\"top8\":" << diagnostic.proposal_gold_containment_top8
+        << ",\"top16\":" << diagnostic.proposal_gold_containment_top16
+        << ",\"top32\":" << diagnostic.proposal_gold_containment_top32
+        << ",\"top64\":" << diagnostic.proposal_gold_containment_top64
+        << ",\"top16PlusRuleBased\":" << diagnostic.proposal_gold_containment_top16_plus_rb
+        << ",\"fullProposal\":" << diagnostic.proposal_gold_containment_full_proposal
+        << ",\"ruleBasedExchange\":" << diagnostic.rule_based_exchange_gold_count << "}"
+        << ",\"proposalBestRegretTop16Sum\":" << diagnostic.proposal_best_regret_top16_sum
+        << ",\"proposalBestRegretTop16PlusRuleBasedSum\":"
+        << diagnostic.proposal_best_regret_top16_plus_rb_sum
+        << ",\"proposalBestRegretSum\":" << diagnostic.proposal_best_regret_sum
+        << '}';
+  }
+  out << "]}";
+
+  std::ofstream manifest(output_dir / "manifest.json");
+  if (!manifest) {
+    throw std::runtime_error("failed to open stream manifest");
+  }
+  manifest << out.str() << '\n';
+}
+
+AdjutantValueStreamReport run_stream_teacher_impl(
+    const AdjutantValueStreamOptions& options,
+    std::istream& scorer_response,
+    std::ostream& scorer_request) {
+  if (options.mode != "proposal" && options.mode != "full-gold") {
+    throw std::runtime_error("--mode must be proposal or full-gold");
+  }
+  if (options.output_directory.empty()) {
+    throw std::runtime_error("output directory is required");
+  }
+  if (options.requested_source_states <= 0 || options.max_deal_attempts <= 0 ||
+      options.proposal_top_k <= 0 || options.diversity_count < 0 ||
+      options.scorer_top_k < std::max(options.proposal_top_k, 64) ||
+      options.scorer_top_k > 286) {
+    throw std::runtime_error("invalid stream teacher options");
+  }
+
+  PolicyRuntimeContext policy(options);
+
+  const std::filesystem::path output_dir(options.output_directory);
+  std::filesystem::create_directories(output_dir);
+  std::ofstream features(output_dir / "features.f32", std::ios::binary);
+  std::ofstream margins(output_dir / "contract-margin.f32", std::ios::binary);
+  std::ofstream rewards(output_dir / "relative-reward.f32", std::ios::binary);
+  std::ofstream state_indices(output_dir / "state-index.u32", std::ios::binary);
+  std::ofstream candidate_cards(output_dir / "candidate-card.u8", std::ios::binary);
+  if (!features || !margins || !rewards || !state_indices || !candidate_cards) {
+    throw std::runtime_error("failed to open stream dataset output files");
+  }
+
+  std::vector<StreamSourceDiagnostic> diagnostics;
+  int sample_count = 0;
+  int terminal_rollout_count = 0;
+
+  for (int attempt = 0; attempt < options.max_deal_attempts &&
+       static_cast<int>(diagnostics.size()) < options.requested_source_states; ++attempt) {
+    const std::uint32_t seed = options.start_seed + static_cast<std::uint32_t>(attempt);
+    GameState source = create_policy_choosing_source_state(seed, policy);
+    if (source.phase != Phase::ChoosingAdjutant || !source.contract.has_value()) {
+      continue;
+    }
+    const int source_index = static_cast<int>(diagnostics.size());
+    const int napoleon = source.contract->napoleon_player_index;
+    SeededRandom rb_adj_rng(options.agent_seed ^ seed);
+    const Action rb_adjutant_action =
+        select_rule_based_action(source, source.current_player_index, rb_adj_rng);
+    if (rb_adjutant_action.type != Action::Type::ChooseAdjutant) {
+      throw std::runtime_error("RuleBased adjutant selection failed");
+    }
+    const int rb_adjutant_index = static_cast<int>(rb_adjutant_action.card.id);
+
+    std::vector<GameState> exchange_states;
+    std::vector<std::vector<std::vector<Card>>> discard_combinations_by_adjutant;
+    std::vector<float> compact396_inputs;
+    compact396_inputs.reserve(
+        static_cast<std::size_t>(
+            kAdjutantCandidateCount * kExchangeDiscardCombinationCount *
+            kExchangeCompactValueInputFeatureCount));
+
+    for (Card adjutant : create_deck()) {
+      GameState exchange_state = source;
+      apply_action(exchange_state, choose_adjutant_action(napoleon, adjutant));
+      const auto& hand = exchange_state.hands[static_cast<std::size_t>(napoleon)];
+      if (exchange_state.phase != Phase::Exchanging || hand.size() != 13) {
+        throw std::runtime_error("adjutant fixed state did not reach exchange");
+      }
+      std::vector<std::vector<Card>> combinations = enumerate_discard_combinations(hand);
+      if (static_cast<int>(combinations.size()) != kExchangeDiscardCombinationCount) {
+        throw std::runtime_error("expected 286 exchange candidates in stream teacher");
+      }
+      for (const std::vector<Card>& discard : combinations) {
+        std::vector<float> input = create_exchange_compact396_input(source, exchange_state, discard);
+        compact396_inputs.insert(compact396_inputs.end(), input.begin(), input.end());
+      }
+      exchange_states.push_back(exchange_state);
+      discard_combinations_by_adjutant.push_back(std::move(combinations));
+    }
+
+    send_scorer_request(scorer_request, source_index, compact396_inputs);
+    const std::vector<std::uint32_t> top_indices =
+        read_top_indices_response(scorer_response, source_index, options.scorer_top_k);
+
+    StreamSourceDiagnostic diagnostic;
+    diagnostic.seed = seed;
+    diagnostic.source_index = source_index;
+    diagnostic.napoleon_index = napoleon;
+    diagnostic.contract_suit = source.contract->trump_suit;
+    diagnostic.contract_target = source.contract->target_point_cards;
+    diagnostic.hidden_deal_checksum = hidden_deal_checksum(source);
+    diagnostic.original_hand_identity =
+        cards_identity(source.hands[static_cast<std::size_t>(napoleon)]);
+    diagnostic.bidding_history_hash = bidding_history_hash(source);
+    diagnostic.rule_based_adjutant = rb_adjutant_action.card;
+    diagnostic.rule_based_adjutant_index = rb_adjutant_index;
+    diagnostic.best_adjutant_margin = -std::numeric_limits<double>::infinity();
+
+    std::vector<int> rb_discard_indices(kAdjutantCandidateCount, -1);
+    std::vector<std::vector<int>> proposal_indices_by_adjutant(kAdjutantCandidateCount);
+    for (int adjutant_index = 0; adjutant_index < kAdjutantCandidateCount; ++adjutant_index) {
+      const GameState& exchange_state = exchange_states[static_cast<std::size_t>(adjutant_index)];
+      const auto& combinations =
+          discard_combinations_by_adjutant[static_cast<std::size_t>(adjutant_index)];
+      SeededRandom rb_ex_rng(seed ^ static_cast<std::uint32_t>(adjutant_index * 7919));
+      const Action rb_discard_action = select_rule_based_action(exchange_state, napoleon, rb_ex_rng);
+      if (rb_discard_action.type != Action::Type::DiscardCards) {
+        throw std::runtime_error("RuleBased exchange selection failed");
+      }
+      const int rb_discard_index = find_discard_index(combinations, rb_discard_action.cards);
+      rb_discard_indices[static_cast<std::size_t>(adjutant_index)] = rb_discard_index;
+      proposal_indices_by_adjutant[static_cast<std::size_t>(adjutant_index)] =
+          proposal_indices_for_adjutant(
+              top_indices,
+              adjutant_index,
+              options.scorer_top_k,
+              options.proposal_top_k,
+              rb_discard_index,
+              options.diversity_count,
+              source_index);
+    }
+
+    std::vector<StreamDiscardJob> rollout_jobs;
+    if (options.mode == "full-gold") {
+      rollout_jobs.reserve(
+          static_cast<std::size_t>(kAdjutantCandidateCount * kExchangeDiscardCombinationCount));
+      for (int adjutant_index = 0; adjutant_index < kAdjutantCandidateCount; ++adjutant_index) {
+        for (int discard_index = 0; discard_index < kExchangeDiscardCombinationCount; ++discard_index) {
+          rollout_jobs.push_back(StreamDiscardJob{adjutant_index, discard_index});
+        }
+      }
+    } else {
+      rollout_jobs.reserve(static_cast<std::size_t>(
+          kAdjutantCandidateCount * (options.proposal_top_k + options.diversity_count + 1)));
+      for (int adjutant_index = 0; adjutant_index < kAdjutantCandidateCount; ++adjutant_index) {
+        for (int discard_index : proposal_indices_by_adjutant[static_cast<std::size_t>(adjutant_index)]) {
+          rollout_jobs.push_back(StreamDiscardJob{adjutant_index, discard_index});
+        }
+      }
+    }
+
+    std::vector<std::vector<std::optional<RolloutValue>>> values_by_adjutant(
+        kAdjutantCandidateCount,
+        std::vector<std::optional<RolloutValue>>(kExchangeDiscardCombinationCount));
+    const std::vector<RolloutValue> rollout_values = evaluate_stream_discard_jobs_with_policy(
+        exchange_states,
+        discard_combinations_by_adjutant,
+        rollout_jobs,
+        policy);
+    if (rollout_values.size() != rollout_jobs.size()) {
+      throw std::runtime_error("stream rollout result count mismatch");
+    }
+    for (std::size_t index = 0; index < rollout_jobs.size(); ++index) {
+      const StreamDiscardJob& job = rollout_jobs[index];
+      values_by_adjutant[static_cast<std::size_t>(job.adjutant_index)]
+          [static_cast<std::size_t>(job.discard_index)] = rollout_values[index];
+    }
+    terminal_rollout_count += static_cast<int>(rollout_jobs.size());
+    diagnostic.terminal_rollouts += static_cast<int>(rollout_jobs.size());
+
+    for (int adjutant_index = 0; adjutant_index < kAdjutantCandidateCount; ++adjutant_index) {
+      Card adjutant{static_cast<std::uint8_t>(adjutant_index)};
+      const auto& combinations =
+          discard_combinations_by_adjutant[static_cast<std::size_t>(adjutant_index)];
+      const auto& adjutant_values = values_by_adjutant[static_cast<std::size_t>(adjutant_index)];
+      const int rb_discard_index = rb_discard_indices[static_cast<std::size_t>(adjutant_index)];
+      const std::vector<int>& proposal_indices =
+          proposal_indices_by_adjutant[static_cast<std::size_t>(adjutant_index)];
+
+      std::optional<ExchangeEvaluation> gold_best;
+      std::optional<ExchangeEvaluation> proposal_best;
+      std::optional<ExchangeEvaluation> rb_exchange_eval;
+
+      if (options.mode == "full-gold") {
+        for (int discard_index = 0; discard_index < kExchangeDiscardCombinationCount; ++discard_index) {
+          const std::optional<RolloutValue>& value =
+              adjutant_values[static_cast<std::size_t>(discard_index)];
+          if (!value.has_value()) {
+            throw std::runtime_error("missing full-gold discard value");
+          }
+          ExchangeEvaluation evaluated{
+              combinations[static_cast<std::size_t>(discard_index)],
+              *value,
+              discard_index};
+          if (!gold_best.has_value() || better_value(evaluated.value, gold_best->value) ||
+              (!better_value(gold_best->value, evaluated.value) &&
+               cards_key(evaluated.discard) < cards_key(gold_best->discard))) {
+            gold_best = evaluated;
+          }
+        }
+        const int gold_index = gold_best->candidate_index;
+        diagnostic.proposal_gold_containment_top4 +=
+            topk_contains(top_indices, adjutant_index, options.scorer_top_k, 4, gold_index) ? 1 : 0;
+        diagnostic.proposal_gold_containment_top8 +=
+            topk_contains(top_indices, adjutant_index, options.scorer_top_k, 8, gold_index) ? 1 : 0;
+        diagnostic.proposal_gold_containment_top16 +=
+            topk_contains(top_indices, adjutant_index, options.scorer_top_k, 16, gold_index) ? 1 : 0;
+        diagnostic.proposal_gold_containment_top32 +=
+            topk_contains(top_indices, adjutant_index, options.scorer_top_k, 32, gold_index) ? 1 : 0;
+        diagnostic.proposal_gold_containment_top64 +=
+            topk_contains(top_indices, adjutant_index, options.scorer_top_k, 64, gold_index) ? 1 : 0;
+        const std::vector<int> top16_indices = compact396_top_indices_for_adjutant(
+            top_indices,
+            adjutant_index,
+            options.scorer_top_k,
+            16);
+        const std::vector<int> top16_plus_rb =
+            append_unique_index(top16_indices, rb_discard_index);
+        diagnostic.proposal_gold_containment_top16_plus_rb +=
+            std::find(top16_plus_rb.begin(), top16_plus_rb.end(), gold_index) != top16_plus_rb.end() ? 1 : 0;
+        diagnostic.proposal_gold_containment_full_proposal +=
+            std::find(proposal_indices.begin(), proposal_indices.end(), gold_index) != proposal_indices.end() ? 1 : 0;
+        diagnostic.rule_based_exchange_gold_count += rb_discard_index == gold_index ? 1 : 0;
+        diagnostic.proposal_best_regret_top16_sum +=
+            gold_best->value.margin -
+            best_value_for_discard_indices(adjutant_values, top16_indices).margin;
+        diagnostic.proposal_best_regret_top16_plus_rb_sum +=
+            gold_best->value.margin -
+            best_value_for_discard_indices(adjutant_values, top16_plus_rb).margin;
+      }
+
+      for (int discard_index : proposal_indices) {
+        const std::optional<RolloutValue>& value =
+            adjutant_values[static_cast<std::size_t>(discard_index)];
+        if (!value.has_value()) {
+          throw std::runtime_error("missing proposal discard value");
+        }
+        ExchangeEvaluation evaluated{
+            combinations[static_cast<std::size_t>(discard_index)],
+            *value,
+            discard_index};
+        if (!proposal_best.has_value() || better_value(evaluated.value, proposal_best->value) ||
+            (!better_value(proposal_best->value, evaluated.value) &&
+             cards_key(evaluated.discard) < cards_key(proposal_best->discard))) {
+          proposal_best = evaluated;
+        }
+      }
+      if (!proposal_best.has_value()) {
+        throw std::runtime_error("empty proposal discard set");
+      }
+
+      const std::optional<RolloutValue>& rb_value =
+          adjutant_values[static_cast<std::size_t>(rb_discard_index)];
+      if (!rb_value.has_value()) {
+        throw std::runtime_error("missing RuleBased exchange value");
+      }
+      rb_exchange_eval = ExchangeEvaluation{
+          combinations[static_cast<std::size_t>(rb_discard_index)],
+          *rb_value,
+          rb_discard_index};
+
+      const RolloutValue label =
+          options.mode == "full-gold" ? gold_best->value : proposal_best->value;
+      if (options.mode == "full-gold") {
+        diagnostic.proposal_best_regret_sum +=
+            gold_best->value.margin - proposal_best->value.margin;
+      }
+
+      if (adjutant_index == rb_adjutant_index) {
+        diagnostic.rb_adj_rb_exchange_margin = rb_exchange_eval->value.margin;
+        diagnostic.rb_adj_optimized_exchange_margin =
+            options.mode == "full-gold" ? gold_best->value.margin : proposal_best->value.margin;
+      }
+      if (label.margin > diagnostic.best_adjutant_margin + kEpsilon) {
+        diagnostic.best_adjutant_margin = label.margin;
+        diagnostic.best_adjutant_index = adjutant_index;
+      }
+
+      const std::vector<float> compact290 = create_adjutant_compact290_input(source, adjutant);
+      write_float_vector(features, compact290);
+      write_float_value(margins, static_cast<float>(label.margin));
+      write_float_value(rewards, static_cast<float>(label.relative_reward));
+      write_uint32_value(state_indices, static_cast<std::uint32_t>(source_index));
+      write_uint8_value(candidate_cards, static_cast<std::uint8_t>(adjutant_index));
+      ++sample_count;
+    }
+    diagnostics.push_back(diagnostic);
+    std::cerr << "[adjutant-stream] mode=" << options.mode
+              << " states=" << diagnostics.size() << "/" << options.requested_source_states
+              << " samples=" << sample_count
+              << " terminalRollouts=" << terminal_rollout_count << '\n';
+  }
+
+  if (static_cast<int>(diagnostics.size()) != options.requested_source_states) {
+    throw std::runtime_error(
+        "failed to generate requested source states: generated " +
+        std::to_string(diagnostics.size()) + " of " +
+        std::to_string(options.requested_source_states));
+  }
+
+  write_binary(scorer_request, kStreamDoneMagic);
+  scorer_request.flush();
+  write_stream_manifest(
+      output_dir,
+      options,
+      diagnostics,
+      sample_count,
+      terminal_rollout_count);
+  std::ifstream manifest_in(output_dir / "manifest.json");
+  std::ostringstream manifest_buffer;
+  manifest_buffer << manifest_in.rdbuf();
+  return AdjutantValueStreamReport{
+      static_cast<int>(diagnostics.size()),
+      sample_count,
+      terminal_rollout_count,
+      manifest_buffer.str()};
+}
+
 }  // namespace
 
 JointTeacherReport run_joint_teacher_diagnostic(const JointTeacherOptions& options) {
@@ -980,6 +2415,13 @@ JointTeacherReport run_joint_teacher_diagnostic(const JointTeacherOptions& optio
       static_cast<int>(diagnostics.size()),
       static_cast<int>(diagnostics.size()),
       terminal_rollouts};
+}
+
+AdjutantValueStreamReport run_adjutant_value_stream_teacher(
+    const AdjutantValueStreamOptions& options,
+    std::istream& scorer_response,
+    std::ostream& scorer_request) {
+  return run_stream_teacher_impl(options, scorer_response, scorer_request);
 }
 
 std::string compact290_audit_json() {
