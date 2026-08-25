@@ -224,7 +224,13 @@ def train_exchange_value_model(
         lr=config.learning_rate,
         weight_decay=config.weight_decay,
     )
-    use_statewise = config.pairwise_loss_weight > 0.0 or config.listwise_loss_weight > 0.0
+    # The sample-wise fast path computes the unweighted pointwise objective. Use
+    # the state-wise objective whenever its configurable weight must be applied.
+    use_statewise = (
+        config.pairwise_loss_weight > 0.0
+        or config.listwise_loss_weight > 0.0
+        or config.pointwise_loss_weight != 1.0
+    )
     if use_statewise:
         train_state_loader = _create_state_loader(
             split.train_samples,

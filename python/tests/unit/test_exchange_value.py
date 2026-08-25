@@ -395,6 +395,37 @@ def test_statewise_listwise_compact406_training_smoke(tmp_path: Path) -> None:
     assert result.epoch_reports[0]["trainLoss"] > 0.0
 
 
+def test_non_default_pointwise_weight_uses_weighted_objective(tmp_path: Path) -> None:
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    _write_dataset(dataset_dir, states=12)
+    dataset = load_exchange_counterfactual_dataset(dataset_dir)
+    common = dict(
+        seed=123,
+        epochs=1,
+        hidden_dims=(16,),
+        input_variant="compact396",
+        train_state_count=4,
+        pairwise_state_batch_size=2,
+        learning_rate=1e-30,
+        device="cpu",
+    )
+
+    unweighted = train_exchange_value_model(
+        dataset, ExchangeValueTrainConfig(**common, pointwise_loss_weight=1.0)
+    )
+    half_weighted = train_exchange_value_model(
+        dataset, ExchangeValueTrainConfig(**common, pointwise_loss_weight=0.5)
+    )
+
+    assert half_weighted.epoch_reports[0]["trainLoss"] == pytest.approx(
+        float(unweighted.epoch_reports[0]["trainLoss"]) * 0.5
+    )
+    assert half_weighted.epoch_reports[0]["validationLoss"] == pytest.approx(
+        float(unweighted.epoch_reports[0]["validationLoss"]) * 0.5
+    )
+
+
 def test_full_gold_containment_rank_and_regret_fixture(tmp_path: Path) -> None:
     state = np.asarray(_compact_state(list(range(10)), [10, 11, 12]), dtype="<f4")
     masks = np.zeros((1, 286, 53), dtype="u1")
