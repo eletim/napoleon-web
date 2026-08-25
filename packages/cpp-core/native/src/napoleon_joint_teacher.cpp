@@ -775,7 +775,7 @@ void append_virtual_bidding_action(GameState& state, const Action& action) {
   GameState state = source;
   append_virtual_bidding_action(state, action);
   state.phase = Phase::Playing;
-  state.current_player_index = action.player_index;
+  state.current_player_index = contract.napoleon_player_index;
   state.current_trick.clear();
   state.completed_tricks.clear();
   state.trump_suit = contract.trump_suit;
