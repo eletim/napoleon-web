@@ -764,10 +764,13 @@ void append_virtual_bidding_action(GameState& state, const Action& action) {
     contract = Contract{action.player_index, *action.suit, action.target_point_cards};
     called_adjutant = simple_adjutant_card_for_virtual_bid(source, action.player_index, *action.suit);
   } else if (source.bidding->highest_bid.has_value()) {
+    const Bid& highest_bid = *source.bidding->highest_bid;
     contract = Contract{
-        source.bidding->highest_bid->player_index,
-        source.bidding->highest_bid->suit,
-        source.bidding->highest_bid->target_point_cards};
+        highest_bid.player_index,
+        highest_bid.suit,
+        highest_bid.target_point_cards};
+    called_adjutant =
+        simple_adjutant_card_for_virtual_bid(source, highest_bid.player_index, highest_bid.suit);
   } else {
     throw std::runtime_error("cannot build virtual playing state for all-pass bidding action");
   }
