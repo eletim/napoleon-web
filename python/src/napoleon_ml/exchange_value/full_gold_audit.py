@@ -59,6 +59,10 @@ def load_exchange_full_gold_audit(directory: Path | str) -> ExchangeFullGoldAudi
         expected = int(np.prod(shape)) * np.dtype(dtype).itemsize
         if path.stat().st_size != expected:
             raise ValueError(f"{path}: expected {expected} bytes, got {path.stat().st_size}.")
+        actual_sha = _file_sha256(path)
+        expected_sha = str(files[name]["sha256"])
+        if actual_sha != expected_sha:
+            raise ValueError(f"{path}: SHA-256 mismatch: {actual_sha} != {expected_sha}.")
         return np.memmap(path, mode="r", dtype=dtype, shape=shape)
 
     return ExchangeFullGoldAudit(
@@ -499,6 +503,14 @@ def _visible_signature(values: np.ndarray) -> str:
     source = np.asarray(values, dtype="<f4").copy()
     source[106:159] = 0.0
     return hashlib.sha256(source.tobytes()).hexdigest()
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _best_candidate(indices: np.ndarray, margins: np.ndarray, rewards: np.ndarray) -> int:

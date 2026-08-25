@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -266,6 +267,24 @@ def test_group_split_guards_state_and_identity_leakage(tmp_path: Path) -> None:
         )
 
 
+def test_group_split_skips_absent_optional_hand_identities(tmp_path: Path) -> None:
+    _write_dataset(tmp_path, states=12)
+    dataset = load_exchange_counterfactual_dataset(tmp_path)
+    legacy = replace(
+        dataset,
+        raw_samples=tuple(
+            replace(sample, original_hand_card_ids=None, kitty_pickup_card_ids=None)
+            for sample in dataset.raw_samples
+        ),
+    )
+
+    split = create_exchange_value_split(legacy, seed=436, train_state_count=4)
+
+    assert len(split.train_state_keys) == 4
+    assert split.leakage_guard["originalHand"]["uniqueCount"] == 0
+    assert split.leakage_guard["kittyPickup"]["uniqueCount"] == 0
+
+
 def test_group_split_preserves_fixed_thirteen_layout_counts(tmp_path: Path) -> None:
     _write_dataset(tmp_path, states=20)
     dataset = load_exchange_counterfactual_dataset(tmp_path)
@@ -404,7 +423,10 @@ def test_full_gold_containment_rank_and_regret_fixture(tmp_path: Path) -> None:
     for key, (name, values) in files.items():
         path = tmp_path / name
         values.tofile(path)
-        manifest_files[key] = {"path": name}
+        manifest_files[key] = {
+            "path": name,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
     (tmp_path / "manifest.json").write_text(
         json.dumps(
             {
@@ -433,6 +455,12 @@ def test_full_gold_containment_rank_and_regret_fixture(tmp_path: Path) -> None:
     assert report["containment"]["4"] == 1.0
     assert report["goldBestRank"]["median"] == 4.0
     assert report["topKOracle"]["1"]["marginRegret"]["mean"] == 2.0
+
+    corrupted = bytearray((tmp_path / "exchange-contract-margin.f32").read_bytes())
+    corrupted[0] ^= 1
+    (tmp_path / "exchange-contract-margin.f32").write_bytes(corrupted)
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        load_exchange_full_gold_audit(tmp_path)
 
 
 def test_fixed_audit_overlap_filter_removes_complete_state_group(tmp_path: Path) -> None:

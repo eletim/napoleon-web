@@ -291,16 +291,19 @@ def _identity_components(
 
     identity_owner: dict[tuple[str, str], str] = {}
     for sample in samples:
-        for identity in (
+        identities = [
             ("fixedThirteenGroupId", sample.fixed_thirteen_group_id),
             ("dealSeed", str(sample.deal_seed)),
             ("hiddenDealChecksum", sample.hidden_deal_checksum),
             ("fixedHandId", sample.fixed_hand_id),
             ("pickupHand", sample.pickup_hand_key),
-            ("originalHand", sample.original_hand_key),
-            ("kittyPickup", sample.kitty_pickup_key),
             ("biddingHistoryHash", sample.bidding_history_hash),
-        ):
+        ]
+        if sample.original_hand_card_ids is not None:
+            identities.append(("originalHand", sample.original_hand_key))
+        if sample.kitty_pickup_card_ids is not None:
+            identities.append(("kittyPickup", sample.kitty_pickup_key))
+        for identity in identities:
             owner = identity_owner.setdefault(identity, sample.source_state_key)
             union(owner, sample.source_state_key)
     components: dict[str, set[str]] = defaultdict(set)
@@ -520,8 +523,14 @@ def _leakage_guard(
         ("hiddenDealChecksum", lambda s: s.hidden_deal_checksum),
         ("fixedHandId", lambda s: s.fixed_hand_id),
         ("pickupHand", lambda s: s.pickup_hand_key),
-        ("originalHand", lambda s: s.original_hand_key),
-        ("kittyPickup", lambda s: s.kitty_pickup_key),
+        (
+            "originalHand",
+            lambda s: s.original_hand_key if s.original_hand_card_ids is not None else None,
+        ),
+        (
+            "kittyPickup",
+            lambda s: s.kitty_pickup_key if s.kitty_pickup_card_ids is not None else None,
+        ),
         ("biddingHistoryHash", lambda s: s.bidding_history_hash),
     ):
         owners: dict[str, str] = {}
@@ -529,6 +538,8 @@ def _leakage_guard(
         for split, samples in split_samples.items():
             for sample in samples:
                 key = key_fn(sample)
+                if key is None:
+                    continue
                 owner = owners.setdefault(key, split)
                 if owner != split:
                     duplicate_count += 1
