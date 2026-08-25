@@ -2106,7 +2106,8 @@ AdjutantValueStreamReport run_stream_teacher_impl(
   }
   if (options.requested_source_states <= 0 || options.max_deal_attempts <= 0 ||
       options.proposal_top_k <= 0 || options.diversity_count < 0 ||
-      options.scorer_top_k < options.proposal_top_k || options.scorer_top_k > 286) {
+      options.scorer_top_k < std::max(options.proposal_top_k, 64) ||
+      options.scorer_top_k > 286) {
     throw std::runtime_error("invalid stream teacher options");
   }
 
@@ -2296,7 +2297,7 @@ AdjutantValueStreamReport run_stream_teacher_impl(
             top_indices,
             adjutant_index,
             options.scorer_top_k,
-            options.proposal_top_k);
+            16);
         const std::vector<int> top16_plus_rb =
             append_unique_index(top16_indices, rb_discard_index);
         diagnostic.proposal_gold_containment_top16_plus_rb +=

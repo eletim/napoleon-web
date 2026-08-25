@@ -32,8 +32,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 def merge_adjutant_value_datasets(shards: Sequence[Path], output_directory: Path) -> None:
     if not shards:
         raise ValueError("at least one shard is required.")
+    _validate_distinct_paths(shards, output_directory)
     manifests = [_load_manifest(path) for path in shards]
     _validate_compatible(manifests)
+    _validate_unique_sources(shards, manifests)
 
     output_directory.mkdir(parents=True, exist_ok=True)
     for name in ("features.f32", "contract-margin.f32", "relative-reward.f32", "candidate-card.u8"):
@@ -121,6 +123,53 @@ def _validate_compatible(manifests: Sequence[dict[str, Any]]) -> None:
         for key in keys:
             if manifest.get(key) != first.get(key):
                 raise ValueError(f"incompatible shard manifest field: {key}")
+
+
+def _validate_distinct_paths(shards: Sequence[Path], output_directory: Path) -> None:
+    resolved_output = output_directory.resolve()
+    resolved_shards = [shard.resolve() for shard in shards]
+    if resolved_output in resolved_shards:
+        raise ValueError("output directory must not be one of the input shards.")
+    if len(set(resolved_shards)) != len(resolved_shards):
+        raise ValueError("input shard paths must be unique.")
+
+
+def _validate_unique_sources(
+    shards: Sequence[Path], manifests: Sequence[dict[str, Any]]
+) -> None:
+    seen: dict[tuple[str, str], Path] = {}
+    for shard, manifest in zip(shards, manifests, strict=True):
+        diagnostics = manifest.get("sourceDiagnostics")
+        if not isinstance(diagnostics, list) or len(diagnostics) != int(
+            manifest["sourceStateCount"]
+        ):
+            raise ValueError(
+                f"{shard}: sourceDiagnostics must contain one entry per source state."
+            )
+        for diagnostic in diagnostics:
+            if not isinstance(diagnostic, dict):
+                raise ValueError(f"{shard}: sourceDiagnostics entries must be objects.")
+            identities: list[tuple[str, str]] = []
+            for field in ("sourceStateKey", "seed", "hiddenDealChecksum"):
+                if field in diagnostic:
+                    identities.append((field, str(diagnostic[field])))
+            if "originalHandIdentity" in diagnostic and "biddingHistoryHash" in diagnostic:
+                identities.append(
+                    (
+                        "originalHand+biddingHistory",
+                        f"{diagnostic['originalHandIdentity']}:{diagnostic['biddingHistoryHash']}",
+                    )
+                )
+            if not identities:
+                raise ValueError(f"{shard}: source diagnostic has no stable identity.")
+            for identity in identities:
+                previous = seen.get(identity)
+                if previous is not None:
+                    field, value = identity
+                    raise ValueError(
+                        f"overlapping source identity {field}={value} in {previous} and {shard}."
+                    )
+                seen[identity] = shard
 
 
 def _source_distribution(diagnostics: Sequence[dict[str, Any]]) -> dict[str, dict[str, int]]:

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 import torch
 
 from napoleon_ml.adjutant_value.training import (
@@ -81,6 +82,30 @@ def test_merge_preserves_manifest_provenance_and_reindexes_states(tmp_path: Path
     assert manifest["sourceDiagnostics"][1]["sourceIndex"] == 1
 
 
+def test_merge_rejects_output_that_is_an_input_shard(tmp_path: Path) -> None:
+    shard = tmp_path / "shard"
+    _write_dataset(shard, source_state_count=1)
+    original_features = (shard / "features.f32").read_bytes()
+
+    with pytest.raises(ValueError, match="output directory"):
+        merge_adjutant_value_datasets([shard], shard)
+
+    assert (shard / "features.f32").read_bytes() == original_features
+
+
+def test_merge_rejects_duplicate_and_overlapping_shards(tmp_path: Path) -> None:
+    left = tmp_path / "left"
+    right = tmp_path / "right"
+    output = tmp_path / "merged"
+    _write_dataset(left, source_state_count=1, start_seed=100)
+    _write_dataset(right, source_state_count=1, start_seed=100)
+
+    with pytest.raises(ValueError, match="input shard paths must be unique"):
+        merge_adjutant_value_datasets([left, left], output)
+    with pytest.raises(ValueError, match="overlapping source identity seed=100"):
+        merge_adjutant_value_datasets([left, right], output)
+
+
 def test_training_smoke_writes_checkpoint_metadata(tmp_path: Path) -> None:
     dataset_dir = tmp_path / "dataset"
     output_dir = tmp_path / "model"
@@ -123,7 +148,6 @@ def _write_dataset(
         gold_index = state_index % 2
         rb_index = 2
         state_start = state_index * ADJUTANT_CANDIDATE_COUNT
-        state_stop = state_start + ADJUTANT_CANDIDATE_COUNT
         state_features = np.zeros(237, dtype=np.float32)
         state_features[0] = float(state_index + 1)
         state_features[53 + (state_index % 4)] = 1.0
