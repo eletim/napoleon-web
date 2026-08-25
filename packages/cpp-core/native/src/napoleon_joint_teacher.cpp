@@ -1629,6 +1629,9 @@ struct StreamSourceDiagnostic {
   int napoleon_index = 0;
   Suit contract_suit = Suit::Spades;
   int contract_target = 13;
+  std::string hidden_deal_checksum;
+  std::string original_hand_identity;
+  std::string bidding_history_hash;
   Card rule_based_adjutant;
   int rule_based_adjutant_index = 0;
   double rb_adj_rb_exchange_margin = 0.0;
@@ -1908,6 +1911,91 @@ std::vector<RolloutValue> evaluate_stream_discard_jobs_with_policy(
   return finish_batch_with_policy_playing(std::move(playing_states), policy);
 }
 
+std::string stable_identity_hash(const std::string& value) {
+  std::uint64_t hash = 1469598103934665603ull;
+  for (unsigned char ch : value) {
+    hash ^= static_cast<std::uint64_t>(ch);
+    hash *= 1099511628211ull;
+  }
+  std::ostringstream out;
+  out << std::hex << std::setw(16) << std::setfill('0') << hash;
+  return out.str();
+}
+
+std::string cards_identity(std::vector<Card> cards) {
+  std::sort(cards.begin(), cards.end(), [](Card left, Card right) {
+    return left.id < right.id;
+  });
+  std::ostringstream out;
+  for (std::size_t index = 0; index < cards.size(); ++index) {
+    if (index != 0) {
+      out << ',';
+    }
+    out << card_id(cards[index]);
+  }
+  return out.str();
+}
+
+std::string hidden_deal_checksum(const GameState& state) {
+  std::ostringstream out;
+  for (int player = 0; player < kPlayerCount; ++player) {
+    if (player != 0) {
+      out << '|';
+    }
+    out << "p" << player << ':' << cards_identity(state.hands[static_cast<std::size_t>(player)]);
+  }
+  out << "|unused:" << cards_identity(state.unused_cards);
+  return stable_identity_hash(out.str());
+}
+
+std::string bidding_history_hash(const GameState& state) {
+  std::ostringstream out;
+  for (const BiddingHistoryEntry& entry : state.public_bidding_history) {
+    out << (entry.is_bid ? 'B' : 'P') << entry.player_index;
+    if (entry.suit.has_value()) {
+      out << ':' << suit_id(*entry.suit) << ':' << *entry.target_point_cards;
+    }
+    out << ';';
+  }
+  return stable_identity_hash(out.str());
+}
+
+void write_stream_distribution(
+    std::ostream& out,
+    const std::vector<StreamSourceDiagnostic>& diagnostics) {
+  std::array<int, 4> suit_counts{0, 0, 0, 0};
+  std::array<int, 7> target_counts{0, 0, 0, 0, 0, 0, 0};
+  std::array<int, kPlayerCount> seat_counts{0, 0, 0, 0, 0};
+  for (const StreamSourceDiagnostic& diagnostic : diagnostics) {
+    ++suit_counts[static_cast<std::size_t>(diagnostic.contract_suit)];
+    if (diagnostic.contract_target >= 13 && diagnostic.contract_target <= 19) {
+      ++target_counts[static_cast<std::size_t>(diagnostic.contract_target - 13)];
+    }
+    if (diagnostic.napoleon_index >= 0 && diagnostic.napoleon_index < kPlayerCount) {
+      ++seat_counts[static_cast<std::size_t>(diagnostic.napoleon_index)];
+    }
+  }
+  out << "{\"contractSuit\":{\"spades\":" << suit_counts[static_cast<std::size_t>(Suit::Spades)]
+      << ",\"hearts\":" << suit_counts[static_cast<std::size_t>(Suit::Hearts)]
+      << ",\"diamonds\":" << suit_counts[static_cast<std::size_t>(Suit::Diamonds)]
+      << ",\"clubs\":" << suit_counts[static_cast<std::size_t>(Suit::Clubs)] << "}"
+      << ",\"contractTarget\":{";
+  for (int target = 13; target <= 19; ++target) {
+    if (target != 13) {
+      out << ',';
+    }
+    out << '"' << target << "\":" << target_counts[static_cast<std::size_t>(target - 13)];
+  }
+  out << "},\"napoleonSeatIndex\":{";
+  for (int seat = 0; seat < kPlayerCount; ++seat) {
+    if (seat != 0) {
+      out << ',';
+    }
+    out << '"' << seat << "\":" << seat_counts[static_cast<std::size_t>(seat)];
+  }
+  out << "}}";
+}
+
 void write_stream_manifest(
     const std::filesystem::path& output_dir,
     const AdjutantValueStreamOptions& options,
@@ -1916,6 +2004,7 @@ void write_stream_manifest(
     int terminal_rollout_count) {
   std::ostringstream out;
   out << "{\"datasetSchemaVersion\":1"
+      << ",\"generatorVersion\":2"
       << ",\"sampleType\":\"adjutant-joint-value-v1\""
       << ",\"teacherId\":\"issue446-compact396-proposal-joint-teacher-v1\""
       << ",\"mode\":";
@@ -1923,9 +2012,14 @@ void write_stream_manifest(
   out << ",\"featureCount\":" << kAdjutantCompactValueInputFeatureCount
       << ",\"stateFeatureCount\":" << kAdjutantCompactStateFeatureCount
       << ",\"candidateCountPerState\":" << kAdjutantCandidateCount
+      << ",\"requestedSourceStateCount\":" << options.requested_source_states
       << ",\"sourceStateCount\":" << diagnostics.size()
       << ",\"sampleCount\":" << sample_count
       << ",\"terminalRolloutCount\":" << terminal_rollout_count
+      << ",\"startSeed\":" << options.start_seed
+      << ",\"endSeed\":"
+      << (diagnostics.empty() ? options.start_seed : diagnostics.back().seed)
+      << ",\"maxDealAttempts\":" << options.max_deal_attempts
       << ",\"runtimeOrder\":[\"adjutant\",\"kitty-pickup\",\"exchange\",\"playing\"]"
       << ",\"policyPath\":{\"bidding\":";
   json_escape(out, options.bidding_policy_id);
@@ -1940,6 +2034,9 @@ void write_stream_manifest(
       << ",\"scorerReturnedTopK\":" << options.scorer_top_k
       << ",\"ruleBasedExchange\":true"
       << ",\"diversityRandomCount\":" << options.diversity_count << "}"
+      << ",\"sourceDistribution\":";
+  write_stream_distribution(out, diagnostics);
+  out
       << ",\"files\":{\"features\":\"features.f32\",\"contractMargin\":\"contract-margin.f32\","
       << "\"relativeReward\":\"relative-reward.f32\",\"stateIndex\":\"state-index.u32\","
       << "\"candidateCard\":\"candidate-card.u8\"}"
@@ -1955,6 +2052,13 @@ void write_stream_manifest(
         << ",\"contractSuit\":";
     json_escape(out, suit_id(diagnostic.contract_suit));
     out << ",\"contractTarget\":" << diagnostic.contract_target
+        << ",\"hiddenDealChecksum\":";
+    json_escape(out, diagnostic.hidden_deal_checksum);
+    out << ",\"originalHandIdentity\":";
+    json_escape(out, diagnostic.original_hand_identity);
+    out << ",\"biddingHistoryHash\":";
+    json_escape(out, diagnostic.bidding_history_hash);
+    out
         << ",\"ruleBasedAdjutant\":";
     json_escape(out, card_id(diagnostic.rule_based_adjutant));
     out << ",\"ruleBasedAdjutantIndex\":" << diagnostic.rule_based_adjutant_index
@@ -2073,6 +2177,10 @@ AdjutantValueStreamReport run_stream_teacher_impl(
     diagnostic.napoleon_index = napoleon;
     diagnostic.contract_suit = source.contract->trump_suit;
     diagnostic.contract_target = source.contract->target_point_cards;
+    diagnostic.hidden_deal_checksum = hidden_deal_checksum(source);
+    diagnostic.original_hand_identity =
+        cards_identity(source.hands[static_cast<std::size_t>(napoleon)]);
+    diagnostic.bidding_history_hash = bidding_history_hash(source);
     diagnostic.rule_based_adjutant = rb_adjutant_action.card;
     diagnostic.rule_based_adjutant_index = rb_adjutant_index;
     diagnostic.best_adjutant_margin = -std::numeric_limits<double>::infinity();

@@ -68,6 +68,13 @@ def merge_adjutant_value_datasets(shards: Sequence[Path], output_directory: Path
         int(item["terminalRolloutCount"]) for item in manifests
     )
     merged_manifest["sourceDiagnostics"] = diagnostics
+    merged_manifest["sourceDistribution"] = _source_distribution(diagnostics)
+    seeds = [int(item["seed"]) for item in diagnostics if "seed" in item]
+    if seeds:
+        merged_manifest["startSeed"] = min(seeds)
+        merged_manifest["endSeed"] = max(seeds)
+    if "requestedSourceStateCount" in merged_manifest:
+        merged_manifest["requestedSourceStateCount"] = merged_manifest["sourceStateCount"]
     merged_manifest["mergedShardCount"] = len(shards)
     merged_manifest["mergedShards"] = [
         {
@@ -114,6 +121,27 @@ def _validate_compatible(manifests: Sequence[dict[str, Any]]) -> None:
         for key in keys:
             if manifest.get(key) != first.get(key):
                 raise ValueError(f"incompatible shard manifest field: {key}")
+
+
+def _source_distribution(diagnostics: Sequence[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    suits = {name: 0 for name in ("spades", "hearts", "diamonds", "clubs")}
+    targets = {str(target): 0 for target in range(13, 20)}
+    seats = {str(seat): 0 for seat in range(5)}
+    for diagnostic in diagnostics:
+        suit = diagnostic.get("contractSuit")
+        if isinstance(suit, str) and suit in suits:
+            suits[suit] += 1
+        target = str(diagnostic.get("contractTarget"))
+        if target in targets:
+            targets[target] += 1
+        seat = str(diagnostic.get("napoleonSeatIndex"))
+        if seat in seats:
+            seats[seat] += 1
+    return {
+        "contractSuit": suits,
+        "contractTarget": targets,
+        "napoleonSeatIndex": seats,
+    }
 
 
 def _sha256(path: Path) -> str:
