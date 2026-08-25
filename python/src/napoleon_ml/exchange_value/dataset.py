@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -14,12 +14,17 @@ import numpy as np
 from napoleon_ml.dataset.constants import CARD_COUNT, EXPECTED_CARD_IDS
 from napoleon_ml.dataset.tensors import EXCHANGE_MODEL_INPUT_FEATURE_COUNT
 
+from .tactical import EXCHANGE_TACTICAL_FEATURE_COUNT, compact406_value_input
+
 EXCHANGE_COUNTERFACTUAL_SAMPLE_TYPE = "exchange-counterfactual-value-v1"
 EXCHANGE_COUNTERFACTUAL_COMBINATION_COUNT = 286
 EXCHANGE_VALUE_INPUT_FEATURE_COUNT = EXCHANGE_MODEL_INPUT_FEATURE_COUNT + CARD_COUNT
 EXCHANGE_COMPACT_STATE_FEATURE_COUNT = 343
 EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT = EXCHANGE_COMPACT_STATE_FEATURE_COUNT + CARD_COUNT
-EXCHANGE_VALUE_INPUT_VARIANTS = ("legacy2724", "compact396")
+EXCHANGE_TACTICAL_VALUE_INPUT_FEATURE_COUNT = (
+    EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT + EXCHANGE_TACTICAL_FEATURE_COUNT
+)
+EXCHANGE_VALUE_INPUT_VARIANTS = ("legacy2724", "compact396", "compact406")
 ExchangeValueInputVariant = str
 
 
@@ -37,7 +42,7 @@ class ExchangeCounterfactualSample:
     kitty_pickup_card_ids: tuple[str, ...] | None
     opponent_policy_ids: tuple[str, ...] | None
     pickup_hand_card_ids: tuple[str, ...]
-    model_input: np.ndarray
+    model_input: np.ndarray | None
     compact_exchange_state_input: np.ndarray | None
     legal_discard_card_mask: np.ndarray
     candidate_discard_card_ids: tuple[str, ...]
@@ -51,9 +56,12 @@ class ExchangeCounterfactualSample:
     is_rule_based_action: bool
     rule_based_candidate_index: int
     hidden_deal_checksum: str
+    bidding_history_hash: str
 
     @property
     def value_input(self) -> np.ndarray:
+        if self.model_input is None:
+            raise ValueError("legacy2724 input was not loaded for this dataset.")
         return np.concatenate((self.model_input, self.candidate_discard_mask)).astype(np.float32)
 
     @property
@@ -71,11 +79,21 @@ class ExchangeCounterfactualSample:
     def pickup_hand_key(self) -> str:
         return "|".join(self.pickup_hand_card_ids)
 
+    @property
+    def original_hand_key(self) -> str:
+        return "|".join(self.original_hand_card_ids or ())
+
+    @property
+    def kitty_pickup_key(self) -> str:
+        return "|".join(self.kitty_pickup_card_ids or ())
+
     def value_input_for_variant(self, input_variant: ExchangeValueInputVariant) -> np.ndarray:
         if input_variant == "legacy2724":
             return self.value_input
         if input_variant == "compact396":
             return self.compact_value_input
+        if input_variant == "compact406":
+            return compact406_value_input(self.compact_value_input)
         raise ValueError(f"unsupported exchange value input variant: {input_variant}.")
 
 
@@ -110,6 +128,8 @@ class ExchangeValueSplit:
 
 def load_exchange_counterfactual_dataset(
     dataset_directory: Path | str,
+    *,
+    load_legacy_model_input: bool = True,
 ) -> ExchangeCounterfactualDataset:
     directory = Path(dataset_directory)
     manifest_path = directory / "manifest.json"
@@ -138,7 +158,13 @@ def load_exchange_counterfactual_dataset(
             raw = json.loads(line.decode("utf-8"))
             if not isinstance(raw, dict):
                 raise ValueError(f"{shard_path}:{line_number}: sample must be an object.")
-            samples.append(_parse_sample(raw, context=f"{shard_path.name}:{line_number}"))
+            samples.append(
+                _parse_sample(
+                    raw,
+                    context=f"{shard_path.name}:{line_number}",
+                    load_legacy_model_input=load_legacy_model_input,
+                )
+            )
     dataset = ExchangeCounterfactualDataset(
         directory=directory,
         manifest=manifest,
@@ -146,6 +172,39 @@ def load_exchange_counterfactual_dataset(
     )
     _validate_dataset(dataset)
     return dataset
+
+
+def combine_exchange_counterfactual_datasets(
+    datasets: tuple[ExchangeCounterfactualDataset, ...],
+) -> ExchangeCounterfactualDataset:
+    if not datasets:
+        raise ValueError("at least one exchange dataset is required.")
+    raw_samples = tuple(sample for dataset in datasets for sample in dataset.raw_samples)
+    state_counts = Counter(sample.source_state_key for sample in raw_samples)
+    duplicate_state_keys = [key for key, count in state_counts.items() if count > 286]
+    if duplicate_state_keys:
+        raise ValueError("combined exchange datasets overlap by sourceStateKey.")
+    for dataset in datasets:
+        if dataset.manifest.get("cardIds") != list(EXPECTED_CARD_IDS):
+            raise ValueError("combined exchange dataset cardIds mismatch.")
+        if dataset.manifest.get("discardCombinationCount") != 286:
+            raise ValueError("combined exchange dataset action-space mismatch.")
+    manifest = {
+        "sampleType": EXCHANGE_COUNTERFACTUAL_SAMPLE_TYPE,
+        "format": "combined-in-memory",
+        "sourceStateCount": len(state_counts),
+        "sampleCount": len(raw_samples),
+        "cardIds": list(EXPECTED_CARD_IDS),
+        "discardCombinationCount": 286,
+        "components": [dataset_provenance(dataset) for dataset in datasets],
+    }
+    combined = ExchangeCounterfactualDataset(
+        directory=Path("<combined-exchange-datasets>"),
+        manifest=manifest,
+        raw_samples=raw_samples,
+    )
+    _validate_dataset(combined)
+    return combined
 
 
 def create_exchange_value_split(
@@ -166,9 +225,7 @@ def create_exchange_value_split(
     components = _identity_components(dataset.raw_samples, state_keys)
     shuffled_components = sorted(
         components,
-        key=lambda keys: hashlib.sha256(
-            f"{seed}:{','.join(sorted(keys))}".encode()
-        ).hexdigest(),
+        key=lambda keys: hashlib.sha256(f"{seed}:{','.join(sorted(keys))}".encode()).hexdigest(),
     )
     validation_count = max(1, int(round(len(state_keys) * validation_ratio)))
     final_count = max(1, int(round(len(state_keys) * final_ratio)))
@@ -185,17 +242,14 @@ def create_exchange_value_split(
     selected_train_count = train_state_count or len(train_candidates)
     if selected_train_count <= 0 or selected_train_count > len(train_candidates):
         raise ValueError(
-            f"train_state_count must be in [1,{len(train_candidates)}], "
-            f"got {selected_train_count}."
+            f"train_state_count must be in [1,{len(train_candidates)}], got {selected_train_count}."
         )
     train_set = frozenset(train_candidates[:selected_train_count])
     if train_set & validation_set or train_set & final_set or validation_set & final_set:
         raise AssertionError("sourceStateKey leakage between splits.")
     samples_by_split = {
         "train": tuple(s for s in dataset.raw_samples if s.source_state_key in train_set),
-        "validation": tuple(
-            s for s in dataset.raw_samples if s.source_state_key in validation_set
-        ),
+        "validation": tuple(s for s in dataset.raw_samples if s.source_state_key in validation_set),
         "final": tuple(s for s in dataset.raw_samples if s.source_state_key in final_set),
     }
     guard = _leakage_guard(
@@ -243,6 +297,9 @@ def _identity_components(
             ("hiddenDealChecksum", sample.hidden_deal_checksum),
             ("fixedHandId", sample.fixed_hand_id),
             ("pickupHand", sample.pickup_hand_key),
+            ("originalHand", sample.original_hand_key),
+            ("kittyPickup", sample.kitty_pickup_key),
+            ("biddingHistoryHash", sample.bidding_history_hash),
         ):
             owner = identity_owner.setdefault(identity, sample.source_state_key)
             union(owner, sample.source_state_key)
@@ -272,8 +329,20 @@ def state_key_hash(state_keys: frozenset[str]) -> str:
 
 def dataset_provenance(dataset: ExchangeCounterfactualDataset) -> dict[str, object]:
     manifest = dataset.manifest
+    if "components" in manifest:
+        return {
+            "path": str(dataset.directory),
+            "sampleType": manifest.get("sampleType"),
+            "sampleCount": manifest.get("sampleCount"),
+            "sourceStateCount": manifest.get("sourceStateCount"),
+            "components": manifest.get("components"),
+            "fixedAuditExclusion": manifest.get("fixedAuditExclusion"),
+        }
+    manifest_path = dataset.directory / "manifest.json"
     return {
         "path": str(dataset.directory),
+        "manifestPath": str(manifest_path),
+        "manifestSha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
         "sampleType": manifest.get("sampleType"),
         "sampleCount": manifest.get("sampleCount"),
         "sourceStateCount": manifest.get("sourceStateCount"),
@@ -296,9 +365,7 @@ def _read_json_object(path: Path, *, context: str) -> dict[str, Any]:
 
 def _validate_manifest_shape(manifest: dict[str, Any]) -> None:
     if manifest.get("sampleType") != EXCHANGE_COUNTERFACTUAL_SAMPLE_TYPE:
-        raise ValueError(
-            f"manifest.sampleType must be {EXCHANGE_COUNTERFACTUAL_SAMPLE_TYPE!r}."
-        )
+        raise ValueError(f"manifest.sampleType must be {EXCHANGE_COUNTERFACTUAL_SAMPLE_TYPE!r}.")
     if manifest.get("format") != "jsonl":
         raise ValueError("manifest.format must be jsonl.")
     if manifest.get("discardCombinationCount") != EXCHANGE_COUNTERFACTUAL_COMBINATION_COUNT:
@@ -319,10 +386,27 @@ def _validate_manifest_shape(manifest: dict[str, Any]) -> None:
             raise ValueError("manifest.compactExchangeValueInput.featureCount must be 396.")
 
 
-def _parse_sample(raw: dict[str, Any], *, context: str) -> ExchangeCounterfactualSample:
+def _parse_sample(
+    raw: dict[str, Any],
+    *,
+    context: str,
+    load_legacy_model_input: bool,
+) -> ExchangeCounterfactualSample:
     if raw.get("sampleType") != EXCHANGE_COUNTERFACTUAL_SAMPLE_TYPE:
         raise ValueError(f"{context}: sampleType mismatch.")
-    model_input = _float_array(raw.get("modelInput"), EXCHANGE_MODEL_INPUT_FEATURE_COUNT, context)
+    raw_model_input = raw.get("modelInput")
+    if (
+        not isinstance(raw_model_input, list)
+        or len(raw_model_input) != EXCHANGE_MODEL_INPUT_FEATURE_COUNT
+    ):
+        raise ValueError(
+            f"{context}: expected length {EXCHANGE_MODEL_INPUT_FEATURE_COUNT} numeric array."
+        )
+    model_input = (
+        np.asarray([float(item) for item in raw_model_input], dtype=np.float32)
+        if load_legacy_model_input
+        else None
+    )
     compact_state_input = _optional_float_array(
         raw.get("compactExchangeStateInput"),
         EXCHANGE_COMPACT_STATE_FEATURE_COUNT,
@@ -376,6 +460,7 @@ def _parse_sample(raw: dict[str, Any], *, context: str) -> ExchangeCounterfactua
         is_rule_based_action=_require_bool(raw, "isRuleBasedAction"),
         rule_based_candidate_index=_require_int(raw, "ruleBasedCandidateIndex"),
         hidden_deal_checksum=_require_str(raw, "hiddenDealChecksum"),
+        bidding_history_hash=_require_str(raw, "biddingHistoryHash"),
     )
 
 
@@ -396,7 +481,8 @@ def _validate_dataset(dataset: ExchangeCounterfactualDataset) -> None:
         if sum(1 for sample in rows if sample.is_rule_based_action) != 1:
             raise ValueError(f"{key}: expected exactly one RuleBased candidate.")
         compact_inputs = [
-            sample.compact_exchange_state_input for sample in rows
+            sample.compact_exchange_state_input
+            for sample in rows
             if sample.compact_exchange_state_input is not None
         ]
         if compact_inputs and len(compact_inputs) != len(rows):
@@ -434,6 +520,9 @@ def _leakage_guard(
         ("hiddenDealChecksum", lambda s: s.hidden_deal_checksum),
         ("fixedHandId", lambda s: s.fixed_hand_id),
         ("pickupHand", lambda s: s.pickup_hand_key),
+        ("originalHand", lambda s: s.original_hand_key),
+        ("kittyPickup", lambda s: s.kitty_pickup_key),
+        ("biddingHistoryHash", lambda s: s.bidding_history_hash),
     ):
         owners: dict[str, str] = {}
         duplicate_count = 0

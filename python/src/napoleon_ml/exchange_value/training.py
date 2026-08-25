@@ -31,6 +31,7 @@ from napoleon_ml.policy.device import (
 from .dataset import (
     EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT,
     EXCHANGE_COUNTERFACTUAL_COMBINATION_COUNT,
+    EXCHANGE_TACTICAL_VALUE_INPUT_FEATURE_COUNT,
     EXCHANGE_VALUE_INPUT_FEATURE_COUNT,
     EXCHANGE_VALUE_INPUT_VARIANTS,
     ExchangeCounterfactualDataset,
@@ -71,17 +72,33 @@ class ExchangeValueTrainConfig:
     loss: str = "mse"
     huber_delta: float = 1.0
     pairwise_loss_weight: float = 0.0
+    pointwise_loss_weight: float = 1.0
+    listwise_loss_weight: float = 0.0
+    listwise_temperature: float = 1.0
     pairwise_state_batch_size: int = 4
     weight_decay: float = 1e-4
     patience: int = 8
     min_delta: float = 0.0
     device: RequestedTorchDevice = "cpu"
     optimizer: str = "AdamW"
+    warm_start_checkpoint: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         data = asdict(self)
         data["hidden_dims"] = list(self.hidden_dims)
-        data["algorithm"] = "pointwise-contract-margin-regression-v1"
+        if self.listwise_loss_weight > 0.0:
+            data["algorithm"] = "state-wise-listwise-exchange-reranker-v1"
+        elif self.pairwise_loss_weight > 0.0 and self.pointwise_loss_weight == 0.0:
+            data["algorithm"] = "pairwise-only-exchange-ranker-v1"
+        elif self.pairwise_loss_weight > 0.0:
+            data["algorithm"] = "pointwise-pairwise-exchange-ranker-v1"
+        else:
+            data["algorithm"] = "pointwise-contract-margin-regression-v1"
+        if self.warm_start_checkpoint is not None:
+            checkpoint_path = Path(self.warm_start_checkpoint)
+            data["warmStartCheckpointSha256"] = hashlib.sha256(
+                checkpoint_path.read_bytes()
+            ).hexdigest()
         return data
 
 
@@ -162,9 +179,9 @@ class _ExchangeValueStateDataset(Dataset[ExchangeValueStateBatch]):
 
     def __getitem__(self, index: int) -> ExchangeValueStateBatch:
         group = self.groups[index]
-        value_input = np.stack([
-            sample.value_input_for_variant(self.input_variant) for sample in group
-        ])
+        value_input = np.stack(
+            [sample.value_input_for_variant(self.input_variant) for sample in group]
+        )
         margin = np.asarray([sample.contract_margin for sample in group], dtype=np.float32)
         margin_tensor = self.standardization.encode_tensor(torch.as_tensor(margin))
         return ExchangeValueStateBatch(
@@ -200,13 +217,15 @@ def train_exchange_value_model(
     model = create_seeded_exchange_value_model(model_config, seed=config.seed).to(
         device.torch_device
     )
+    if config.warm_start_checkpoint is not None:
+        _warm_start_exchange_model(model, Path(config.warm_start_checkpoint))
     optimizer = optim.AdamW(
         model.parameters(),
         lr=config.learning_rate,
         weight_decay=config.weight_decay,
     )
-    use_pairwise = config.pairwise_loss_weight > 0.0
-    if use_pairwise:
+    use_statewise = config.pairwise_loss_weight > 0.0 or config.listwise_loss_weight > 0.0
+    if use_statewise:
         train_state_loader = _create_state_loader(
             split.train_samples,
             standardization=standardization,
@@ -246,7 +265,7 @@ def train_exchange_value_model(
     best_monitor = math.inf
     epochs_without_improvement = 0
     for epoch in range(1, config.epochs + 1):
-        if use_pairwise:
+        if use_statewise:
             train_loss = _run_pairwise_epoch(
                 model=model,
                 dataloader=train_state_loader,
@@ -393,9 +412,7 @@ def exchange_value_evaluation_report(
         "split": split,
         "sampleCount": len(samples),
         "stateCount": len({sample.source_state_key for sample in samples}),
-        "fixedThirteenGroupCount": len(
-            {sample.fixed_thirteen_group_id for sample in samples}
-        ),
+        "fixedThirteenGroupCount": len({sample.fixed_thirteen_group_id for sample in samples}),
         "scalar": _regression_metrics(predictions.astype(np.float64), truth),
         "ranking": ranking,
         "sameThirteen": _same_thirteen_summary(samples, predictions),
@@ -544,8 +561,25 @@ def _run_pairwise_epoch(
                 moved.contract_margin.reshape(-1),
                 config=config,
             )
-            pairwise = _pairwise_ranking_loss(prediction, moved.contract_margin)
-            loss = pointwise + config.pairwise_loss_weight * pairwise
+            pairwise = (
+                _pairwise_ranking_loss(prediction, moved.contract_margin)
+                if config.pairwise_loss_weight > 0.0
+                else prediction.sum() * 0.0
+            )
+            listwise = (
+                _listwise_ranking_loss(
+                    prediction,
+                    moved.contract_margin,
+                    temperature=config.listwise_temperature,
+                )
+                if config.listwise_loss_weight > 0.0
+                else prediction.sum() * 0.0
+            )
+            loss = (
+                config.pointwise_loss_weight * pointwise
+                + config.pairwise_loss_weight * pairwise
+                + config.listwise_loss_weight * listwise
+            )
             if optimizer is not None:
                 loss.backward()  # type: ignore[no-untyped-call]
                 optimizer.step()
@@ -565,6 +599,50 @@ def _pairwise_ranking_loss(prediction: Tensor, target: Tensor) -> Tensor:
     sign = torch.sign(target_delta[mask])
     prediction_delta = (prediction.unsqueeze(2) - prediction.unsqueeze(1))[mask]
     return F.softplus(-sign * prediction_delta).mean()
+
+
+def _listwise_ranking_loss(
+    prediction: Tensor,
+    target: Tensor,
+    *,
+    temperature: float,
+) -> Tensor:
+    target_distribution = F.softmax(target / temperature, dim=1)
+    log_prediction_distribution = F.log_softmax(prediction, dim=1)
+    return -(target_distribution * log_prediction_distribution).sum(dim=1).mean()
+
+
+def _warm_start_exchange_model(
+    model: ExchangeValueMlpModel,
+    checkpoint_path: Path,
+) -> None:
+    source_model, _checkpoint = load_exchange_value_checkpoint(checkpoint_path)
+    source_state = source_model.state_dict()
+    target_state = model.state_dict()
+    if source_model.config.hidden_dims != model.config.hidden_dims:
+        raise ValueError("warm-start hidden_dims must match target model.")
+    for key, target in target_state.items():
+        source = source_state.get(key)
+        if source is None:
+            raise ValueError(f"warm-start checkpoint is missing {key}.")
+        if source.shape == target.shape:
+            target.copy_(source)
+            continue
+        if (
+            key == "network.0.weight"
+            and source.ndim == 2
+            and target.ndim == 2
+            and source.shape[0] == target.shape[0]
+            and source.shape[1] < target.shape[1]
+        ):
+            target.zero_()
+            target[:, : source.shape[1]].copy_(source)
+            continue
+        raise ValueError(
+            f"warm-start tensor shape mismatch for {key}: "
+            f"{tuple(source.shape)} != {tuple(target.shape)}."
+        )
+    model.load_state_dict(target_state)
 
 
 def _move_batch(batch: ExchangeValueBatch, device: ResolvedTorchDevice) -> ExchangeValueBatch:
@@ -748,15 +826,12 @@ def _same_thirteen_summary(
         by_group[group_id].append(
             {
                 "sourceStateKey": state_key,
-                "modelMarginRegret": best.contract_margin
-                - model_selected.contract_margin,
+                "modelMarginRegret": best.contract_margin - model_selected.contract_margin,
                 "modelRelativeRewardRegret": best.napoleon_relative_reward
                 - model_selected.napoleon_relative_reward,
                 "modelDiscardKey": "|".join(model_selected.candidate_discard_card_ids),
                 "teacherBestDiscardKey": "|".join(best.candidate_discard_card_ids),
-                "modelSelectedPrediction": prediction_by_candidate[
-                    model_selected.candidate_index
-                ],
+                "modelSelectedPrediction": prediction_by_candidate[model_selected.candidate_index],
                 "teacherBestPrediction": prediction_by_candidate[best.candidate_index],
                 "stateMeanPrediction": float(
                     np.mean(
@@ -1038,8 +1113,7 @@ def _validate_train_config(config: ExchangeValueTrainConfig) -> None:
         raise ValueError("learning_rate must be positive.")
     if config.input_variant not in EXCHANGE_VALUE_INPUT_VARIANTS:
         raise ValueError(
-            "input_variant must be one of "
-            f"{', '.join(EXCHANGE_VALUE_INPUT_VARIANTS)}."
+            f"input_variant must be one of {', '.join(EXCHANGE_VALUE_INPUT_VARIANTS)}."
         )
     if config.loss not in {"mse", "huber"}:
         raise ValueError("loss must be mse or huber.")
@@ -1047,6 +1121,18 @@ def _validate_train_config(config: ExchangeValueTrainConfig) -> None:
         raise ValueError("huber_delta must be positive.")
     if config.pairwise_loss_weight < 0.0:
         raise ValueError("pairwise_loss_weight must be non-negative.")
+    if config.pointwise_loss_weight < 0.0:
+        raise ValueError("pointwise_loss_weight must be non-negative.")
+    if config.listwise_loss_weight < 0.0:
+        raise ValueError("listwise_loss_weight must be non-negative.")
+    if (
+        config.pointwise_loss_weight == 0.0
+        and config.pairwise_loss_weight == 0.0
+        and config.listwise_loss_weight == 0.0
+    ):
+        raise ValueError("at least one training loss weight must be positive.")
+    if config.listwise_temperature <= 0.0:
+        raise ValueError("listwise_temperature must be positive.")
     if config.pairwise_state_batch_size <= 0:
         raise ValueError("pairwise_state_batch_size must be positive.")
     if config.patience <= 0:
@@ -1058,6 +1144,8 @@ def _input_dim_for_variant(input_variant: ExchangeValueInputVariant) -> int:
         return EXCHANGE_VALUE_INPUT_FEATURE_COUNT
     if input_variant == "compact396":
         return EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT
+    if input_variant == "compact406":
+        return EXCHANGE_TACTICAL_VALUE_INPUT_FEATURE_COUNT
     raise ValueError(f"unsupported exchange value input variant: {input_variant}.")
 
 

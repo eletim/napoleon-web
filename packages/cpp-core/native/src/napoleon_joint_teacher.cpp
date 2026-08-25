@@ -2041,7 +2041,25 @@ void write_stream_manifest(
   out
       << ",\"files\":{\"features\":\"features.f32\",\"contractMargin\":\"contract-margin.f32\","
       << "\"relativeReward\":\"relative-reward.f32\",\"stateIndex\":\"state-index.u32\","
-      << "\"candidateCard\":\"candidate-card.u8\"}"
+      << "\"candidateCard\":\"candidate-card.u8\"";
+  if (options.write_exchange_audit) {
+    out << ",\"exchangeStateFeatures\":\"exchange-state-features.f32\""
+        << ",\"exchangeCandidateMask\":\"exchange-candidate-mask.u8\""
+        << ",\"exchangeContractMargin\":\"exchange-contract-margin.f32\""
+        << ",\"exchangeRelativeReward\":\"exchange-relative-reward.f32\""
+        << ",\"exchangeRuleBasedCandidate\":\"exchange-rule-based-candidate.u32\""
+        << ",\"exchangeGoldCandidate\":\"exchange-gold-candidate.u32\"";
+  }
+  out << "}"
+      << ",\"exchangeAudit\":{\"enabled\":"
+      << (options.write_exchange_audit ? "true" : "false")
+      << ",\"groupCount\":"
+      << (options.write_exchange_audit
+              ? static_cast<int>(diagnostics.size()) * kAdjutantCandidateCount
+              : 0)
+      << ",\"candidatesPerGroup\":" << kExchangeDiscardCombinationCount
+      << ",\"stateFeatureCount\":" << kExchangeCompactStateFeatureCount
+      << ",\"candidateMaskFeatureCount\":53}"
       << ",\"sourceDiagnostics\":[";
   for (std::size_t index = 0; index < diagnostics.size(); ++index) {
     if (index != 0) {
@@ -2099,6 +2117,9 @@ AdjutantValueStreamReport run_stream_teacher_impl(
   if (options.mode != "proposal" && options.mode != "full-gold") {
     throw std::runtime_error("--mode must be proposal or full-gold");
   }
+  if (options.write_exchange_audit && options.mode != "full-gold") {
+    throw std::runtime_error("--write-exchange-audit requires --mode full-gold");
+  }
   if (options.output_directory.empty()) {
     throw std::runtime_error("output directory is required");
   }
@@ -2118,8 +2139,33 @@ AdjutantValueStreamReport run_stream_teacher_impl(
   std::ofstream rewards(output_dir / "relative-reward.f32", std::ios::binary);
   std::ofstream state_indices(output_dir / "state-index.u32", std::ios::binary);
   std::ofstream candidate_cards(output_dir / "candidate-card.u8", std::ios::binary);
+  std::ofstream exchange_state_features;
+  std::ofstream exchange_candidate_masks;
+  std::ofstream exchange_margins;
+  std::ofstream exchange_rewards;
+  std::ofstream exchange_rule_based_candidates;
+  std::ofstream exchange_gold_candidates;
+  if (options.write_exchange_audit) {
+    exchange_state_features.open(
+        output_dir / "exchange-state-features.f32", std::ios::binary);
+    exchange_candidate_masks.open(
+        output_dir / "exchange-candidate-mask.u8", std::ios::binary);
+    exchange_margins.open(
+        output_dir / "exchange-contract-margin.f32", std::ios::binary);
+    exchange_rewards.open(
+        output_dir / "exchange-relative-reward.f32", std::ios::binary);
+    exchange_rule_based_candidates.open(
+        output_dir / "exchange-rule-based-candidate.u32", std::ios::binary);
+    exchange_gold_candidates.open(
+        output_dir / "exchange-gold-candidate.u32", std::ios::binary);
+  }
   if (!features || !margins || !rewards || !state_indices || !candidate_cards) {
     throw std::runtime_error("failed to open stream dataset output files");
+  }
+  if (options.write_exchange_audit &&
+      (!exchange_state_features || !exchange_candidate_masks || !exchange_margins ||
+       !exchange_rewards || !exchange_rule_based_candidates || !exchange_gold_candidates)) {
+    throw std::runtime_error("failed to open exchange audit output files");
   }
 
   std::vector<StreamSourceDiagnostic> diagnostics;
@@ -2173,6 +2219,34 @@ AdjutantValueStreamReport run_stream_teacher_impl(
     send_scorer_request(scorer_request, source_index, compact396_inputs);
     const std::vector<std::uint32_t> top_indices =
         read_top_indices_response(scorer_response, source_index, options.scorer_top_k);
+
+    if (options.write_exchange_audit) {
+      constexpr int state_features = kExchangeCompactStateFeatureCount;
+      constexpr int value_features = kExchangeCompactValueInputFeatureCount;
+      for (int adjutant_index = 0; adjutant_index < kAdjutantCandidateCount;
+           ++adjutant_index) {
+        const std::size_t group_offset = static_cast<std::size_t>(
+            adjutant_index * kExchangeDiscardCombinationCount * value_features);
+        exchange_state_features.write(
+            reinterpret_cast<const char*>(compact396_inputs.data() + group_offset),
+            static_cast<std::streamsize>(state_features * sizeof(float)));
+        for (int discard_index = 0; discard_index < kExchangeDiscardCombinationCount;
+             ++discard_index) {
+          const std::size_t candidate_offset =
+              group_offset + static_cast<std::size_t>(
+                                 discard_index * value_features + state_features);
+          for (int card_index = 0; card_index < 53; ++card_index) {
+            const float value = compact396_inputs[
+                candidate_offset + static_cast<std::size_t>(card_index)];
+            if (value != 0.0F && value != 1.0F) {
+              throw std::runtime_error("exchange candidate mask must be binary");
+            }
+            write_uint8_value(
+                exchange_candidate_masks, static_cast<std::uint8_t>(value));
+          }
+        }
+      }
+    }
 
     StreamSourceDiagnostic diagnostic;
     diagnostic.seed = seed;
@@ -2250,6 +2324,24 @@ AdjutantValueStreamReport run_stream_teacher_impl(
     terminal_rollout_count += static_cast<int>(rollout_jobs.size());
     diagnostic.terminal_rollouts += static_cast<int>(rollout_jobs.size());
 
+    if (options.write_exchange_audit) {
+      for (int adjutant_index = 0; adjutant_index < kAdjutantCandidateCount;
+           ++adjutant_index) {
+        write_uint32_value(
+            exchange_rule_based_candidates,
+            static_cast<std::uint32_t>(
+                rb_discard_indices[static_cast<std::size_t>(adjutant_index)]));
+        const auto& values = values_by_adjutant[static_cast<std::size_t>(adjutant_index)];
+        for (const std::optional<RolloutValue>& value : values) {
+          if (!value.has_value()) {
+            throw std::runtime_error("missing full-gold exchange audit value");
+          }
+          write_float_value(exchange_margins, static_cast<float>(value->margin));
+          write_float_value(exchange_rewards, static_cast<float>(value->relative_reward));
+        }
+      }
+    }
+
     for (int adjutant_index = 0; adjutant_index < kAdjutantCandidateCount; ++adjutant_index) {
       Card adjutant{static_cast<std::uint8_t>(adjutant_index)};
       const auto& combinations =
@@ -2303,6 +2395,10 @@ AdjutantValueStreamReport run_stream_teacher_impl(
         diagnostic.proposal_gold_containment_full_proposal +=
             std::find(proposal_indices.begin(), proposal_indices.end(), gold_index) != proposal_indices.end() ? 1 : 0;
         diagnostic.rule_based_exchange_gold_count += rb_discard_index == gold_index ? 1 : 0;
+        if (options.write_exchange_audit) {
+          write_uint32_value(
+              exchange_gold_candidates, static_cast<std::uint32_t>(gold_index));
+        }
         diagnostic.proposal_best_regret_top16_sum +=
             gold_best->value.margin -
             best_value_for_discard_indices(adjutant_values, top16_indices).margin;

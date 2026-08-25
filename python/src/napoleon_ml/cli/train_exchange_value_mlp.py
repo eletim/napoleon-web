@@ -35,10 +35,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--loss", choices=("mse", "huber"), default="mse")
     parser.add_argument("--huber-delta", type=float, default=1.0)
     parser.add_argument("--pairwise-loss-weight", type=float, default=0.0)
+    parser.add_argument("--pointwise-loss-weight", type=float, default=1.0)
+    parser.add_argument("--listwise-loss-weight", type=float, default=0.0)
+    parser.add_argument("--listwise-temperature", type=float, default=1.0)
     parser.add_argument("--pairwise-state-batch-size", type=int, default=4)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--patience", type=int, default=8)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
+    parser.add_argument("--warm-start-checkpoint", type=Path)
     parser.add_argument("--json", action="store_true")
     return parser
 
@@ -62,10 +66,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             loss=args.loss,
             huber_delta=args.huber_delta,
             pairwise_loss_weight=args.pairwise_loss_weight,
+            pointwise_loss_weight=args.pointwise_loss_weight,
+            listwise_loss_weight=args.listwise_loss_weight,
+            listwise_temperature=args.listwise_temperature,
             pairwise_state_batch_size=args.pairwise_state_batch_size,
             weight_decay=args.weight_decay,
             patience=args.patience,
             device=args.device,
+            warm_start_checkpoint=(
+                str(args.warm_start_checkpoint) if args.warm_start_checkpoint is not None else None
+            ),
         ),
     )
     artifact = save_exchange_value_artifact(
