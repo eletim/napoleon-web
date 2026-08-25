@@ -323,6 +323,8 @@ def evaluate_full_gold(
     *,
     device: torch.device,
 ) -> dict[str, object]:
+    if dataset.manifest.get("mode") != "full-gold":
+        raise ValueError("full-gold evaluation requires a dataset with mode=full-gold.")
     indices = np.arange(dataset.sample_count, dtype=np.int64)
     predictions = predict(model, dataset, indices, device=device)
     truth = np.asarray(dataset.margins, dtype=np.float64)

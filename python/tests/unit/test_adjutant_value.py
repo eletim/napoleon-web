@@ -17,6 +17,7 @@ from napoleon_ml.adjutant_value.training import (
     split_by_state,
     train_adjutant_value_model,
 )
+from napoleon_ml.cli.generate_adjutant_value_dataset import main as generate_dataset_main
 from napoleon_ml.cli.merge_adjutant_value_datasets import merge_adjutant_value_datasets
 
 
@@ -67,6 +68,37 @@ def test_split_rejects_fewer_than_three_source_states(tmp_path: Path) -> None:
         split_by_state(dataset, seed=446)
 
 
+def test_full_gold_evaluation_rejects_proposal_dataset(tmp_path: Path) -> None:
+    _write_dataset(tmp_path, source_state_count=2, mode="proposal")
+    dataset = load_adjutant_value_dataset(tmp_path)
+    model = AdjutantValueMlp(AdjutantValueMlpConfig(hidden_dims=()))
+
+    with pytest.raises(ValueError, match="mode=full-gold"):
+        evaluate_full_gold(model, dataset, device=torch.device("cpu"))
+
+
+def test_generator_rejects_scorer_top_k_below_full_gold_diagnostic_minimum(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match=r"\[64,286\]"):
+        generate_dataset_main(
+            [
+                "--cpp-cli",
+                str(tmp_path / "cpp-cli"),
+                "--exchange-checkpoint",
+                str(tmp_path / "checkpoint.pt"),
+                "--output-directory",
+                str(tmp_path / "output"),
+                "--mode",
+                "proposal",
+                "--states",
+                "1",
+                "--scorer-top-k",
+                "63",
+            ]
+        )
+
+
 def test_merge_preserves_manifest_provenance_and_reindexes_states(tmp_path: Path) -> None:
     left = tmp_path / "left"
     right = tmp_path / "right"
@@ -114,6 +146,21 @@ def test_merge_rejects_duplicate_and_overlapping_shards(tmp_path: Path) -> None:
         merge_adjutant_value_datasets([left, right], output)
 
 
+def test_merge_rejects_different_proposal_scorers(tmp_path: Path) -> None:
+    left = tmp_path / "left"
+    right = tmp_path / "right"
+    output = tmp_path / "merged"
+    _write_dataset(left, source_state_count=1, start_seed=100)
+    _write_dataset(right, source_state_count=1, start_seed=200)
+    right_manifest_path = right / "manifest.json"
+    right_manifest = json.loads(right_manifest_path.read_text(encoding="utf-8"))
+    right_manifest["proposalScorer"]["checkpointSha256"] = "different"
+    right_manifest_path.write_text(json.dumps(right_manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="proposalScorer"):
+        merge_adjutant_value_datasets([left, right], output)
+
+
 def test_training_smoke_writes_checkpoint_metadata(tmp_path: Path) -> None:
     dataset_dir = tmp_path / "dataset"
     output_dir = tmp_path / "model"
@@ -142,6 +189,7 @@ def _write_dataset(
     *,
     source_state_count: int,
     start_seed: int = 446000000,
+    mode: str = "full-gold",
 ) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     sample_count = source_state_count * ADJUTANT_CANDIDATE_COUNT
@@ -206,7 +254,7 @@ def _write_dataset(
                 "generatorVersion": 2,
                 "sampleType": "adjutant-joint-value-v1",
                 "teacherId": "issue446-compact396-proposal-joint-teacher-v1",
-                "mode": "full-gold",
+                "mode": mode,
                 "featureCount": ADJUTANT_VALUE_FEATURE_COUNT,
                 "stateFeatureCount": 237,
                 "candidateCountPerState": ADJUTANT_CANDIDATE_COUNT,
@@ -220,6 +268,12 @@ def _write_dataset(
                     "scorer": "compact396",
                     "topK": 16,
                     "diversityCount": 8,
+                },
+                "proposalScorer": {
+                    "checkpointSha256": "test-checkpoint",
+                    "checkpointSchemaVersion": 1,
+                    "modelType": "exchange-combination-value-mlp",
+                    "modelConfig": {"inputVariant": "compact396"},
                 },
                 "sourceStateCount": source_state_count,
                 "requestedSourceStateCount": source_state_count,

@@ -102,6 +102,9 @@ def _load_manifest(directory: Path) -> dict[str, Any]:
         raise ValueError(f"{directory}: sampleCount must be sourceStateCount*53.")
     if int(manifest["featureCount"]) != FEATURE_COUNT:
         raise ValueError(f"{directory}: featureCount must be {FEATURE_COUNT}.")
+    scorer = manifest.get("proposalScorer")
+    if not isinstance(scorer, dict) or not scorer.get("checkpointSha256"):
+        raise ValueError(f"{directory}: proposalScorer checkpoint provenance is required.")
     return manifest
 
 
@@ -117,6 +120,7 @@ def _validate_compatible(manifests: Sequence[dict[str, Any]]) -> None:
         "runtimeOrder",
         "policyPath",
         "proposal",
+        "proposalScorer",
     )
     first = manifests[0]
     for manifest in manifests[1:]:

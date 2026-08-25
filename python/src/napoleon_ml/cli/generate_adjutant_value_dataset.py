@@ -7,7 +7,6 @@ import hashlib
 import json
 import struct
 import subprocess
-import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import BinaryIO
@@ -66,8 +65,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.states <= 0:
         raise ValueError("--states must be positive.")
-    if args.scorer_top_k <= 0 or args.scorer_top_k > DISCARD_COUNT:
-        raise ValueError("--scorer-top-k must be in [1,286].")
+    if args.scorer_top_k < 64 or args.scorer_top_k > DISCARD_COUNT:
+        raise ValueError("--scorer-top-k must be in [64,286].")
     if args.proposal_top_k <= 0 or args.proposal_top_k > args.scorer_top_k:
         raise ValueError("--proposal-top-k must be in [1,scorer-top-k].")
     if args.score_batch_size <= 0:
@@ -174,6 +173,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     if return_code != 0:
         raise RuntimeError(f"C++ stream teacher exited with code {return_code}.")
 
+    checkpoint_sha256 = _sha256(args.exchange_checkpoint)
+    scorer_provenance = {
+        "checkpointSha256": checkpoint_sha256,
+        "checkpointSchemaVersion": checkpoint.get("checkpointSchemaVersion"),
+        "modelType": checkpoint.get("modelType"),
+        "modelConfig": checkpoint.get("modelConfig"),
+    }
+    manifest_path = args.output_directory / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["proposalScorer"] = scorer_provenance
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
     report = {
         "mode": args.mode,
         "requestedStates": args.states,
@@ -181,7 +194,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "cppCommand": command,
         "exchangeCheckpoint": {
             "path": str(args.exchange_checkpoint),
-            "sha256": _sha256(args.exchange_checkpoint),
+            "sha256": checkpoint_sha256,
             "trainingConfig": checkpoint.get("trainingConfig"),
             "targetStandardization": checkpoint.get("targetStandardization"),
         },
