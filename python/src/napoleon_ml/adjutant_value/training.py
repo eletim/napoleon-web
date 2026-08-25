@@ -225,7 +225,9 @@ def train_adjutant_value_model(
         "device": device.to_metadata(),
     }
     metadata_path = output_directory / "metadata.json"
-    metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    metadata_path.write_text(
+        json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     return {"metadata": metadata, "report": reports}
 
 
@@ -251,16 +253,26 @@ def load_adjutant_value_dataset(directory: Path | str) -> LoadedAdjutantValueDat
             dtype="<f4",
             shape=(sample_count, ADJUTANT_VALUE_FEATURE_COUNT),
         ),
-        margins=np.memmap(path / "contract-margin.f32", mode="r", dtype="<f4", shape=(sample_count,)),
-        rewards=np.memmap(path / "relative-reward.f32", mode="r", dtype="<f4", shape=(sample_count,)),
-        state_indices=np.memmap(path / "state-index.u32", mode="r", dtype="<u4", shape=(sample_count,)),
-        candidate_cards=np.memmap(path / "candidate-card.u8", mode="r", dtype="u1", shape=(sample_count,)),
+        margins=np.memmap(
+            path / "contract-margin.f32", mode="r", dtype="<f4", shape=(sample_count,)
+        ),
+        rewards=np.memmap(
+            path / "relative-reward.f32", mode="r", dtype="<f4", shape=(sample_count,)
+        ),
+        state_indices=np.memmap(
+            path / "state-index.u32", mode="r", dtype="<u4", shape=(sample_count,)
+        ),
+        candidate_cards=np.memmap(
+            path / "candidate-card.u8", mode="r", dtype="u1", shape=(sample_count,)
+        ),
         source_state_count=source_state_count,
         sample_count=sample_count,
     )
 
 
 def split_by_state(dataset: LoadedAdjutantValueDataset, *, seed: int) -> dict[str, np.ndarray]:
+    if dataset.source_state_count < 3:
+        raise ValueError("at least 3 source states are required for train/validation/final splits.")
     rng = np.random.default_rng(seed)
     states = np.arange(dataset.source_state_count, dtype=np.uint32)
     rng.shuffle(states)
@@ -270,7 +282,9 @@ def split_by_state(dataset: LoadedAdjutantValueDataset, *, seed: int) -> dict[st
         validation_count = max(1, dataset.source_state_count // 5)
         final_count = max(1, dataset.source_state_count // 5)
     validation_states = set(int(value) for value in states[:validation_count])
-    final_states = set(int(value) for value in states[validation_count : validation_count + final_count])
+    final_states = set(
+        int(value) for value in states[validation_count : validation_count + final_count]
+    )
     train_states = set(int(value) for value in states[validation_count + final_count :])
     result: dict[str, np.ndarray] = {}
     state_indices = np.asarray(dataset.state_indices, dtype=np.uint32)
@@ -338,7 +352,9 @@ def predict(
     with torch.no_grad():
         for start in range(0, int(indices.shape[0]), batch_size):
             rows = indices[start : start + batch_size]
-            features = torch.from_numpy(np.array(dataset.features[rows], dtype=np.float32, copy=True)).to(device)
+            features = torch.from_numpy(
+                np.array(dataset.features[rows], dtype=np.float32, copy=True)
+            ).to(device)
             batches.append(model(features).detach().cpu().numpy())
     return np.concatenate(batches).astype(np.float64)
 
@@ -523,7 +539,11 @@ def pearson(left: np.ndarray, right: np.ndarray) -> float:
         return 0.0
     left_centered = left - np.mean(left)
     right_centered = right - np.mean(right)
-    denom = float(np.sqrt(np.sum(left_centered * left_centered) * np.sum(right_centered * right_centered)))
+    denom = float(
+        np.sqrt(
+            np.sum(left_centered * left_centered) * np.sum(right_centered * right_centered)
+        )
+    )
     if denom == 0.0:
         return 0.0
     return float(np.sum(left_centered * right_centered) / denom)

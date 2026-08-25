@@ -769,8 +769,6 @@ void append_virtual_bidding_action(GameState& state, const Action& action) {
         highest_bid.player_index,
         highest_bid.suit,
         highest_bid.target_point_cards};
-    called_adjutant =
-        simple_adjutant_card_for_virtual_bid(source, highest_bid.player_index, highest_bid.suit);
   } else {
     throw std::runtime_error("cannot build virtual playing state for all-pass bidding action");
   }
@@ -2373,6 +2371,13 @@ AdjutantValueStreamReport run_stream_teacher_impl(
               << " states=" << diagnostics.size() << "/" << options.requested_source_states
               << " samples=" << sample_count
               << " terminalRollouts=" << terminal_rollout_count << '\n';
+  }
+
+  if (static_cast<int>(diagnostics.size()) != options.requested_source_states) {
+    throw std::runtime_error(
+        "failed to generate requested source states: generated " +
+        std::to_string(diagnostics.size()) + " of " +
+        std::to_string(options.requested_source_states));
   }
 
   write_binary(scorer_request, kStreamDoneMagic);

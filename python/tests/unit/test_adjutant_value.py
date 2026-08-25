@@ -59,6 +59,14 @@ def test_full_gold_metrics_report_model_and_rule_based_regret(tmp_path: Path) ->
     assert report["proposal"]["regretMean"]["fullProposalTop16RuleBasedDiversity"] == 12 / 106
 
 
+def test_split_rejects_fewer_than_three_source_states(tmp_path: Path) -> None:
+    _write_dataset(tmp_path, source_state_count=2)
+    dataset = load_adjutant_value_dataset(tmp_path)
+
+    with pytest.raises(ValueError, match="at least 3 source states"):
+        split_by_state(dataset, seed=446)
+
+
 def test_merge_preserves_manifest_provenance_and_reindexes_states(tmp_path: Path) -> None:
     left = tmp_path / "left"
     right = tmp_path / "right"
