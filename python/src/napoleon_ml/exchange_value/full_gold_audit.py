@@ -457,6 +457,10 @@ def exclude_audit_overlaps(
     first_samples = {}
     for sample in training_dataset.raw_samples:
         first_samples.setdefault(sample.source_state_key, sample)
+    if any(sample.compact_exchange_state_input is None for sample in first_samples.values()):
+        raise ValueError(
+            "fixed-audit overlap exclusion requires compactExchangeStateInput for every state."
+        )
     excluded: dict[str, list[str]] = {}
     reason_counts: Counter[str] = Counter()
     for key, sample in first_samples.items():

@@ -394,6 +394,20 @@ def test_statewise_listwise_compact406_training_smoke(tmp_path: Path) -> None:
     assert checkpoint["trainingConfig"]["warmStartCheckpointSha256"]
     assert result.epoch_reports[0]["trainLoss"] > 0.0
 
+    with pytest.raises(ValueError, match="warm-start input layout must match"):
+        train_exchange_value_model(
+            dataset,
+            ExchangeValueTrainConfig(
+                seed=123,
+                epochs=1,
+                hidden_dims=(16,),
+                input_variant="legacy2724",
+                train_state_count=4,
+                device="cpu",
+                warm_start_checkpoint=cast(str, baseline_artifact["checkpointPath"]),
+            ),
+        )
+
 
 def test_non_default_pointwise_weight_uses_weighted_objective(tmp_path: Path) -> None:
     dataset_dir = tmp_path / "dataset"
@@ -525,6 +539,15 @@ def test_fixed_audit_overlap_filter_removes_complete_state_group(tmp_path: Path)
     assert filtered.source_state_count == 1
     assert filtered.sample_count == 286
     assert audit_training_leakage_report(audit, filtered)["status"] == "passed"
+
+    legacy = replace(
+        dataset,
+        raw_samples=tuple(
+            replace(sample, compact_exchange_state_input=None) for sample in dataset.raw_samples
+        ),
+    )
+    with pytest.raises(ValueError, match="requires compactExchangeStateInput"):
+        exclude_audit_overlaps(audit, legacy)
 
 
 def test_ranking_metrics_and_rule_based_fixture(tmp_path: Path) -> None:

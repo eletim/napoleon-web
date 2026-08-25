@@ -627,6 +627,18 @@ def _warm_start_exchange_model(
     target_state = model.state_dict()
     if source_model.config.hidden_dims != model.config.hidden_dims:
         raise ValueError("warm-start hidden_dims must match target model.")
+    source_input_dim = source_model.config.input_dim
+    target_input_dim = model.config.input_dim
+    if source_input_dim != target_input_dim and (
+        source_input_dim,
+        target_input_dim,
+    ) != (
+        EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT,
+        EXCHANGE_TACTICAL_VALUE_INPUT_FEATURE_COUNT,
+    ):
+        raise ValueError(
+            "warm-start input layout must match, except compact396 may initialize compact406."
+        )
     for key, target in target_state.items():
         source = source_state.get(key)
         if source is None:
