@@ -375,6 +375,13 @@ def audit_training_leakage_report(
     first_training_samples = {}
     for sample in training_dataset.raw_samples:
         first_training_samples.setdefault(sample.source_state_key, sample)
+    if any(
+        sample.compact_exchange_state_input is None
+        for sample in first_training_samples.values()
+    ):
+        raise ValueError(
+            "fixed-audit leakage report requires compactExchangeStateInput for every state."
+        )
     audit_sources = audit.manifest["sourceDiagnostics"]
     audit_seeds = {int(source["seed"]) for source in audit_sources}
     training_seeds = {sample.deal_seed for sample in first_training_samples.values()}
@@ -389,7 +396,6 @@ def audit_training_leakage_report(
     training_original = {
         tuple(np.flatnonzero(sample.compact_exchange_state_input[:53]))
         for sample in first_training_samples.values()
-        if sample.compact_exchange_state_input is not None
     }
     audit_kitty = {
         tuple(np.flatnonzero(audit.state_features[index * ADJUTANT_COUNT, 53:106]))
@@ -398,7 +404,6 @@ def audit_training_leakage_report(
     training_kitty = {
         tuple(np.flatnonzero(sample.compact_exchange_state_input[53:106]))
         for sample in first_training_samples.values()
-        if sample.compact_exchange_state_input is not None
     }
 
     audit_visible = {
@@ -408,7 +413,6 @@ def audit_training_leakage_report(
     training_visible = {
         _visible_signature(sample.compact_exchange_state_input)
         for sample in first_training_samples.values()
-        if sample.compact_exchange_state_input is not None
     }
     overlaps = {
         "dealSeed": len(audit_seeds & training_seeds),

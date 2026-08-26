@@ -332,6 +332,10 @@ def state_key_hash(state_keys: frozenset[str]) -> str:
 
 def dataset_provenance(dataset: ExchangeCounterfactualDataset) -> dict[str, object]:
     manifest = dataset.manifest
+    effective_state_keys = frozenset(sample.source_state_key for sample in dataset.raw_samples)
+    effective_manifest_sha256 = hashlib.sha256(
+        json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
     if "components" in manifest:
         return {
             "path": str(dataset.directory),
@@ -340,12 +344,18 @@ def dataset_provenance(dataset: ExchangeCounterfactualDataset) -> dict[str, obje
             "sourceStateCount": manifest.get("sourceStateCount"),
             "components": manifest.get("components"),
             "fixedAuditExclusion": manifest.get("fixedAuditExclusion"),
+            "effectiveSourceStateKeyHash": state_key_hash(effective_state_keys),
+            "effectiveManifestSha256": effective_manifest_sha256,
         }
     manifest_path = dataset.directory / "manifest.json"
     return {
         "path": str(dataset.directory),
         "manifestPath": str(manifest_path),
         "manifestSha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+        "manifestScope": "source-before-in-memory-filtering",
+        "effectiveManifestSha256": effective_manifest_sha256,
+        "effectiveSourceStateKeyHash": state_key_hash(effective_state_keys),
+        "fixedAuditExclusion": manifest.get("fixedAuditExclusion"),
         "sampleType": manifest.get("sampleType"),
         "sampleCount": manifest.get("sampleCount"),
         "sourceStateCount": manifest.get("sourceStateCount"),

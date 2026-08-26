@@ -30,6 +30,7 @@ from napoleon_ml.exchange_value import (
     save_exchange_value_artifact,
     train_exchange_value_model,
 )
+from napoleon_ml.exchange_value.dataset import dataset_provenance, state_key_hash
 from napoleon_ml.exchange_value.full_gold_audit import (
     ExchangeFullGoldAudit,
     audit_training_leakage_report,
@@ -548,6 +549,16 @@ def test_fixed_audit_overlap_filter_removes_complete_state_group(tmp_path: Path)
     )
     with pytest.raises(ValueError, match="requires compactExchangeStateInput"):
         exclude_audit_overlaps(audit, legacy)
+    with pytest.raises(ValueError, match="requires compactExchangeStateInput"):
+        audit_training_leakage_report(audit, legacy)
+
+    provenance = dataset_provenance(filtered)
+    assert provenance["manifestScope"] == "source-before-in-memory-filtering"
+    assert provenance["fixedAuditExclusion"] == exclusion
+    assert provenance["effectiveManifestSha256"] != provenance["manifestSha256"]
+    assert provenance["effectiveSourceStateKeyHash"] == state_key_hash(
+        frozenset({"state-1"})
+    )
 
 
 def test_ranking_metrics_and_rule_based_fixture(tmp_path: Path) -> None:
