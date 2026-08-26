@@ -31,6 +31,7 @@ from napoleon_ml.policy.device import (
 from .dataset import (
     EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT,
     EXCHANGE_COUNTERFACTUAL_COMBINATION_COUNT,
+    EXCHANGE_ORACLE_LOCATION_INPUT_FEATURE_COUNT,
     EXCHANGE_TACTICAL_VALUE_INPUT_FEATURE_COUNT,
     EXCHANGE_VALUE_INPUT_FEATURE_COUNT,
     EXCHANGE_VALUE_INPUT_VARIANTS,
@@ -632,12 +633,13 @@ def _warm_start_exchange_model(
     if source_input_dim != target_input_dim and (
         source_input_dim,
         target_input_dim,
-    ) != (
-        EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT,
-        EXCHANGE_TACTICAL_VALUE_INPUT_FEATURE_COUNT,
-    ):
+    ) not in {
+        (EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT, EXCHANGE_TACTICAL_VALUE_INPUT_FEATURE_COUNT),
+        (EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT, EXCHANGE_ORACLE_LOCATION_INPUT_FEATURE_COUNT),
+    }:
         raise ValueError(
-            "warm-start input layout must match, except compact396 may initialize compact406."
+            "warm-start input layout must match, except compact396 may initialize "
+            "compact406 or diagnostic compact401."
         )
     for key, target in target_state.items():
         source = source_state.get(key)
@@ -1164,6 +1166,8 @@ def _input_dim_for_variant(input_variant: ExchangeValueInputVariant) -> int:
         return EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT
     if input_variant == "compact406":
         return EXCHANGE_TACTICAL_VALUE_INPUT_FEATURE_COUNT
+    if input_variant == "compact401-oracle-location":
+        return EXCHANGE_ORACLE_LOCATION_INPUT_FEATURE_COUNT
     raise ValueError(f"unsupported exchange value input variant: {input_variant}.")
 
 

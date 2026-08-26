@@ -15,6 +15,7 @@ from napoleon_ml.dataset.tensors import EXCHANGE_MODEL_INPUT_FEATURE_COUNT
 from napoleon_ml.exchange_value import (
     EXCHANGE_COMPACT_STATE_FEATURE_COUNT,
     EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT,
+    EXCHANGE_ORACLE_LOCATION_INPUT_FEATURE_COUNT,
     EXCHANGE_TACTICAL_VALUE_INPUT_FEATURE_COUNT,
     EXCHANGE_VALUE_INPUT_FEATURE_COUNT,
     ExchangeValueMlpConfig,
@@ -37,6 +38,10 @@ from napoleon_ml.exchange_value.full_gold_audit import (
     exchange_full_gold_report,
     exclude_audit_overlaps,
     load_exchange_full_gold_audit,
+)
+from napoleon_ml.exchange_value.oracle_location import (
+    location_one_hot,
+    relative_adjutant_location_class,
 )
 from napoleon_ml.exchange_value.tactical import compact396_tactical_features
 from napoleon_ml.exchange_value.training import exchange_value_evaluation_report
@@ -209,6 +214,34 @@ def _write_dataset(directory: Path, *, states: int = 12) -> None:
     (directory / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
 
+def _write_oracle_overlay(path: Path, *, states: int) -> None:
+    class_names = [
+        "opponentSeat1",
+        "opponentSeat2",
+        "opponentSeat3",
+        "opponentSeat4",
+        "selfKittySolo",
+    ]
+    entries = {
+        f"state-{state}": {
+            "classIndex": state % 5,
+            "className": class_names[state % 5],
+            "calledCardOrigin": "originalHand" if state % 5 == 4 else "opponentHand",
+            "dealSeed": 436000 + state,
+            "napoleonSeatIndex": 0,
+            "calledAdjutantCardId": "spades-A",
+        }
+        for state in range(states)
+    }
+    path.write_text(json.dumps({
+        "artifactType": "issue450-exchange-training-location-overlay-v1",
+        "classNames": class_names,
+        "sourceStateCount": states,
+        "datasetManifests": [],
+        "entries": entries,
+    }), encoding="utf-8")
+
+
 def test_loader_roundtrip_and_input_dimensions(tmp_path: Path) -> None:
     _write_dataset(tmp_path, states=3)
 
@@ -237,6 +270,24 @@ def test_compact_only_loader_skips_legacy_tensor(tmp_path: Path) -> None:
     assert sample.compact_value_input.shape == (EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT,)
     with pytest.raises(ValueError, match="legacy2724 input was not loaded"):
         _ = sample.value_input
+
+
+def test_oracle_location_relative_seat_and_compact401_fixture(tmp_path: Path) -> None:
+    classes = [
+        relative_adjutant_location_class(owner, 3) for owner in (4, 0, 1, 2, 3, None)
+    ]
+    assert classes == [0, 1, 2, 3, 4, 4]
+    assert location_one_hot(2).tolist() == [0.0, 0.0, 1.0, 0.0, 0.0]
+    _write_dataset(tmp_path, states=2)
+    overlay = tmp_path / "oracle.json"
+    _write_oracle_overlay(overlay, states=2)
+    sample = load_exchange_counterfactual_dataset(
+        tmp_path, load_legacy_model_input=False, oracle_location_overlay=overlay
+    ).raw_samples[0]
+    oracle_input = sample.value_input_for_variant("compact401-oracle-location")
+    assert oracle_input.shape == (EXCHANGE_ORACLE_LOCATION_INPUT_FEATURE_COUNT,)
+    np.testing.assert_array_equal(oracle_input[:396], sample.compact_value_input)
+    assert oracle_input[396:].tolist() == [1.0, 0.0, 0.0, 0.0, 0.0]
 
 
 def test_combined_dataset_rejects_source_overlap(tmp_path: Path) -> None:
@@ -494,13 +545,20 @@ def test_full_gold_containment_rank_and_regret_fixture(tmp_path: Path) -> None:
     )
 
     report = exchange_full_gold_report(
-        load_exchange_full_gold_audit(tmp_path), scores, scorer_name="fixture"
+        load_exchange_full_gold_audit(tmp_path), scores, scorer_name="fixture",
+        location_classes=np.asarray([4], dtype=np.int64),
     )
 
     assert report["containment"]["1"] == 0.0
     assert report["containment"]["4"] == 1.0
     assert report["goldBestRank"]["median"] == 4.0
     assert report["topKOracle"]["1"]["marginRegret"]["mean"] == 2.0
+    location = report["failureAnalysis"]["adjutantLocationOracle"]
+    assert location["classes"]["selfKittySolo"]["count"] == 1
+    assert location["classes"]["selfKittySolo"]["top16Containment"] == 1.0
+    assert report["failureAnalysis"]["metricsByCalledCardOrigin"]["originalHand"][
+        "practicalK16MarginRegret"
+    ]["mean"] == 0.0
 
     corrupted = bytearray((tmp_path / "exchange-contract-margin.f32").read_bytes())
     corrupted[0] ^= 1

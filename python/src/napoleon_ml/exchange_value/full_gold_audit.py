@@ -15,6 +15,7 @@ import torch
 from napoleon_ml.dataset.constants import EXPECTED_CARD_IDS
 
 from .dataset import ExchangeCounterfactualDataset
+from .oracle_location import ADJUTANT_LOCATION_CLASS_NAMES, location_one_hot
 from .tactical import compact396_tactical_features, compact406_value_input
 
 ADJUTANT_COUNT = 53
@@ -83,10 +84,15 @@ def predict_full_gold_scores(
     *,
     device: torch.device,
     group_batch_size: int = 16,
+    location_classes: np.ndarray | None = None,
 ) -> np.ndarray:
     input_dim = int(model.config.input_dim)
-    if input_dim not in (396, 406):
-        raise ValueError(f"full-gold scorer input must be 396 or 406, got {input_dim}.")
+    if input_dim not in (396, 401, 406):
+        raise ValueError(f"full-gold scorer input must be 396, 401, or 406, got {input_dim}.")
+    if input_dim == 401 and location_classes is None:
+        raise ValueError("compact401 oracle scorer requires full-gold location classes.")
+    if location_classes is not None and location_classes.shape != (audit.group_count,):
+        raise ValueError("full-gold location classes must have one value per adjutant group.")
     model.eval()
     result = np.empty((audit.group_count, DISCARD_COUNT), dtype=np.float32)
     with torch.no_grad():
@@ -103,7 +109,20 @@ def predict_full_gold_scores(
                 ),
                 axis=2,
             ).reshape(-1, 396)
-            inputs = compact406_value_input(compact396) if input_dim == 406 else compact396
+            if input_dim == 406:
+                inputs = compact406_value_input(compact396)
+            elif input_dim == 401:
+                assert location_classes is not None
+                one_hot = np.stack(
+                    [location_one_hot(int(value)) for value in location_classes[start:end]]
+                )
+                inputs = np.concatenate(
+                    (compact396.reshape(end - start, DISCARD_COUNT, 396),
+                     np.broadcast_to(one_hot[:, None, :], (end - start, DISCARD_COUNT, 5))),
+                    axis=2,
+                ).reshape(-1, 401)
+            else:
+                inputs = compact396
             prediction = model(torch.as_tensor(inputs, dtype=torch.float32, device=device)).reshape(
                 end - start, DISCARD_COUNT
             )
@@ -116,9 +135,12 @@ def exchange_full_gold_report(
     scores: np.ndarray,
     *,
     scorer_name: str,
+    location_classes: np.ndarray | None = None,
 ) -> dict[str, object]:
     if scores.shape != (audit.group_count, DISCARD_COUNT):
         raise ValueError("score matrix shape mismatch.")
+    if location_classes is not None and location_classes.shape != (audit.group_count,):
+        raise ValueError("location classes must have one value per adjutant group.")
     ranks: list[int] = []
     top1_margin_regrets: list[float] = []
     top1_reward_regrets: list[float] = []
@@ -144,6 +166,10 @@ def exchange_full_gold_report(
     by_kitty_point_count: dict[str, list[int]] = defaultdict(list)
     by_original_trump_count: dict[str, list[int]] = defaultdict(list)
     by_kitty_trump_count: dict[str, list[int]] = defaultdict(list)
+    location_rows: dict[str, list[dict[str, float]]] = defaultdict(list)
+    origin_rows: dict[str, list[dict[str, float]]] = defaultdict(list)
+    location_suit_rows: dict[str, list[dict[str, float]]] = defaultdict(list)
+    location_target_rows: dict[str, list[dict[str, float]]] = defaultdict(list)
     source_diagnostics = audit.manifest["sourceDiagnostics"]
 
     for group_index in range(audit.group_count):
@@ -227,6 +253,23 @@ def exchange_full_gold_report(
             practical[k]["reward"].append(gold_reward - float(rewards[best]))  # type: ignore[union-attr]
             practical[k]["candidateCount"].append(len(selected))  # type: ignore[union-attr]
 
+        practical16_margin = practical[16]["margin"]  # type: ignore[assignment]
+        metric_row = {
+            "rank": float(rank),
+            "contained16": float(gold in order[:16]),
+            "top1Regret": top1_margin_regrets[-1],
+            "practicalContained16": float(gold in _practical_indices(
+                order[:16], rb, state_index=local_source_index,
+                adjutant_index=adjutant_index, diversity_count=8)),
+            "practicalRegret16": float(practical16_margin[-1]),
+        }
+        origin_rows[called_location].append(metric_row)
+        if location_classes is not None:
+            class_name = ADJUTANT_LOCATION_CLASS_NAMES[int(location_classes[group_index])]
+            location_rows[class_name].append(metric_row)
+            location_suit_rows[f"{class_name}:{source['contractSuit']}"].append(metric_row)
+            location_target_rows[f"{class_name}:{source['contractTarget']}"].append(metric_row)
+
         truth_delta = margins[:, None] - margins[None, :]
         score_delta = group_scores[:, None] - group_scores[None, :]
         upper = np.triu(np.ones((DISCARD_COUNT, DISCARD_COUNT), dtype=bool), k=1)
@@ -262,6 +305,46 @@ def exchange_full_gold_report(
     gold_tactical_array = np.stack(gold_tactical)
     top1_tactical_array = np.stack(top1_tactical)
     rb_tactical_array = np.stack(rb_tactical)
+    def summarize_location(rows: list[dict[str, float]]) -> dict[str, object]:
+        if not rows:
+            return {"count": 0, "fraction": 0.0}
+        rank = np.asarray([row["rank"] for row in rows])
+        return {
+            "count": len(rows),
+            "fraction": len(rows) / audit.group_count,
+            "goldBestRank": _summary(rank),
+            "top16Containment": float(np.mean([row["contained16"] for row in rows])),
+            "top1MarginRegret": _summary(np.asarray([row["top1Regret"] for row in rows])),
+            "practicalK16Containment": float(np.mean(
+                [row["practicalContained16"] for row in rows]
+            )),
+            "practicalK16MarginRegret": _summary(np.asarray(
+                [row["practicalRegret16"] for row in rows]
+            )),
+        }
+    location_diagnostic = None
+    if location_classes is not None:
+        external = [
+            row
+            for name, rows in location_rows.items()
+            if name != "selfKittySolo"
+            for row in rows
+        ]
+        self_side = list(location_rows.get("selfKittySolo", []))
+        location_diagnostic = {
+            "classes": {name: summarize_location(location_rows[name])
+                        for name in ADJUTANT_LOCATION_CLASS_NAMES},
+            "externalVsSelfKittySolo": {
+                "external": summarize_location(external),
+                "selfKittySolo": summarize_location(self_side),
+            },
+            "byClassAndContractSuit": {
+                key: summarize_location(rows) for key, rows in sorted(location_suit_rows.items())
+            },
+            "byClassAndContractTarget": {
+                key: summarize_location(rows) for key, rows in sorted(location_target_rows.items())
+            },
+        }
     return {
         "scorer": scorer_name,
         "fixedHoldout": audit.manifest["fixedHoldout"],
@@ -302,6 +385,7 @@ def exchange_full_gold_report(
             for k in PROPOSAL_BUDGETS
         },
         "failureAnalysis": {
+            **({"adjutantLocationOracle": location_diagnostic} if location_diagnostic else {}),
             "rankByContractSuit": {
                 key: _summary(np.asarray(value)) for key, value in sorted(by_suit.items())
             },
@@ -311,6 +395,9 @@ def exchange_full_gold_report(
             "rankByCalledAdjutantLocation": {
                 key: _summary(np.asarray(value))
                 for key, value in sorted(by_called_location.items())
+            },
+            "metricsByCalledCardOrigin": {
+                key: summarize_location(rows) for key, rows in sorted(origin_rows.items())
             },
             "rankByOriginalPointCardCount": {
                 key: _summary(np.asarray(value))

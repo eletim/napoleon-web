@@ -14,6 +14,7 @@ import numpy as np
 from napoleon_ml.dataset.constants import CARD_COUNT, EXPECTED_CARD_IDS
 from napoleon_ml.dataset.tensors import EXCHANGE_MODEL_INPUT_FEATURE_COUNT
 
+from .oracle_location import ORACLE_INPUT_VARIANT, load_training_location_overlay, location_one_hot
 from .tactical import EXCHANGE_TACTICAL_FEATURE_COUNT, compact406_value_input
 
 EXCHANGE_COUNTERFACTUAL_SAMPLE_TYPE = "exchange-counterfactual-value-v1"
@@ -24,7 +25,8 @@ EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT = EXCHANGE_COMPACT_STATE_FEATURE_COUN
 EXCHANGE_TACTICAL_VALUE_INPUT_FEATURE_COUNT = (
     EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT + EXCHANGE_TACTICAL_FEATURE_COUNT
 )
-EXCHANGE_VALUE_INPUT_VARIANTS = ("legacy2724", "compact396", "compact406")
+EXCHANGE_ORACLE_LOCATION_INPUT_FEATURE_COUNT = EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT + 5
+EXCHANGE_VALUE_INPUT_VARIANTS = ("legacy2724", "compact396", "compact406", ORACLE_INPUT_VARIANT)
 ExchangeValueInputVariant = str
 
 
@@ -57,6 +59,10 @@ class ExchangeCounterfactualSample:
     rule_based_candidate_index: int
     hidden_deal_checksum: str
     bidding_history_hash: str
+    napoleon_seat_index: int
+    called_adjutant_card_id: str
+    actual_adjutant_location_class: int | None
+    called_card_origin: str | None
 
     @property
     def value_input(self) -> np.ndarray:
@@ -94,6 +100,12 @@ class ExchangeCounterfactualSample:
             return self.compact_value_input
         if input_variant == "compact406":
             return compact406_value_input(self.compact_value_input)
+        if input_variant == ORACLE_INPUT_VARIANT:
+            if self.actual_adjutant_location_class is None:
+                raise ValueError("oracle location input requires a diagnostic location overlay.")
+            return np.concatenate(
+                (self.compact_value_input, location_one_hot(self.actual_adjutant_location_class))
+            ).astype(np.float32)
         raise ValueError(f"unsupported exchange value input variant: {input_variant}.")
 
 
@@ -130,11 +142,18 @@ def load_exchange_counterfactual_dataset(
     dataset_directory: Path | str,
     *,
     load_legacy_model_input: bool = True,
+    oracle_location_overlay: Path | str | None = None,
 ) -> ExchangeCounterfactualDataset:
     directory = Path(dataset_directory)
     manifest_path = directory / "manifest.json"
     manifest = _read_json_object(manifest_path, context="manifest.json")
     _validate_manifest_shape(manifest)
+    overlay_entries: dict[str, dict[str, Any]] = {}
+    overlay_provenance = None
+    if oracle_location_overlay is not None:
+        overlay_entries, overlay_provenance = load_training_location_overlay(
+            oracle_location_overlay
+        )
     samples: list[ExchangeCounterfactualSample] = []
     for shard in manifest["shards"]:
         shard_path = directory / _require_str(shard, "file")
@@ -163,14 +182,23 @@ def load_exchange_counterfactual_dataset(
                     raw,
                     context=f"{shard_path.name}:{line_number}",
                     load_legacy_model_input=load_legacy_model_input,
+                    oracle_entry=overlay_entries.get(str(raw.get("sourceStateKey"))),
                 )
             )
     dataset = ExchangeCounterfactualDataset(
         directory=directory,
-        manifest=manifest,
+        manifest={
+            **manifest,
+            **({"oracleLocationOverlay": overlay_provenance} if overlay_provenance else {}),
+        },
         raw_samples=tuple(samples),
     )
     _validate_dataset(dataset)
+    if overlay_entries:
+        loaded_keys = {sample.source_state_key for sample in samples}
+        missing = loaded_keys - overlay_entries.keys()
+        if missing:
+            raise ValueError(f"oracle location overlay is missing {len(missing)} source states.")
     return dataset
 
 
@@ -344,6 +372,7 @@ def dataset_provenance(dataset: ExchangeCounterfactualDataset) -> dict[str, obje
             "sourceStateCount": manifest.get("sourceStateCount"),
             "components": manifest.get("components"),
             "fixedAuditExclusion": manifest.get("fixedAuditExclusion"),
+            "oracleLocationOverlay": manifest.get("oracleLocationOverlay"),
             "effectiveSourceStateKeyHash": state_key_hash(effective_state_keys),
             "effectiveManifestSha256": effective_manifest_sha256,
         }
@@ -356,6 +385,7 @@ def dataset_provenance(dataset: ExchangeCounterfactualDataset) -> dict[str, obje
         "effectiveManifestSha256": effective_manifest_sha256,
         "effectiveSourceStateKeyHash": state_key_hash(effective_state_keys),
         "fixedAuditExclusion": manifest.get("fixedAuditExclusion"),
+        "oracleLocationOverlay": manifest.get("oracleLocationOverlay"),
         "sampleType": manifest.get("sampleType"),
         "sampleCount": manifest.get("sampleCount"),
         "sourceStateCount": manifest.get("sourceStateCount"),
@@ -404,6 +434,7 @@ def _parse_sample(
     *,
     context: str,
     load_legacy_model_input: bool,
+    oracle_entry: dict[str, Any] | None,
 ) -> ExchangeCounterfactualSample:
     if raw.get("sampleType") != EXCHANGE_COUNTERFACTUAL_SAMPLE_TYPE:
         raise ValueError(f"{context}: sampleType mismatch.")
@@ -432,6 +463,29 @@ def _parse_sample(
         raise ValueError(f"{context}: candidateDiscardMask must contain exactly 3 ones.")
     if not bool(np.all(discard_mask <= legal_mask)):
         raise ValueError(f"{context}: candidateDiscardMask must be legal.")
+    location_class = None if oracle_entry is None else _require_int(oracle_entry, "classIndex")
+    called_origin = None if oracle_entry is None else _require_str(oracle_entry, "calledCardOrigin")
+    if location_class is not None and not 0 <= location_class < 5:
+        raise ValueError(f"{context}: oracle location class must be in [0,4].")
+    if oracle_entry is not None:
+        assert location_class is not None
+        expected_class_name = (
+            "opponentSeat1",
+            "opponentSeat2",
+            "opponentSeat3",
+            "opponentSeat4",
+            "selfKittySolo",
+        )[location_class]
+        if _require_str(oracle_entry, "className") != expected_class_name:
+            raise ValueError(f"{context}: oracle overlay className mismatch.")
+        if called_origin not in {"originalHand", "kitty", "opponentHand"}:
+            raise ValueError(f"{context}: oracle overlay calledCardOrigin mismatch.")
+        if _require_int(oracle_entry, "dealSeed") != _require_int(raw, "dealSeed"):
+            raise ValueError(f"{context}: oracle overlay dealSeed mismatch.")
+        if _require_str(oracle_entry, "calledAdjutantCardId") != _require_str(
+            raw, "calledAdjutantCardId"
+        ):
+            raise ValueError(f"{context}: oracle overlay called card mismatch.")
     return ExchangeCounterfactualSample(
         source_state_key=_require_str(raw, "sourceStateKey"),
         fixed_hand_id=_require_str(raw, "fixedHandId"),
@@ -474,6 +528,10 @@ def _parse_sample(
         rule_based_candidate_index=_require_int(raw, "ruleBasedCandidateIndex"),
         hidden_deal_checksum=_require_str(raw, "hiddenDealChecksum"),
         bidding_history_hash=_require_str(raw, "biddingHistoryHash"),
+        napoleon_seat_index=_require_int(raw, "napoleonSeatIndex"),
+        called_adjutant_card_id=_require_str(raw, "calledAdjutantCardId"),
+        actual_adjutant_location_class=location_class,
+        called_card_origin=called_origin,
     )
 
 

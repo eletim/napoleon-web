@@ -1,0 +1,3223 @@
+{
+  "containment": {
+    "1": 0.025754716981132075,
+    "128": 0.7962264150943397,
+    "16": 0.22886792452830187,
+    "24": 0.3039622641509434,
+    "32": 0.36971698113207546,
+    "4": 0.07886792452830188,
+    "48": 0.4760377358490566,
+    "64": 0.5606603773584906,
+    "8": 0.13443396226415094,
+    "96": 0.6915094339622642
+  },
+  "failureAnalysis": {
+    "adjutantLocationOracle": {
+      "byClassAndContractSuit": {
+        "opponentSeat1:clubs": {
+          "count": 180,
+          "fraction": 0.016981132075471698,
+          "goldBestRank": {
+            "max": 278.0,
+            "mean": 89.84444444444445,
+            "median": 72.5,
+            "p90": 195.0
+          },
+          "practicalK16Containment": 0.2111111111111111,
+          "practicalK16MarginRegret": {
+            "max": 6.0,
+            "mean": 1.1722222222222223,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.17777777777777778,
+          "top1MarginRegret": {
+            "max": 12.0,
+            "mean": 4.65,
+            "median": 5.0,
+            "p90": 8.0
+          }
+        },
+        "opponentSeat1:diamonds": {
+          "count": 490,
+          "fraction": 0.04622641509433962,
+          "goldBestRank": {
+            "max": 265.0,
+            "mean": 70.3265306122449,
+            "median": 46.5,
+            "p90": 174.30000000000007
+          },
+          "practicalK16Containment": 0.3163265306122449,
+          "practicalK16MarginRegret": {
+            "max": 5.0,
+            "mean": 0.9326530612244898,
+            "median": 1.0,
+            "p90": 2.0
+          },
+          "top16Containment": 0.2979591836734694,
+          "top1MarginRegret": {
+            "max": 11.0,
+            "mean": 4.3,
+            "median": 4.0,
+            "p90": 7.0
+          }
+        },
+        "opponentSeat1:hearts": {
+          "count": 380,
+          "fraction": 0.035849056603773584,
+          "goldBestRank": {
+            "max": 278.0,
+            "mean": 75.11578947368422,
+            "median": 56.5,
+            "p90": 181.10000000000002
+          },
+          "practicalK16Containment": 0.24736842105263157,
+          "practicalK16MarginRegret": {
+            "max": 5.0,
+            "mean": 1.1368421052631579,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.21842105263157896,
+          "top1MarginRegret": {
+            "max": 14.0,
+            "mean": 4.428947368421053,
+            "median": 4.0,
+            "p90": 8.0
+          }
+        },
+        "opponentSeat1:spades": {
+          "count": 950,
+          "fraction": 0.08962264150943396,
+          "goldBestRank": {
+            "max": 285.0,
+            "mean": 74.4621052631579,
+            "median": 51.0,
+            "p90": 184.0
+          },
+          "practicalK16Containment": 0.2673684210526316,
+          "practicalK16MarginRegret": {
+            "max": 5.0,
+            "mean": 1.1305263157894736,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.22736842105263158,
+          "top1MarginRegret": {
+            "max": 12.0,
+            "mean": 4.998947368421053,
+            "median": 5.0,
+            "p90": 8.0
+          }
+        },
+        "opponentSeat2:clubs": {
+          "count": 180,
+          "fraction": 0.016981132075471698,
+          "goldBestRank": {
+            "max": 278.0,
+            "mean": 92.22222222222223,
+            "median": 76.0,
+            "p90": 203.1
+          },
+          "practicalK16Containment": 0.2222222222222222,
+          "practicalK16MarginRegret": {
+            "max": 6.0,
+            "mean": 1.0333333333333334,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.19444444444444445,
+          "top1MarginRegret": {
+            "max": 14.0,
+            "mean": 4.733333333333333,
+            "median": 4.0,
+            "p90": 9.0
+          }
+        },
+        "opponentSeat2:diamonds": {
+          "count": 490,
+          "fraction": 0.04622641509433962,
+          "goldBestRank": {
+            "max": 279.0,
+            "mean": 73.73469387755102,
+            "median": 52.5,
+            "p90": 179.0
+          },
+          "practicalK16Containment": 0.2795918367346939,
+          "practicalK16MarginRegret": {
+            "max": 4.0,
+            "mean": 0.9877551020408163,
+            "median": 1.0,
+            "p90": 2.0
+          },
+          "top16Containment": 0.2510204081632653,
+          "top1MarginRegret": {
+            "max": 14.0,
+            "mean": 4.426530612244898,
+            "median": 4.0,
+            "p90": 7.0
+          }
+        },
+        "opponentSeat2:hearts": {
+          "count": 380,
+          "fraction": 0.035849056603773584,
+          "goldBestRank": {
+            "max": 267.0,
+            "mean": 64.18157894736842,
+            "median": 43.0,
+            "p90": 152.20000000000005
+          },
+          "practicalK16Containment": 0.26842105263157895,
+          "practicalK16MarginRegret": {
+            "max": 4.0,
+            "mean": 1.0578947368421052,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.24736842105263157,
+          "top1MarginRegret": {
+            "max": 11.0,
+            "mean": 4.373684210526315,
+            "median": 4.0,
+            "p90": 8.0
+          }
+        },
+        "opponentSeat2:spades": {
+          "count": 950,
+          "fraction": 0.08962264150943396,
+          "goldBestRank": {
+            "max": 285.0,
+            "mean": 70.93052631578948,
+            "median": 48.5,
+            "p90": 174.10000000000002
+          },
+          "practicalK16Containment": 0.27263157894736845,
+          "practicalK16MarginRegret": {
+            "max": 5.0,
+            "mean": 1.1136842105263158,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.23684210526315788,
+          "top1MarginRegret": {
+            "max": 15.0,
+            "mean": 5.056842105263158,
+            "median": 5.0,
+            "p90": 9.0
+          }
+        },
+        "opponentSeat3:clubs": {
+          "count": 180,
+          "fraction": 0.016981132075471698,
+          "goldBestRank": {
+            "max": 282.0,
+            "mean": 102.61666666666666,
+            "median": 85.5,
+            "p90": 216.29999999999998
+          },
+          "practicalK16Containment": 0.12777777777777777,
+          "practicalK16MarginRegret": {
+            "max": 6.0,
+            "mean": 1.3,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.1,
+          "top1MarginRegret": {
+            "max": 13.0,
+            "mean": 5.166666666666667,
+            "median": 5.0,
+            "p90": 9.0
+          }
+        },
+        "opponentSeat3:diamonds": {
+          "count": 490,
+          "fraction": 0.04622641509433962,
+          "goldBestRank": {
+            "max": 285.0,
+            "mean": 72.25102040816327,
+            "median": 53.0,
+            "p90": 180.10000000000002
+          },
+          "practicalK16Containment": 0.2816326530612245,
+          "practicalK16MarginRegret": {
+            "max": 4.0,
+            "mean": 1.0122448979591836,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.2530612244897959,
+          "top1MarginRegret": {
+            "max": 11.0,
+            "mean": 4.359183673469388,
+            "median": 4.0,
+            "p90": 7.0
+          }
+        },
+        "opponentSeat3:hearts": {
+          "count": 380,
+          "fraction": 0.035849056603773584,
+          "goldBestRank": {
+            "max": 281.0,
+            "mean": 66.08157894736843,
+            "median": 44.5,
+            "p90": 162.20000000000005
+          },
+          "practicalK16Containment": 0.26842105263157895,
+          "practicalK16MarginRegret": {
+            "max": 5.0,
+            "mean": 0.9921052631578947,
+            "median": 1.0,
+            "p90": 2.0
+          },
+          "top16Containment": 0.23421052631578948,
+          "top1MarginRegret": {
+            "max": 13.0,
+            "mean": 4.636842105263158,
+            "median": 4.0,
+            "p90": 8.0
+          }
+        },
+        "opponentSeat3:spades": {
+          "count": 950,
+          "fraction": 0.08962264150943396,
+          "goldBestRank": {
+            "max": 286.0,
+            "mean": 74.24842105263158,
+            "median": 53.5,
+            "p90": 183.0
+          },
+          "practicalK16Containment": 0.26526315789473687,
+          "practicalK16MarginRegret": {
+            "max": 6.0,
+            "mean": 1.0947368421052632,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.21789473684210525,
+          "top1MarginRegret": {
+            "max": 14.0,
+            "mean": 5.085263157894737,
+            "median": 5.0,
+            "p90": 9.0
+          }
+        },
+        "opponentSeat4:clubs": {
+          "count": 180,
+          "fraction": 0.016981132075471698,
+          "goldBestRank": {
+            "max": 283.0,
+            "mean": 93.63333333333334,
+            "median": 75.0,
+            "p90": 211.29999999999998
+          },
+          "practicalK16Containment": 0.21666666666666667,
+          "practicalK16MarginRegret": {
+            "max": 4.0,
+            "mean": 1.2277777777777779,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.15,
+          "top1MarginRegret": {
+            "max": 12.0,
+            "mean": 5.111111111111111,
+            "median": 5.0,
+            "p90": 9.0
+          }
+        },
+        "opponentSeat4:diamonds": {
+          "count": 490,
+          "fraction": 0.04622641509433962,
+          "goldBestRank": {
+            "max": 286.0,
+            "mean": 71.42857142857143,
+            "median": 57.5,
+            "p90": 162.10000000000002
+          },
+          "practicalK16Containment": 0.2714285714285714,
+          "practicalK16MarginRegret": {
+            "max": 5.0,
+            "mean": 0.9795918367346939,
+            "median": 1.0,
+            "p90": 2.0
+          },
+          "top16Containment": 0.24489795918367346,
+          "top1MarginRegret": {
+            "max": 13.0,
+            "mean": 4.251020408163265,
+            "median": 4.0,
+            "p90": 7.0
+          }
+        },
+        "opponentSeat4:hearts": {
+          "count": 380,
+          "fraction": 0.035849056603773584,
+          "goldBestRank": {
+            "max": 274.0,
+            "mean": 71.78157894736842,
+            "median": 51.5,
+            "p90": 171.10000000000002
+          },
+          "practicalK16Containment": 0.26052631578947366,
+          "practicalK16MarginRegret": {
+            "max": 5.0,
+            "mean": 1.0789473684210527,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.23421052631578948,
+          "top1MarginRegret": {
+            "max": 13.0,
+            "mean": 4.7,
+            "median": 5.0,
+            "p90": 8.0
+          }
+        },
+        "opponentSeat4:spades": {
+          "count": 950,
+          "fraction": 0.08962264150943396,
+          "goldBestRank": {
+            "max": 283.0,
+            "mean": 75.09052631578948,
+            "median": 55.0,
+            "p90": 180.0
+          },
+          "practicalK16Containment": 0.24210526315789474,
+          "practicalK16MarginRegret": {
+            "max": 5.0,
+            "mean": 1.111578947368421,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.21473684210526317,
+          "top1MarginRegret": {
+            "max": 13.0,
+            "mean": 5.095789473684211,
+            "median": 5.0,
+            "p90": 8.0
+          }
+        },
+        "selfKittySolo:clubs": {
+          "count": 234,
+          "fraction": 0.02207547169811321,
+          "goldBestRank": {
+            "max": 286.0,
+            "mean": 88.67094017094017,
+            "median": 62.0,
+            "p90": 198.70000000000002
+          },
+          "practicalK16Containment": 0.23931623931623933,
+          "practicalK16MarginRegret": {
+            "max": 6.0,
+            "mean": 1.2094017094017093,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.19230769230769232,
+          "top1MarginRegret": {
+            "max": 13.0,
+            "mean": 4.97008547008547,
+            "median": 5.0,
+            "p90": 9.0
+          }
+        },
+        "selfKittySolo:diamonds": {
+          "count": 637,
+          "fraction": 0.06009433962264151,
+          "goldBestRank": {
+            "max": 283.0,
+            "mean": 72.16169544740973,
+            "median": 50.0,
+            "p90": 181.19999999999993
+          },
+          "practicalK16Containment": 0.27472527472527475,
+          "practicalK16MarginRegret": {
+            "max": 5.0,
+            "mean": 1.0376766091051806,
+            "median": 1.0,
+            "p90": 2.0
+          },
+          "top16Containment": 0.2370486656200942,
+          "top1MarginRegret": {
+            "max": 12.0,
+            "mean": 4.583987441130298,
+            "median": 4.0,
+            "p90": 8.0
+          }
+        },
+        "selfKittySolo:hearts": {
+          "count": 494,
+          "fraction": 0.04660377358490566,
+          "goldBestRank": {
+            "max": 274.0,
+            "mean": 69.69635627530364,
+            "median": 49.0,
+            "p90": 160.0
+          },
+          "practicalK16Containment": 0.26720647773279355,
+          "practicalK16MarginRegret": {
+            "max": 5.0,
+            "mean": 1.1133603238866396,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.2388663967611336,
+          "top1MarginRegret": {
+            "max": 12.0,
+            "mean": 4.748987854251012,
+            "median": 5.0,
+            "p90": 8.0
+          }
+        },
+        "selfKittySolo:spades": {
+          "count": 1235,
+          "fraction": 0.11650943396226415,
+          "goldBestRank": {
+            "max": 273.0,
+            "mean": 70.93198380566801,
+            "median": 49.0,
+            "p90": 173.0
+          },
+          "practicalK16Containment": 0.2550607287449393,
+          "practicalK16MarginRegret": {
+            "max": 6.0,
+            "mean": 1.14251012145749,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.22672064777327935,
+          "top1MarginRegret": {
+            "max": 15.0,
+            "mean": 5.0218623481781375,
+            "median": 5.0,
+            "p90": 8.0
+          }
+        }
+      },
+      "byClassAndContractTarget": {
+        "opponentSeat1:13": {
+          "count": 1530,
+          "fraction": 0.14433962264150943,
+          "goldBestRank": {
+            "max": 285.0,
+            "mean": 73.87124183006536,
+            "median": 51.0,
+            "p90": 184.0
+          },
+          "practicalK16Containment": 0.27124183006535946,
+          "practicalK16MarginRegret": {
+            "max": 6.0,
+            "mean": 1.1111111111111112,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.2372549019607843,
+          "top1MarginRegret": {
+            "max": 12.0,
+            "mean": 4.829411764705882,
+            "median": 5.0,
+            "p90": 8.0
+          }
+        },
+        "opponentSeat1:14": {
+          "count": 430,
+          "fraction": 0.040566037735849055,
+          "goldBestRank": {
+            "max": 272.0,
+            "mean": 77.60232558139535,
+            "median": 61.5,
+            "p90": 181.0
+          },
+          "practicalK16Containment": 0.2651162790697674,
+          "practicalK16MarginRegret": {
+            "max": 5.0,
+            "mean": 1.0116279069767442,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.23953488372093024,
+          "top1MarginRegret": {
+            "max": 14.0,
+            "mean": 4.1976744186046515,
+            "median": 4.0,
+            "p90": 8.0
+          }
+        },
+        "opponentSeat1:15": {
+          "count": 30,
+          "fraction": 0.002830188679245283,
+          "goldBestRank": {
+            "max": 265.0,
+            "mean": 97.0,
+            "median": 80.0,
+            "p90": 221.1
+          },
+          "practicalK16Containment": 0.3,
+          "practicalK16MarginRegret": {
+            "max": 3.0,
+            "mean": 0.9666666666666667,
+            "median": 1.0,
+            "p90": 2.1000000000000014
+          },
+          "top16Containment": 0.26666666666666666,
+          "top1MarginRegret": {
+            "max": 10.0,
+            "mean": 4.7,
+            "median": 5.0,
+            "p90": 7.100000000000001
+          }
+        },
+        "opponentSeat1:16": {
+          "count": 10,
+          "fraction": 0.0009433962264150943,
+          "goldBestRank": {
+            "max": 217.0,
+            "mean": 61.3,
+            "median": 23.5,
+            "p90": 127.89999999999996
+          },
+          "practicalK16Containment": 0.3,
+          "practicalK16MarginRegret": {
+            "max": 3.0,
+            "mean": 1.0,
+            "median": 1.0,
+            "p90": 2.0999999999999996
+          },
+          "top16Containment": 0.3,
+          "top1MarginRegret": {
+            "max": 10.0,
+            "mean": 4.1,
+            "median": 4.0,
+            "p90": 6.399999999999999
+          }
+        },
+        "opponentSeat2:13": {
+          "count": 1530,
+          "fraction": 0.14433962264150943,
+          "goldBestRank": {
+            "max": 285.0,
+            "mean": 73.41960784313726,
+            "median": 52.0,
+            "p90": 176.0
+          },
+          "practicalK16Containment": 0.2581699346405229,
+          "practicalK16MarginRegret": {
+            "max": 6.0,
+            "mean": 1.0928104575163398,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.22418300653594772,
+          "top1MarginRegret": {
+            "max": 14.0,
+            "mean": 4.816993464052287,
+            "median": 5.0,
+            "p90": 8.0
+          }
+        },
+        "opponentSeat2:14": {
+          "count": 430,
+          "fraction": 0.040566037735849055,
+          "goldBestRank": {
+            "max": 283.0,
+            "mean": 69.07209302325582,
+            "median": 51.5,
+            "p90": 169.10000000000002
+          },
+          "practicalK16Containment": 0.3,
+          "practicalK16MarginRegret": {
+            "max": 4.0,
+            "mean": 0.9976744186046511,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.2813953488372093,
+          "top1MarginRegret": {
+            "max": 15.0,
+            "mean": 4.579069767441861,
+            "median": 5.0,
+            "p90": 8.0
+          }
+        },
+        "opponentSeat2:15": {
+          "count": 30,
+          "fraction": 0.002830188679245283,
+          "goldBestRank": {
+            "max": 241.0,
+            "mean": 69.33333333333333,
+            "median": 40.0,
+            "p90": 197.0
+          },
+          "practicalK16Containment": 0.23333333333333334,
+          "practicalK16MarginRegret": {
+            "max": 3.0,
+            "mean": 0.8333333333333334,
+            "median": 0.5,
+            "p90": 2.0
+          },
+          "top16Containment": 0.2,
+          "top1MarginRegret": {
+            "max": 9.0,
+            "mean": 3.966666666666667,
+            "median": 3.5,
+            "p90": 7.100000000000001
+          }
+        },
+        "opponentSeat2:16": {
+          "count": 10,
+          "fraction": 0.0009433962264150943,
+          "goldBestRank": {
+            "max": 177.0,
+            "mean": 39.0,
+            "median": 12.0,
+            "p90": 121.19999999999997
+          },
+          "practicalK16Containment": 0.7,
+          "practicalK16MarginRegret": {
+            "max": 2.0,
+            "mean": 0.4,
+            "median": 0.0,
+            "p90": 1.0999999999999996
+          },
+          "top16Containment": 0.7,
+          "top1MarginRegret": {
+            "max": 5.0,
+            "mean": 2.9,
+            "median": 3.0,
+            "p90": 4.1
+          }
+        },
+        "opponentSeat3:13": {
+          "count": 1530,
+          "fraction": 0.14433962264150943,
+          "goldBestRank": {
+            "max": 286.0,
+            "mean": 74.6954248366013,
+            "median": 54.0,
+            "p90": 183.10000000000014
+          },
+          "practicalK16Containment": 0.257516339869281,
+          "practicalK16MarginRegret": {
+            "max": 6.0,
+            "mean": 1.0830065359477123,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.2130718954248366,
+          "top1MarginRegret": {
+            "max": 14.0,
+            "mean": 4.959477124183007,
+            "median": 5.0,
+            "p90": 8.0
+          }
+        },
+        "opponentSeat3:14": {
+          "count": 430,
+          "fraction": 0.040566037735849055,
+          "goldBestRank": {
+            "max": 281.0,
+            "mean": 74.55813953488372,
+            "median": 58.0,
+            "p90": 175.20000000000005
+          },
+          "practicalK16Containment": 0.25813953488372093,
+          "practicalK16MarginRegret": {
+            "max": 6.0,
+            "mean": 1.0488372093023255,
+            "median": 1.0,
+            "p90": 2.0
+          },
+          "top16Containment": 0.2372093023255814,
+          "top1MarginRegret": {
+            "max": 13.0,
+            "mean": 4.502325581395349,
+            "median": 4.0,
+            "p90": 8.0
+          }
+        },
+        "opponentSeat3:15": {
+          "count": 30,
+          "fraction": 0.002830188679245283,
+          "goldBestRank": {
+            "max": 264.0,
+            "mean": 92.13333333333334,
+            "median": 62.0,
+            "p90": 223.9
+          },
+          "practicalK16Containment": 0.2,
+          "practicalK16MarginRegret": {
+            "max": 4.0,
+            "mean": 1.0666666666666667,
+            "median": 1.0,
+            "p90": 2.0
+          },
+          "top16Containment": 0.2,
+          "top1MarginRegret": {
+            "max": 9.0,
+            "mean": 3.6666666666666665,
+            "median": 3.0,
+            "p90": 6.0
+          }
+        },
+        "opponentSeat3:16": {
+          "count": 10,
+          "fraction": 0.0009433962264150943,
+          "goldBestRank": {
+            "max": 145.0,
+            "mean": 41.3,
+            "median": 23.5,
+            "p90": 94.59999999999998
+          },
+          "practicalK16Containment": 0.4,
+          "practicalK16MarginRegret": {
+            "max": 2.0,
+            "mean": 0.7,
+            "median": 1.0,
+            "p90": 1.0999999999999996
+          },
+          "top16Containment": 0.4,
+          "top1MarginRegret": {
+            "max": 5.0,
+            "mean": 2.5,
+            "median": 2.5,
+            "p90": 4.1
+          }
+        },
+        "opponentSeat4:13": {
+          "count": 1530,
+          "fraction": 0.14433962264150943,
+          "goldBestRank": {
+            "max": 283.0,
+            "mean": 73.65686274509804,
+            "median": 55.0,
+            "p90": 178.0
+          },
+          "practicalK16Containment": 0.2529411764705882,
+          "practicalK16MarginRegret": {
+            "max": 5.0,
+            "mean": 1.0875816993464051,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.2222222222222222,
+          "top1MarginRegret": {
+            "max": 13.0,
+            "mean": 4.939869281045752,
+            "median": 5.0,
+            "p90": 8.0
+          }
+        },
+        "opponentSeat4:14": {
+          "count": 430,
+          "fraction": 0.040566037735849055,
+          "goldBestRank": {
+            "max": 286.0,
+            "mean": 80.16744186046512,
+            "median": 59.0,
+            "p90": 182.20000000000005
+          },
+          "practicalK16Containment": 0.24186046511627907,
+          "practicalK16MarginRegret": {
+            "max": 5.0,
+            "mean": 1.0790697674418606,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.2116279069767442,
+          "top1MarginRegret": {
+            "max": 12.0,
+            "mean": 4.493023255813953,
+            "median": 4.0,
+            "p90": 8.0
+          }
+        },
+        "opponentSeat4:15": {
+          "count": 30,
+          "fraction": 0.002830188679245283,
+          "goldBestRank": {
+            "max": 265.0,
+            "mean": 91.4,
+            "median": 85.0,
+            "p90": 179.50000000000006
+          },
+          "practicalK16Containment": 0.13333333333333333,
+          "practicalK16MarginRegret": {
+            "max": 3.0,
+            "mean": 1.1333333333333333,
+            "median": 1.0,
+            "p90": 2.0
+          },
+          "top16Containment": 0.13333333333333333,
+          "top1MarginRegret": {
+            "max": 7.0,
+            "mean": 3.8666666666666667,
+            "median": 4.0,
+            "p90": 6.100000000000001
+          }
+        },
+        "opponentSeat4:16": {
+          "count": 10,
+          "fraction": 0.0009433962264150943,
+          "goldBestRank": {
+            "max": 180.0,
+            "mean": 55.8,
+            "median": 32.5,
+            "p90": 114.29999999999997
+          },
+          "practicalK16Containment": 0.6,
+          "practicalK16MarginRegret": {
+            "max": 2.0,
+            "mean": 0.5,
+            "median": 0.0,
+            "p90": 1.0999999999999996
+          },
+          "top16Containment": 0.5,
+          "top1MarginRegret": {
+            "max": 6.0,
+            "mean": 2.4,
+            "median": 2.0,
+            "p90": 4.199999999999999
+          }
+        },
+        "selfKittySolo:13": {
+          "count": 1989,
+          "fraction": 0.18764150943396227,
+          "goldBestRank": {
+            "max": 286.0,
+            "mean": 72.31271995977879,
+            "median": 51.0,
+            "p90": 173.20000000000005
+          },
+          "practicalK16Containment": 0.26495726495726496,
+          "practicalK16MarginRegret": {
+            "max": 6.0,
+            "mean": 1.1266968325791855,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.23378582202111614,
+          "top1MarginRegret": {
+            "max": 13.0,
+            "mean": 4.9034690799396685,
+            "median": 5.0,
+            "p90": 8.0
+          }
+        },
+        "selfKittySolo:14": {
+          "count": 559,
+          "fraction": 0.05273584905660377,
+          "goldBestRank": {
+            "max": 282.0,
+            "mean": 73.05545617173524,
+            "median": 50.0,
+            "p90": 184.2
+          },
+          "practicalK16Containment": 0.24329159212880144,
+          "practicalK16MarginRegret": {
+            "max": 5.0,
+            "mean": 1.0876565295169947,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.2110912343470483,
+          "top1MarginRegret": {
+            "max": 15.0,
+            "mean": 4.7495527728085865,
+            "median": 5.0,
+            "p90": 8.0
+          }
+        },
+        "selfKittySolo:15": {
+          "count": 39,
+          "fraction": 0.0036792452830188677,
+          "goldBestRank": {
+            "max": 261.0,
+            "mean": 92.58974358974359,
+            "median": 73.0,
+            "p90": 202.60000000000008
+          },
+          "practicalK16Containment": 0.2564102564102564,
+          "practicalK16MarginRegret": {
+            "max": 5.0,
+            "mean": 1.3076923076923077,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.1794871794871795,
+          "top1MarginRegret": {
+            "max": 12.0,
+            "mean": 4.717948717948718,
+            "median": 4.0,
+            "p90": 7.0
+          }
+        },
+        "selfKittySolo:16": {
+          "count": 13,
+          "fraction": 0.0012264150943396227,
+          "goldBestRank": {
+            "max": 116.0,
+            "mean": 36.0,
+            "median": 32.0,
+            "p90": 56.8
+          },
+          "practicalK16Containment": 0.38461538461538464,
+          "practicalK16MarginRegret": {
+            "max": 2.0,
+            "mean": 0.38461538461538464,
+            "median": 0.0,
+            "p90": 1.0
+          },
+          "top16Containment": 0.3076923076923077,
+          "top1MarginRegret": {
+            "max": 8.0,
+            "mean": 3.0,
+            "median": 3.0,
+            "p90": 5.800000000000001
+          }
+        }
+      },
+      "classes": {
+        "opponentSeat1": {
+          "count": 2000,
+          "fraction": 0.18867924528301888,
+          "goldBestRank": {
+            "max": 285.0,
+            "mean": 74.9575,
+            "median": 53.5,
+            "p90": 184.0
+          },
+          "practicalK16Containment": 0.2705,
+          "practicalK16MarginRegret": {
+            "max": 6.0,
+            "mean": 1.087,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.2385,
+          "top1MarginRegret": {
+            "max": 14.0,
+            "mean": 4.688,
+            "median": 5.0,
+            "p90": 8.0
+          }
+        },
+        "opponentSeat2": {
+          "count": 2000,
+          "fraction": 0.18867924528301888,
+          "goldBestRank": {
+            "max": 285.0,
+            "mean": 72.2515,
+            "median": 51.0,
+            "p90": 175.0
+          },
+          "practicalK16Containment": 0.269,
+          "practicalK16MarginRegret": {
+            "max": 6.0,
+            "mean": 1.065,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.2385,
+          "top1MarginRegret": {
+            "max": 15.0,
+            "mean": 4.7435,
+            "median": 5.0,
+            "p90": 8.0
+          }
+        },
+        "opponentSeat3": {
+          "count": 2000,
+          "fraction": 0.18867924528301888,
+          "goldBestRank": {
+            "max": 286.0,
+            "mean": 74.7605,
+            "median": 54.0,
+            "p90": 182.10000000000014
+          },
+          "practicalK16Containment": 0.2575,
+          "practicalK16MarginRegret": {
+            "max": 6.0,
+            "mean": 1.0735,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.219,
+          "top1MarginRegret": {
+            "max": 14.0,
+            "mean": 4.8295,
+            "median": 5.0,
+            "p90": 8.0
+          }
+        },
+        "opponentSeat4": {
+          "count": 2000,
+          "fraction": 0.18867924528301888,
+          "goldBestRank": {
+            "max": 286.0,
+            "mean": 75.2335,
+            "median": 56.0,
+            "p90": 179.10000000000014
+          },
+          "practicalK16Containment": 0.2505,
+          "practicalK16MarginRegret": {
+            "max": 5.0,
+            "mean": 1.0835,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.22,
+          "top1MarginRegret": {
+            "max": 13.0,
+            "mean": 4.815,
+            "median": 5.0,
+            "p90": 8.0
+          }
+        },
+        "selfKittySolo": {
+          "count": 2600,
+          "fraction": 0.24528301886792453,
+          "goldBestRank": {
+            "max": 286.0,
+            "mean": 72.595,
+            "median": 51.0,
+            "p90": 176.0999999999999
+          },
+          "practicalK16Containment": 0.26076923076923075,
+          "practicalK16MarginRegret": {
+            "max": 6.0,
+            "mean": 1.1173076923076923,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.22846153846153847,
+          "top1MarginRegret": {
+            "max": 15.0,
+            "mean": 4.858076923076923,
+            "median": 5.0,
+            "p90": 8.0
+          }
+        }
+      },
+      "externalVsSelfKittySolo": {
+        "external": {
+          "count": 8000,
+          "fraction": 0.7547169811320755,
+          "goldBestRank": {
+            "max": 286.0,
+            "mean": 74.30075,
+            "median": 54.0,
+            "p90": 180.0
+          },
+          "practicalK16Containment": 0.261875,
+          "practicalK16MarginRegret": {
+            "max": 6.0,
+            "mean": 1.07725,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.229,
+          "top1MarginRegret": {
+            "max": 15.0,
+            "mean": 4.769,
+            "median": 5.0,
+            "p90": 8.0
+          }
+        },
+        "selfKittySolo": {
+          "count": 2600,
+          "fraction": 0.24528301886792453,
+          "goldBestRank": {
+            "max": 286.0,
+            "mean": 72.595,
+            "median": 51.0,
+            "p90": 176.0999999999999
+          },
+          "practicalK16Containment": 0.26076923076923075,
+          "practicalK16MarginRegret": {
+            "max": 6.0,
+            "mean": 1.1173076923076923,
+            "median": 1.0,
+            "p90": 3.0
+          },
+          "top16Containment": 0.22846153846153847,
+          "top1MarginRegret": {
+            "max": 15.0,
+            "mean": 4.858076923076923,
+            "median": 5.0,
+            "p90": 8.0
+          }
+        }
+      }
+    },
+    "goldBestTactical": {
+      "buriedPointCardCount": {
+        "distribution": {
+          "0": 2344,
+          "1": 4833,
+          "2": 2845,
+          "3": 578
+        },
+        "mean": 1.1563207547169811
+      },
+      "buriedSpecialRate": {
+        "calledAdjutant": 0.053679246455430984,
+        "joker": 0.04405660554766655,
+        "oruma": 0.03981132060289383,
+        "seiJack": 0.025377359241247177,
+        "uraJack": 0.041886791586875916,
+        "yoromeki": 0.04584905505180359
+      },
+      "buriedTrumpCount": {
+        "distribution": {
+          "0": 5396,
+          "1": 4222,
+          "2": 925,
+          "3": 57
+        },
+        "mean": 0.5889622641509434
+      }
+    },
+    "goldBestTacticalMean": [
+      0.38543352484703064,
+      0.19632543623447418,
+      0.3227482736110687,
+      0.3502562642097473,
+      0.04405660554766655,
+      0.03981132060289383,
+      0.025377359241247177,
+      0.041886791586875916,
+      0.04584905505180359,
+      0.053679246455430984
+    ],
+    "goldMinusRuleBasedTacticalMean": [
+      0.3061278760433197,
+      0.19632543623447418,
+      -0.0453060045838356,
+      -0.07064557075500488,
+      0.04405660554766655,
+      0.03981132060289383,
+      0.025377359241247177,
+      0.041886791586875916,
+      0.04584905505180359,
+      -0.002547169802710414
+    ],
+    "goldMinusTop1TacticalMean": [
+      -0.07399318367242813,
+      0.18311788141727448,
+      -0.04225783795118332,
+      0.017075149342417717,
+      0.04405660554766655,
+      0.03981132060289383,
+      0.025377359241247177,
+      0.041886791586875916,
+      -0.03264150768518448,
+      -0.0017924528801813722
+    ],
+    "goldVsRuleBasedExact": 0.022452830188679246,
+    "metricsByCalledCardOrigin": {
+      "kitty": {
+        "count": 600,
+        "fraction": 0.05660377358490566,
+        "goldBestRank": {
+          "max": 283.0,
+          "mean": 63.12166666666667,
+          "median": 39.5,
+          "p90": 156.20000000000005
+        },
+        "practicalK16Containment": 0.32166666666666666,
+        "practicalK16MarginRegret": {
+          "max": 5.0,
+          "mean": 1.01,
+          "median": 1.0,
+          "p90": 3.0
+        },
+        "top16Containment": 0.28833333333333333,
+        "top1MarginRegret": {
+          "max": 15.0,
+          "mean": 4.555,
+          "median": 5.0,
+          "p90": 8.0
+        }
+      },
+      "opponentHand": {
+        "count": 8000,
+        "fraction": 0.7547169811320755,
+        "goldBestRank": {
+          "max": 286.0,
+          "mean": 77.95725,
+          "median": 58.0,
+          "p90": 185.0
+        },
+        "practicalK16Containment": 0.243,
+        "practicalK16MarginRegret": {
+          "max": 6.0,
+          "mean": 1.103375,
+          "median": 1.0,
+          "p90": 3.0
+        },
+        "top16Containment": 0.21025,
+        "top1MarginRegret": {
+          "max": 15.0,
+          "mean": 4.8225,
+          "median": 5.0,
+          "p90": 8.0
+        }
+      },
+      "originalHand": {
+        "count": 2000,
+        "fraction": 0.18867924528301888,
+        "goldBestRank": {
+          "max": 283.0,
+          "mean": 60.811,
+          "median": 41.0,
+          "p90": 153.0
+        },
+        "practicalK16Containment": 0.318,
+        "practicalK16MarginRegret": {
+          "max": 6.0,
+          "mean": 1.045,
+          "median": 1.0,
+          "p90": 3.0
+        },
+        "top16Containment": 0.2855,
+        "top1MarginRegret": {
+          "max": 13.0,
+          "mean": 4.735,
+          "median": 5.0,
+          "p90": 8.0
+        }
+      }
+    },
+    "rankByCalledAdjutantLocation": {
+      "kitty": {
+        "max": 283.0,
+        "mean": 63.12166666666667,
+        "median": 39.5,
+        "p90": 156.20000000000005
+      },
+      "opponentHand": {
+        "max": 286.0,
+        "mean": 77.95725,
+        "median": 58.0,
+        "p90": 185.0
+      },
+      "originalHand": {
+        "max": 283.0,
+        "mean": 60.811,
+        "median": 41.0,
+        "p90": 153.0
+      }
+    },
+    "rankByContractSuit": {
+      "clubs": {
+        "max": 286.0,
+        "mean": 93.12997903563941,
+        "median": 75.0,
+        "p90": 206.0
+      },
+      "diamonds": {
+        "max": 286.0,
+        "mean": 71.99075856757797,
+        "median": 52.0,
+        "p90": 174.4000000000001
+      },
+      "hearts": {
+        "max": 281.0,
+        "mean": 69.38977159880834,
+        "median": 49.0,
+        "p90": 165.0
+      },
+      "spades": {
+        "max": 286.0,
+        "mean": 73.00814299900695,
+        "median": 51.0,
+        "p90": 179.0
+      }
+    },
+    "rankByContractTarget": {
+      "13": {
+        "max": 286.0,
+        "mean": 73.51880626464423,
+        "median": 52.0,
+        "p90": 178.0
+      },
+      "14": {
+        "max": 286.0,
+        "mean": 74.78718736287846,
+        "median": 55.0,
+        "p90": 180.0
+      },
+      "15": {
+        "max": 265.0,
+        "mean": 88.72327044025157,
+        "median": 63.0,
+        "p90": 220.20000000000002
+      },
+      "16": {
+        "max": 217.0,
+        "mean": 46.075471698113205,
+        "median": 20.0,
+        "p90": 115.80000000000001
+      }
+    },
+    "rankByKittyPointCardCount": {
+      "0": {
+        "max": 285.0,
+        "mean": 74.28259958071278,
+        "median": 54.0,
+        "p90": 179.0
+      },
+      "1": {
+        "max": 286.0,
+        "mean": 72.1001630561379,
+        "median": 51.0,
+        "p90": 175.0
+      },
+      "2": {
+        "max": 285.0,
+        "mean": 76.35991995425958,
+        "median": 56.0,
+        "p90": 182.0
+      },
+      "3": {
+        "max": 268.0,
+        "mean": 69.23584905660377,
+        "median": 42.0,
+        "p90": 184.0
+      }
+    },
+    "rankByKittyTrumpCount": {
+      "0": {
+        "max": 286.0,
+        "mean": 79.55836616213975,
+        "median": 60.0,
+        "p90": 185.80000000000018
+      },
+      "1": {
+        "max": 286.0,
+        "mean": 69.01068424641964,
+        "median": 47.0,
+        "p90": 170.0
+      },
+      "2": {
+        "max": 283.0,
+        "mean": 67.4633962264151,
+        "median": 44.0,
+        "p90": 169.0
+      },
+      "3": {
+        "max": 265.0,
+        "mean": 122.18867924528301,
+        "median": 121.0,
+        "p90": 222.8
+      }
+    },
+    "rankByOriginalPointCardCount": {
+      "1": {
+        "max": 243.0,
+        "mean": 79.69811320754717,
+        "median": 62.0,
+        "p90": 186.0
+      },
+      "2": {
+        "max": 270.0,
+        "mean": 65.9748427672956,
+        "median": 44.5,
+        "p90": 160.0
+      },
+      "3": {
+        "max": 284.0,
+        "mean": 74.67581475128645,
+        "median": 55.0,
+        "p90": 176.20000000000005
+      },
+      "4": {
+        "max": 286.0,
+        "mean": 73.61868533171028,
+        "median": 53.0,
+        "p90": 177.0
+      },
+      "5": {
+        "max": 286.0,
+        "mean": 74.11427554289783,
+        "median": 53.0,
+        "p90": 182.20000000000027
+      },
+      "6": {
+        "max": 285.0,
+        "mean": 72.295380611581,
+        "median": 47.0,
+        "p90": 177.4000000000001
+      },
+      "7": {
+        "max": 283.0,
+        "mean": 77.862893081761,
+        "median": 60.0,
+        "p90": 184.0
+      }
+    },
+    "rankByOriginalTrumpCount": {
+      "2": {
+        "max": 283.0,
+        "mean": 94.9622641509434,
+        "median": 76.5,
+        "p90": 205.8
+      },
+      "3": {
+        "max": 286.0,
+        "mean": 79.42688679245283,
+        "median": 59.0,
+        "p90": 186.0
+      },
+      "4": {
+        "max": 286.0,
+        "mean": 73.24807032590051,
+        "median": 52.0,
+        "p90": 175.0
+      },
+      "5": {
+        "max": 283.0,
+        "mean": 69.28630024610337,
+        "median": 49.0,
+        "p90": 172.0
+      },
+      "6": {
+        "max": 265.0,
+        "mean": 69.01372212692968,
+        "median": 45.0,
+        "p90": 176.80000000000007
+      },
+      "7": {
+        "max": 281.0,
+        "mean": 63.9937106918239,
+        "median": 36.0,
+        "p90": 179.40000000000003
+      }
+    },
+    "ruleBasedTactical": {
+      "buriedPointCardCount": {
+        "distribution": {
+          "0": 8656,
+          "1": 1419,
+          "2": 472,
+          "3": 53
+        },
+        "mean": 0.2379245283018868
+      },
+      "buriedSpecialRate": {
+        "calledAdjutant": 0.05622641369700432,
+        "joker": 0.0,
+        "oruma": 0.0,
+        "seiJack": 0.0,
+        "uraJack": 0.0,
+        "yoromeki": 0.0
+      },
+      "buriedTrumpCount": {
+        "distribution": {
+          "0": 10600,
+          "1": 0,
+          "2": 0,
+          "3": 0
+        },
+        "mean": 0.0
+      }
+    },
+    "ruleBasedTacticalMean": [
+      0.07930716127157211,
+      0.0,
+      0.36805060505867004,
+      0.4209156632423401,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.05622641369700432
+    ],
+    "scorerTop1Tactical": {
+      "buriedPointCardCount": {
+        "distribution": {
+          "0": 1363,
+          "1": 4890,
+          "2": 3321,
+          "3": 1026
+        },
+        "mean": 1.3783018867924528
+      },
+      "buriedSpecialRate": {
+        "calledAdjutant": 0.05547169968485832,
+        "joker": 0.0,
+        "oruma": 0.0,
+        "seiJack": 0.0,
+        "uraJack": 0.0,
+        "yoromeki": 0.07849056273698807
+      },
+      "buriedTrumpCount": {
+        "distribution": {
+          "0": 10194,
+          "1": 392,
+          "2": 14,
+          "3": 0
+        },
+        "mean": 0.03962264150943396
+      }
+    },
+    "scorerTop1TacticalMean": [
+      0.4594228267669678,
+      0.013207568787038326,
+      0.3650035262107849,
+      0.33317962288856506,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.07849056273698807,
+      0.05547169968485832
+    ],
+    "tacticalFeatureNames": [
+      "buriedPointCardCount/3",
+      "buriedTrumpCount/3",
+      "remainingTrumpCount/13",
+      "retainedPointCardCount/13",
+      "buriedJoker",
+      "buriedOruma",
+      "buriedSeiJack",
+      "buriedUraJack",
+      "buriedYoromeki",
+      "buriedCalledAdjutant"
+    ],
+    "worstMisses": [
+      {
+        "adjutantIndex": 35,
+        "goldCandidate": 230,
+        "goldMargin": 2.0,
+        "goldRank": 286,
+        "groupIndex": 2049,
+        "ruleBasedCandidate": 137,
+        "ruleBasedMargin": 0.0,
+        "seed": 447800013,
+        "sourceIndex": 38,
+        "top1Candidate": 136,
+        "top1Margin": 1.0
+      },
+      {
+        "adjutantIndex": 42,
+        "goldCandidate": 168,
+        "goldMargin": 4.0,
+        "goldRank": 286,
+        "groupIndex": 5289,
+        "ruleBasedCandidate": 233,
+        "ruleBasedMargin": -6.0,
+        "seed": 449800024,
+        "sourceIndex": 99,
+        "top1Candidate": 116,
+        "top1Margin": 1.0
+      },
+      {
+        "adjutantIndex": 40,
+        "goldCandidate": 99,
+        "goldMargin": 5.0,
+        "goldRank": 286,
+        "groupIndex": 5817,
+        "ruleBasedCandidate": 279,
+        "ruleBasedMargin": -1.0,
+        "seed": 450800009,
+        "sourceIndex": 109,
+        "top1Candidate": 190,
+        "top1Margin": 2.0
+      },
+      {
+        "adjutantIndex": 28,
+        "goldCandidate": 142,
+        "goldMargin": 5.0,
+        "goldRank": 285,
+        "groupIndex": 6176,
+        "ruleBasedCandidate": 191,
+        "ruleBasedMargin": 0.0,
+        "seed": 450800016,
+        "sourceIndex": 116,
+        "top1Candidate": 272,
+        "top1Margin": -2.0
+      },
+      {
+        "adjutantIndex": 50,
+        "goldCandidate": 128,
+        "goldMargin": 3.0,
+        "goldRank": 285,
+        "groupIndex": 8477,
+        "ruleBasedCandidate": 258,
+        "ruleBasedMargin": -3.0,
+        "seed": 452800009,
+        "sourceIndex": 159,
+        "top1Candidate": 103,
+        "top1Margin": -1.0
+      },
+      {
+        "adjutantIndex": 22,
+        "goldCandidate": 60,
+        "goldMargin": 5.0,
+        "goldRank": 285,
+        "groupIndex": 9297,
+        "ruleBasedCandidate": 158,
+        "ruleBasedMargin": 2.0,
+        "seed": 453800000,
+        "sourceIndex": 175,
+        "top1Candidate": 213,
+        "top1Margin": 5.0
+      },
+      {
+        "adjutantIndex": 37,
+        "goldCandidate": 211,
+        "goldMargin": 4.0,
+        "goldRank": 285,
+        "groupIndex": 10425,
+        "ruleBasedCandidate": 44,
+        "ruleBasedMargin": -1.0,
+        "seed": 453800021,
+        "sourceIndex": 196,
+        "top1Candidate": 201,
+        "top1Margin": -2.0
+      },
+      {
+        "adjutantIndex": 27,
+        "goldCandidate": 41,
+        "goldMargin": 4.0,
+        "goldRank": 284,
+        "groupIndex": 8878,
+        "ruleBasedCandidate": 210,
+        "ruleBasedMargin": -2.0,
+        "seed": 452800017,
+        "sourceIndex": 167,
+        "top1Candidate": 253,
+        "top1Margin": -5.0
+      },
+      {
+        "adjutantIndex": 28,
+        "goldCandidate": 21,
+        "goldMargin": 5.0,
+        "goldRank": 283,
+        "groupIndex": 929,
+        "ruleBasedCandidate": 159,
+        "ruleBasedMargin": -2.0,
+        "seed": 446800017,
+        "sourceIndex": 17,
+        "top1Candidate": 162,
+        "top1Margin": -1.0
+      },
+      {
+        "adjutantIndex": 51,
+        "goldCandidate": 135,
+        "goldMargin": 2.0,
+        "goldRank": 283,
+        "groupIndex": 5775,
+        "ruleBasedCandidate": 259,
+        "ruleBasedMargin": -5.0,
+        "seed": 450800008,
+        "sourceIndex": 108,
+        "top1Candidate": 49,
+        "top1Margin": -5.0
+      },
+      {
+        "adjutantIndex": 5,
+        "goldCandidate": 239,
+        "goldMargin": 4.0,
+        "goldRank": 283,
+        "groupIndex": 7743,
+        "ruleBasedCandidate": 72,
+        "ruleBasedMargin": -3.0,
+        "seed": 451800021,
+        "sourceIndex": 146,
+        "top1Candidate": 75,
+        "top1Margin": -5.0
+      },
+      {
+        "adjutantIndex": 36,
+        "goldCandidate": 76,
+        "goldMargin": 7.0,
+        "goldRank": 283,
+        "groupIndex": 10477,
+        "ruleBasedCandidate": 255,
+        "ruleBasedMargin": -1.0,
+        "seed": 453800022,
+        "sourceIndex": 197,
+        "top1Candidate": 65,
+        "top1Margin": 3.0
+      },
+      {
+        "adjutantIndex": 52,
+        "goldCandidate": 177,
+        "goldMargin": 1.0,
+        "goldRank": 282,
+        "groupIndex": 211,
+        "ruleBasedCandidate": 212,
+        "ruleBasedMargin": -6.0,
+        "seed": 446800003,
+        "sourceIndex": 3,
+        "top1Candidate": 210,
+        "top1Margin": -8.0
+      },
+      {
+        "adjutantIndex": 26,
+        "goldCandidate": 146,
+        "goldMargin": 7.0,
+        "goldRank": 282,
+        "groupIndex": 2305,
+        "ruleBasedCandidate": 91,
+        "ruleBasedMargin": 6.0,
+        "seed": 447800018,
+        "sourceIndex": 43,
+        "top1Candidate": 35,
+        "top1Margin": -2.0
+      },
+      {
+        "adjutantIndex": 52,
+        "goldCandidate": 91,
+        "goldMargin": 5.0,
+        "goldRank": 281,
+        "groupIndex": 5034,
+        "ruleBasedCandidate": 25,
+        "ruleBasedMargin": 0.0,
+        "seed": 449800019,
+        "sourceIndex": 94,
+        "top1Candidate": 62,
+        "top1Margin": -3.0
+      },
+      {
+        "adjutantIndex": 8,
+        "goldCandidate": 142,
+        "goldMargin": 2.0,
+        "goldRank": 281,
+        "groupIndex": 6156,
+        "ruleBasedCandidate": 191,
+        "ruleBasedMargin": -3.0,
+        "seed": 450800016,
+        "sourceIndex": 116,
+        "top1Candidate": 272,
+        "top1Margin": -2.0
+      },
+      {
+        "adjutantIndex": 1,
+        "goldCandidate": 203,
+        "goldMargin": 5.0,
+        "goldRank": 281,
+        "groupIndex": 7209,
+        "ruleBasedCandidate": 201,
+        "ruleBasedMargin": 2.0,
+        "seed": 451800011,
+        "sourceIndex": 136,
+        "top1Candidate": 265,
+        "top1Margin": 3.0
+      },
+      {
+        "adjutantIndex": 20,
+        "goldCandidate": 107,
+        "goldMargin": 3.0,
+        "goldRank": 280,
+        "groupIndex": 20,
+        "ruleBasedCandidate": 63,
+        "ruleBasedMargin": -6.0,
+        "seed": 446800000,
+        "sourceIndex": 0,
+        "top1Candidate": 33,
+        "top1Margin": -3.0
+      },
+      {
+        "adjutantIndex": 28,
+        "goldCandidate": 119,
+        "goldMargin": 6.0,
+        "goldRank": 280,
+        "groupIndex": 2890,
+        "ruleBasedCandidate": 30,
+        "ruleBasedMargin": 5.0,
+        "seed": 448800004,
+        "sourceIndex": 54,
+        "top1Candidate": 19,
+        "top1Margin": 4.0
+      },
+      {
+        "adjutantIndex": 48,
+        "goldCandidate": 28,
+        "goldMargin": 3.0,
+        "goldRank": 279,
+        "groupIndex": 3546,
+        "ruleBasedCandidate": 119,
+        "ruleBasedMargin": -4.0,
+        "seed": 448800016,
+        "sourceIndex": 66,
+        "top1Candidate": 228,
+        "top1Margin": 0.0
+      },
+      {
+        "adjutantIndex": 8,
+        "goldCandidate": 134,
+        "goldMargin": 5.0,
+        "goldRank": 279,
+        "groupIndex": 10449,
+        "ruleBasedCandidate": 255,
+        "ruleBasedMargin": 0.0,
+        "seed": 453800022,
+        "sourceIndex": 197,
+        "top1Candidate": 65,
+        "top1Margin": -2.0
+      },
+      {
+        "adjutantIndex": 23,
+        "goldCandidate": 8,
+        "goldMargin": 2.0,
+        "goldRank": 278,
+        "groupIndex": 76,
+        "ruleBasedCandidate": 186,
+        "ruleBasedMargin": -5.0,
+        "seed": 446800001,
+        "sourceIndex": 1,
+        "top1Candidate": 179,
+        "top1Margin": -5.0
+      },
+      {
+        "adjutantIndex": 39,
+        "goldCandidate": 157,
+        "goldMargin": 5.0,
+        "goldRank": 278,
+        "groupIndex": 1682,
+        "ruleBasedCandidate": 29,
+        "ruleBasedMargin": -1.0,
+        "seed": 447800006,
+        "sourceIndex": 31,
+        "top1Candidate": 179,
+        "top1Margin": -2.0
+      },
+      {
+        "adjutantIndex": 26,
+        "goldCandidate": 7,
+        "goldMargin": -1.0,
+        "goldRank": 278,
+        "groupIndex": 3524,
+        "ruleBasedCandidate": 228,
+        "ruleBasedMargin": -10.0,
+        "seed": 448800016,
+        "sourceIndex": 66,
+        "top1Candidate": 228,
+        "top1Margin": -10.0
+      },
+      {
+        "adjutantIndex": 33,
+        "goldCandidate": 138,
+        "goldMargin": 1.0,
+        "goldRank": 278,
+        "groupIndex": 6181,
+        "ruleBasedCandidate": 191,
+        "ruleBasedMargin": -3.0,
+        "seed": 450800016,
+        "sourceIndex": 116,
+        "top1Candidate": 272,
+        "top1Margin": -4.0
+      },
+      {
+        "adjutantIndex": 6,
+        "goldCandidate": 94,
+        "goldMargin": 3.0,
+        "goldRank": 278,
+        "groupIndex": 6525,
+        "ruleBasedCandidate": 200,
+        "ruleBasedMargin": -2.0,
+        "seed": 450800023,
+        "sourceIndex": 123,
+        "top1Candidate": 186,
+        "top1Margin": -6.0
+      },
+      {
+        "adjutantIndex": 32,
+        "goldCandidate": 81,
+        "goldMargin": 6.0,
+        "goldRank": 278,
+        "groupIndex": 8035,
+        "ruleBasedCandidate": 219,
+        "ruleBasedMargin": -2.0,
+        "seed": 452800001,
+        "sourceIndex": 151,
+        "top1Candidate": 269,
+        "top1Margin": 3.0
+      },
+      {
+        "adjutantIndex": 51,
+        "goldCandidate": 150,
+        "goldMargin": 3.0,
+        "goldRank": 277,
+        "groupIndex": 2330,
+        "ruleBasedCandidate": 91,
+        "ruleBasedMargin": -4.0,
+        "seed": 447800018,
+        "sourceIndex": 43,
+        "top1Candidate": 36,
+        "top1Margin": 1.0
+      },
+      {
+        "adjutantIndex": 25,
+        "goldCandidate": 56,
+        "goldMargin": 4.0,
+        "goldRank": 277,
+        "groupIndex": 3735,
+        "ruleBasedCandidate": 190,
+        "ruleBasedMargin": -5.0,
+        "seed": 448800020,
+        "sourceIndex": 70,
+        "top1Candidate": 274,
+        "top1Margin": -2.0
+      },
+      {
+        "adjutantIndex": 44,
+        "goldCandidate": 80,
+        "goldMargin": 4.0,
+        "goldRank": 277,
+        "groupIndex": 5450,
+        "ruleBasedCandidate": 283,
+        "ruleBasedMargin": -5.0,
+        "seed": 450800002,
+        "sourceIndex": 102,
+        "top1Candidate": 60,
+        "top1Margin": -2.0
+      },
+      {
+        "adjutantIndex": 26,
+        "goldCandidate": 30,
+        "goldMargin": 3.0,
+        "goldRank": 277,
+        "groupIndex": 7128,
+        "ruleBasedCandidate": 244,
+        "ruleBasedMargin": -1.0,
+        "seed": 451800009,
+        "sourceIndex": 134,
+        "top1Candidate": 280,
+        "top1Margin": -4.0
+      },
+      {
+        "adjutantIndex": 3,
+        "goldCandidate": 66,
+        "goldMargin": 4.0,
+        "goldRank": 277,
+        "groupIndex": 9543,
+        "ruleBasedCandidate": 274,
+        "ruleBasedMargin": -4.0,
+        "seed": 453800005,
+        "sourceIndex": 180,
+        "top1Candidate": 211,
+        "top1Margin": 0.0
+      },
+      {
+        "adjutantIndex": 34,
+        "goldCandidate": 147,
+        "goldMargin": 2.0,
+        "goldRank": 276,
+        "groupIndex": 8567,
+        "ruleBasedCandidate": 265,
+        "ruleBasedMargin": -6.0,
+        "seed": 452800011,
+        "sourceIndex": 161,
+        "top1Candidate": 227,
+        "top1Margin": -5.0
+      },
+      {
+        "adjutantIndex": 50,
+        "goldCandidate": 16,
+        "goldMargin": -1.0,
+        "goldRank": 275,
+        "groupIndex": 3866,
+        "ruleBasedCandidate": 99,
+        "ruleBasedMargin": -5.0,
+        "seed": 448800022,
+        "sourceIndex": 72,
+        "top1Candidate": 275,
+        "top1Margin": -2.0
+      },
+      {
+        "adjutantIndex": 34,
+        "goldCandidate": 123,
+        "goldMargin": 5.0,
+        "goldRank": 274,
+        "groupIndex": 1571,
+        "ruleBasedCandidate": 10,
+        "ruleBasedMargin": -5.0,
+        "seed": 447800004,
+        "sourceIndex": 29,
+        "top1Candidate": 2,
+        "top1Margin": -2.0
+      },
+      {
+        "adjutantIndex": 21,
+        "goldCandidate": 31,
+        "goldMargin": 6.0,
+        "goldRank": 274,
+        "groupIndex": 1823,
+        "ruleBasedCandidate": 238,
+        "ruleBasedMargin": -4.0,
+        "seed": 447800009,
+        "sourceIndex": 34,
+        "top1Candidate": 112,
+        "top1Margin": -2.0
+      },
+      {
+        "adjutantIndex": 43,
+        "goldCandidate": 74,
+        "goldMargin": 4.0,
+        "goldRank": 274,
+        "groupIndex": 3064,
+        "ruleBasedCandidate": 64,
+        "ruleBasedMargin": 0.0,
+        "seed": 448800007,
+        "sourceIndex": 57,
+        "top1Candidate": 228,
+        "top1Margin": -2.0
+      },
+      {
+        "adjutantIndex": 20,
+        "goldCandidate": 142,
+        "goldMargin": 3.0,
+        "goldRank": 274,
+        "groupIndex": 4578,
+        "ruleBasedCandidate": 54,
+        "ruleBasedMargin": -1.0,
+        "seed": 449800011,
+        "sourceIndex": 86,
+        "top1Candidate": 54,
+        "top1Margin": -1.0
+      },
+      {
+        "adjutantIndex": 30,
+        "goldCandidate": 225,
+        "goldMargin": 2.0,
+        "goldRank": 274,
+        "groupIndex": 8404,
+        "ruleBasedCandidate": 238,
+        "ruleBasedMargin": 1.0,
+        "seed": 452800008,
+        "sourceIndex": 158,
+        "top1Candidate": 79,
+        "top1Margin": -3.0
+      },
+      {
+        "adjutantIndex": 24,
+        "goldCandidate": 216,
+        "goldMargin": 3.0,
+        "goldRank": 274,
+        "groupIndex": 10041,
+        "ruleBasedCandidate": 144,
+        "ruleBasedMargin": -3.0,
+        "seed": 453800014,
+        "sourceIndex": 189,
+        "top1Candidate": 163,
+        "top1Margin": -4.0
+      },
+      {
+        "adjutantIndex": 16,
+        "goldCandidate": 110,
+        "goldMargin": 5.0,
+        "goldRank": 273,
+        "groupIndex": 1182,
+        "ruleBasedCandidate": 12,
+        "ruleBasedMargin": -5.0,
+        "seed": 446800022,
+        "sourceIndex": 22,
+        "top1Candidate": 18,
+        "top1Margin": 1.0
+      },
+      {
+        "adjutantIndex": 32,
+        "goldCandidate": 116,
+        "goldMargin": 3.0,
+        "goldRank": 273,
+        "groupIndex": 2523,
+        "ruleBasedCandidate": 154,
+        "ruleBasedMargin": -5.0,
+        "seed": 447800022,
+        "sourceIndex": 47,
+        "top1Candidate": 274,
+        "top1Margin": -2.0
+      },
+      {
+        "adjutantIndex": 48,
+        "goldCandidate": 188,
+        "goldMargin": 5.0,
+        "goldRank": 273,
+        "groupIndex": 8157,
+        "ruleBasedCandidate": 243,
+        "ruleBasedMargin": -2.0,
+        "seed": 452800003,
+        "sourceIndex": 153,
+        "top1Candidate": 242,
+        "top1Margin": 3.0
+      },
+      {
+        "adjutantIndex": 10,
+        "goldCandidate": 52,
+        "goldMargin": 2.0,
+        "goldRank": 273,
+        "groupIndex": 9285,
+        "ruleBasedCandidate": 158,
+        "ruleBasedMargin": -6.0,
+        "seed": 453800000,
+        "sourceIndex": 175,
+        "top1Candidate": 124,
+        "top1Margin": -10.0
+      },
+      {
+        "adjutantIndex": 6,
+        "goldCandidate": 217,
+        "goldMargin": 5.0,
+        "goldRank": 272,
+        "groupIndex": 1066,
+        "ruleBasedCandidate": 204,
+        "ruleBasedMargin": 2.0,
+        "seed": 446800020,
+        "sourceIndex": 20,
+        "top1Candidate": 95,
+        "top1Margin": 4.0
+      },
+      {
+        "adjutantIndex": 38,
+        "goldCandidate": 56,
+        "goldMargin": 5.0,
+        "goldRank": 272,
+        "groupIndex": 3006,
+        "ruleBasedCandidate": 227,
+        "ruleBasedMargin": 0.0,
+        "seed": 448800006,
+        "sourceIndex": 56,
+        "top1Candidate": 136,
+        "top1Margin": -4.0
+      },
+      {
+        "adjutantIndex": 15,
+        "goldCandidate": 60,
+        "goldMargin": 4.0,
+        "goldRank": 272,
+        "groupIndex": 3142,
+        "ruleBasedCandidate": 104,
+        "ruleBasedMargin": -7.0,
+        "seed": 448800009,
+        "sourceIndex": 59,
+        "top1Candidate": 165,
+        "top1Margin": 0.0
+      },
+      {
+        "adjutantIndex": 38,
+        "goldCandidate": 9,
+        "goldMargin": 4.0,
+        "goldRank": 272,
+        "groupIndex": 4861,
+        "ruleBasedCandidate": 285,
+        "ruleBasedMargin": -2.0,
+        "seed": 449800016,
+        "sourceIndex": 91,
+        "top1Candidate": 217,
+        "top1Margin": 0.0
+      },
+      {
+        "adjutantIndex": 15,
+        "goldCandidate": 90,
+        "goldMargin": 5.0,
+        "goldRank": 271,
+        "groupIndex": 2771,
+        "ruleBasedCandidate": 276,
+        "ruleBasedMargin": -1.0,
+        "seed": 448800002,
+        "sourceIndex": 52,
+        "top1Candidate": 277,
+        "top1Margin": 4.0
+      },
+      {
+        "adjutantIndex": 24,
+        "goldCandidate": 174,
+        "goldMargin": 3.0,
+        "goldRank": 270,
+        "groupIndex": 1137,
+        "ruleBasedCandidate": 197,
+        "ruleBasedMargin": -4.0,
+        "seed": 446800021,
+        "sourceIndex": 21,
+        "top1Candidate": 224,
+        "top1Margin": -3.0
+      },
+      {
+        "adjutantIndex": 1,
+        "goldCandidate": 101,
+        "goldMargin": 3.0,
+        "goldRank": 270,
+        "groupIndex": 5884,
+        "ruleBasedCandidate": 134,
+        "ruleBasedMargin": -3.0,
+        "seed": 450800011,
+        "sourceIndex": 111,
+        "top1Candidate": 135,
+        "top1Margin": 0.0
+      },
+      {
+        "adjutantIndex": 43,
+        "goldCandidate": 109,
+        "goldMargin": 6.0,
+        "goldRank": 269,
+        "groupIndex": 1209,
+        "ruleBasedCandidate": 12,
+        "ruleBasedMargin": -6.0,
+        "seed": 446800022,
+        "sourceIndex": 22,
+        "top1Candidate": 18,
+        "top1Margin": 6.0
+      },
+      {
+        "adjutantIndex": 51,
+        "goldCandidate": 21,
+        "goldMargin": -1.0,
+        "goldRank": 269,
+        "groupIndex": 8478,
+        "ruleBasedCandidate": 258,
+        "ruleBasedMargin": -9.0,
+        "seed": 452800009,
+        "sourceIndex": 159,
+        "top1Candidate": 93,
+        "top1Margin": -3.0
+      },
+      {
+        "adjutantIndex": 4,
+        "goldCandidate": 264,
+        "goldMargin": 5.0,
+        "goldRank": 268,
+        "groupIndex": 2071,
+        "ruleBasedCandidate": 243,
+        "ruleBasedMargin": 0.0,
+        "seed": 447800014,
+        "sourceIndex": 39,
+        "top1Candidate": 241,
+        "top1Margin": 0.0
+      },
+      {
+        "adjutantIndex": 4,
+        "goldCandidate": 186,
+        "goldMargin": 1.0,
+        "goldRank": 268,
+        "groupIndex": 2336,
+        "ruleBasedCandidate": 152,
+        "ruleBasedMargin": -3.0,
+        "seed": 447800019,
+        "sourceIndex": 44,
+        "top1Candidate": 273,
+        "top1Margin": -2.0
+      },
+      {
+        "adjutantIndex": 2,
+        "goldCandidate": 41,
+        "goldMargin": 0.0,
+        "goldRank": 268,
+        "groupIndex": 2705,
+        "ruleBasedCandidate": 263,
+        "ruleBasedMargin": -6.0,
+        "seed": 448800001,
+        "sourceIndex": 51,
+        "top1Candidate": 281,
+        "top1Margin": -6.0
+      },
+      {
+        "adjutantIndex": 2,
+        "goldCandidate": 151,
+        "goldMargin": 4.0,
+        "goldRank": 268,
+        "groupIndex": 3818,
+        "ruleBasedCandidate": 99,
+        "ruleBasedMargin": -2.0,
+        "seed": 448800022,
+        "sourceIndex": 72,
+        "top1Candidate": 109,
+        "top1Margin": -2.0
+      },
+      {
+        "adjutantIndex": 48,
+        "goldCandidate": 87,
+        "goldMargin": 3.0,
+        "goldRank": 268,
+        "groupIndex": 5136,
+        "ruleBasedCandidate": 164,
+        "ruleBasedMargin": -6.0,
+        "seed": 449800021,
+        "sourceIndex": 96,
+        "top1Candidate": 285,
+        "top1Margin": -5.0
+      },
+      {
+        "adjutantIndex": 4,
+        "goldCandidate": 94,
+        "goldMargin": 2.0,
+        "goldRank": 268,
+        "groupIndex": 8537,
+        "ruleBasedCandidate": 265,
+        "ruleBasedMargin": 1.0,
+        "seed": 452800011,
+        "sourceIndex": 161,
+        "top1Candidate": 227,
+        "top1Margin": -2.0
+      },
+      {
+        "adjutantIndex": 20,
+        "goldCandidate": 84,
+        "goldMargin": 3.0,
+        "goldRank": 267,
+        "groupIndex": 2352,
+        "ruleBasedCandidate": 152,
+        "ruleBasedMargin": -2.0,
+        "seed": 447800019,
+        "sourceIndex": 44,
+        "top1Candidate": 273,
+        "top1Margin": -2.0
+      },
+      {
+        "adjutantIndex": 52,
+        "goldCandidate": 91,
+        "goldMargin": 7.0,
+        "goldRank": 267,
+        "groupIndex": 4133,
+        "ruleBasedCandidate": 180,
+        "ruleBasedMargin": 5.0,
+        "seed": 449800002,
+        "sourceIndex": 77,
+        "top1Candidate": 16,
+        "top1Margin": -1.0
+      },
+      {
+        "adjutantIndex": 16,
+        "goldCandidate": 226,
+        "goldMargin": 2.0,
+        "goldRank": 267,
+        "groupIndex": 6005,
+        "ruleBasedCandidate": 53,
+        "ruleBasedMargin": -4.0,
+        "seed": 450800013,
+        "sourceIndex": 113,
+        "top1Candidate": 73,
+        "top1Margin": -2.0
+      },
+      {
+        "adjutantIndex": 48,
+        "goldCandidate": 13,
+        "goldMargin": 5.0,
+        "goldRank": 267,
+        "groupIndex": 6620,
+        "ruleBasedCandidate": 184,
+        "ruleBasedMargin": 0.0,
+        "seed": 450800024,
+        "sourceIndex": 124,
+        "top1Candidate": 255,
+        "top1Margin": 3.0
+      },
+      {
+        "adjutantIndex": 22,
+        "goldCandidate": 134,
+        "goldMargin": 3.0,
+        "goldRank": 267,
+        "groupIndex": 7866,
+        "ruleBasedCandidate": 80,
+        "ruleBasedMargin": -2.0,
+        "seed": 451800023,
+        "sourceIndex": 148,
+        "top1Candidate": 80,
+        "top1Margin": -2.0
+      },
+      {
+        "adjutantIndex": 52,
+        "goldCandidate": 22,
+        "goldMargin": 6.0,
+        "goldRank": 267,
+        "groupIndex": 8055,
+        "ruleBasedCandidate": 215,
+        "ruleBasedMargin": 1.0,
+        "seed": 452800001,
+        "sourceIndex": 151,
+        "top1Candidate": 219,
+        "top1Margin": 2.0
+      },
+      {
+        "adjutantIndex": 18,
+        "goldCandidate": 46,
+        "goldMargin": -3.0,
+        "goldRank": 267,
+        "groupIndex": 10035,
+        "ruleBasedCandidate": 144,
+        "ruleBasedMargin": -10.0,
+        "seed": 453800014,
+        "sourceIndex": 189,
+        "top1Candidate": 163,
+        "top1Margin": -7.0
+      },
+      {
+        "adjutantIndex": 27,
+        "goldCandidate": 41,
+        "goldMargin": 2.0,
+        "goldRank": 267,
+        "groupIndex": 10044,
+        "ruleBasedCandidate": 144,
+        "ruleBasedMargin": -6.0,
+        "seed": 453800014,
+        "sourceIndex": 189,
+        "top1Candidate": 73,
+        "top1Margin": -7.0
+      },
+      {
+        "adjutantIndex": 49,
+        "goldCandidate": 172,
+        "goldMargin": 5.0,
+        "goldRank": 266,
+        "groupIndex": 261,
+        "ruleBasedCandidate": 43,
+        "ruleBasedMargin": 3.0,
+        "seed": 446800004,
+        "sourceIndex": 4,
+        "top1Candidate": 38,
+        "top1Margin": 1.0
+      },
+      {
+        "adjutantIndex": 32,
+        "goldCandidate": 198,
+        "goldMargin": 5.0,
+        "goldRank": 266,
+        "groupIndex": 1834,
+        "ruleBasedCandidate": 238,
+        "ruleBasedMargin": 0.0,
+        "seed": 447800009,
+        "sourceIndex": 34,
+        "top1Candidate": 267,
+        "top1Margin": 2.0
+      },
+      {
+        "adjutantIndex": 7,
+        "goldCandidate": 261,
+        "goldMargin": 3.0,
+        "goldRank": 266,
+        "groupIndex": 3717,
+        "ruleBasedCandidate": 190,
+        "ruleBasedMargin": -1.0,
+        "seed": 448800020,
+        "sourceIndex": 70,
+        "top1Candidate": 274,
+        "top1Margin": -2.0
+      },
+      {
+        "adjutantIndex": 30,
+        "goldCandidate": 206,
+        "goldMargin": 6.0,
+        "goldRank": 266,
+        "groupIndex": 4800,
+        "ruleBasedCandidate": 265,
+        "ruleBasedMargin": 0.0,
+        "seed": 449800015,
+        "sourceIndex": 90,
+        "top1Candidate": 120,
+        "top1Margin": 3.0
+      },
+      {
+        "adjutantIndex": 52,
+        "goldCandidate": 189,
+        "goldMargin": 3.0,
+        "goldRank": 266,
+        "groupIndex": 5299,
+        "ruleBasedCandidate": 234,
+        "ruleBasedMargin": -5.0,
+        "seed": 449800024,
+        "sourceIndex": 99,
+        "top1Candidate": 116,
+        "top1Margin": 0.0
+      },
+      {
+        "adjutantIndex": 25,
+        "goldCandidate": 195,
+        "goldMargin": 7.0,
+        "goldRank": 266,
+        "groupIndex": 8081,
+        "ruleBasedCandidate": 245,
+        "ruleBasedMargin": 2.0,
+        "seed": 452800002,
+        "sourceIndex": 152,
+        "top1Candidate": 282,
+        "top1Margin": 3.0
+      },
+      {
+        "adjutantIndex": 16,
+        "goldCandidate": 162,
+        "goldMargin": 1.0,
+        "goldRank": 266,
+        "groupIndex": 8549,
+        "ruleBasedCandidate": 265,
+        "ruleBasedMargin": -8.0,
+        "seed": 452800011,
+        "sourceIndex": 161,
+        "top1Candidate": 227,
+        "top1Margin": -8.0
+      },
+      {
+        "adjutantIndex": 18,
+        "goldCandidate": 71,
+        "goldMargin": 2.0,
+        "goldRank": 266,
+        "groupIndex": 8551,
+        "ruleBasedCandidate": 265,
+        "ruleBasedMargin": -2.0,
+        "seed": 452800011,
+        "sourceIndex": 161,
+        "top1Candidate": 227,
+        "top1Margin": -3.0
+      },
+      {
+        "adjutantIndex": 28,
+        "goldCandidate": 257,
+        "goldMargin": 1.0,
+        "goldRank": 265,
+        "groupIndex": 1671,
+        "ruleBasedCandidate": 29,
+        "ruleBasedMargin": -2.0,
+        "seed": 447800006,
+        "sourceIndex": 31,
+        "top1Candidate": 250,
+        "top1Margin": -4.0
+      },
+      {
+        "adjutantIndex": 23,
+        "goldCandidate": 284,
+        "goldMargin": 5.0,
+        "goldRank": 265,
+        "groupIndex": 3574,
+        "ruleBasedCandidate": 76,
+        "ruleBasedMargin": 2.0,
+        "seed": 448800017,
+        "sourceIndex": 67,
+        "top1Candidate": 67,
+        "top1Margin": 1.0
+      },
+      {
+        "adjutantIndex": 52,
+        "goldCandidate": 53,
+        "goldMargin": 3.0,
+        "goldRank": 265,
+        "groupIndex": 4557,
+        "ruleBasedCandidate": 225,
+        "ruleBasedMargin": -1.0,
+        "seed": 449800010,
+        "sourceIndex": 85,
+        "top1Candidate": 198,
+        "top1Margin": -2.0
+      },
+      {
+        "adjutantIndex": 16,
+        "goldCandidate": 149,
+        "goldMargin": 5.0,
+        "goldRank": 264,
+        "groupIndex": 4998,
+        "ruleBasedCandidate": 25,
+        "ruleBasedMargin": -2.0,
+        "seed": 449800019,
+        "sourceIndex": 94,
+        "top1Candidate": 62,
+        "top1Margin": -1.0
+      },
+      {
+        "adjutantIndex": 30,
+        "goldCandidate": 242,
+        "goldMargin": -2.0,
+        "goldRank": 264,
+        "groupIndex": 6761,
+        "ruleBasedCandidate": 89,
+        "ruleBasedMargin": -10.0,
+        "seed": 451800002,
+        "sourceIndex": 127,
+        "top1Candidate": 219,
+        "top1Margin": -8.0
+      },
+      {
+        "adjutantIndex": 44,
+        "goldCandidate": 166,
+        "goldMargin": 3.0,
+        "goldRank": 264,
+        "groupIndex": 9160,
+        "ruleBasedCandidate": 185,
+        "ruleBasedMargin": -1.0,
+        "seed": 452800022,
+        "sourceIndex": 172,
+        "top1Candidate": 199,
+        "top1Margin": 0.0
+      },
+      {
+        "adjutantIndex": 1,
+        "goldCandidate": 196,
+        "goldMargin": 1.0,
+        "goldRank": 263,
+        "groupIndex": 160,
+        "ruleBasedCandidate": 212,
+        "ruleBasedMargin": -1.0,
+        "seed": 446800003,
+        "sourceIndex": 3,
+        "top1Candidate": 31,
+        "top1Margin": -2.0
+      },
+      {
+        "adjutantIndex": 1,
+        "goldCandidate": 62,
+        "goldMargin": 2.0,
+        "goldRank": 263,
+        "groupIndex": 3499,
+        "ruleBasedCandidate": 228,
+        "ruleBasedMargin": -2.0,
+        "seed": 448800016,
+        "sourceIndex": 66,
+        "top1Candidate": 228,
+        "top1Margin": -2.0
+      },
+      {
+        "adjutantIndex": 10,
+        "goldCandidate": 55,
+        "goldMargin": 3.0,
+        "goldRank": 263,
+        "groupIndex": 4674,
+        "ruleBasedCandidate": 174,
+        "ruleBasedMargin": 0.0,
+        "seed": 449800013,
+        "sourceIndex": 88,
+        "top1Candidate": 102,
+        "top1Margin": -2.0
+      },
+      {
+        "adjutantIndex": 33,
+        "goldCandidate": 13,
+        "goldMargin": 5.0,
+        "goldRank": 263,
+        "groupIndex": 4803,
+        "ruleBasedCandidate": 259,
+        "ruleBasedMargin": 3.0,
+        "seed": 449800015,
+        "sourceIndex": 90,
+        "top1Candidate": 120,
+        "top1Margin": 4.0
+      },
+      {
+        "adjutantIndex": 7,
+        "goldCandidate": 97,
+        "goldMargin": 3.0,
+        "goldRank": 263,
+        "groupIndex": 5731,
+        "ruleBasedCandidate": 259,
+        "ruleBasedMargin": -6.0,
+        "seed": 450800008,
+        "sourceIndex": 108,
+        "top1Candidate": 49,
+        "top1Margin": 0.0
+      },
+      {
+        "adjutantIndex": 45,
+        "goldCandidate": 70,
+        "goldMargin": 6.0,
+        "goldRank": 263,
+        "groupIndex": 9267,
+        "ruleBasedCandidate": 61,
+        "ruleBasedMargin": 2.0,
+        "seed": 452800024,
+        "sourceIndex": 174,
+        "top1Candidate": 61,
+        "top1Margin": 2.0
+      },
+      {
+        "adjutantIndex": 32,
+        "goldCandidate": 93,
+        "goldMargin": 6.0,
+        "goldRank": 263,
+        "groupIndex": 9466,
+        "ruleBasedCandidate": 279,
+        "ruleBasedMargin": 1.0,
+        "seed": 453800003,
+        "sourceIndex": 178,
+        "top1Candidate": 65,
+        "top1Margin": -1.0
+      },
+      {
+        "adjutantIndex": 46,
+        "goldCandidate": 256,
+        "goldMargin": 2.0,
+        "goldRank": 263,
+        "groupIndex": 10063,
+        "ruleBasedCandidate": 144,
+        "ruleBasedMargin": -4.0,
+        "seed": 453800014,
+        "sourceIndex": 189,
+        "top1Candidate": 73,
+        "top1Margin": -9.0
+      },
+      {
+        "adjutantIndex": 35,
+        "goldCandidate": 141,
+        "goldMargin": 3.0,
+        "goldRank": 262,
+        "groupIndex": 35,
+        "ruleBasedCandidate": 63,
+        "ruleBasedMargin": -4.0,
+        "seed": 446800000,
+        "sourceIndex": 0,
+        "top1Candidate": 33,
+        "top1Margin": -5.0
+      },
+      {
+        "adjutantIndex": 3,
+        "goldCandidate": 206,
+        "goldMargin": 4.0,
+        "goldRank": 262,
+        "groupIndex": 1275,
+        "ruleBasedCandidate": 113,
+        "ruleBasedMargin": 1.0,
+        "seed": 446800024,
+        "sourceIndex": 24,
+        "top1Candidate": 162,
+        "top1Margin": -4.0
+      },
+      {
+        "adjutantIndex": 44,
+        "goldCandidate": 139,
+        "goldMargin": 3.0,
+        "goldRank": 262,
+        "groupIndex": 3118,
+        "ruleBasedCandidate": 53,
+        "ruleBasedMargin": -1.0,
+        "seed": 448800008,
+        "sourceIndex": 58,
+        "top1Candidate": 8,
+        "top1Margin": -3.0
+      },
+      {
+        "adjutantIndex": 39,
+        "goldCandidate": 251,
+        "goldMargin": 4.0,
+        "goldRank": 262,
+        "groupIndex": 4067,
+        "ruleBasedCandidate": 61,
+        "ruleBasedMargin": -2.0,
+        "seed": 449800001,
+        "sourceIndex": 76,
+        "top1Candidate": 28,
+        "top1Margin": 0.0
+      },
+      {
+        "adjutantIndex": 20,
+        "goldCandidate": 51,
+        "goldMargin": 2.0,
+        "goldRank": 262,
+        "groupIndex": 7811,
+        "ruleBasedCandidate": 43,
+        "ruleBasedMargin": 0.0,
+        "seed": 451800022,
+        "sourceIndex": 147,
+        "top1Candidate": 37,
+        "top1Margin": -3.0
+      },
+      {
+        "adjutantIndex": 27,
+        "goldCandidate": 27,
+        "goldMargin": 6.0,
+        "goldRank": 262,
+        "groupIndex": 10574,
+        "ruleBasedCandidate": 237,
+        "ruleBasedMargin": -2.0,
+        "seed": 453800024,
+        "sourceIndex": 199,
+        "top1Candidate": 147,
+        "top1Margin": -1.0
+      },
+      {
+        "adjutantIndex": 15,
+        "goldCandidate": 231,
+        "goldMargin": 3.0,
+        "goldRank": 261,
+        "groupIndex": 3566,
+        "ruleBasedCandidate": 76,
+        "ruleBasedMargin": -4.0,
+        "seed": 448800017,
+        "sourceIndex": 67,
+        "top1Candidate": 67,
+        "top1Margin": -2.0
+      },
+      {
+        "adjutantIndex": 4,
+        "goldCandidate": 189,
+        "goldMargin": 3.0,
+        "goldRank": 261,
+        "groupIndex": 5251,
+        "ruleBasedCandidate": 248,
+        "ruleBasedMargin": -2.0,
+        "seed": 449800024,
+        "sourceIndex": 99,
+        "top1Candidate": 116,
+        "top1Margin": 3.0
+      },
+      {
+        "adjutantIndex": 9,
+        "goldCandidate": 244,
+        "goldMargin": 5.0,
+        "goldRank": 261,
+        "groupIndex": 5786,
+        "ruleBasedCandidate": 279,
+        "ruleBasedMargin": 4.0,
+        "seed": 450800009,
+        "sourceIndex": 109,
+        "top1Candidate": 190,
+        "top1Margin": -2.0
+      },
+      {
+        "adjutantIndex": 14,
+        "goldCandidate": 10,
+        "goldMargin": 3.0,
+        "goldRank": 261,
+        "groupIndex": 6851,
+        "ruleBasedCandidate": 283,
+        "ruleBasedMargin": -3.0,
+        "seed": 451800004,
+        "sourceIndex": 129,
+        "top1Candidate": 188,
+        "top1Margin": -7.0
+      },
+      {
+        "adjutantIndex": 16,
+        "goldCandidate": 37,
+        "goldMargin": 6.0,
+        "goldRank": 261,
+        "groupIndex": 7542,
+        "ruleBasedCandidate": 234,
+        "ruleBasedMargin": -3.0,
+        "seed": 451800017,
+        "sourceIndex": 142,
+        "top1Candidate": 242,
+        "top1Margin": 4.0
+      }
+    ]
+  },
+  "fixedHoldout": {
+    "adjutantCandidateCount": 53,
+    "binaryEquality": {
+      "candidate-card.u8": "59151195081ccf4803162bf47bd0448b964e60b091667589f82753332a5fa97b",
+      "contract-margin.f32": "f0307e59f80087dad1424b3ef3c4aa7c2ae7f2fad763ec17e237c55214de0196",
+      "features.f32": "4d89edca06f10a5dcaccb2660c83cdb8424061bd686ed74c827ff2e4c0e95231",
+      "relative-reward.f32": "08d63847e7a8b0589bcdfc84f0d4f8816a2a4598bac7e521d819709ae9be1265"
+    },
+    "discardCandidateCount": 286,
+    "manifestSha256": "4f38f95314aa6922c549c54c50532ae0b7aa95dd8fc2706a235d3506467d3da7",
+    "path": "/tmp/issue446-policy-production/fullgold-merged",
+    "sourceStateCount": 200,
+    "terminalRolloutCount": 3031600
+  },
+  "goldBestRank": {
+    "bins": {
+      "1-1": 273,
+      "129-286": 2160,
+      "17-32": 1493,
+      "2-4": 563,
+      "33-64": 2024,
+      "5-8": 589,
+      "65-128": 2497,
+      "9-16": 1001
+    },
+    "exact": 0.025754716981132075,
+    "max": 286.0,
+    "mean": 73.88235849056603,
+    "median": 53.0,
+    "p90": 179.0,
+    "top3": 0.062264150943396226,
+    "top5": 0.09433962264150944
+  },
+  "groupCount": 10600,
+  "issue446Baseline": {
+    "containment": {
+      "16": 0.1981,
+      "32": 0.3258,
+      "4": 0.0654,
+      "64": 0.511,
+      "8": 0.1139
+    },
+    "practicalProposalContainment": 0.2358,
+    "proposalBestMarginRegret": 1.1235
+  },
+  "oracleLocationOverlay": {
+    "fixedHoldoutManifestSha256": "4f38f95314aa6922c549c54c50532ae0b7aa95dd8fc2706a235d3506467d3da7",
+    "path": "/tmp/issue450-full-gold-location-overlay.json",
+    "sha256": "ecf3d6200331c73af0ac94554be15004bcf7dc7c128c62ff9f8976e320d0d16e"
+  },
+  "pairwiseAccuracy": 0.6079884414802523,
+  "pairwiseCount": 382218147,
+  "practicalProposal": {
+    "16": {
+      "candidateCount": {
+        "max": 25.0,
+        "mean": 24.490849056603775,
+        "median": 24.0,
+        "p90": 25.0
+      },
+      "containment": 0.26160377358490566,
+      "marginRegret": {
+        "max": 6.0,
+        "mean": 1.0870754716981132,
+        "median": 1.0,
+        "p90": 3.0
+      },
+      "relativeRewardRegret": {
+        "max": 37.5,
+        "mean": 2.6141509433962264,
+        "median": 0.0,
+        "p90": 0.0
+      }
+    },
+    "24": {
+      "candidateCount": {
+        "max": 33.0,
+        "mean": 32.361698113207545,
+        "median": 32.0,
+        "p90": 33.0
+      },
+      "containment": 0.3323584905660377,
+      "marginRegret": {
+        "max": 6.0,
+        "mean": 0.869056603773585,
+        "median": 1.0,
+        "p90": 2.0
+      },
+      "relativeRewardRegret": {
+        "max": 37.5,
+        "mean": 1.965566037735849,
+        "median": 0.0,
+        "p90": 0.0
+      }
+    },
+    "32": {
+      "candidateCount": {
+        "max": 41.0,
+        "mean": 40.238584905660375,
+        "median": 40.0,
+        "p90": 41.0
+      },
+      "containment": 0.39367924528301884,
+      "marginRegret": {
+        "max": 6.0,
+        "mean": 0.725,
+        "median": 0.0,
+        "p90": 2.0
+      },
+      "relativeRewardRegret": {
+        "max": 37.5,
+        "mean": 1.5608490566037736,
+        "median": 0.0,
+        "p90": 0.0
+      }
+    },
+    "48": {
+      "candidateCount": {
+        "max": 57.0,
+        "mean": 56.15122641509434,
+        "median": 56.0,
+        "p90": 57.0
+      },
+      "containment": 0.4968867924528302,
+      "marginRegret": {
+        "max": 6.0,
+        "mean": 0.5272641509433962,
+        "median": 0.0,
+        "p90": 2.0
+      },
+      "relativeRewardRegret": {
+        "max": 37.5,
+        "mean": 1.0320754716981133,
+        "median": 0.0,
+        "p90": 0.0
+      }
+    },
+    "64": {
+      "candidateCount": {
+        "max": 73.0,
+        "mean": 72.06471698113208,
+        "median": 72.0,
+        "p90": 72.0
+      },
+      "containment": 0.5781132075471698,
+      "marginRegret": {
+        "max": 6.0,
+        "mean": 0.4081132075471698,
+        "median": 0.0,
+        "p90": 1.0
+      },
+      "relativeRewardRegret": {
+        "max": 37.5,
+        "mean": 0.7495283018867924,
+        "median": 0.0,
+        "p90": 0.0
+      }
+    }
+  },
+  "ruleBased": {
+    "marginRegret": {
+      "max": 17.0,
+      "mean": 5.220094339622642,
+      "median": 5.0,
+      "p90": 9.0
+    },
+    "relativeRewardRegret": {
+      "max": 40.0,
+      "mean": 18.738443396226415,
+      "median": 32.5,
+      "p90": 35.0
+    }
+  },
+  "scorer": "/tmp/issue450-oracle-training/compact401-oracle-location/checkpoint.pt:3fe8ace7f81f6bae1e3089c6eeda0998e1e47660e5c1d8d1580f3f0b5d9dd632",
+  "top1": {
+    "marginRegret": {
+      "max": 15.0,
+      "mean": 4.790849056603774,
+      "median": 5.0,
+      "p90": 8.0
+    },
+    "relativeRewardRegret": {
+      "max": 40.0,
+      "mean": 17.4063679245283,
+      "median": 32.5,
+      "p90": 35.0
+    }
+  },
+  "topKOracle": {
+    "1": {
+      "marginRegret": {
+        "max": 15.0,
+        "mean": 4.790849056603774,
+        "median": 5.0,
+        "p90": 8.0
+      },
+      "relativeRewardRegret": {
+        "max": 40.0,
+        "mean": 17.4063679245283,
+        "median": 32.5,
+        "p90": 35.0
+      }
+    },
+    "128": {
+      "marginRegret": {
+        "max": 5.0,
+        "mean": 0.1600943396226415,
+        "median": 0.0,
+        "p90": 1.0
+      },
+      "relativeRewardRegret": {
+        "max": 35.0,
+        "mean": 0.2627358490566038,
+        "median": 0.0,
+        "p90": 0.0
+      }
+    },
+    "16": {
+      "marginRegret": {
+        "max": 8.0,
+        "mean": 1.2656603773584905,
+        "median": 1.0,
+        "p90": 3.0
+      },
+      "relativeRewardRegret": {
+        "max": 37.5,
+        "mean": 3.2264150943396226,
+        "median": 0.0,
+        "p90": 0.0
+      }
+    },
+    "24": {
+      "marginRegret": {
+        "max": 6.0,
+        "mean": 0.9758490566037736,
+        "median": 1.0,
+        "p90": 2.0
+      },
+      "relativeRewardRegret": {
+        "max": 37.5,
+        "mean": 2.327830188679245,
+        "median": 0.0,
+        "p90": 0.0
+      }
+    },
+    "32": {
+      "marginRegret": {
+        "max": 6.0,
+        "mean": 0.7970754716981132,
+        "median": 0.0,
+        "p90": 2.0
+      },
+      "relativeRewardRegret": {
+        "max": 37.5,
+        "mean": 1.7910377358490566,
+        "median": 0.0,
+        "p90": 0.0
+      }
+    },
+    "4": {
+      "marginRegret": {
+        "max": 11.0,
+        "mean": 2.6281132075471696,
+        "median": 2.0,
+        "p90": 5.0
+      },
+      "relativeRewardRegret": {
+        "max": 40.0,
+        "mean": 8.627830188679246,
+        "median": 0.0,
+        "p90": 32.5
+      }
+    },
+    "48": {
+      "marginRegret": {
+        "max": 6.0,
+        "mean": 0.5725471698113207,
+        "median": 0.0,
+        "p90": 2.0
+      },
+      "relativeRewardRegret": {
+        "max": 37.5,
+        "mean": 1.2033018867924528,
+        "median": 0.0,
+        "p90": 0.0
+      }
+    },
+    "64": {
+      "marginRegret": {
+        "max": 6.0,
+        "mean": 0.43669811320754715,
+        "median": 0.0,
+        "p90": 1.1000000000003638
+      },
+      "relativeRewardRegret": {
+        "max": 37.5,
+        "mean": 0.8587264150943397,
+        "median": 0.0,
+        "p90": 0.0
+      }
+    },
+    "8": {
+      "marginRegret": {
+        "max": 8.0,
+        "mean": 1.871132075471698,
+        "median": 2.0,
+        "p90": 4.0
+      },
+      "relativeRewardRegret": {
+        "max": 37.5,
+        "mean": 5.5200471698113205,
+        "median": 0.0,
+        "p90": 32.5
+      }
+    },
+    "96": {
+      "marginRegret": {
+        "max": 5.0,
+        "mean": 0.26849056603773586,
+        "median": 0.0,
+        "p90": 1.0
+      },
+      "relativeRewardRegret": {
+        "max": 37.5,
+        "mean": 0.49693396226415093,
+        "median": 0.0,
+        "p90": 0.0
+      }
+    }
+  }
+}
