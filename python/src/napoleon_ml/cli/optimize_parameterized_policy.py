@@ -114,6 +114,33 @@ def _validate_resume_state(
         raise ValueError("resume experiment identity mismatch: " + ", ".join(mismatches))
 
 
+def _restore_checkpoint_progress(
+    state: dict[str, Any], strategy: Any
+) -> tuple[int, int, float]:
+    history = state.get("history")
+    if not isinstance(history, list):
+        raise ValueError("resume state has no history")
+    start_generation = len(history)
+    saved_optimizer_generation = int(state.get("optimizerGeneration", -1))
+    if (
+        int(strategy.countiter) != start_generation
+        or saved_optimizer_generation != start_generation
+    ):
+        raise ValueError(
+            "optimizer checkpoint generation mismatch: "
+            f"CMA={strategy.countiter}, state={saved_optimizer_generation}, "
+            f"history={start_generation}"
+        )
+    plateau_state = state.get("plateauState")
+    if not isinstance(plateau_state, dict):
+        raise ValueError("resume state has no plateau state")
+    no_improvement = int(plateau_state["noImprovementGenerations"])
+    best_seen = float(plateau_state["bestSeenValidationFitness"])
+    if no_improvement < 0 or not math.isfinite(best_seen):
+        raise ValueError("resume plateau state is invalid")
+    return start_generation, no_improvement, best_seen
+
+
 def _discover_manifest(
     evaluator: Path,
     repo: Path,
@@ -161,6 +188,9 @@ def _optimize(args: argparse.Namespace) -> None:
         "boundsOnDelta": [-40.0, 40.0],
         "optimizerSeed": args.optimizer_seed,
         "seedOffset": args.seed_offset,
+        "minimumGenerations": args.minimum_generations,
+        "plateauPatience": args.plateau_patience,
+        "plateauDelta": args.plateau_delta,
         "bidding": "frozen-raise-v1",
         "playing": "ppo-separated-v1000",
         "commonRandomNumbersWithinGeneration": True,
@@ -182,7 +212,9 @@ def _optimize(args: argparse.Namespace) -> None:
         history: list[dict[str, Any]] = state["history"]
         incumbent = np.asarray(state["incumbentWeights"], dtype=np.float64)
         incumbent_validation = float(state["incumbentValidationFitness"])
-        start_generation = len(history)
+        start_generation, no_improvement, best_seen = _restore_checkpoint_progress(
+            state, strategy
+        )
     else:
         warm_start = (
             load_parameter_artifact(args.warm_start.resolve())
@@ -218,9 +250,8 @@ def _optimize(args: argparse.Namespace) -> None:
                     "warmStart": warm_start_validation,
                 },
             )
-
-        no_improvement = 0
-        best_seen = incumbent_validation
+            no_improvement = 0
+            best_seen = incumbent_validation
         for generation in range(start_generation, args.generations):
             started = time.monotonic()
             train = _discover_manifest(
@@ -281,11 +312,16 @@ def _optimize(args: argparse.Namespace) -> None:
                 "history": history,
                 "incumbentWeights": incumbent.tolist(),
                 "incumbentValidationFitness": incumbent_validation,
+                "optimizerGeneration": int(strategy.countiter),
+                "plateauState": {
+                    "bestSeenValidationFitness": best_seen,
+                    "noImprovementGenerations": no_improvement,
+                },
                 "validationSeedManifest": asdict(validation),
             }
-            save_json(output / "run-state.json", run_state)
-            save_json(output / "learning-curve.json", {"history": history})
             save_optimizer_state(output / "optimizer-state.pkl", strategy)
+            save_json(output / "learning-curve.json", {"history": history})
+            save_json(output / "run-state.json", run_state)
             print(json.dumps(generation_row, sort_keys=True), flush=True)
             if (
                 generation + 1 >= args.minimum_generations

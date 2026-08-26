@@ -8,8 +8,11 @@
     "commonRandomNumbersWithinGeneration": true,
     "gamesPerCandidate": 500,
     "initialSigma": 1.5,
+    "minimumGenerations": 20,
     "optimizer": "pycma.CMAEvolutionStrategy",
     "optimizerSeed": 1452,
+    "plateauDelta": 0.02,
+    "plateauPatience": 12,
     "playing": "ppo-separated-v1000",
     "population": 16,
     "requestedGenerations": 50,
@@ -745,6 +748,11 @@
     }
   ],
   "incumbentValidationFitness": 1.63225,
+  "optimizerGeneration": 45,
+  "plateauState": {
+    "bestSeenValidationFitness": 1.63225,
+    "noImprovementGenerations": 12
+  },
   "incumbentWeights": [
     -2.3896731966354454,
     62.25350763045018,

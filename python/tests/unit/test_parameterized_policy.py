@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from napoleon_ml.cli.optimize_parameterized_policy import (
+    _restore_checkpoint_progress,
     _seed_manifests_under,
     _validate_resume_state,
 )
@@ -99,6 +100,21 @@ def test_resume_identity_and_recorded_seed_manifests_are_enforced(tmp_path: Path
         _validate_resume_state(state, {**config, "population": 32}, validation)
     with pytest.raises(ValueError, match="validationSeedManifest"):
         _validate_resume_state(state, config, seed_manifest("validation", [60, 70], 60))
+
+    strategy = create_cma_strategy(
+        parameter_count=4, sigma=1.0, population_size=6, optimizer_seed=452
+    )
+    checkpoint = {
+        "history": [],
+        "optimizerGeneration": 0,
+        "plateauState": {
+            "bestSeenValidationFitness": 1.25,
+            "noImprovementGenerations": 7,
+        },
+    }
+    assert _restore_checkpoint_progress(checkpoint, strategy) == (0, 7, 1.25)
+    with pytest.raises(ValueError, match="generation mismatch"):
+        _restore_checkpoint_progress({**checkpoint, "history": [{}]}, strategy)
 
     train_path = tmp_path / "main" / "seeds" / "train.json"
     final_path = tmp_path / "final" / "seeds" / "final.json"
