@@ -31,7 +31,9 @@ from napoleon_ml.policy.device import (
 from .dataset import (
     EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT,
     EXCHANGE_COUNTERFACTUAL_COMBINATION_COUNT,
+    EXCHANGE_ORACLE_LOCATION_INPUT_FEATURE_COUNT,
     EXCHANGE_TACTICAL_VALUE_INPUT_FEATURE_COUNT,
+    EXCHANGE_VALUE_DIAGNOSTIC_INPUT_VARIANTS,
     EXCHANGE_VALUE_INPUT_FEATURE_COUNT,
     EXCHANGE_VALUE_INPUT_VARIANTS,
     ExchangeCounterfactualDataset,
@@ -632,12 +634,13 @@ def _warm_start_exchange_model(
     if source_input_dim != target_input_dim and (
         source_input_dim,
         target_input_dim,
-    ) != (
-        EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT,
-        EXCHANGE_TACTICAL_VALUE_INPUT_FEATURE_COUNT,
-    ):
+    ) not in {
+        (EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT, EXCHANGE_TACTICAL_VALUE_INPUT_FEATURE_COUNT),
+        (EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT, EXCHANGE_ORACLE_LOCATION_INPUT_FEATURE_COUNT),
+    }:
         raise ValueError(
-            "warm-start input layout must match, except compact396 may initialize compact406."
+            "warm-start input layout must match, except compact396 may initialize "
+            "compact406 or diagnostic compact401."
         )
     for key, target in target_state.items():
         source = source_state.get(key)
@@ -1129,9 +1132,10 @@ def _validate_train_config(config: ExchangeValueTrainConfig) -> None:
         raise ValueError("batch_size must be positive.")
     if config.learning_rate <= 0.0:
         raise ValueError("learning_rate must be positive.")
-    if config.input_variant not in EXCHANGE_VALUE_INPUT_VARIANTS:
+    supported_variants = EXCHANGE_VALUE_INPUT_VARIANTS + EXCHANGE_VALUE_DIAGNOSTIC_INPUT_VARIANTS
+    if config.input_variant not in supported_variants:
         raise ValueError(
-            f"input_variant must be one of {', '.join(EXCHANGE_VALUE_INPUT_VARIANTS)}."
+            f"input_variant must be one of {', '.join(supported_variants)}."
         )
     if config.loss not in {"mse", "huber"}:
         raise ValueError("loss must be mse or huber.")
@@ -1164,6 +1168,8 @@ def _input_dim_for_variant(input_variant: ExchangeValueInputVariant) -> int:
         return EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT
     if input_variant == "compact406":
         return EXCHANGE_TACTICAL_VALUE_INPUT_FEATURE_COUNT
+    if input_variant == "compact401-oracle-location":
+        return EXCHANGE_ORACLE_LOCATION_INPUT_FEATURE_COUNT
     raise ValueError(f"unsupported exchange value input variant: {input_variant}.")
 
 
