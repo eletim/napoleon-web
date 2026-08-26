@@ -9,8 +9,10 @@ import numpy as np
 import pytest
 
 from napoleon_ml.cli.optimize_parameterized_policy import (
+    _plateau_reached,
     _restore_checkpoint_progress,
     _seed_manifests_under,
+    _validate_final_provenance,
     _validate_resume_state,
 )
 from napoleon_ml.parameterized_policy.optimization import (
@@ -113,6 +115,8 @@ def test_resume_identity_and_recorded_seed_manifests_are_enforced(tmp_path: Path
         },
     }
     assert _restore_checkpoint_progress(checkpoint, strategy) == (0, 7, 1.25)
+    assert _plateau_reached(45, 20, 12, 12)
+    assert not _plateau_reached(19, 20, 12, 12)
     with pytest.raises(ValueError, match="generation mismatch"):
         _restore_checkpoint_progress({**checkpoint, "history": [{}]}, strategy)
 
@@ -125,6 +129,47 @@ def test_resume_identity_and_recorded_seed_manifests_are_enforced(tmp_path: Path
     assert_disjoint_seed_manifests([*reserved, seed_manifest("new-final", [3, 4], 3)])
     with pytest.raises(ValueError, match="seed overlap"):
         assert_disjoint_seed_manifests([*reserved, seed_manifest("new-final", [2, 4], 2)])
+
+
+def test_final_provenance_binds_runtime_run_state_and_seed_pools(tmp_path: Path) -> None:
+    validation = seed_manifest("validation", [10, 11], 10)
+    train = seed_manifest("train-generation-000", [20, 21], 20)
+    weights = [0.0] * PARAMETER_COUNT
+    state = {
+        "config": {"runtimeIdentity": {"evaluator": "abc"}},
+        "history": [{"trainSeedHash": train.sha256}],
+        "incumbentWeights": weights,
+        "validationSeedManifest": {"sha256": validation.sha256},
+    }
+    save_json(tmp_path / "run-state.json", state)
+    artifact = {
+        "weights": [{"weight": value} for value in weights],
+        "provenance": {
+            "runState": "run-state.json",
+            "validationSeedHash": validation.sha256,
+            "completedGenerations": 1,
+        },
+    }
+    assert _validate_final_provenance(
+        tmp_path / "best-parameters.json",
+        artifact,
+        [validation, train],
+        {"evaluator": "abc"},
+    ) == state
+    with pytest.raises(ValueError, match="missing artifact-bound pools"):
+        _validate_final_provenance(
+            tmp_path / "best-parameters.json",
+            artifact,
+            [validation],
+            {"evaluator": "abc"},
+        )
+    with pytest.raises(ValueError, match="runtime identity mismatch"):
+        _validate_final_provenance(
+            tmp_path / "best-parameters.json",
+            artifact,
+            [validation, train],
+            {"evaluator": "different"},
+        )
 
 
 def test_paired_comparison_and_variance_diagnostic() -> None:

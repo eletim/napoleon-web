@@ -141,6 +141,57 @@ def _restore_checkpoint_progress(
     return start_generation, no_improvement, best_seen
 
 
+def _validate_final_provenance(
+    parameter_path: Path,
+    artifact: dict[str, Any],
+    manifests: Sequence[SeedManifest],
+    runtime_identity: dict[str, str],
+) -> dict[str, Any]:
+    provenance = artifact.get("provenance")
+    if not isinstance(provenance, dict) or not isinstance(provenance.get("runState"), str):
+        raise ValueError("parameter artifact has no bound run state")
+    state_path = (parameter_path.resolve().parent / provenance["runState"]).resolve()
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    config = state.get("config")
+    if not isinstance(config, dict) or config.get("runtimeIdentity") != runtime_identity:
+        raise ValueError("final evaluation runtime identity mismatch")
+    validation = state.get("validationSeedManifest")
+    validation_hash = provenance.get("validationSeedHash")
+    if not isinstance(validation, dict) or validation.get("sha256") != validation_hash:
+        raise ValueError("parameter artifact validation provenance mismatch")
+    history = state.get("history")
+    if not isinstance(history, list) or provenance.get("completedGenerations") != len(history):
+        raise ValueError("parameter artifact generation provenance mismatch")
+    expected_hashes = {str(validation_hash)}
+    expected_hashes.update(str(row["trainSeedHash"]) for row in history)
+    recorded_hashes = {manifest.sha256 for manifest in manifests}
+    missing_hashes = expected_hashes - recorded_hashes
+    if missing_hashes:
+        raise ValueError(
+            "seed manifest root is missing artifact-bound pools: "
+            + ", ".join(sorted(missing_hashes))
+        )
+    artifact_weights = np.asarray(
+        [row["weight"] for row in artifact.get("weights", [])], dtype=np.float64
+    )
+    incumbent_weights = np.asarray(state.get("incumbentWeights", []), dtype=np.float64)
+    if not np.array_equal(artifact_weights, incumbent_weights):
+        raise ValueError("parameter artifact does not match its bound run-state incumbent")
+    return state
+
+
+def _plateau_reached(
+    generation_count: int,
+    minimum_generations: int,
+    no_improvement_generations: int,
+    patience: int,
+) -> bool:
+    return (
+        generation_count >= minimum_generations
+        and no_improvement_generations >= patience
+    )
+
+
 def _discover_manifest(
     evaluator: Path,
     repo: Path,
@@ -252,7 +303,17 @@ def _optimize(args: argparse.Namespace) -> None:
             )
             no_improvement = 0
             best_seen = incumbent_validation
-        for generation in range(start_generation, args.generations):
+        already_plateaued = (
+            args.resume
+            and _plateau_reached(
+                start_generation,
+                args.minimum_generations,
+                no_improvement,
+                args.plateau_patience,
+            )
+        )
+        end_generation = start_generation if already_plateaued else args.generations
+        for generation in range(start_generation, end_generation):
             started = time.monotonic()
             train = _discover_manifest(
                 evaluator,
@@ -429,7 +490,9 @@ def _final(args: argparse.Namespace) -> None:
     output.mkdir(parents=True, exist_ok=True)
     work = output / "work"
     work.mkdir(parents=True, exist_ok=True)
-    learned = load_parameter_artifact(args.parameters.resolve())
+    parameter_path = args.parameters.resolve()
+    learned = load_parameter_artifact(parameter_path)
+    artifact = json.loads(parameter_path.read_text(encoding="utf-8"))
     manifest_root = (
         args.seed_manifest_root.resolve()
         if args.seed_manifest_root is not None
@@ -439,6 +502,12 @@ def _final(args: argparse.Namespace) -> None:
     if not reserved_manifests:
         raise ValueError(f"no reserved seed manifests found under {manifest_root}")
     assert_disjoint_seed_manifests(reserved_manifests)
+    bound_state = _validate_final_provenance(
+        parameter_path,
+        artifact,
+        reserved_manifests,
+        _runtime_identity(repo, evaluator),
+    )
     final_manifest = _discover_manifest(
         evaluator, repo, output, pool="final-holdout", start=FINAL_SEED_BASE, games=args.games
     )
@@ -447,7 +516,6 @@ def _final(args: argparse.Namespace) -> None:
         learned_report = server.evaluate(learned.tolist(), detailed=True)
         baseline_report = server.evaluate(None, detailed=True)
     paired = paired_comparison(learned_report, baseline_report)
-    artifact = json.loads(args.parameters.read_text(encoding="utf-8"))
     largest_changes = sorted(
         artifact["weights"], key=lambda row: abs(float(row["delta"])), reverse=True
     )[:20]
@@ -456,6 +524,12 @@ def _final(args: argparse.Namespace) -> None:
         "bestParameterSha256": artifact["sha256"],
         "finalSeedManifest": asdict(final_manifest),
         "seedOverlapWithReservedTrainValidationRanges": False,
+        "provenanceAudit": {
+            "boundRunState": artifact["provenance"]["runState"],
+            "boundTrainGenerationCount": len(bound_state["history"]),
+            "auditedReservedManifestCount": len(reserved_manifests),
+            "runtimeIdentity": bound_state["config"]["runtimeIdentity"],
+        },
         "learned": learned_report,
         "existingRuleBased": baseline_report,
         "pairedComparison": paired,
