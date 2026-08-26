@@ -15,6 +15,7 @@ import numpy as np
 import torch
 
 from napoleon_ml.exchange_value import load_exchange_value_checkpoint
+from napoleon_ml.exchange_value.tactical import compact406_value_input
 from napoleon_ml.policy.device import resolve_torch_device
 
 REQUEST_MAGIC = 0x3151544A
@@ -58,6 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--policy-device", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--score-batch-size", type=int, default=8192)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
+    parser.add_argument("--write-exchange-audit", action="store_true")
     return parser
 
 
@@ -76,6 +78,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     device = resolve_torch_device(args.device)
     model.to(device.torch_device)
     model.eval()
+    model_input_dim = int(model.config.input_dim)
+    if model_input_dim not in (396, 406):
+        raise ValueError(
+            "adjutant proposal scorer must use compact396 or compact406 input, "
+            f"got {model_input_dim}."
+        )
 
     args.output_directory.mkdir(parents=True, exist_ok=True)
     command = [
@@ -111,6 +119,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     ]
     if args.max_deal_attempts is not None:
         command.extend(["--max-deal-attempts", str(args.max_deal_attempts)])
+    if args.write_exchange_audit:
+        if args.mode != "full-gold":
+            raise ValueError("--write-exchange-audit requires --mode full-gold.")
+        command.append("--write-exchange-audit")
 
     process = subprocess.Popen(
         command,
@@ -147,9 +159,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             matrix = np.frombuffer(matrix_bytes, dtype="<f4").reshape(
                 adj_count * discard_count, feature_count
             )
+            scorer_matrix = compact406_value_input(matrix) if model_input_dim == 406 else matrix
             top_indices = _score_topk(
                 model,
-                matrix,
+                scorer_matrix,
                 scorer_top_k=args.scorer_top_k,
                 batch_size=args.score_batch_size,
                 device=device.torch_device,
@@ -204,6 +217,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             "diversityCount": args.diversity_count,
             "device": device.to_metadata(),
             "batchSize": args.score_batch_size,
+        },
+        "exchangeAudit": {
+            "enabled": args.write_exchange_audit,
+            "stateFeatureCount": 343,
+            "candidateMaskFeatureCount": 53,
+            "candidateCountPerGroup": DISCARD_COUNT,
         },
         "datasetFiles": _dataset_file_hashes(args.output_directory),
     }
@@ -263,6 +282,12 @@ def _dataset_file_hashes(directory: Path) -> dict[str, dict[str, object]]:
         "relative-reward.f32",
         "state-index.u32",
         "candidate-card.u8",
+        "exchange-state-features.f32",
+        "exchange-candidate-mask.u8",
+        "exchange-contract-margin.f32",
+        "exchange-relative-reward.f32",
+        "exchange-rule-based-candidate.u32",
+        "exchange-gold-candidate.u32",
     ):
         path = directory / file_name
         if path.exists():

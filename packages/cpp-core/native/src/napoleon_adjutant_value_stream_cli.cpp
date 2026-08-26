@@ -66,6 +66,8 @@ int main(int argc, char** argv) {
         options.scorer_top_k = parse_int(arg, argv[++index]);
       } else if (arg == "--agent-seed" && index + 1 < argc) {
         options.agent_seed = parse_uint32(arg, argv[++index]);
+      } else if (arg == "--write-exchange-audit") {
+        options.write_exchange_audit = true;
       } else {
         throw std::runtime_error(
             "usage: napoleon_adjutant_value_stream_cli --mode proposal|full-gold "
@@ -74,7 +76,8 @@ int main(int argc, char** argv) {
             "[--playing-policy-id ppo-separated-v1000] [--playing-policy-onnx <path>] "
             "[--playing-critic-onnx <path>] [--policy-device cpu|cuda] "
             "[--max-deal-attempts <N>] [--proposal-top-k <N>] "
-            "[--diversity-count <N>] [--scorer-top-k <N>] [--agent-seed <uint32>]");
+            "[--diversity-count <N>] [--scorer-top-k <N>] [--agent-seed <uint32>] "
+            "[--write-exchange-audit]");
       }
     }
 

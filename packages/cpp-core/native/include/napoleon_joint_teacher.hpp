@@ -50,6 +50,7 @@ struct AdjutantValueStreamOptions {
   int diversity_count = 8;
   int scorer_top_k = 64;
   std::uint32_t agent_seed = 446;
+  bool write_exchange_audit = false;
 };
 
 struct AdjutantValueStreamReport {

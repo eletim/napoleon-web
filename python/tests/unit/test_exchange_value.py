@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -14,12 +15,14 @@ from napoleon_ml.dataset.tensors import EXCHANGE_MODEL_INPUT_FEATURE_COUNT
 from napoleon_ml.exchange_value import (
     EXCHANGE_COMPACT_STATE_FEATURE_COUNT,
     EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT,
+    EXCHANGE_TACTICAL_VALUE_INPUT_FEATURE_COUNT,
     EXCHANGE_VALUE_INPUT_FEATURE_COUNT,
-    Issue442Layout,
     ExchangeValueMlpConfig,
     ExchangeValueMlpModel,
     ExchangeValueTrainConfig,
+    Issue442Layout,
     collect_issue442_layout_summary,
+    combine_exchange_counterfactual_datasets,
     create_exchange_value_split,
     load_exchange_counterfactual_dataset,
     load_exchange_value_checkpoint,
@@ -27,6 +30,15 @@ from napoleon_ml.exchange_value import (
     save_exchange_value_artifact,
     train_exchange_value_model,
 )
+from napoleon_ml.exchange_value.dataset import dataset_provenance, state_key_hash
+from napoleon_ml.exchange_value.full_gold_audit import (
+    ExchangeFullGoldAudit,
+    audit_training_leakage_report,
+    exchange_full_gold_report,
+    exclude_audit_overlaps,
+    load_exchange_full_gold_audit,
+)
+from napoleon_ml.exchange_value.tactical import compact396_tactical_features
 from napoleon_ml.exchange_value.training import exchange_value_evaluation_report
 
 
@@ -45,9 +57,16 @@ def _compact_state(original: list[int], kitty: list[int], *, target_offset: int 
         *_mask(original),
         *_mask(kitty),
         *_mask([0]),
-        1.0, 0.0, 0.0, 0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
         *([1.0 if index == target_offset else 0.0 for index in range(7)]),
-        1.0, 0.0, 0.0, 0.0, 0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
         *table,
     ]
     assert len(values) == EXCHANGE_COMPACT_STATE_FEATURE_COUNT
@@ -207,6 +226,27 @@ def test_loader_roundtrip_and_input_dimensions(tmp_path: Path) -> None:
     assert int(sample.candidate_discard_mask.sum()) == 3
 
 
+def test_compact_only_loader_skips_legacy_tensor(tmp_path: Path) -> None:
+    _write_dataset(tmp_path, states=1)
+
+    sample = load_exchange_counterfactual_dataset(
+        tmp_path, load_legacy_model_input=False
+    ).raw_samples[0]
+
+    assert sample.model_input is None
+    assert sample.compact_value_input.shape == (EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT,)
+    with pytest.raises(ValueError, match="legacy2724 input was not loaded"):
+        _ = sample.value_input
+
+
+def test_combined_dataset_rejects_source_overlap(tmp_path: Path) -> None:
+    _write_dataset(tmp_path, states=3)
+    dataset = load_exchange_counterfactual_dataset(tmp_path)
+
+    with pytest.raises(ValueError, match="overlap by sourceStateKey"):
+        combine_exchange_counterfactual_datasets((dataset, dataset))
+
+
 def test_group_split_guards_state_and_identity_leakage(tmp_path: Path) -> None:
     _write_dataset(tmp_path, states=12)
     dataset = load_exchange_counterfactual_dataset(tmp_path)
@@ -223,9 +263,27 @@ def test_group_split_guards_state_and_identity_leakage(tmp_path: Path) -> None:
         (split.train_samples, split.final_samples),
         (split.validation_samples, split.final_samples),
     ):
-        assert {
-            sample.fixed_thirteen_group_id for sample in left
-        }.isdisjoint({sample.fixed_thirteen_group_id for sample in right})
+        assert {sample.fixed_thirteen_group_id for sample in left}.isdisjoint(
+            {sample.fixed_thirteen_group_id for sample in right}
+        )
+
+
+def test_group_split_skips_absent_optional_hand_identities(tmp_path: Path) -> None:
+    _write_dataset(tmp_path, states=12)
+    dataset = load_exchange_counterfactual_dataset(tmp_path)
+    legacy = replace(
+        dataset,
+        raw_samples=tuple(
+            replace(sample, original_hand_card_ids=None, kitty_pickup_card_ids=None)
+            for sample in dataset.raw_samples
+        ),
+    )
+
+    split = create_exchange_value_split(legacy, seed=436, train_state_count=4)
+
+    assert len(split.train_state_keys) == 4
+    assert split.leakage_guard["originalHand"]["uniqueCount"] == 0
+    assert split.leakage_guard["kittyPickup"]["uniqueCount"] == 0
 
 
 def test_group_split_preserves_fixed_thirteen_layout_counts(tmp_path: Path) -> None:
@@ -269,6 +327,238 @@ def test_model_uses_compact396_input_dimensions() -> None:
     )
 
     assert output.shape == (2,)
+
+
+def test_compact406_tactical_features_use_visible_candidate_fields() -> None:
+    compact = np.asarray(
+        [
+            *_compact_state(list(range(10)), [13, 14, 52]),
+            *_mask([0, 3, 52]),
+        ],
+        dtype=np.float32,
+    )
+
+    tactical = compact396_tactical_features(compact)
+
+    assert tactical.shape == (10,)
+    assert tactical[0] == 2.0 / 3.0
+    assert tactical[1] == 2.0 / 3.0
+    assert tactical[4] == 1.0
+    assert tactical[5] == 1.0
+    assert tactical[6] == 1.0
+    assert tactical[9] == 1.0
+
+
+def test_statewise_listwise_compact406_training_smoke(tmp_path: Path) -> None:
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    _write_dataset(dataset_dir, states=12)
+    dataset = load_exchange_counterfactual_dataset(dataset_dir)
+    baseline_result = train_exchange_value_model(
+        dataset,
+        ExchangeValueTrainConfig(
+            seed=123,
+            epochs=1,
+            hidden_dims=(16,),
+            input_variant="compact396",
+            train_state_count=4,
+            device="cpu",
+        ),
+    )
+    baseline_artifact = save_exchange_value_artifact(
+        tmp_path / "baseline-artifact", result=baseline_result, dataset=dataset
+    )
+
+    result = train_exchange_value_model(
+        dataset,
+        ExchangeValueTrainConfig(
+            seed=123,
+            epochs=1,
+            hidden_dims=(16,),
+            input_variant="compact406",
+            train_state_count=4,
+            pointwise_loss_weight=0.0,
+            listwise_loss_weight=1.0,
+            pairwise_state_batch_size=2,
+            device="cpu",
+            warm_start_checkpoint=cast(str, baseline_artifact["checkpointPath"]),
+        ),
+    )
+    artifact = save_exchange_value_artifact(
+        tmp_path / "listwise-artifact", result=result, dataset=dataset
+    )
+    loaded_model, checkpoint = load_exchange_value_checkpoint(cast(str, artifact["checkpointPath"]))
+
+    assert result.model.config.input_dim == EXCHANGE_TACTICAL_VALUE_INPUT_FEATURE_COUNT
+    assert loaded_model.config.input_dim == EXCHANGE_TACTICAL_VALUE_INPUT_FEATURE_COUNT
+    assert checkpoint["trainingConfig"]["algorithm"] == ("state-wise-listwise-exchange-reranker-v1")
+    assert checkpoint["trainingConfig"]["warmStartCheckpointSha256"]
+    assert result.epoch_reports[0]["trainLoss"] > 0.0
+
+    with pytest.raises(ValueError, match="warm-start input layout must match"):
+        train_exchange_value_model(
+            dataset,
+            ExchangeValueTrainConfig(
+                seed=123,
+                epochs=1,
+                hidden_dims=(16,),
+                input_variant="legacy2724",
+                train_state_count=4,
+                device="cpu",
+                warm_start_checkpoint=cast(str, baseline_artifact["checkpointPath"]),
+            ),
+        )
+
+
+def test_non_default_pointwise_weight_uses_weighted_objective(tmp_path: Path) -> None:
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    _write_dataset(dataset_dir, states=12)
+    dataset = load_exchange_counterfactual_dataset(dataset_dir)
+    common = dict(
+        seed=123,
+        epochs=1,
+        hidden_dims=(16,),
+        input_variant="compact396",
+        train_state_count=4,
+        pairwise_state_batch_size=2,
+        learning_rate=1e-30,
+        device="cpu",
+    )
+
+    unweighted = train_exchange_value_model(
+        dataset, ExchangeValueTrainConfig(**common, pointwise_loss_weight=1.0)
+    )
+    half_weighted = train_exchange_value_model(
+        dataset, ExchangeValueTrainConfig(**common, pointwise_loss_weight=0.5)
+    )
+
+    assert half_weighted.epoch_reports[0]["trainLoss"] == pytest.approx(
+        float(unweighted.epoch_reports[0]["trainLoss"]) * 0.5
+    )
+    assert half_weighted.epoch_reports[0]["validationLoss"] == pytest.approx(
+        float(unweighted.epoch_reports[0]["validationLoss"]) * 0.5
+    )
+
+
+def test_full_gold_containment_rank_and_regret_fixture(tmp_path: Path) -> None:
+    state = np.asarray(_compact_state(list(range(10)), [10, 11, 12]), dtype="<f4")
+    masks = np.zeros((1, 286, 53), dtype="u1")
+    for candidate in range(286):
+        masks[0, candidate, [candidate % 10, 10, 11]] = 1
+    margins = np.zeros((1, 286), dtype="<f4")
+    rewards = np.zeros((1, 286), dtype="<f4")
+    margins[0, 3] = 5.0
+    margins[0, 0] = 3.0
+    scores = -np.arange(286, dtype=np.float32)[None, :]
+    files = {
+        "stateFeatures": ("exchange-state-features.f32", state[None, :]),
+        "candidateMask": ("exchange-candidate-mask.u8", masks),
+        "contractMargin": ("exchange-contract-margin.f32", margins),
+        "relativeReward": ("exchange-relative-reward.f32", rewards),
+        "ruleBasedCandidate": (
+            "exchange-rule-based-candidate.u32",
+            np.asarray([1], dtype="<u4"),
+        ),
+        "goldCandidate": (
+            "exchange-gold-candidate.u32",
+            np.asarray([3], dtype="<u4"),
+        ),
+    }
+    manifest_files = {}
+    for key, (name, values) in files.items():
+        path = tmp_path / name
+        values.tofile(path)
+        manifest_files[key] = {
+            "path": name,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+    (tmp_path / "manifest.json").write_text(
+        json.dumps(
+            {
+                "artifactType": "issue446-fixed-exchange-full-gold-audit-v1",
+                "fixedHoldout": {"manifestSha256": "fixture"},
+                "groupCount": 1,
+                "files": manifest_files,
+                "sourceDiagnostics": [
+                    {
+                        "seed": 1,
+                        "contractSuit": "spades",
+                        "contractTarget": 13,
+                        "shardSourceIndex": 0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = exchange_full_gold_report(
+        load_exchange_full_gold_audit(tmp_path), scores, scorer_name="fixture"
+    )
+
+    assert report["containment"]["1"] == 0.0
+    assert report["containment"]["4"] == 1.0
+    assert report["goldBestRank"]["median"] == 4.0
+    assert report["topKOracle"]["1"]["marginRegret"]["mean"] == 2.0
+
+    corrupted = bytearray((tmp_path / "exchange-contract-margin.f32").read_bytes())
+    corrupted[0] ^= 1
+    (tmp_path / "exchange-contract-margin.f32").write_bytes(corrupted)
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        load_exchange_full_gold_audit(tmp_path)
+
+
+def test_fixed_audit_overlap_filter_removes_complete_state_group(tmp_path: Path) -> None:
+    dataset_dir = tmp_path / "training"
+    dataset_dir.mkdir()
+    _write_dataset(dataset_dir, states=2)
+    dataset = load_exchange_counterfactual_dataset(dataset_dir, load_legacy_model_input=False)
+    state = np.asarray(_compact_state(list(range(10)), [10, 11, 12]), dtype="<f4")
+    audit = ExchangeFullGoldAudit(
+        directory=tmp_path,
+        manifest={
+            "sourceDiagnostics": [
+                {
+                    "seed": 436000,
+                    "hiddenDealChecksum": "hidden-0",
+                    "biddingHistoryHash": "history-0",
+                }
+            ]
+        },
+        state_features=np.asarray([state]),
+        candidate_masks=np.zeros((1, 286, 53), dtype="u1"),
+        contract_margins=np.zeros((1, 286), dtype="<f4"),
+        relative_rewards=np.zeros((1, 286), dtype="<f4"),
+        rule_based_candidates=np.zeros(1, dtype="<u4"),
+        gold_candidates=np.zeros(1, dtype="<u4"),
+    )
+
+    filtered, exclusion = exclude_audit_overlaps(audit, dataset)
+
+    assert exclusion["excludedSourceStateCount"] == 1
+    assert filtered.source_state_count == 1
+    assert filtered.sample_count == 286
+    assert audit_training_leakage_report(audit, filtered)["status"] == "passed"
+
+    legacy = replace(
+        dataset,
+        raw_samples=tuple(
+            replace(sample, compact_exchange_state_input=None) for sample in dataset.raw_samples
+        ),
+    )
+    with pytest.raises(ValueError, match="requires compactExchangeStateInput"):
+        exclude_audit_overlaps(audit, legacy)
+    with pytest.raises(ValueError, match="requires compactExchangeStateInput"):
+        audit_training_leakage_report(audit, legacy)
+
+    provenance = dataset_provenance(filtered)
+    assert provenance["manifestScope"] == "source-before-in-memory-filtering"
+    assert provenance["fixedAuditExclusion"] == exclusion
+    assert provenance["effectiveManifestSha256"] != provenance["manifestSha256"]
+    assert provenance["effectiveSourceStateKeyHash"] == state_key_hash(
+        frozenset({"state-1"})
+    )
 
 
 def test_ranking_metrics_and_rule_based_fixture(tmp_path: Path) -> None:
@@ -460,9 +750,7 @@ def test_issue442_report_validates_layout_counts_and_renders_baseline(tmp_path: 
     )
 
     assert summary["checks"]["sampleCount"] is True
-    assert summary["split"]["leakageGuard"]["fixedThirteenGroupId"][
-        "crossSplitLeakageCount"
-    ] == 0
+    assert summary["split"]["leakageGuard"]["fixedThirteenGroupId"]["crossSplitLeakageCount"] == 0
     assert "| #438 compact396 baseline | 0.409 | 0.592 | 4.60 | 12.30 | 4.59 |" in markdown
 
 

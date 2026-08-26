@@ -4,14 +4,25 @@ from .dataset import (
     EXCHANGE_COMPACT_STATE_FEATURE_COUNT,
     EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT,
     EXCHANGE_COUNTERFACTUAL_SAMPLE_TYPE,
+    EXCHANGE_TACTICAL_VALUE_INPUT_FEATURE_COUNT,
     EXCHANGE_VALUE_INPUT_FEATURE_COUNT,
     EXCHANGE_VALUE_INPUT_VARIANTS,
     ExchangeCounterfactualDataset,
     ExchangeCounterfactualSample,
     ExchangeValueInputVariant,
     ExchangeValueSplit,
+    combine_exchange_counterfactual_datasets,
     create_exchange_value_split,
     load_exchange_counterfactual_dataset,
+)
+from .issue442_report import (
+    ISSUE438_COMPACT396_BASELINE,
+    ISSUE442_LAYOUTS,
+    Issue442Layout,
+    collect_issue442_layout_summary,
+    collect_issue442_report,
+    issue442_conclusion,
+    render_issue442_markdown,
 )
 from .model import (
     EXCHANGE_VALUE_ARCHITECTURE_ID,
@@ -27,15 +38,6 @@ from .training import (
     save_exchange_value_artifact,
     train_exchange_value_model,
 )
-from .issue442_report import (
-    ISSUE438_COMPACT396_BASELINE,
-    ISSUE442_LAYOUTS,
-    Issue442Layout,
-    collect_issue442_layout_summary,
-    collect_issue442_report,
-    issue442_conclusion,
-    render_issue442_markdown,
-)
 
 __all__ = [
     "EXCHANGE_COUNTERFACTUAL_SAMPLE_TYPE",
@@ -44,6 +46,7 @@ __all__ = [
     "EXCHANGE_COMPACT_VALUE_INPUT_FEATURE_COUNT",
     "EXCHANGE_VALUE_INPUT_FEATURE_COUNT",
     "EXCHANGE_VALUE_INPUT_VARIANTS",
+    "EXCHANGE_TACTICAL_VALUE_INPUT_FEATURE_COUNT",
     "ExchangeCounterfactualDataset",
     "ExchangeCounterfactualSample",
     "ExchangeValueInputVariant",
@@ -57,6 +60,7 @@ __all__ = [
     "Issue442Layout",
     "collect_issue442_layout_summary",
     "collect_issue442_report",
+    "combine_exchange_counterfactual_datasets",
     "create_exchange_value_split",
     "create_seeded_exchange_value_model",
     "evaluate_exchange_value_model",
