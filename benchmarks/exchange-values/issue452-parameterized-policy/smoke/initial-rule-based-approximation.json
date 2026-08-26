@@ -1,0 +1,53 @@
+{
+  "existingRuleBased": {
+    "contractSuccessRate": 0.298,
+    "declaredTargetCounts": {
+      "13": 361,
+      "14": 211,
+      "15": 338,
+      "16": 57,
+      "17": 28,
+      "18": 5
+    },
+    "fallbackCount": 0,
+    "featureSchemaVersion": 1,
+    "gameCount": 1000,
+    "illegalCount": 0,
+    "meanContractMargin": -2.481,
+    "meanNapoleonPointCards": 11.714,
+    "meanRelativeReward": -0.37375,
+    "policy": "rule-based",
+    "relativeRewardCi95": [
+      -1.3663186586527112,
+      0.618818658652711
+    ],
+    "relativeRewardStandardError": 0.5064125809452608,
+    "seedHash": "7041bee45e098c7f"
+  },
+  "meanDifference": 0.21500000000000002,
+  "parameterizedInitial": {
+    "contractSuccessRate": 0.304,
+    "declaredTargetCounts": {
+      "13": 361,
+      "14": 211,
+      "15": 338,
+      "16": 57,
+      "17": 28,
+      "18": 5
+    },
+    "fallbackCount": 0,
+    "featureSchemaVersion": 1,
+    "gameCount": 1000,
+    "illegalCount": 0,
+    "meanContractMargin": -2.462,
+    "meanNapoleonPointCards": 11.733,
+    "meanRelativeReward": -0.15875,
+    "policy": "parameterized",
+    "relativeRewardCi95": [
+      -1.1575260902504467,
+      0.8400260902504466
+    ],
+    "relativeRewardStandardError": 0.509579637882881,
+    "seedHash": "7041bee45e098c7f"
+  }
+}

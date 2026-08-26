@@ -1,0 +1,81 @@
+{
+  "existingRuleBased": {
+    "contractSuccessRate": 0.31333333333333335,
+    "declaredTargetCounts": {
+      "13": 973,
+      "14": 705,
+      "15": 971,
+      "16": 229,
+      "17": 97,
+      "18": 21,
+      "19": 4
+    },
+    "fallbackCount": 0,
+    "featureSchemaVersion": 1,
+    "gameCount": 3000,
+    "illegalCount": 0,
+    "meanContractMargin": -2.4503333333333335,
+    "meanNapoleonPointCards": 11.833333333333334,
+    "meanRelativeReward": 0.20725,
+    "policy": "rule-based",
+    "relativeRewardCi95": [
+      -0.37918282157373123,
+      0.7936828215737313
+    ],
+    "relativeRewardStandardError": 0.299200419170271,
+    "seedHash": "16f62e136991faa7"
+  },
+  "meanDifference": 0.003333333333333355,
+  "parameterizedInitial": {
+    "contractSuccessRate": 0.31333333333333335,
+    "declaredTargetCounts": {
+      "13": 973,
+      "14": 705,
+      "15": 971,
+      "16": 229,
+      "17": 97,
+      "18": 21,
+      "19": 4
+    },
+    "fallbackCount": 0,
+    "featureSchemaVersion": 1,
+    "gameCount": 3000,
+    "illegalCount": 0,
+    "meanContractMargin": -2.448,
+    "meanNapoleonPointCards": 11.835666666666667,
+    "meanRelativeReward": 0.21058333333333334,
+    "policy": "parameterized",
+    "relativeRewardCi95": [
+      -0.375940793837127,
+      0.7971074605037937
+    ],
+    "relativeRewardStandardError": 0.2992470036583981,
+    "seedHash": "16f62e136991faa7"
+  },
+  "warmStart": {
+    "contractSuccessRate": 0.32033333333333336,
+    "declaredTargetCounts": {
+      "13": 973,
+      "14": 705,
+      "15": 971,
+      "16": 229,
+      "17": 97,
+      "18": 21,
+      "19": 4
+    },
+    "fallbackCount": 0,
+    "featureSchemaVersion": 1,
+    "gameCount": 3000,
+    "illegalCount": 0,
+    "meanContractMargin": -2.3793333333333333,
+    "meanNapoleonPointCards": 11.904333333333334,
+    "meanRelativeReward": 0.44808333333333333,
+    "policy": "parameterized",
+    "relativeRewardCi95": [
+      -0.14177036617404676,
+      1.0379370328407134
+    ],
+    "relativeRewardStandardError": 0.30094576505478576,
+    "seedHash": "16f62e136991faa7"
+  }
+}

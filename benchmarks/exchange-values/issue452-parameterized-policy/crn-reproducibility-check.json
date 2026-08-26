@@ -1,0 +1,8 @@
+{
+  "parameter": "main/best-parameters.json",
+  "seedManifest": "variance-smoke/seeds/common-00.json",
+  "gameCount": 200,
+  "seedHash": "be8010c2d9f572d7",
+  "repeatedServerReportsByteIdentical": true,
+  "result": "pass"
+}
