@@ -239,13 +239,25 @@ def parameter_artifact(
         "weights": rows,
         "provenance": provenance,
     }
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    payload["sha256"] = sha256(canonical).hexdigest()
+    payload["sha256"] = parameter_artifact_checksum(payload)
     return payload
+
+
+def parameter_artifact_checksum(payload: dict[str, Any]) -> str:
+    canonical_payload = {key: value for key, value in payload.items() if key != "sha256"}
+    canonical = json.dumps(canonical_payload, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    return sha256(canonical).hexdigest()
 
 
 def load_parameter_artifact(path: Path) -> np.ndarray:
     payload = json.loads(path.read_text(encoding="utf-8"))
+    expected_checksum = payload.get("sha256")
+    if not isinstance(expected_checksum, str) or expected_checksum != parameter_artifact_checksum(
+        payload
+    ):
+        raise ValueError("parameter artifact checksum mismatch")
     if payload.get("parameterCount") != PARAMETER_COUNT:
         raise ValueError("parameter artifact count mismatch")
     result = np.asarray([row["weight"] for row in payload["weights"]], dtype=np.float64)

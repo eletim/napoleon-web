@@ -13,6 +13,13 @@
     "playing": "ppo-separated-v1000",
     "population": 12,
     "requestedGenerations": 8,
+    "runtimeIdentity": {
+      "biddingMargin": "f3454cca5d2ef667942431296b1260da114f255ce9a03594d32720b180c9c623",
+      "evaluator": "6f04593a34d63bdf11efa512ee1a4ec16bd7fc1ffdd781ac074a44c477b11ded",
+      "playingCritic": "3055882f3e63e2a096ee7cedee341bc97e033572bcb59f36f3f68e3d89f134d9",
+      "playingPolicy": "54d7ba29222a12e99a91ab61ee7aa253fe3fab73200d78167d64bf9e7bb8887e"
+    },
+    "seedOffset": 0,
     "validationGames": 1000
   },
   "history": [

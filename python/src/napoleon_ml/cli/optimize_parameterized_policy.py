@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import subprocess
@@ -54,6 +55,65 @@ def _read_evaluator_json(evaluator: Path, flag: str, repo: Path) -> dict[str, An
     return cast(dict[str, Any], json.loads(completed.stdout))
 
 
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _runtime_identity(repo: Path, evaluator: Path) -> dict[str, str]:
+    files = {
+        "evaluator": evaluator,
+        "biddingMargin": repo / "benchmarks/bidding-margin-policies/frozen-raise-v1/margin.onnx",
+        "playingPolicy": repo / "benchmarks/playing-policies/ppo-separated-v1000/policy.onnx",
+        "playingCritic": repo / "benchmarks/playing-policies/ppo-separated-v1000/critic.onnx",
+    }
+    return {name: _file_sha256(path) for name, path in files.items()}
+
+
+def _read_seed_manifest(path: Path) -> SeedManifest:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    manifest = seed_manifest(
+        str(payload["pool"]), payload["seeds"], int(payload["discovery_start"])
+    )
+    if manifest.sha256 != payload.get("sha256"):
+        raise ValueError(f"seed manifest checksum mismatch: {path}")
+    return manifest
+
+
+def _seed_manifests_under(root: Path, *, exclude: Path | None = None) -> list[SeedManifest]:
+    excluded = exclude.resolve() if exclude is not None else None
+    manifests = []
+    for path in sorted(root.resolve().rglob("seeds/*.json")):
+        if excluded is not None and path.is_relative_to(excluded):
+            continue
+        manifests.append(_read_seed_manifest(path))
+    return manifests
+
+
+def _validate_resume_state(
+    state: dict[str, Any],
+    expected_config: dict[str, Any],
+    validation: SeedManifest,
+) -> None:
+    saved_config = state.get("config")
+    if not isinstance(saved_config, dict):
+        raise ValueError("resume state has no configuration")
+    mismatches = [
+        key for key, expected in expected_config.items() if saved_config.get(key) != expected
+    ]
+    saved_validation = state.get("validationSeedManifest")
+    if (
+        not isinstance(saved_validation, dict)
+        or saved_validation.get("sha256") != validation.sha256
+    ):
+        mismatches.append("validationSeedManifest")
+    if mismatches:
+        raise ValueError("resume experiment identity mismatch: " + ", ".join(mismatches))
+
+
 def _discover_manifest(
     evaluator: Path,
     repo: Path,
@@ -91,6 +151,21 @@ def _optimize(args: argparse.Namespace) -> None:
     initial = np.asarray(initial_payload["weights"], dtype=np.float64)
     save_json(output / "feature-schema.json", schema)
     save_json(output / "initial-parameters.json", initial_payload)
+    runtime_identity = _runtime_identity(repo, evaluator)
+    resume_identity = {
+        "optimizer": "pycma.CMAEvolutionStrategy",
+        "population": args.population,
+        "gamesPerCandidate": args.games_per_candidate,
+        "validationGames": args.validation_games,
+        "initialSigma": args.sigma,
+        "boundsOnDelta": [-40.0, 40.0],
+        "optimizerSeed": args.optimizer_seed,
+        "seedOffset": args.seed_offset,
+        "bidding": "frozen-raise-v1",
+        "playing": "ppo-separated-v1000",
+        "commonRandomNumbersWithinGeneration": True,
+        "runtimeIdentity": runtime_identity,
+    }
 
     validation = _discover_manifest(
         evaluator,
@@ -101,8 +176,9 @@ def _optimize(args: argparse.Namespace) -> None:
         games=args.validation_games,
     )
     if args.resume:
-        strategy = load_optimizer_state(output / "optimizer-state.pkl")
         state = json.loads((output / "run-state.json").read_text(encoding="utf-8"))
+        _validate_resume_state(state, resume_identity, validation)
+        strategy = load_optimizer_state(output / "optimizer-state.pkl")
         history: list[dict[str, Any]] = state["history"]
         incumbent = np.asarray(state["incumbentWeights"], dtype=np.float64)
         incumbent_validation = float(state["incumbentValidationFitness"])
@@ -124,7 +200,8 @@ def _optimize(args: argparse.Namespace) -> None:
         incumbent_validation = -math.inf
         start_generation = 0
 
-    all_manifests = [validation]
+    all_manifests = _seed_manifests_under(output)
+    assert_disjoint_seed_manifests(all_manifests)
     with EvaluationServer(evaluator, validation, cwd=repo, work=work) as validation_server:
         if not args.resume:
             initial_validation = validation_server.evaluate(initial.tolist())
@@ -198,18 +275,8 @@ def _optimize(args: argparse.Namespace) -> None:
             history.append(generation_row)
             run_state = {
                 "config": {
-                    "optimizer": "pycma.CMAEvolutionStrategy",
-                    "population": args.population,
+                    **resume_identity,
                     "requestedGenerations": args.generations,
-                    "gamesPerCandidate": args.games_per_candidate,
-                    "validationGames": args.validation_games,
-                    "initialSigma": args.sigma,
-                    "boundsOnDelta": [-40.0, 40.0],
-                    "optimizerSeed": args.optimizer_seed,
-                    "seedOffset": args.seed_offset,
-                    "bidding": "frozen-raise-v1",
-                    "playing": "ppo-separated-v1000",
-                    "commonRandomNumbersWithinGeneration": True,
                 },
                 "history": history,
                 "incumbentWeights": incumbent.tolist(),
@@ -327,9 +394,19 @@ def _final(args: argparse.Namespace) -> None:
     work = output / "work"
     work.mkdir(parents=True, exist_ok=True)
     learned = load_parameter_artifact(args.parameters.resolve())
+    manifest_root = (
+        args.seed_manifest_root.resolve()
+        if args.seed_manifest_root is not None
+        else args.parameters.resolve().parent.parent
+    )
+    reserved_manifests = _seed_manifests_under(manifest_root, exclude=output)
+    if not reserved_manifests:
+        raise ValueError(f"no reserved seed manifests found under {manifest_root}")
+    assert_disjoint_seed_manifests(reserved_manifests)
     final_manifest = _discover_manifest(
         evaluator, repo, output, pool="final-holdout", start=FINAL_SEED_BASE, games=args.games
     )
+    assert_disjoint_seed_manifests([*reserved_manifests, final_manifest])
     with EvaluationServer(evaluator, final_manifest, cwd=repo, work=work) as server:
         learned_report = server.evaluate(learned.tolist(), detailed=True)
         baseline_report = server.evaluate(None, detailed=True)
@@ -399,6 +476,7 @@ def _parser() -> argparse.ArgumentParser:
     final.add_argument("--parameters", type=Path, required=True)
     final.add_argument("--output", type=Path, required=True)
     final.add_argument("--games", type=int, default=5000)
+    final.add_argument("--seed-manifest-root", type=Path)
     final.set_defaults(run=_final)
     return parser
 

@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
 
+from napoleon_ml.cli.optimize_parameterized_policy import (
+    _seed_manifests_under,
+    _validate_resume_state,
+)
 from napoleon_ml.parameterized_policy.optimization import (
     PARAMETER_COUNT,
     assert_disjoint_seed_manifests,
@@ -76,6 +81,34 @@ def test_parameter_artifact_round_trip(tmp_path: Path) -> None:
     assert load_parameter_artifact(path) == pytest.approx(learned)
     parsed = json.loads(path.read_text(encoding="utf-8"))
     assert parsed["sha256"] == artifact["sha256"]
+    parsed["weights"][0]["weight"] = 999.0
+    path.write_text(json.dumps(parsed), encoding="utf-8")
+    with pytest.raises(ValueError, match="checksum mismatch"):
+        load_parameter_artifact(path)
+
+
+def test_resume_identity_and_recorded_seed_manifests_are_enforced(tmp_path: Path) -> None:
+    validation = seed_manifest("validation", [40, 50], 40)
+    config = {"population": 16, "runtimeIdentity": {"evaluator": "abc"}}
+    state = {
+        "config": config,
+        "validationSeedManifest": {"sha256": validation.sha256},
+    }
+    _validate_resume_state(state, config, validation)
+    with pytest.raises(ValueError, match="population"):
+        _validate_resume_state(state, {**config, "population": 32}, validation)
+    with pytest.raises(ValueError, match="validationSeedManifest"):
+        _validate_resume_state(state, config, seed_manifest("validation", [60, 70], 60))
+
+    train_path = tmp_path / "main" / "seeds" / "train.json"
+    final_path = tmp_path / "final" / "seeds" / "final.json"
+    save_json(train_path, {**asdict(seed_manifest("train", [1, 2], 1)), "seeds": [1, 2]})
+    save_json(final_path, {**asdict(seed_manifest("final", [3, 4], 3)), "seeds": [3, 4]})
+    reserved = _seed_manifests_under(tmp_path, exclude=tmp_path / "final")
+    assert [manifest.pool for manifest in reserved] == ["train"]
+    assert_disjoint_seed_manifests([*reserved, seed_manifest("new-final", [3, 4], 3)])
+    with pytest.raises(ValueError, match="seed overlap"):
+        assert_disjoint_seed_manifests([*reserved, seed_manifest("new-final", [2, 4], 2)])
 
 
 def test_paired_comparison_and_variance_diagnostic() -> None:
