@@ -40,6 +40,7 @@ from napoleon_ml.exchange_value.full_gold_audit import (
     load_exchange_full_gold_audit,
 )
 from napoleon_ml.exchange_value.oracle_location import (
+    load_full_gold_location_overlay,
     location_one_hot,
     relative_adjutant_location_class,
 )
@@ -288,6 +289,36 @@ def test_oracle_location_relative_seat_and_compact401_fixture(tmp_path: Path) ->
     assert oracle_input.shape == (EXCHANGE_ORACLE_LOCATION_INPUT_FEATURE_COUNT,)
     np.testing.assert_array_equal(oracle_input[:396], sample.compact_value_input)
     assert oracle_input[396:].tolist() == [1.0, 0.0, 0.0, 0.0, 0.0]
+
+
+def test_full_gold_oracle_overlay_binds_source_seed_order(tmp_path: Path) -> None:
+    overlay = tmp_path / "full-gold-oracle.json"
+    overlay.write_text(
+        json.dumps(
+            {
+                "artifactType": "issue450-fixed-full-gold-location-overlay-v1",
+                "fixedHoldoutManifestSha256": "fixed-hash",
+                "classNames": [
+                    "opponentSeat1",
+                    "opponentSeat2",
+                    "opponentSeat3",
+                    "opponentSeat4",
+                    "selfKittySolo",
+                ],
+                "sourceSeeds": [11, 22],
+                "classIndices": [[4] * 53, [0] * 53],
+            }
+        ),
+        encoding="utf-8",
+    )
+    loaded = load_full_gold_location_overlay(
+        overlay, manifest_sha256="fixed-hash", source_seeds=(11, 22)
+    )
+    assert loaded["classIndicesArray"].shape == (2, 53)
+    with pytest.raises(ValueError, match="source seed order mismatch"):
+        load_full_gold_location_overlay(
+            overlay, manifest_sha256="fixed-hash", source_seeds=(22, 11)
+        )
 
 
 def test_combined_dataset_rejects_source_overlap(tmp_path: Path) -> None:

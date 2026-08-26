@@ -33,6 +33,7 @@ from .dataset import (
     EXCHANGE_COUNTERFACTUAL_COMBINATION_COUNT,
     EXCHANGE_ORACLE_LOCATION_INPUT_FEATURE_COUNT,
     EXCHANGE_TACTICAL_VALUE_INPUT_FEATURE_COUNT,
+    EXCHANGE_VALUE_DIAGNOSTIC_INPUT_VARIANTS,
     EXCHANGE_VALUE_INPUT_FEATURE_COUNT,
     EXCHANGE_VALUE_INPUT_VARIANTS,
     ExchangeCounterfactualDataset,
@@ -1131,9 +1132,10 @@ def _validate_train_config(config: ExchangeValueTrainConfig) -> None:
         raise ValueError("batch_size must be positive.")
     if config.learning_rate <= 0.0:
         raise ValueError("learning_rate must be positive.")
-    if config.input_variant not in EXCHANGE_VALUE_INPUT_VARIANTS:
+    supported_variants = EXCHANGE_VALUE_INPUT_VARIANTS + EXCHANGE_VALUE_DIAGNOSTIC_INPUT_VARIANTS
+    if config.input_variant not in supported_variants:
         raise ValueError(
-            f"input_variant must be one of {', '.join(EXCHANGE_VALUE_INPUT_VARIANTS)}."
+            f"input_variant must be one of {', '.join(supported_variants)}."
         )
     if config.loss not in {"mse", "huber"}:
         raise ValueError("loss must be mse or huber.")

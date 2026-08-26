@@ -59,7 +59,12 @@ def load_training_location_overlay(
     }
 
 
-def load_full_gold_location_overlay(path: Path | str, *, manifest_sha256: str) -> dict[str, Any]:
+def load_full_gold_location_overlay(
+    path: Path | str,
+    *,
+    manifest_sha256: str,
+    source_seeds: tuple[int, ...],
+) -> dict[str, Any]:
     overlay_path = Path(path)
     raw = json.loads(overlay_path.read_text(encoding="utf-8"))
     if raw.get("artifactType") != "issue450-fixed-full-gold-location-overlay-v1":
@@ -69,8 +74,10 @@ def load_full_gold_location_overlay(path: Path | str, *, manifest_sha256: str) -
     if raw.get("classNames") != list(ADJUTANT_LOCATION_CLASS_NAMES):
         raise ValueError("full-gold oracle overlay classNames mismatch.")
     values = np.asarray(raw.get("classIndices"), dtype=np.int64)
-    if values.ndim != 2 or values.shape[1] != 53:
+    if values.ndim != 2 or values.shape != (len(source_seeds), 53):
         raise ValueError("full-gold oracle overlay must have shape (states,53).")
+    if raw.get("sourceSeeds") != list(source_seeds):
+        raise ValueError("full-gold oracle overlay source seed order mismatch.")
     if bool(np.any((values < 0) | (values >= ADJUTANT_LOCATION_CLASS_COUNT))):
         raise ValueError("full-gold oracle overlay contains an invalid class index.")
     return {

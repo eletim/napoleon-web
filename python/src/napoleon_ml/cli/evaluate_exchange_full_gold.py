@@ -44,6 +44,9 @@ def main() -> int:
         oracle = load_full_gold_location_overlay(
             args.oracle_location_overlay,
             manifest_sha256=str(audit.manifest["fixedHoldout"]["manifestSha256"]),
+            source_seeds=tuple(
+                int(source["seed"]) for source in audit.manifest["sourceDiagnostics"]
+            ),
         )
         location_classes = oracle["classIndicesArray"].reshape(-1)
         oracle_provenance = {
