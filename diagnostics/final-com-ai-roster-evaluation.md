@@ -157,7 +157,7 @@ Sample phase audit:
 
 ## 9. 最終結論
 
-Napoleon-side win rateは、RB5 / AI0 29.60%、RB4 / AI1 35.90%、RB3 / AI2 39.00%、RB2 / AI3 44.50%、RB1 / AI4 51.80%、RB0 / AI5 61.70%でした。今回の独立seed群ではAI人数が増える各段階で単調に上がり、AI0からAI5までの差は 32.10 percentage pointsでした。
+Napoleon-side win rateは、RB5 / AI0 29.60%、RB4 / AI1 35.90%、RB3 / AI2 39.00%、RB2 / AI3 44.50%、RB1 / AI4 51.80%、RB0 / AI5 61.70%でした。今回の独立seed群ではAI人数が増える各段階で単調に上がりました。AI0からAI5までの差は +32.10 percentage pointsでした。
 
 全roster合計の記述集計では、Napoleon=AI / Adjutant=AI は 61.03%、Napoleon=AI / Adjutant=RB は 50.29%、Napoleon=RB / Adjutant=AI は 44.04%、Napoleon=RB / Adjutant=RB は 33.96%でした。Napoleon policyをAIにした構成、Adjutant policyをAIにした構成の双方で高い生勝率が観測され、AI+AIが最も高い値でした。
 

@@ -589,9 +589,12 @@ function rosterConclusion(summary: any): string {
   const firstRoster = summary.rosterSummaries[0];
   const lastRoster = summary.rosterSummaries.at(-1);
   const rosterDifference = lastRoster.napoleonSideWinRate - firstRoster.napoleonSideWinRate;
+  const rosterTrend = describeRosterTrend(
+    summary.rosterSummaries.map((row: any) => row.napoleonSideWinRate)
+  );
   const byKey = Object.fromEntries(summary.overallComposition.map((row: any) => [row.key, row]));
   return [
-    `Napoleon-side win rateは、${rates}でした。今回の独立seed群ではAI人数が増える各段階で単調に上がり、AI0からAI5までの差は ${(rosterDifference * 100).toFixed(2)} percentage pointsでした。`,
+    `Napoleon-side win rateは、${rates}でした。今回の独立seed群では${rosterTrend}。AI0からAI5までの差は ${formatSignedPercentagePoints(rosterDifference)}でした。`,
     `全roster合計の記述集計では、Napoleon=AI / Adjutant=AI は ${formatPercent(byKey["napoleon-ai-adjutant-ai"].napoleonSideWinRate)}、Napoleon=AI / Adjutant=RB は ${formatPercent(byKey["napoleon-ai-adjutant-rb"].napoleonSideWinRate)}、Napoleon=RB / Adjutant=AI は ${formatPercent(byKey["napoleon-rb-adjutant-ai"].napoleonSideWinRate)}、Napoleon=RB / Adjutant=RB は ${formatPercent(byKey["napoleon-rb-adjutant-rb"].napoleonSideWinRate)}でした。Napoleon policyをAIにした構成、Adjutant policyをAIにした構成の双方で高い生勝率が観測され、AI+AIが最も高い値でした。`,
     `solo NapoleonはAI ${formatPercent(byKey["solo-napoleon-ai"].napoleonSideWinRate)}、RB ${formatPercent(byKey["solo-napoleon-rb"].napoleonSideWinRate)}でした。またroster平均では、AI0→AI5でdeclared targetが ${firstRoster.meanTarget.toFixed(3)}→${lastRoster.meanTarget.toFixed(3)}、contract marginが ${firstRoster.meanMargin.toFixed(3)}→${lastRoster.meanMargin.toFixed(3)}へ変化しました。`,
     "したがって、この固定roster評価では、正式COM-AIを増やした編成ほどNapoleon-side成績が良く、Napoleon・Adjutant・soloの構成別集計もCOM-AIの有効性と整合しています。一方、異なるrosterは同一dealの対比較ではなく、biddingによるrole selection、deal、Citizen側構成も同時に変わります。このため各差を特定phaseの因果効果やCitizen policy単体の優劣とは断定しません。"
@@ -615,6 +618,16 @@ function formatSeats(seats: readonly number[]): string {
 }
 function formatPercent(value: number | null): string {
   return value === null ? "—" : `${(value * 100).toFixed(2)}%`;
+}
+function formatSignedPercentagePoints(value: number): string {
+  const points = value * 100;
+  return `${points >= 0 ? "+" : ""}${points.toFixed(2)} percentage points`;
+}
+export function describeRosterTrend(rates: readonly number[]): string {
+  const monotonicIncrease = rates.every((value, index) => index === 0 || value >= rates[index - 1]);
+  return monotonicIncrease
+    ? "AI人数が増える各段階で単調に上がりました"
+    : "AI人数が増える各段階での単調増加にはなりませんでした";
 }
 function sha256(value: string): string { return createHash("sha256").update(value).digest("hex"); }
 

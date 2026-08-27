@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createRosterSchedule } from "../src/finalRosterEvaluation.js";
+import { createRosterSchedule, describeRosterTrend } from "../src/finalRosterEvaluation.js";
 
 describe("final fixed-roster evaluation schedule", () => {
   it("creates six 1,000-game rosters with exactly balanced seat combinations", () => {
@@ -32,5 +32,12 @@ describe("final fixed-roster evaluation schedule", () => {
       first.map((entry) => entry.seatPolicies)
     );
     expect(shifted[0].seed).not.toBe(first[0].seed);
+  });
+
+  it("describes the observed roster trend instead of assuming monotonic results", () => {
+    expect(describeRosterTrend([0.30, 0.35, 0.39, 0.45, 0.52, 0.62]))
+      .toContain("単調に上がりました");
+    expect(describeRosterTrend([0.30, 0.35, 0.34, 0.45, 0.52, 0.62]))
+      .toContain("単調増加にはなりませんでした");
   });
 });
