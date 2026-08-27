@@ -134,7 +134,7 @@ describe("display text", () => {
     expect(display.secondary.some((chip) => chip.label === "副")).toBe(false);
   });
 
-  it("shows play status as compact trick, contract, and adjutant without special-card marks", () => {
+  it("shows play status without auxiliary trick HUD chips", () => {
     const state = createPublicState({
       phase: "playing",
       trickNumber: 4,
@@ -160,11 +160,6 @@ describe("display text", () => {
 
     expect(display.primary).toEqual([
       {
-        label: "T4",
-        ariaLabel: "第4トリック。現在の手番は自分です。",
-        tone: "phase"
-      },
-      {
         label: "♦",
         value: "14",
         ariaLabel: "契約: ナポレオンは右側AI、切り札は♦、契約は14枚です。",
@@ -172,6 +167,7 @@ describe("display text", () => {
         suitColor: "red"
       }
     ]);
+    expect(display.primary.some((chip) => chip.label === "T4")).toBe(false);
     expect(display.secondary).toEqual([
       {
         label: "副",

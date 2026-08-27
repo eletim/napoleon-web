@@ -10,6 +10,7 @@
     "typecheck": "tsc -b --noEmit"
   },
   "dependencies": {
+    "@letele/playing-cards": "0.1.0",
     "@napoleon/game-core": "workspace:*",
     "@napoleon/protocol": "workspace:*",
     "react": "^19.0.0",

@@ -31,7 +31,9 @@ export function CardButton({
         onClick={() => onPlay(card)}
         type="button"
       >
-        <span>JOKER</span>
+        <span className="card-corner card-corner-top">JOKER</span>
+        <span className="card-center-mark">Joker</span>
+        <span className="card-corner card-corner-bottom">JOKER</span>
         <span className="visually-hidden" id={stateDescriptionId}>
           {stateDescription}
         </span>
@@ -50,8 +52,15 @@ export function CardButton({
       onClick={() => onPlay(card)}
       type="button"
     >
-      <span>{card.rank}</span>
-      <span className="card-suit">{suitSymbols[card.suit]}</span>
+      <span className="card-corner card-corner-top">
+        {card.rank}
+        {suitSymbols[card.suit]}
+      </span>
+      <span className="card-suit card-center-mark">{suitSymbols[card.suit]}</span>
+      <span className="card-corner card-corner-bottom">
+        {card.rank}
+        {suitSymbols[card.suit]}
+      </span>
       <span className="visually-hidden" id={stateDescriptionId}>
         {stateDescription}
       </span>

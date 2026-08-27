@@ -37,12 +37,15 @@ export function SelfHandPanel({
   const playerId = self?.id ?? selfPlayer?.id ?? "player-0";
   const capturedPointCards = self?.capturedPointCards ?? selfPlayer?.capturedPointCards ?? [];
   const isCurrent = state?.currentPlayerId === playerId;
+  const isBidding = state?.phase === "bidding";
   const isNapoleon = state?.contract?.napoleonPlayerId === playerId;
   const isAdjutant = state?.adjutant?.revealedPlayerId === playerId;
   const displayedHand = useMemo(
     () => getDisplayedHandCards(self?.hand ?? [], handOrderMode),
     [handOrderMode, self?.hand]
   );
+  const shouldReserveHandSlots = state !== undefined && !state.isGameOver;
+  const emptyHandSlotCount = shouldReserveHandSlots ? Math.max(0, 10 - displayedHand.length) : 0;
 
   return (
     <article
@@ -52,10 +55,12 @@ export function SelfHandPanel({
       <div className="self-heading">
         <div className="self-info">
           <h2>自分</h2>
-          <BiddingDeclarationBadge
-            playerLabel="自分"
-            declaration={selfPlayer?.biddingDeclaration}
-          />
+          {isBidding ? (
+            <BiddingDeclarationBadge
+              playerLabel="自分"
+              declaration={selfPlayer?.biddingDeclaration}
+            />
+          ) : null}
         </div>
 
         <div className="role-badges self-role-badges">
@@ -64,12 +69,12 @@ export function SelfHandPanel({
               ▶
             </span>
           ) : null}
-          {isNapoleon ? (
+          {!isBidding && isNapoleon ? (
             <span aria-label="ナポレオン" className="role-badge napoleon-badge" role="img">
               N
             </span>
           ) : null}
-          {isAdjutant ? (
+          {!isBidding && isAdjutant ? (
             <span aria-label="副官" className="role-badge adjutant-badge" role="img">
               A
             </span>
@@ -106,15 +111,17 @@ export function SelfHandPanel({
         </div>
       </div>
 
-      <div
-        className="self-points-row"
-        aria-label={`自分の獲得得点札は${capturedPointCards.length}枚`}
-      >
-        <span aria-hidden="true">★{capturedPointCards.length}</span>
-        <div className="inline-cards compact-points">
-          <PointCards cards={capturedPointCards} />
+      {!isBidding ? (
+        <div
+          className="self-points-row"
+          aria-label={`自分の獲得得点札は${capturedPointCards.length}枚`}
+        >
+          <span aria-hidden="true">★{capturedPointCards.length}</span>
+          <div className="inline-cards compact-points">
+            <PointCards cards={capturedPointCards} />
+          </div>
         </div>
-      </div>
+      ) : null}
 
       <div className="hand" aria-label="自分の手札">
         {displayedHand.map((card) => {
@@ -138,6 +145,13 @@ export function SelfHandPanel({
             />
           );
         })}
+        {Array.from({ length: emptyHandSlotCount }, (_, index) => (
+          <span
+            aria-hidden="true"
+            className="hand-card-empty-slot"
+            key={`empty-hand-slot-${index}`}
+          />
+        ))}
       </div>
     </article>
   );
