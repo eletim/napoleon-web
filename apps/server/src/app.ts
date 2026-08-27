@@ -2,10 +2,12 @@ import cors from "@fastify/cors";
 import Fastify from "fastify";
 import { registerRoutes } from "./routes.js";
 import type { AgentRegistry } from "./agentRegistry.js";
+import type { AiPresetRegistry } from "./aiPresetRegistry.js";
 
 export interface BuildAppOptions {
   logger?: boolean;
   agentRegistry?: AgentRegistry;
+  aiPresetRegistry?: AiPresetRegistry;
 }
 
 export async function buildApp(options: BuildAppOptions = {}) {
@@ -18,7 +20,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
   });
 
   await registerRoutes(app, {
-    agentRegistry: options.agentRegistry
+    agentRegistry: options.agentRegistry,
+    aiPresetRegistry: options.aiPresetRegistry
   });
 
   return app;

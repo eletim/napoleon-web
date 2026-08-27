@@ -207,6 +207,10 @@ pnpm dev
 
 `NAPOLEON_FULL_POLICY_1_*`〜`NAPOLEON_FULL_POLICY_5_*`もlegacy compatibilityとして残しています。この旧full-policy設定だけがplaying / bidding / adjutant / exchangeすべてのONNXを要求します。新しい正式phase composition pathはこれらの環境変数やfull-ONNX bundleを要求しません。
 
+通常ゲームではphase policyを直接選ばず、server-managedのAI presetを選びます。builtin presetは`COM-RuleBase`（全phase RuleBased）と`COM-AI`（正式採用済み3 policy）の2つです。ゲーム開始時にclientが送るのは`com-rule-base`または`com-ai`のpreset IDだけで、serverが4 AI席すべてに同じphase compositionを解決します。artifact pathやONNX pathはclientへ渡しません。
+
+AI設定画面の保存先はserver process内のpreset storeです。`GET /api/ai-presets`で一覧と利用可能policyを取得し、`PUT /api/ai-presets/:presetId`でcompositionを保存します。ブラウザ再読込後も同じserver process内では保持され、server再起動時は検証済みbuiltin defaultsへ戻ります。初版ではpreset追加・削除やDB永続化は行いません。unknown/unavailable policyは保存時にrejectされ、silent fallbackしません。
+
 ```env
 NAPOLEON_FULL_POLICY_1_DISPLAY_NAME=Full policy v1
 NAPOLEON_FULL_POLICY_1_PLAYING_ONNX_PATH=artifacts/playing/policy.onnx

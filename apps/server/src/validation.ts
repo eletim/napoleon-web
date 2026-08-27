@@ -1,6 +1,7 @@
 import type {
   BidRequest,
   AiPolicyComposition,
+  AiPresetId,
   ChooseAdjutantRequest,
   CreateGameAgentSelection,
   CreateGameRequest,
@@ -8,7 +9,8 @@ import type {
   PassRequest,
   PlayCardRequest,
   PublicGameAction,
-  RunAutomatedSimulationRequest
+  RunAutomatedSimulationRequest,
+  UpdateAiPresetRequest
 } from "@napoleon/protocol";
 
 export function isPlayCardRequest(value: unknown): value is PlayCardRequest {
@@ -122,7 +124,15 @@ export function readCreateGameBody(value: unknown): CreateGameRequest | undefine
     return {};
   }
 
-  if (keys.length !== 1 || !keys.includes("aiAgents") || !Array.isArray(value.aiAgents)) {
+  if (keys.length !== 1) {
+    return undefined;
+  }
+
+  if (keys.includes("aiPresetId") && typeof value.aiPresetId === "string") {
+    return { aiPresetId: value.aiPresetId as AiPresetId };
+  }
+
+  if (!keys.includes("aiAgents") || !Array.isArray(value.aiAgents)) {
     return undefined;
   }
 
@@ -143,6 +153,14 @@ export function readCreateGameBody(value: unknown): CreateGameRequest | undefine
   };
 }
 
+export function readUpdateAiPresetBody(value: unknown): UpdateAiPresetRequest | undefined {
+  if (!isRecord(value) || Object.keys(value).length !== 1 || !("composition" in value)) {
+    return undefined;
+  }
+  const composition = readAiPolicyComposition(value.composition);
+  return composition === undefined ? undefined : { composition };
+}
+
 export function readRunAutomatedSimulationBody(
   value: unknown
 ): RunAutomatedSimulationRequest | undefined {
@@ -155,7 +173,9 @@ export function readRunAutomatedSimulationBody(
   if (
     (keys.length !== 1 && keys.length !== 2) ||
     !keys.includes("seed") ||
-    (keys.length === 2 && !keys.includes("policyComposition"))
+    (keys.length === 2 &&
+      !keys.includes("policyComposition") &&
+      !keys.includes("aiPresetId"))
   ) {
     return undefined;
   }
@@ -175,10 +195,19 @@ export function readRunAutomatedSimulationBody(
   if (keys.includes("policyComposition") && policyComposition === undefined) {
     return undefined;
   }
-  return {
-    seed: value.seed,
-    ...(policyComposition === undefined ? {} : { policyComposition })
-  };
+  const aiPresetId = keys.includes("aiPresetId") && typeof value.aiPresetId === "string"
+    ? value.aiPresetId as AiPresetId
+    : undefined;
+  if (keys.includes("aiPresetId") && aiPresetId === undefined) {
+    return undefined;
+  }
+  if (aiPresetId !== undefined) {
+    return { seed: value.seed, aiPresetId };
+  }
+  if (policyComposition !== undefined) {
+    return { seed: value.seed, policyComposition };
+  }
+  return { seed: value.seed };
 }
 
 function readCreateGameAgentSelection(
