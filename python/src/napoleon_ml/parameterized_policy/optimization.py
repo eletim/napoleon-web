@@ -21,6 +21,7 @@ TRAIN_SEED_BASE = 452_000_000
 VALIDATION_SEED_BASE = 552_000_000
 FINAL_SEED_BASE = 652_000_000
 DIAGNOSTIC_SEED_BASE = 752_000_000
+VERIFICATION_SEED_BASE = 954_000_000
 SEED_RANGE_STRIDE = 100_000
 
 
@@ -277,6 +278,14 @@ def paired_comparison(
     baseline_rows = baseline_report.get("perSeed")
     if not isinstance(learned_rows, list) or not isinstance(baseline_rows, list):
         raise ValueError("detailed per-seed reports are required")
+    learned_seeds = [int(row["seed"]) for row in learned_rows]
+    baseline_seeds = [int(row["seed"]) for row in baseline_rows]
+    if len(set(learned_seeds)) != len(learned_seeds):
+        raise ValueError("learned report contains duplicate seeds")
+    if len(set(baseline_seeds)) != len(baseline_seeds):
+        raise ValueError("baseline report contains duplicate seeds")
+    if learned_seeds != baseline_seeds:
+        raise ValueError("paired reports must use the same ordered seed sequence")
     baseline_by_seed = {int(row["seed"]): row for row in baseline_rows}
     differences = []
     wins = ties = losses = 0
@@ -305,6 +314,42 @@ def paired_comparison(
         "losses": losses,
         "perSeedDifferences": differences,
     }
+
+
+def paired_block_comparisons(
+    learned_report: dict[str, Any],
+    baseline_report: dict[str, Any],
+    *,
+    block_size: int,
+) -> list[dict[str, Any]]:
+    """Calculate paired statistics for consecutive, pre-declared seed blocks."""
+    if block_size <= 0:
+        raise ValueError("block size must be positive")
+    learned_rows = learned_report.get("perSeed")
+    baseline_rows = baseline_report.get("perSeed")
+    if not isinstance(learned_rows, list) or not isinstance(baseline_rows, list):
+        raise ValueError("detailed per-seed reports are required")
+    if len(learned_rows) % block_size != 0:
+        raise ValueError("game count must be divisible by block size")
+    blocks = []
+    for start in range(0, len(learned_rows), block_size):
+        stop = start + block_size
+        comparison = paired_comparison(
+            {"perSeed": learned_rows[start:stop]},
+            {"perSeed": baseline_rows[start:stop]},
+        )
+        comparison.pop("perSeedDifferences")
+        blocks.append(
+            {
+                "block": start // block_size,
+                "startIndex": start,
+                "stopIndexExclusive": stop,
+                "firstSeed": int(learned_rows[start]["seed"]),
+                "lastSeed": int(learned_rows[stop - 1]["seed"]),
+                **comparison,
+            }
+        )
+    return blocks
 
 
 def variance_diagnostic(
