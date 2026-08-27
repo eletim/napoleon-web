@@ -1,0 +1,769 @@
+{
+  "schemaVersion": 1,
+  "manifest": {
+    "schemaVersion": 1,
+    "gameCount": 50000,
+    "gameStartSeed": 462000000,
+    "assignmentSeed": 462202203,
+    "assignmentAlgorithm": "independent-seat-balanced-fisher-yates-v1",
+    "assignmentSequenceSha256": "d2d559e33d1ec824d0052c2f44e2c23d55c7321d5f68ccefd846c2bf6e0b2cf9",
+    "presets": {
+      "COM-AI": {
+        "playing": "ppo-separated-v1000",
+        "bidding": "frozen-raise-v1",
+        "nonPlaying": "parameterized-adjutant-exchange-v1"
+      },
+      "COM-RuleBase": {
+        "playing": "rule-based",
+        "bidding": "rule-based",
+        "nonPlaying": "rule-based"
+      }
+    },
+    "inferenceDevice": "cpu",
+    "statistics": "game-cluster-robust-sandwich-normal-95-v1",
+    "allPassTreatment": "included in exposure and reward means; excluded from win/loss and role denominators"
+  },
+  "manifestHash": "5698296ecef88f3e2611bc5d2b487857bc37cea115055acd45bd4345a64603b5",
+  "generatedAt": "2026-08-27T13:10:02.488Z",
+  "completedGames": 50000,
+  "failedGames": 0,
+  "summary": {
+    "games": 50000,
+    "allPass": {
+      "count": 0,
+      "rate": 0
+    },
+    "seatAi": [
+      {
+        "seat": 0,
+        "ai": 25000,
+        "ruleBase": 25000,
+        "aiRate": 0.5
+      },
+      {
+        "seat": 1,
+        "ai": 25000,
+        "ruleBase": 25000,
+        "aiRate": 0.5
+      },
+      {
+        "seat": 2,
+        "ai": 25000,
+        "ruleBase": 25000,
+        "aiRate": 0.5
+      },
+      {
+        "seat": 3,
+        "ai": 25000,
+        "ruleBase": 25000,
+        "aiRate": 0.5
+      },
+      {
+        "seat": 4,
+        "ai": 25000,
+        "ruleBase": 25000,
+        "aiRate": 0.5
+      }
+    ],
+    "policy": {
+      "COM-AI": {
+        "exposure": 125000,
+        "win": {
+          "n": 125000,
+          "estimate": 0.54088,
+          "standardError": 0.0012545624380895632,
+          "ci95": [
+            0.5384210576213445,
+            0.5433389423786555
+          ]
+        },
+        "relativeReward": {
+          "n": 125000,
+          "estimate": -0.15311359999999907,
+          "standardError": 0.008643456707303356,
+          "ci95": [
+            -0.17005477514631365,
+            -0.1361724248536845
+          ]
+        },
+        "rawReward": {
+          "n": 125000,
+          "estimate": 6.943928,
+          "standardError": 0.04062575577437108,
+          "ci95": [
+            6.8643015186822325,
+            7.023554481317767
+          ]
+        }
+      },
+      "COM-RuleBase": {
+        "exposure": 125000,
+        "win": {
+          "n": 125000,
+          "estimate": 0.506872,
+          "standardError": 0.0010169836637609643,
+          "ci95": [
+            0.5048787120190285,
+            0.5088652879809715
+          ]
+        },
+        "relativeReward": {
+          "n": 125000,
+          "estimate": 0.15311359999999907,
+          "standardError": 0.008659840105584295,
+          "ci95": [
+            0.13614031339305385,
+            0.1700868866069443
+          ]
+        },
+        "rawReward": {
+          "n": 125000,
+          "estimate": 6.313816,
+          "standardError": 0.04724703860688321,
+          "ci95": [
+            6.221211804330509,
+            6.406420195669491
+          ]
+        }
+      }
+    },
+    "policyDifference": {
+      "win": {
+        "n": 125000,
+        "estimate": 0.03400800000000004,
+        "standardError": 0.0019637846696572135,
+        "ci95": [
+          0.0301589820474719,
+          0.037857017952528174
+        ]
+      },
+      "relativeReward": {
+        "n": 125000,
+        "estimate": -0.30622719999999815,
+        "standardError": 0.017292486615912636,
+        "ci95": [
+          -0.3401204737671869,
+          -0.2723339262328094
+        ]
+      }
+    },
+    "roles": [
+      {
+        "role": "Napoleon",
+        "policy": "COM-AI",
+        "win": {
+          "n": 13231,
+          "estimate": 0.559519310709697,
+          "standardError": 0.004315975642730528,
+          "ci95": [
+            0.5510599984499451,
+            0.5679786229694488
+          ]
+        },
+        "relativeReward": {
+          "n": 13231,
+          "estimate": 4.775451590960704,
+          "standardError": 0.07020667835169137,
+          "ci95": [
+            4.6378465013913885,
+            4.913056680530019
+          ]
+        }
+      },
+      {
+        "role": "Napoleon",
+        "policy": "COM-RuleBase",
+        "win": {
+          "n": 36769,
+          "estimate": 0.3777910740025565,
+          "standardError": 0.002528467632937246,
+          "ci95": [
+            0.3728352774419995,
+            0.3827468705631135
+          ]
+        },
+        "relativeReward": {
+          "n": 36769,
+          "estimate": 1.9748810138973332,
+          "standardError": 0.04068736663653695,
+          "ci95": [
+            1.8951337752897208,
+            2.0546282525049455
+          ]
+        }
+      },
+      {
+        "role": "Adjutant",
+        "policy": "COM-AI",
+        "win": {
+          "n": 27633,
+          "estimate": 0.4639380450910144,
+          "standardError": 0.0030000452927148734,
+          "ci95": [
+            0.45805795631729324,
+            0.46981813386473553
+          ]
+        },
+        "relativeReward": {
+          "n": 27633,
+          "estimate": -0.749024716823978,
+          "standardError": 0.011324284148117805,
+          "ci95": [
+            -0.7712203137542889,
+            -0.726829119893667
+          ]
+        }
+      },
+      {
+        "role": "Adjutant",
+        "policy": "COM-RuleBase",
+        "win": {
+          "n": 17814,
+          "estimate": 0.41141798585382283,
+          "standardError": 0.0036869627447982034,
+          "ci95": [
+            0.4041915388740184,
+            0.4186444328336273
+          ]
+        },
+        "relativeReward": {
+          "n": 17814,
+          "estimate": -0.5807903895812339,
+          "standardError": 0.014186726471173184,
+          "ci95": [
+            -0.6085963734647333,
+            -0.5529844056977344
+          ]
+        }
+      },
+      {
+        "role": "Citizen",
+        "policy": "COM-AI",
+        "win": {
+          "n": 84136,
+          "estimate": 0.5632190738803842,
+          "standardError": 0.0025140096784048104,
+          "ci95": [
+            0.5582916149107108,
+            0.5681465328500576
+          ]
+        },
+        "relativeReward": {
+          "n": 84136,
+          "estimate": -0.7324498431111351,
+          "standardError": 0.01036473511385963,
+          "ci95": [
+            -0.7527647239343,
+            -0.7121349622879702
+          ]
+        }
+      },
+      {
+        "role": "Citizen",
+        "policy": "COM-RuleBase",
+        "win": {
+          "n": 70417,
+          "estimate": 0.5984208358777,
+          "standardError": 0.0025789887361721085,
+          "ci95": [
+            0.5933660179548027,
+            0.6034756538005973
+          ]
+        },
+        "relativeReward": {
+          "n": 70417,
+          "estimate": -0.6124799409233181,
+          "standardError": 0.010832227883670296,
+          "ci95": [
+            -0.6337111075753119,
+            -0.5912487742713244
+          ]
+        }
+      }
+    ],
+    "roleAcquisition": [
+      {
+        "policy": "COM-AI",
+        "exposure": 125000,
+        "rates": {
+          "Napoleon": 0.105848,
+          "Adjutant": 0.221064,
+          "Citizen": 0.673088,
+          "All-Pass": 0
+        }
+      },
+      {
+        "policy": "COM-RuleBase",
+        "exposure": 125000,
+        "rates": {
+          "Napoleon": 0.294152,
+          "Adjutant": 0.142512,
+          "Citizen": 0.563336,
+          "All-Pass": 0
+        }
+      }
+    ],
+    "napoleon": [
+      {
+        "policy": "COM-AI",
+        "contractSuccess": {
+          "n": 13231,
+          "estimate": 0.559519310709697,
+          "standardError": 0.004315975642730528,
+          "ci95": [
+            0.5510599984499451,
+            0.5679786229694488
+          ]
+        },
+        "contractMargin": {
+          "n": 13231,
+          "estimate": -0.14193938477817247,
+          "standardError": 0.025618829646009783,
+          "ci95": [
+            -0.19215229088435165,
+            -0.0917264786719933
+          ]
+        },
+        "target": {
+          "n": 13231,
+          "estimate": 13.618093870455748,
+          "standardError": 0.006343942089297353,
+          "ci95": [
+            13.605659743960725,
+            13.630527996950772
+          ]
+        },
+        "pointCards": {
+          "n": 13231,
+          "estimate": 13.476154485677576,
+          "standardError": 0.02618177508520089,
+          "ci95": [
+            13.424838206510582,
+            13.52747076484457
+          ]
+        }
+      },
+      {
+        "policy": "COM-RuleBase",
+        "contractSuccess": {
+          "n": 36769,
+          "estimate": 0.3777910740025565,
+          "standardError": 0.002528467632937246,
+          "ci95": [
+            0.3728352774419995,
+            0.3827468705631135
+          ]
+        },
+        "contractMargin": {
+          "n": 36769,
+          "estimate": -1.6551986727950176,
+          "standardError": 0.01808152019232161,
+          "ci95": [
+            -1.690638452371968,
+            -1.6197588932180673
+          ]
+        },
+        "target": {
+          "n": 36769,
+          "estimate": 14.203785797818815,
+          "standardError": 0.003575981933846349,
+          "ci95": [
+            14.196776873228476,
+            14.210794722409155
+          ]
+        },
+        "pointCards": {
+          "n": 36769,
+          "estimate": 12.548587125023797,
+          "standardError": 0.018193117762759094,
+          "ci95": [
+            12.51292861420879,
+            12.584245635838805
+          ]
+        }
+      }
+    ],
+    "composition": [
+      {
+        "napoleonPolicy": "COM-AI",
+        "adjutantPolicy": "COM-AI",
+        "win": {
+          "n": 7430,
+          "estimate": 0.5847913862718708,
+          "standardError": 0.00571667623974796,
+          "ci95": [
+            0.5735867008419647,
+            0.5959960717017768
+          ]
+        },
+        "contractMargin": {
+          "n": 7430,
+          "estimate": 0.02288021534320323,
+          "standardError": 0.03414899253672021,
+          "ci95": [
+            -0.04405181002876839,
+            0.08981224071517484
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-AI",
+        "adjutantPolicy": "COM-RuleBase",
+        "win": {
+          "n": 4477,
+          "estimate": 0.5604199240562877,
+          "standardError": 0.007417995731999985,
+          "ci95": [
+            0.5458806524215677,
+            0.5749591956910077
+          ]
+        },
+        "contractMargin": {
+          "n": 4477,
+          "estimate": -0.11346884074156802,
+          "standardError": 0.043479205737050754,
+          "ci95": [
+            -0.19868808398618748,
+            -0.02824959749694854
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-RuleBase",
+        "adjutantPolicy": "COM-AI",
+        "win": {
+          "n": 20203,
+          "estimate": 0.41949215463050044,
+          "standardError": 0.003471861399315658,
+          "ci95": [
+            0.4126873062878417,
+            0.42629700297315914
+          ]
+        },
+        "contractMargin": {
+          "n": 20203,
+          "estimate": -1.219719843587586,
+          "standardError": 0.023345563215877843,
+          "ci95": [
+            -1.2654771474907065,
+            -1.1739625396844655
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-RuleBase",
+        "adjutantPolicy": "COM-RuleBase",
+        "win": {
+          "n": 13337,
+          "estimate": 0.3614006148309215,
+          "standardError": 0.004159910232196311,
+          "ci95": [
+            0.35324719077581673,
+            0.3695540388860263
+          ]
+        },
+        "contractMargin": {
+          "n": 13337,
+          "estimate": -1.7929069505885882,
+          "standardError": 0.029951911802343197,
+          "ci95": [
+            -1.8516126977211809,
+            -1.7342012034559955
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-AI",
+        "adjutantPolicy": null,
+        "win": {
+          "n": 1324,
+          "estimate": 0.41465256797583083,
+          "standardError": 0.013539710819613733,
+          "ci95": [
+            0.3881147347693879,
+            0.44119040118227376
+          ]
+        },
+        "contractMargin": {
+          "n": 1324,
+          "estimate": -1.163141993957704,
+          "standardError": 0.07936259660876085,
+          "ci95": [
+            -1.3186926833108752,
+            -1.0075913046045326
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-RuleBase",
+        "adjutantPolicy": null,
+        "win": {
+          "n": 3229,
+          "estimate": 0.18457726850418085,
+          "standardError": 0.0068273290542382094,
+          "ci95": [
+            0.17119570355787397,
+            0.19795883345048773
+          ]
+        },
+        "contractMargin": {
+          "n": 3229,
+          "estimate": -3.811087023846392,
+          "standardError": 0.06262363669711965,
+          "ci95": [
+            -3.9338293517727467,
+            -3.6883446959200374
+          ]
+        }
+      }
+    ],
+    "illegal": 0,
+    "fallback": 0,
+    "invariantFailure": 0,
+    "otherFailure": 0
+  },
+  "phaseRegistry": {
+    "playing": [
+      {
+        "id": "rule-based",
+        "displayName": "Rule-based",
+        "isAvailable": true,
+        "artifactProvenance": null
+      },
+      {
+        "id": "ppo-separated-v1000",
+        "displayName": "PPO separated v1000",
+        "isAvailable": true,
+        "artifactProvenance": {
+          "onnxSha256": "54d7ba29222a12e99a91ab61ee7aa253fe3fab73200d78167d64bf9e7bb8887e",
+          "metadataSha256": "54f0f2837f0e0bad81c778114ab996259b5f3a05bda338a12d0fb32b1fb50616",
+          "criticOnnxSha256": "3055882f3e63e2a096ee7cedee341bc97e033572bcb59f36f3f68e3d89f134d9"
+        }
+      }
+    ],
+    "bidding": [
+      {
+        "id": "rule-based",
+        "displayName": "Rule-based",
+        "isAvailable": true,
+        "artifactProvenance": null
+      },
+      {
+        "id": "frozen-raise-v1",
+        "displayName": "Frozen bidding margin v1 (Issue #431 50k)",
+        "isAvailable": true,
+        "artifactProvenance": {
+          "onnxSha256": "f3454cca5d2ef667942431296b1260da114f255ce9a03594d32720b180c9c623",
+          "metadataSha256": "6b3eb4f1d5d5f6f1d6986a7e960f0770292ae8b74dc184d8c237e476e17ce479",
+          "playingCriticOnnxSha256": "3055882f3e63e2a096ee7cedee341bc97e033572bcb59f36f3f68e3d89f134d9",
+          "manifestSha256": "bc79cbd7895c6a2228d98bae55983fe1a96cd8ae5b655866e8fe373c51098c56"
+        }
+      }
+    ],
+    "nonPlaying": [
+      {
+        "id": "rule-based",
+        "displayName": "Rule-based",
+        "isAvailable": true,
+        "artifactProvenance": null
+      },
+      {
+        "id": "parameterized-adjutant-exchange-v1",
+        "displayName": "Parameterized adjutant + exchange v1",
+        "isAvailable": true,
+        "artifactProvenance": {
+          "logicalArtifactSha256": "a6e97b72160338d3f0ce831f5b1422f86dafb419ff8e458b79741440b2433faa",
+          "parameterSha256": "d364aef0c48a1832bd6602d254d0440f6cb2e2cb50492cfb53934e0378a84d69",
+          "weightVectorSha256": "c84fbf7012ee043b2f3451213ecf30cdf596eaec41c6aeff7381ff7fccc9a4f0",
+          "policyFileSha256": "71b417b9011907ee02e5b3f7521e5479ca260101937dab05ee5cb91a8634c9fa",
+          "schemaFileSha256": "fe217987adac8d4671e849da795f0028516b709291f340a30ad45dd9d7aee098",
+          "featureSchemaVersion": "1",
+          "adjutantWeightCount": "35",
+          "exchangeWeightCount": "60",
+          "optimizerIssue": "452",
+          "verificationIssue": "454",
+          "verificationReportFileSha256": "9503ec68de9bc342a08ad949e38cefb645576cb8667270ac81b132f8338538bf",
+          "verificationSeedManifestSha256": "0408442b7a3fa7dbb0521e4d15755262dd3af21aaf7478e1f5201c71312bff56",
+          "verificationSeedManifestFileSha256": "8d72f2fea934d65b421375666abf9ecc7f831cd4d12f5a65e157b89123e7455b",
+          "biddingDependencySha256": "f3454cca5d2ef667942431296b1260da114f255ce9a03594d32720b180c9c623",
+          "playingDependencySha256": "54d7ba29222a12e99a91ab61ee7aa253fe3fab73200d78167d64bf9e7bb8887e",
+          "playingCriticDependencySha256": "3055882f3e63e2a096ee7cedee341bc97e033572bcb59f36f3f68e3d89f134d9",
+          "evaluatorDependencySha256": "334727470e78a15a26ba0af34a2b22a7182f6e98dd36a71665024dc81476b282"
+        }
+      }
+    ]
+  },
+  "diagnosticsTotals": {
+    "COM-AI": {
+      "playingCalls": 1250000,
+      "biddingCalls": 200839,
+      "adjutantCalls": 13231,
+      "exchangeCalls": 13231,
+      "fallbackCount": 0,
+      "illegalCount": 0
+    },
+    "COM-RuleBase": {
+      "playingCalls": 1250000,
+      "biddingCalls": 193851,
+      "adjutantCalls": 36769,
+      "exchangeCalls": 36769,
+      "fallbackCount": 0,
+      "illegalCount": 0
+    }
+  },
+  "auditSamples": [
+    {
+      "gameIndex": 8,
+      "seat": 1,
+      "policy": "COM-AI",
+      "phase": "adjutant",
+      "diagnostics": {
+        "composition": {
+          "playing": "ppo-separated-v1000",
+          "bidding": "frozen-raise-v1",
+          "nonPlaying": "parameterized-adjutant-exchange-v1"
+        },
+        "playingCalls": 10,
+        "biddingCalls": 3,
+        "adjutantCalls": 1,
+        "exchangeCalls": 1,
+        "fallbackCount": 0,
+        "illegalCount": 0
+      }
+    },
+    {
+      "gameIndex": 8,
+      "seat": 1,
+      "policy": "COM-AI",
+      "phase": "exchange",
+      "diagnostics": {
+        "composition": {
+          "playing": "ppo-separated-v1000",
+          "bidding": "frozen-raise-v1",
+          "nonPlaying": "parameterized-adjutant-exchange-v1"
+        },
+        "playingCalls": 10,
+        "biddingCalls": 3,
+        "adjutantCalls": 1,
+        "exchangeCalls": 1,
+        "fallbackCount": 0,
+        "illegalCount": 0
+      }
+    },
+    {
+      "gameIndex": 14,
+      "seat": 3,
+      "policy": "COM-AI",
+      "phase": "bidding",
+      "diagnostics": {
+        "composition": {
+          "playing": "ppo-separated-v1000",
+          "bidding": "frozen-raise-v1",
+          "nonPlaying": "parameterized-adjutant-exchange-v1"
+        },
+        "playingCalls": 10,
+        "biddingCalls": 2,
+        "adjutantCalls": 0,
+        "exchangeCalls": 0,
+        "fallbackCount": 0,
+        "illegalCount": 0
+      }
+    },
+    {
+      "gameIndex": 14,
+      "seat": 3,
+      "policy": "COM-AI",
+      "phase": "playing",
+      "diagnostics": {
+        "composition": {
+          "playing": "ppo-separated-v1000",
+          "bidding": "frozen-raise-v1",
+          "nonPlaying": "parameterized-adjutant-exchange-v1"
+        },
+        "playingCalls": 10,
+        "biddingCalls": 2,
+        "adjutantCalls": 0,
+        "exchangeCalls": 0,
+        "fallbackCount": 0,
+        "illegalCount": 0
+      }
+    },
+    {
+      "gameIndex": 13,
+      "seat": 0,
+      "policy": "COM-RuleBase",
+      "phase": "bidding",
+      "diagnostics": {
+        "composition": {
+          "playing": "rule-based",
+          "bidding": "rule-based",
+          "nonPlaying": "rule-based"
+        },
+        "playingCalls": 10,
+        "biddingCalls": 2,
+        "adjutantCalls": 1,
+        "exchangeCalls": 1,
+        "fallbackCount": 0,
+        "illegalCount": 0
+      }
+    },
+    {
+      "gameIndex": 13,
+      "seat": 0,
+      "policy": "COM-RuleBase",
+      "phase": "adjutant",
+      "diagnostics": {
+        "composition": {
+          "playing": "rule-based",
+          "bidding": "rule-based",
+          "nonPlaying": "rule-based"
+        },
+        "playingCalls": 10,
+        "biddingCalls": 2,
+        "adjutantCalls": 1,
+        "exchangeCalls": 1,
+        "fallbackCount": 0,
+        "illegalCount": 0
+      }
+    },
+    {
+      "gameIndex": 13,
+      "seat": 0,
+      "policy": "COM-RuleBase",
+      "phase": "exchange",
+      "diagnostics": {
+        "composition": {
+          "playing": "rule-based",
+          "bidding": "rule-based",
+          "nonPlaying": "rule-based"
+        },
+        "playingCalls": 10,
+        "biddingCalls": 2,
+        "adjutantCalls": 1,
+        "exchangeCalls": 1,
+        "fallbackCount": 0,
+        "illegalCount": 0
+      }
+    },
+    {
+      "gameIndex": 13,
+      "seat": 0,
+      "policy": "COM-RuleBase",
+      "phase": "playing",
+      "diagnostics": {
+        "composition": {
+          "playing": "rule-based",
+          "bidding": "rule-based",
+          "nonPlaying": "rule-based"
+        },
+        "playingCalls": 10,
+        "biddingCalls": 2,
+        "adjutantCalls": 1,
+        "exchangeCalls": 1,
+        "fallbackCount": 0,
+        "illegalCount": 0
+      }
+    }
+  ],
+  "failures": []
+}

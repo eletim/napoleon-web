@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "gameCount": 50000,
+  "gameStartSeed": 462000000,
+  "assignmentSeed": 462202203,
+  "assignmentAlgorithm": "independent-seat-balanced-fisher-yates-v1",
+  "assignmentSequenceSha256": "d2d559e33d1ec824d0052c2f44e2c23d55c7321d5f68ccefd846c2bf6e0b2cf9",
+  "presets": {
+    "COM-AI": {
+      "playing": "ppo-separated-v1000",
+      "bidding": "frozen-raise-v1",
+      "nonPlaying": "parameterized-adjutant-exchange-v1"
+    },
+    "COM-RuleBase": {
+      "playing": "rule-based",
+      "bidding": "rule-based",
+      "nonPlaying": "rule-based"
+    }
+  },
+  "inferenceDevice": "cpu",
+  "statistics": "game-cluster-robust-sandwich-normal-95-v1",
+  "allPassTreatment": "included in exposure and reward means; excluded from win/loss and role denominators",
+  "manifestHash": "5698296ecef88f3e2611bc5d2b487857bc37cea115055acd45bd4345a64603b5"
+}

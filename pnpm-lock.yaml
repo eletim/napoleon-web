@@ -60,6 +60,9 @@ importers:
       '@napoleon/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@napoleon/training-data':
+        specifier: workspace:*
+        version: link:../../packages/training-data
       fastify:
         specifier: ^5.2.0
         version: 5.10.0
