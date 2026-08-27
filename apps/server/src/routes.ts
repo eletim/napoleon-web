@@ -185,31 +185,38 @@ export async function registerRoutes(
         return handleAiPresetError(reply, error);
       }
       const diagnostics = new Map();
-      const record = await runAutomatedGame({
-        seed: body.seed,
-        createAgent: ({ rng, playerId }) => {
-          if (simulationComposition === undefined) {
-            return new RuleBasedAgent(rng);
+      try {
+        const record = await runAutomatedGame({
+          seed: body.seed,
+          createAgent: ({ rng, playerId }) => {
+            if (simulationComposition === undefined) {
+              return new RuleBasedAgent(rng);
+            }
+            const phaseDiagnostics = agentRegistry.createCompositionDiagnostics(
+              simulationComposition
+            );
+            diagnostics.set(playerId, phaseDiagnostics);
+            return agentRegistry.createComposedAgent(
+              simulationComposition,
+              phaseDiagnostics,
+              rng
+            );
           }
-          const phaseDiagnostics = agentRegistry.createCompositionDiagnostics(
-            simulationComposition
-          );
-          diagnostics.set(playerId, phaseDiagnostics);
-          return agentRegistry.createComposedAgent(
-            simulationComposition,
-            phaseDiagnostics,
-            rng
-          );
-        }
-      });
+        });
 
-      return {
-        ...toPublicSimulationResponse(record),
-        ...(simulationPreset === undefined ? {} : { presetId: simulationPreset.id }),
-        ...(simulationComposition === undefined
-          ? {}
-          : { policyDiagnostics: Object.fromEntries(diagnostics) })
-      };
+        return {
+          ...toPublicSimulationResponse(record),
+          ...(simulationPreset === undefined ? {} : { presetId: simulationPreset.id }),
+          ...(simulationComposition === undefined
+            ? {}
+            : { policyDiagnostics: Object.fromEntries(diagnostics) })
+        };
+      } catch (error) {
+        if (error instanceof AgentUnavailableError) {
+          return sendError(reply, 503, "AGENT_UNAVAILABLE", error.message);
+        }
+        throw error;
+      }
     }
   );
 

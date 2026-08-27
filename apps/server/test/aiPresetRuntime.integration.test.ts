@@ -198,6 +198,26 @@ describe("AI preset artifact preflight", () => {
         }
       });
       expect(games.size).toBe(gamesBefore);
+
+      const directSimulation = await unavailableApp.inject({
+        method: "POST",
+        url: "/api/simulations",
+        payload: {
+          seed: 46101,
+          policyComposition: {
+            playing: "ppo-separated-v1000",
+            bidding: "rule-based",
+            nonPlaying: "rule-based"
+          }
+        }
+      });
+      expect(directSimulation.statusCode).toBe(503);
+      expect(directSimulation.json()).toMatchObject({
+        error: {
+          code: "AGENT_UNAVAILABLE",
+          message: expect.stringContaining("ppo-separated-v1000")
+        }
+      });
     } finally {
       await unavailableApp.close();
     }
