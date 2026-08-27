@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { createBalancedAssignments } from "../src/finalMixedEvaluation.js";
+import {
+  citizenStratumSummary,
+  createBalancedAssignments
+} from "../src/finalMixedEvaluation.js";
 
 describe("final mixed COM-AI evaluation", () => {
   it("creates deterministic, exactly balanced assignments for every seat", () => {
@@ -14,5 +17,35 @@ describe("final mixed COM-AI evaluation", () => {
 
   it("rejects a game count that cannot be exactly balanced", () => {
     expect(() => createBalancedAssignments(99, 1)).toThrow(/even integer/);
+  });
+
+  it("stratifies a focal Citizen by enemy composition and other Citizen AI count", () => {
+    const game = {
+      napoleonPolicy: "COM-AI",
+      adjutantPolicy: "COM-RuleBase",
+      seats: [
+        { seat: 0, policy: "COM-AI", role: "Citizen", win: 1, relativeReward: 0.5 },
+        { seat: 1, policy: "COM-RuleBase", role: "Citizen", win: 1, relativeReward: 0.2 },
+        { seat: 2, policy: "COM-RuleBase", role: "Citizen", win: 1, relativeReward: 0.2 },
+        { seat: 3, policy: "COM-AI", role: "Napoleon", win: 0, relativeReward: -1 },
+        { seat: 4, policy: "COM-RuleBase", role: "Adjutant", win: 0, relativeReward: -1 }
+      ]
+    } as any;
+
+    expect(citizenStratumSummary([game], {
+      napoleonPolicy: "COM-AI",
+      adjutantPolicy: "COM-RuleBase",
+      otherCitizenAiCount: 0
+    }, "COM-AI").win.n).toBe(1);
+    expect(citizenStratumSummary([game], {
+      napoleonPolicy: "COM-AI",
+      adjutantPolicy: "COM-RuleBase",
+      otherCitizenAiCount: 1
+    }, "COM-RuleBase").win.n).toBe(2);
+    expect(citizenStratumSummary([game], {
+      napoleonPolicy: "COM-AI",
+      adjutantPolicy: "COM-RuleBase",
+      otherCitizenAiCount: 0
+    }, "COM-RuleBase").win.n).toBe(0);
   });
 });

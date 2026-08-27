@@ -57,6 +57,52 @@ win rate と reward は同じ指標ではありません。raw / relative reward
 | Citizen | COM-AI | 84,136 | 56.32% [55.83%, 56.81%] | -0.7324 [-0.7528, -0.7121] |
 | Citizen | COM-RuleBase | 70,417 | 59.84% [59.34%, 60.35%] | -0.6125 [-0.6337, -0.5912] |
 
+### Citizen の composition-fixed 追加解析
+
+上の Citizen 生集計では COM-AI が 3.52 pp 低い、という観測事実は変わりません。ただし focal Citizen の policy 以外に、敵 Napoleon / Adjutant、味方 Citizen、game 全体の policy 構成、bidding 後の role / hand selection が同時に異なります。したがって、この生差は Citizen policy 単体の因果効果ではありません。以下ではまず敵 Napoleon-side composition を固定します（solo Napoleon game は除外）。
+
+| Napoleon | Adjutant | focal Citizen | n | Citizen win rate (95% CI) | mean relative reward (95% CI) |
+| --- | --- | --- | ---: | ---: | ---: |
+| COM-AI | COM-AI | COM-AI | 12,816 | 40.21% [38.97%, 41.45%] | -1.2025 [-1.2482, -1.1567] |
+| COM-AI | COM-AI | COM-RuleBase | 9,474 | 43.30% [41.94%, 44.66%] | -1.1056 [-1.1564, -1.0548] |
+| COM-AI | COM-RuleBase | COM-AI | 7,379 | 41.50% [39.87%, 43.13%] | -1.1975 [-1.2586, -1.1363] |
+| COM-AI | COM-RuleBase | COM-RuleBase | 6,052 | 46.96% [45.21%, 48.71%] | -1.0105 [-1.0769, -0.9440] |
+| COM-RuleBase | COM-AI | COM-AI | 32,745 | 56.60% [55.83%, 57.38%] | -0.6470 [-0.6764, -0.6176] |
+| COM-RuleBase | COM-AI | COM-RuleBase | 27,864 | 59.75% [58.96%, 60.55%] | -0.5392 [-0.5697, -0.5086] |
+| COM-RuleBase | COM-RuleBase | COM-AI | 21,172 | 61.97% [61.02%, 62.91%] | -0.4714 [-0.5080, -0.4348] |
+| COM-RuleBase | COM-RuleBase | COM-RuleBase | 18,839 | 65.99% [65.05%, 66.92%] | -0.3242 [-0.3608, -0.2875] |
+
+さらに、focal 以外の Citizen 2席にいる COM-AI 人数も固定した参考解析です。`n < 1,000` は小標本の参考値として扱います。敵・味方 composition を固定しても bidding による focal role / hand selection は統制されないため、これも完全な因果比較ではありません。
+
+| Napoleon | Adjutant | other Citizen AI | focal Citizen | n | Citizen win rate (95% CI) | mean relative reward (95% CI) | note |
+| --- | --- | ---: | --- | ---: | ---: | ---: | --- |
+| COM-AI | COM-AI | 0 | COM-AI | 2,332 | 43.40% [41.38%, 45.41%] | -1.1020 [-1.1768, -1.0272] |  |
+| COM-AI | COM-AI | 0 | COM-RuleBase | 1,722 | 46.86% [42.78%, 50.95%] | -1.0000 [-1.1539, -0.8461] |  |
+| COM-AI | COM-AI | 1 | COM-AI | 6,176 | 41.16% [39.42%, 42.90%] | -1.1700 [-1.2341, -1.1059] |  |
+| COM-AI | COM-AI | 1 | COM-RuleBase | 4,664 | 43.40% [41.38%, 45.41%] | -1.1020 [-1.1768, -1.0272] |  |
+| COM-AI | COM-AI | 2 | COM-AI | 4,308 | 37.12% [34.62%, 39.62%] | -1.3033 [-1.3950, -1.2117] |  |
+| COM-AI | COM-AI | 2 | COM-RuleBase | 3,088 | 41.16% [39.42%, 42.90%] | -1.1700 [-1.2341, -1.1059] |  |
+| COM-AI | COM-RuleBase | 0 | COM-AI | 1,540 | 46.88% [44.39%, 49.38%] | -1.0184 [-1.1133, -0.9236] |  |
+| COM-AI | COM-RuleBase | 0 | COM-RuleBase | 1,248 | 55.05% [50.27%, 59.83%] | -0.7154 [-0.8981, -0.5327] |  |
+| COM-AI | COM-RuleBase | 1 | COM-AI | 3,448 | 41.24% [38.92%, 43.57%] | -1.2099 [-1.2974, -1.1223] |  |
+| COM-AI | COM-RuleBase | 1 | COM-RuleBase | 3,080 | 46.88% [44.39%, 49.38%] | -1.0184 [-1.1133, -0.9236] |  |
+| COM-AI | COM-RuleBase | 2 | COM-AI | 2,391 | 38.39% [35.02%, 41.77%] | -1.2949 [-1.4209, -1.1688] |  |
+| COM-AI | COM-RuleBase | 2 | COM-RuleBase | 1,724 | 41.24% [38.92%, 43.57%] | -1.2099 [-1.2974, -1.1223] |  |
+| COM-RuleBase | COM-AI | 0 | COM-AI | 6,877 | 60.20% [59.04%, 61.36%] | -0.5240 [-0.5684, -0.4797] |  |
+| COM-RuleBase | COM-AI | 0 | COM-RuleBase | 5,931 | 62.62% [60.49%, 64.75%] | -0.4407 [-0.5229, -0.3584] |  |
+| COM-RuleBase | COM-AI | 1 | COM-AI | 16,358 | 56.93% [55.85%, 58.00%] | -0.6360 [-0.6768, -0.5952] |  |
+| COM-RuleBase | COM-AI | 1 | COM-RuleBase | 13,754 | 60.20% [59.04%, 61.36%] | -0.5240 [-0.5684, -0.4797] |  |
+| COM-RuleBase | COM-AI | 2 | COM-AI | 9,510 | 53.44% [51.70%, 55.17%] | -0.7547 [-0.8202, -0.6892] |  |
+| COM-RuleBase | COM-AI | 2 | COM-RuleBase | 8,179 | 56.93% [55.85%, 58.00%] | -0.6360 [-0.6768, -0.5952] |  |
+| COM-RuleBase | COM-RuleBase | 0 | COM-AI | 4,615 | 66.61% [65.25%, 67.97%] | -0.3004 [-0.3535, -0.2474] |  |
+| COM-RuleBase | COM-RuleBase | 0 | COM-RuleBase | 4,347 | 68.94% [66.56%, 71.33%] | -0.2192 [-0.3128, -0.1256] |  |
+| COM-RuleBase | COM-RuleBase | 1 | COM-AI | 10,524 | 62.45% [61.14%, 63.76%] | -0.4525 [-0.5032, -0.4019] |  |
+| COM-RuleBase | COM-RuleBase | 1 | COM-RuleBase | 9,230 | 66.61% [65.25%, 67.97%] | -0.3004 [-0.3535, -0.2474] |  |
+| COM-RuleBase | COM-RuleBase | 2 | COM-AI | 6,033 | 57.58% [55.42%, 59.74%] | -0.6351 [-0.7185, -0.5517] |  |
+| COM-RuleBase | COM-RuleBase | 2 | COM-RuleBase | 5,262 | 62.45% [61.14%, 63.76%] | -0.4525 [-0.5032, -0.4019] |  |
+
+敵 Napoleon/Adjutant を固定した focal AI−RuleBase の Citizen 勝率差は AI/AI: -3.09 pp、AI/RuleBase: -5.46 pp、RuleBase/AI: -3.15 pp、RuleBase/RuleBase: -4.02 pp でした。さらに other Citizen AI count まで固定し、両 policy とも n≥1,000 の 12 層では、AI が高い層 0、低い層 12 でした。全比較層で AI の観測勝率が低く、差の範囲は -8.16 pp から -2.24 pp でした。観測できる敵・味方 composition を固定しても差は解消しておらず、Citizen は正式 COM-AI の残存課題として認めます。ただし focal policy の効果に加えて seat / hand と bidding による role selection が残るため、Citizen 打牌 policy 単体が因果的に弱いとまでは断定しません。
+
 ## 6. Napoleon-side composition 別
 
 | Napoleon | Adjutant | n | Napoleon-side win / contract success | mean contract margin (95% CI) |
@@ -110,10 +156,12 @@ Napoleon になった player の contract 指標:
 
 全体では COM-AI の勝率は 54.09%、COM-RuleBase は 50.69%で、差は +3.40 pp（95% CI 3.02% から 3.79%）でした。一方、mean relative reward はそれぞれ -0.1531 と 0.1531で、AI−RuleBase 差は -0.3062（95% CI -0.3401 から -0.2723）です。つまり全体勝率は AI が明確に高いものの、役職構成を反映する relative reward は逆方向でした。
 
-Napoleon では COM-AI 55.95%、RuleBase 37.78%（差 +18.17 pp）、Adjutant では COM-AI 46.39%、RuleBase 41.14%（差 +5.25 pp）、Citizen では COM-AI 56.32%、RuleBase 59.84%（差 -3.52 pp）でした。Napoleon / Adjutant の差と Citizen の差を分けることで、AI の総合差がどの立場で生じたかを確認できます。
+Napoleon では COM-AI 55.95%、RuleBase 37.78%（差 +18.17 pp）、Adjutant では COM-AI 46.39%、RuleBase 41.14%（差 +5.25 pp）、Citizen では COM-AI 56.32%、RuleBase 59.84%（差 -3.52 pp）でした。Citizen の -3.52 pp は単純な role-conditioned 観測差であり、敵・味方 composition や bidding 後の role / hand selection を統制していないため、Citizen 打牌 policy 単体が弱いことを意味しません。逆に composition bias だけで全差を説明できるとも、この生集計だけからは断定しません。
 
-最大の改善は Napoleon で見えます。COM-AI Napoleon は target を平均 0.5857 低く宣言し、Napoleon-side point cards は平均 +0.9276、contract margin は +1.5133 動きました。これは frozen bidding の契約選択と、Napoleon / Adjutant の non-playing・playing による契約実行の両方が寄与した可能性を示します。composition 比較でも Adjutant を RuleBase から AI に替えた組合せの成績が上がっています。一方で AI Citizen の勝率は下がっており、playing を含む AI の優位は全役職に一様ではありません。全 phase が同時に異なるため、単一 phase の因果効果とは断定しません。
+敵 Napoleon/Adjutant を固定した focal AI−RuleBase の Citizen 勝率差は AI/AI: -3.09 pp、AI/RuleBase: -5.46 pp、RuleBase/AI: -3.15 pp、RuleBase/RuleBase: -4.02 pp でした。さらに other Citizen AI count まで固定し、両 policy とも n≥1,000 の 12 層では、AI が高い層 0、低い層 12 でした。全比較層で AI の観測勝率が低く、差の範囲は -8.16 pp から -2.24 pp でした。観測できる敵・味方 composition を固定しても差は解消しておらず、Citizen は正式 COM-AI の残存課題として認めます。ただし focal policy の効果に加えて seat / hand と bidding による role selection が残るため、Citizen 打牌 policy 単体が因果的に弱いとまでは断定しません。
 
-結論として、『作った AI は RuleBase を超えたか』には、全体 win rate と Napoleon / Adjutant の実戦成績では明確に yes です。しかし Citizen と relative reward では no であり、『全役職・全指標で全面的に超えた』とは言えません。正式 COM-AI は特に Napoleon-side を大きく強化した一方、Citizen performance と bidding による role acquisition の偏りを残した、というのがこの最終評価の正確な締めです。
+最大の改善は Napoleon で見えます。COM-AI Napoleon は target を平均 0.5857 低く宣言し、Napoleon-side point cards は平均 +0.9276、contract margin は +1.5133 動きました。これは frozen bidding の契約選択と、Napoleon / Adjutant の non-playing・playing による契約実行の両方が寄与した可能性を示します。composition 比較でも Adjutant を RuleBase から AI に替えた組合せの成績が上がっています。全 phase が同時に異なるため、単一 phase の因果効果とは断定しません。
+
+結論として、全体 win rate と Napoleon / Adjutant の role-conditioned 実戦成績では正式 COM-AI が上回りました。一方、全体 relative reward は逆方向です。Citizen は composition-fixed 追加解析を含めても観測研究であり、policy 単体の優劣をこの mixed evaluation だけで確定しません。正式 COM-AI は特に Napoleon-side を大きく強化した、という点を確かな成果とし、Citizen については独立した打牌単体評価とは実験条件を分けて扱うのが正確な締めです。
 
 この評価は現時点の正式 COM-AI をそのまま測った締めの結果です。結果に応じた再学習や policy の差し替えは行っていません。

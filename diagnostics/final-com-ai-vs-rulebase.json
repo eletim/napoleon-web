@@ -24,7 +24,7 @@
     "allPassTreatment": "included in exposure and reward means; excluded from win/loss and role denominators"
   },
   "manifestHash": "5698296ecef88f3e2611bc5d2b487857bc37cea115055acd45bd4345a64603b5",
-  "generatedAt": "2026-08-27T13:10:02.488Z",
+  "generatedAt": "2026-08-27T14:08:31.037Z",
   "completedGames": 50000,
   "failedGames": 0,
   "summary": {
@@ -513,6 +513,770 @@
           "ci95": [
             -3.9338293517727467,
             -3.6883446959200374
+          ]
+        }
+      }
+    ],
+    "citizenEnemyComposition": [
+      {
+        "napoleonPolicy": "COM-AI",
+        "adjutantPolicy": "COM-AI",
+        "focalPolicy": "COM-AI",
+        "win": {
+          "n": 12816,
+          "estimate": 0.40207553058676654,
+          "standardError": 0.0063374224426996,
+          "ci95": [
+            0.3896541825990753,
+            0.41449687857445777
+          ]
+        },
+        "relativeReward": {
+          "n": 12816,
+          "estimate": -1.2024500624219945,
+          "standardError": 0.02333652994457047,
+          "ci95": [
+            -1.2481896611133525,
+            -1.1567104637306365
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-AI",
+        "adjutantPolicy": "COM-AI",
+        "focalPolicy": "COM-RuleBase",
+        "win": {
+          "n": 9474,
+          "estimate": 0.43297445640700866,
+          "standardError": 0.0069485674653277365,
+          "ci95": [
+            0.41935526417496627,
+            0.44659364863905104
+          ]
+        },
+        "relativeReward": {
+          "n": 9474,
+          "estimate": -1.1056153683766392,
+          "standardError": 0.025909864081613918,
+          "ci95": [
+            -1.1563987019766024,
+            -1.054832034776676
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-AI",
+        "adjutantPolicy": "COM-RuleBase",
+        "focalPolicy": "COM-AI",
+        "win": {
+          "n": 7379,
+          "estimate": 0.4149613768803361,
+          "standardError": 0.008312920372633582,
+          "ci95": [
+            0.39866805294997426,
+            0.4312547008106979
+          ]
+        },
+        "relativeReward": {
+          "n": 7379,
+          "estimate": -1.1974522292993741,
+          "standardError": 0.0312103855306198,
+          "ci95": [
+            -1.258624584939389,
+            -1.1362798736593593
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-AI",
+        "adjutantPolicy": "COM-RuleBase",
+        "focalPolicy": "COM-RuleBase",
+        "win": {
+          "n": 6052,
+          "estimate": 0.46959682749504295,
+          "standardError": 0.008911099887288623,
+          "ci95": [
+            0.45213107171595723,
+            0.48706258327412866
+          ]
+        },
+        "relativeReward": {
+          "n": 6052,
+          "estimate": -1.010475875743571,
+          "standardError": 0.033901235926158894,
+          "ci95": [
+            -1.0769222981588424,
+            -0.9440294533282996
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-RuleBase",
+        "adjutantPolicy": "COM-AI",
+        "focalPolicy": "COM-AI",
+        "win": {
+          "n": 32745,
+          "estimate": 0.5660100778744847,
+          "standardError": 0.003959090603247681,
+          "ci95": [
+            0.5582502602921192,
+            0.5737698954568501
+          ]
+        },
+        "relativeReward": {
+          "n": 32745,
+          "estimate": -0.6469751107038998,
+          "standardError": 0.01500986923871904,
+          "ci95": [
+            -0.6763944544117891,
+            -0.6175557669960104
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-RuleBase",
+        "adjutantPolicy": "COM-AI",
+        "focalPolicy": "COM-RuleBase",
+        "win": {
+          "n": 27864,
+          "estimate": 0.5975452196382429,
+          "standardError": 0.004057651008257882,
+          "ci95": [
+            0.5895922236620574,
+            0.6054982156144284
+          ]
+        },
+        "relativeReward": {
+          "n": 27864,
+          "estimate": -0.5391544645420584,
+          "standardError": 0.015563640378546635,
+          "ci95": [
+            -0.5696591996840098,
+            -0.508649729400107
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-RuleBase",
+        "adjutantPolicy": "COM-RuleBase",
+        "focalPolicy": "COM-AI",
+        "win": {
+          "n": 21172,
+          "estimate": 0.6196863782354053,
+          "standardError": 0.004823333649129812,
+          "ci95": [
+            0.6102326442831109,
+            0.6291401121876997
+          ]
+        },
+        "relativeReward": {
+          "n": 21172,
+          "estimate": -0.47139618363877356,
+          "standardError": 0.0186608616892358,
+          "ci95": [
+            -0.5079714725496758,
+            -0.4348208947278714
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-RuleBase",
+        "adjutantPolicy": "COM-RuleBase",
+        "focalPolicy": "COM-RuleBase",
+        "win": {
+          "n": 18839,
+          "estimate": 0.6598545570359361,
+          "standardError": 0.004792297604666956,
+          "ci95": [
+            0.6504616537307889,
+            0.6692474603410833
+          ]
+        },
+        "relativeReward": {
+          "n": 18839,
+          "estimate": -0.3241573331917901,
+          "standardError": 0.018712164056884723,
+          "ci95": [
+            -0.36083317474328414,
+            -0.287481491640296
+          ]
+        }
+      }
+    ],
+    "citizenFullyStratified": [
+      {
+        "napoleonPolicy": "COM-AI",
+        "adjutantPolicy": "COM-AI",
+        "otherCitizenAiCount": 0,
+        "focalPolicy": "COM-AI",
+        "win": {
+          "n": 2332,
+          "estimate": 0.4339622641509434,
+          "standardError": 0.010263340695452419,
+          "ci95": [
+            0.4138461163878567,
+            0.45407841191403014
+          ]
+        },
+        "relativeReward": {
+          "n": 2332,
+          "estimate": -1.101972555746129,
+          "standardError": 0.038174467846227855,
+          "ci95": [
+            -1.1767945127247357,
+            -1.0271505987675225
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-AI",
+        "adjutantPolicy": "COM-AI",
+        "otherCitizenAiCount": 0,
+        "focalPolicy": "COM-RuleBase",
+        "win": {
+          "n": 1722,
+          "estimate": 0.4686411149825784,
+          "standardError": 0.0208287191492431,
+          "ci95": [
+            0.4278168254500619,
+            0.5094654045150948
+          ]
+        },
+        "relativeReward": {
+          "n": 1722,
+          "estimate": -1.0000000000000004,
+          "standardError": 0.0785271983639741,
+          "ci95": [
+            -1.1539133087933897,
+            -0.8460866912066112
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-AI",
+        "adjutantPolicy": "COM-AI",
+        "otherCitizenAiCount": 1,
+        "focalPolicy": "COM-AI",
+        "win": {
+          "n": 6176,
+          "estimate": 0.4115932642487047,
+          "standardError": 0.008856021137097348,
+          "ci95": [
+            0.3942354628199939,
+            0.4289510656774155
+          ]
+        },
+        "relativeReward": {
+          "n": 6176,
+          "estimate": -1.170012953367866,
+          "standardError": 0.032704411691047666,
+          "ci95": [
+            -1.2341136002823194,
+            -1.1059123064534127
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-AI",
+        "adjutantPolicy": "COM-AI",
+        "otherCitizenAiCount": 1,
+        "focalPolicy": "COM-RuleBase",
+        "win": {
+          "n": 4664,
+          "estimate": 0.4339622641509434,
+          "standardError": 0.010263340695452419,
+          "ci95": [
+            0.4138461163878567,
+            0.45407841191403014
+          ]
+        },
+        "relativeReward": {
+          "n": 4664,
+          "estimate": -1.101972555746129,
+          "standardError": 0.038174467846227855,
+          "ci95": [
+            -1.1767945127247357,
+            -1.0271505987675225
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-AI",
+        "adjutantPolicy": "COM-AI",
+        "otherCitizenAiCount": 2,
+        "focalPolicy": "COM-AI",
+        "win": {
+          "n": 4308,
+          "estimate": 0.3711699164345404,
+          "standardError": 0.012749118646638627,
+          "ci95": [
+            0.3461816438871287,
+            0.3961581889819521
+          ]
+        },
+        "relativeReward": {
+          "n": 4308,
+          "estimate": -1.3033426183844132,
+          "standardError": 0.046748726154459845,
+          "ci95": [
+            -1.3949701216471546,
+            -1.2117151151216718
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-AI",
+        "adjutantPolicy": "COM-AI",
+        "otherCitizenAiCount": 2,
+        "focalPolicy": "COM-RuleBase",
+        "win": {
+          "n": 3088,
+          "estimate": 0.4115932642487047,
+          "standardError": 0.008856021137097348,
+          "ci95": [
+            0.3942354628199939,
+            0.4289510656774155
+          ]
+        },
+        "relativeReward": {
+          "n": 3088,
+          "estimate": -1.170012953367866,
+          "standardError": 0.032704411691047666,
+          "ci95": [
+            -1.2341136002823194,
+            -1.1059123064534127
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-AI",
+        "adjutantPolicy": "COM-RuleBase",
+        "otherCitizenAiCount": 0,
+        "focalPolicy": "COM-AI",
+        "win": {
+          "n": 1540,
+          "estimate": 0.4688311688311688,
+          "standardError": 0.012716526843311394,
+          "ci95": [
+            0.4439067762182785,
+            0.49375556144405913
+          ]
+        },
+        "relativeReward": {
+          "n": 1540,
+          "estimate": -1.0184415584415496,
+          "standardError": 0.048408589680475664,
+          "ci95": [
+            -1.113322394215282,
+            -0.9235607226678173
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-AI",
+        "adjutantPolicy": "COM-RuleBase",
+        "otherCitizenAiCount": 0,
+        "focalPolicy": "COM-RuleBase",
+        "win": {
+          "n": 1248,
+          "estimate": 0.5504807692307693,
+          "standardError": 0.02438949968493547,
+          "ci95": [
+            0.5026773498482957,
+            0.5982841886132428
+          ]
+        },
+        "relativeReward": {
+          "n": 1248,
+          "estimate": -0.715384615384614,
+          "standardError": 0.09322745211613837,
+          "ci95": [
+            -0.8981104215322452,
+            -0.5326588092369827
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-AI",
+        "adjutantPolicy": "COM-RuleBase",
+        "otherCitizenAiCount": 1,
+        "focalPolicy": "COM-AI",
+        "win": {
+          "n": 3448,
+          "estimate": 0.4124129930394432,
+          "standardError": 0.011855994080524871,
+          "ci95": [
+            0.3891752446416144,
+            0.43565074143727195
+          ]
+        },
+        "relativeReward": {
+          "n": 3448,
+          "estimate": -1.2098607888630937,
+          "standardError": 0.044677548589432604,
+          "ci95": [
+            -1.2974287840983816,
+            -1.1222927936278058
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-AI",
+        "adjutantPolicy": "COM-RuleBase",
+        "otherCitizenAiCount": 1,
+        "focalPolicy": "COM-RuleBase",
+        "win": {
+          "n": 3080,
+          "estimate": 0.4688311688311688,
+          "standardError": 0.012716526843311394,
+          "ci95": [
+            0.4439067762182785,
+            0.49375556144405913
+          ]
+        },
+        "relativeReward": {
+          "n": 3080,
+          "estimate": -1.0184415584415496,
+          "standardError": 0.048408589680475664,
+          "ci95": [
+            -1.113322394215282,
+            -0.9235607226678173
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-AI",
+        "adjutantPolicy": "COM-RuleBase",
+        "otherCitizenAiCount": 2,
+        "focalPolicy": "COM-AI",
+        "win": {
+          "n": 2391,
+          "estimate": 0.383939774153074,
+          "standardError": 0.017227343773487173,
+          "ci95": [
+            0.3501741803570392,
+            0.41770536794910884
+          ]
+        },
+        "relativeReward": {
+          "n": 2391,
+          "estimate": -1.2948557089084138,
+          "standardError": 0.06429383190067076,
+          "ci95": [
+            -1.4208716194337285,
+            -1.1688397983830991
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-AI",
+        "adjutantPolicy": "COM-RuleBase",
+        "otherCitizenAiCount": 2,
+        "focalPolicy": "COM-RuleBase",
+        "win": {
+          "n": 1724,
+          "estimate": 0.4124129930394432,
+          "standardError": 0.011855994080524871,
+          "ci95": [
+            0.3891752446416144,
+            0.43565074143727195
+          ]
+        },
+        "relativeReward": {
+          "n": 1724,
+          "estimate": -1.2098607888630937,
+          "standardError": 0.044677548589432604,
+          "ci95": [
+            -1.2974287840983816,
+            -1.1222927936278058
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-RuleBase",
+        "adjutantPolicy": "COM-AI",
+        "otherCitizenAiCount": 0,
+        "focalPolicy": "COM-AI",
+        "win": {
+          "n": 6877,
+          "estimate": 0.6020066889632107,
+          "standardError": 0.005902600302358511,
+          "ci95": [
+            0.590437592370588,
+            0.6135757855558335
+          ]
+        },
+        "relativeReward": {
+          "n": 6877,
+          "estimate": -0.5240075614366845,
+          "standardError": 0.022624243513547318,
+          "ci95": [
+            -0.5683510787232372,
+            -0.47966404415013175
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-RuleBase",
+        "adjutantPolicy": "COM-AI",
+        "otherCitizenAiCount": 0,
+        "focalPolicy": "COM-RuleBase",
+        "win": {
+          "n": 5931,
+          "estimate": 0.6262013151239252,
+          "standardError": 0.010881202197557565,
+          "ci95": [
+            0.6048741588167124,
+            0.647528471431138
+          ]
+        },
+        "relativeReward": {
+          "n": 5931,
+          "estimate": -0.44066767830045867,
+          "standardError": 0.04197971869652573,
+          "ci95": [
+            -0.5229479269456491,
+            -0.35838742965526826
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-RuleBase",
+        "adjutantPolicy": "COM-AI",
+        "otherCitizenAiCount": 1,
+        "focalPolicy": "COM-AI",
+        "win": {
+          "n": 16358,
+          "estimate": 0.5692627460569751,
+          "standardError": 0.005475412437173635,
+          "ci95": [
+            0.5585309376801149,
+            0.5799945544338354
+          ]
+        },
+        "relativeReward": {
+          "n": 16358,
+          "estimate": -0.6360435261034645,
+          "standardError": 0.02081685736940601,
+          "ci95": [
+            -0.6768445665475002,
+            -0.5952424856594287
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-RuleBase",
+        "adjutantPolicy": "COM-AI",
+        "otherCitizenAiCount": 1,
+        "focalPolicy": "COM-RuleBase",
+        "win": {
+          "n": 13754,
+          "estimate": 0.6020066889632107,
+          "standardError": 0.005902600302358511,
+          "ci95": [
+            0.590437592370588,
+            0.6135757855558335
+          ]
+        },
+        "relativeReward": {
+          "n": 13754,
+          "estimate": -0.5240075614366845,
+          "standardError": 0.022624243513547318,
+          "ci95": [
+            -0.5683510787232372,
+            -0.47966404415013175
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-RuleBase",
+        "adjutantPolicy": "COM-AI",
+        "otherCitizenAiCount": 2,
+        "focalPolicy": "COM-AI",
+        "win": {
+          "n": 9510,
+          "estimate": 0.534384858044164,
+          "standardError": 0.00885962482543475,
+          "ci95": [
+            0.5170199933863119,
+            0.5517497227020162
+          ]
+        },
+        "relativeReward": {
+          "n": 9510,
+          "estimate": -0.7547003154574046,
+          "standardError": 0.03341282173953413,
+          "ci95": [
+            -0.8201894460668915,
+            -0.6892111848479177
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-RuleBase",
+        "adjutantPolicy": "COM-AI",
+        "otherCitizenAiCount": 2,
+        "focalPolicy": "COM-RuleBase",
+        "win": {
+          "n": 8179,
+          "estimate": 0.5692627460569751,
+          "standardError": 0.005475412437173635,
+          "ci95": [
+            0.5585309376801149,
+            0.5799945544338354
+          ]
+        },
+        "relativeReward": {
+          "n": 8179,
+          "estimate": -0.6360435261034645,
+          "standardError": 0.02081685736940601,
+          "ci95": [
+            -0.6768445665475002,
+            -0.5952424856594287
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-RuleBase",
+        "adjutantPolicy": "COM-RuleBase",
+        "otherCitizenAiCount": 0,
+        "focalPolicy": "COM-AI",
+        "win": {
+          "n": 4615,
+          "estimate": 0.666088840736728,
+          "standardError": 0.006942246590789538,
+          "ci95": [
+            0.6524820374187805,
+            0.6796956440546755
+          ]
+        },
+        "relativeReward": {
+          "n": 4615,
+          "estimate": -0.30041170097507797,
+          "standardError": 0.027063827630340317,
+          "ci95": [
+            -0.353456803130545,
+            -0.24736659881961096
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-RuleBase",
+        "adjutantPolicy": "COM-RuleBase",
+        "otherCitizenAiCount": 0,
+        "focalPolicy": "COM-RuleBase",
+        "win": {
+          "n": 4347,
+          "estimate": 0.6894409937888198,
+          "standardError": 0.012156002081751993,
+          "ci95": [
+            0.6656152297085859,
+            0.7132667578690538
+          ]
+        },
+        "relativeReward": {
+          "n": 4347,
+          "estimate": -0.2191856452726012,
+          "standardError": 0.04777184391204854,
+          "ci95": [
+            -0.31281845934021635,
+            -0.12555283120498606
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-RuleBase",
+        "adjutantPolicy": "COM-RuleBase",
+        "otherCitizenAiCount": 1,
+        "focalPolicy": "COM-AI",
+        "win": {
+          "n": 10524,
+          "estimate": 0.6244773850247054,
+          "standardError": 0.006675830894619983,
+          "ci95": [
+            0.6113927564712502,
+            0.6375620135781606
+          ]
+        },
+        "relativeReward": {
+          "n": 10524,
+          "estimate": -0.4525275560623308,
+          "standardError": 0.025851562336245755,
+          "ci95": [
+            -0.5031966182413725,
+            -0.40185849388328915
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-RuleBase",
+        "adjutantPolicy": "COM-RuleBase",
+        "otherCitizenAiCount": 1,
+        "focalPolicy": "COM-RuleBase",
+        "win": {
+          "n": 9230,
+          "estimate": 0.666088840736728,
+          "standardError": 0.006942246590789538,
+          "ci95": [
+            0.6524820374187805,
+            0.6796956440546755
+          ]
+        },
+        "relativeReward": {
+          "n": 9230,
+          "estimate": -0.30041170097507797,
+          "standardError": 0.027063827630340317,
+          "ci95": [
+            -0.353456803130545,
+            -0.24736659881961096
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-RuleBase",
+        "adjutantPolicy": "COM-RuleBase",
+        "otherCitizenAiCount": 2,
+        "focalPolicy": "COM-AI",
+        "win": {
+          "n": 6033,
+          "estimate": 0.5758329189457981,
+          "standardError": 0.011020848501151861,
+          "ci95": [
+            0.5542320558835405,
+            0.5974337820080557
+          ]
+        },
+        "relativeReward": {
+          "n": 6033,
+          "estimate": -0.6351069119840929,
+          "standardError": 0.04253458728657367,
+          "ci95": [
+            -0.7184747030657772,
+            -0.5517391209024085
+          ]
+        }
+      },
+      {
+        "napoleonPolicy": "COM-RuleBase",
+        "adjutantPolicy": "COM-RuleBase",
+        "otherCitizenAiCount": 2,
+        "focalPolicy": "COM-RuleBase",
+        "win": {
+          "n": 5262,
+          "estimate": 0.6244773850247054,
+          "standardError": 0.006675830894619983,
+          "ci95": [
+            0.6113927564712502,
+            0.6375620135781606
+          ]
+        },
+        "relativeReward": {
+          "n": 5262,
+          "estimate": -0.4525275560623308,
+          "standardError": 0.025851562336245755,
+          "ci95": [
+            -0.5031966182413725,
+            -0.40185849388328915
           ]
         }
       }

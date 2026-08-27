@@ -68,6 +68,12 @@ interface GameOutcome {
   napoleonPointCards: number | null;
 }
 
+interface CitizenStratumDefinition {
+  napoleonPolicy: PolicyName;
+  adjutantPolicy: PolicyName;
+  otherCitizenAiCount?: 0 | 1 | 2;
+}
+
 interface ClusterEstimate {
   n: number;
   estimate: number | null;
@@ -424,6 +430,26 @@ function createSummary(
       game.napoleonPolicy === napoleonPolicy && game.adjutantPolicy === adjutantPolicy
         ? [game.contractMargin!] : [])
   }));
+  const citizenEnemyComposition = POLICY_NAMES.flatMap((napoleonPolicy) =>
+    POLICY_NAMES.flatMap((adjutantPolicy) =>
+      POLICY_NAMES.map((focalPolicy) => citizenStratumSummary(
+        outcomes,
+        { napoleonPolicy, adjutantPolicy },
+        focalPolicy
+      ))
+    )
+  );
+  const citizenFullyStratified = POLICY_NAMES.flatMap((napoleonPolicy) =>
+    POLICY_NAMES.flatMap((adjutantPolicy) =>
+      ([0, 1, 2] as const).flatMap((otherCitizenAiCount) =>
+        POLICY_NAMES.map((focalPolicy) => citizenStratumSummary(
+          outcomes,
+          { napoleonPolicy, adjutantPolicy, otherCitizenAiCount },
+          focalPolicy
+        ))
+      )
+    )
+  );
   return {
     games: outcomes.length,
     allPass: {
@@ -444,10 +470,42 @@ function createSummary(
     roleAcquisition,
     napoleon,
     composition,
+    citizenEnemyComposition,
+    citizenFullyStratified,
     illegal: diagnostics["COM-AI"].illegalCount + diagnostics["COM-RuleBase"].illegalCount,
     fallback: diagnostics["COM-AI"].fallbackCount + diagnostics["COM-RuleBase"].fallbackCount,
     invariantFailure: failures.filter((failure) => failure.invariant).length,
     otherFailure: failures.filter((failure) => !failure.invariant).length
+  };
+}
+
+export function citizenStratumSummary(
+  outcomes: readonly GameOutcome[],
+  stratum: CitizenStratumDefinition,
+  focalPolicy: PolicyName
+) {
+  const select = (game: GameOutcome): readonly SeatOutcome[] => {
+    if (
+      game.napoleonPolicy !== stratum.napoleonPolicy ||
+      game.adjutantPolicy !== stratum.adjutantPolicy
+    ) {
+      return [];
+    }
+    const citizens = game.seats.filter((seat) => seat.role === "Citizen");
+    return citizens.filter((focal) =>
+      focal.policy === focalPolicy &&
+      (stratum.otherCitizenAiCount === undefined || citizens.filter(
+        (other) => other.seat !== focal.seat && other.policy === "COM-AI"
+      ).length === stratum.otherCitizenAiCount)
+    );
+  };
+  return {
+    ...stratum,
+    focalPolicy,
+    win: clusterEstimate(outcomes, (game) => select(game).map((seat) => seat.win!), { rate: true }),
+    relativeReward: clusterEstimate(outcomes, (game) =>
+      select(game).map((seat) => seat.relativeReward)
+    )
   };
 }
 
@@ -547,6 +605,22 @@ export function renderReport(artifact: any): string {
     "| --- | --- | ---: | ---: | ---: |",
     ...summary.roles.map((row: any) => `| ${row.role} | ${row.policy} | ${row.relativeReward.n.toLocaleString()} | ${estimate(row.win, true)} ${ci(row.win, true)} | ${estimate(row.relativeReward)} ${ci(row.relativeReward)} |`),
     "",
+    "### Citizen の composition-fixed 追加解析",
+    "",
+    "上の Citizen 生集計では COM-AI が 3.52 pp 低い、という観測事実は変わりません。ただし focal Citizen の policy 以外に、敵 Napoleon / Adjutant、味方 Citizen、game 全体の policy 構成、bidding 後の role / hand selection が同時に異なります。したがって、この生差は Citizen policy 単体の因果効果ではありません。以下ではまず敵 Napoleon-side composition を固定します（solo Napoleon game は除外）。",
+    "",
+    "| Napoleon | Adjutant | focal Citizen | n | Citizen win rate (95% CI) | mean relative reward (95% CI) |",
+    "| --- | --- | --- | ---: | ---: | ---: |",
+    ...summary.citizenEnemyComposition.map((row: any) => `| ${row.napoleonPolicy} | ${row.adjutantPolicy} | ${row.focalPolicy} | ${row.win.n.toLocaleString()} | ${estimate(row.win, true)} ${ci(row.win, true)} | ${estimate(row.relativeReward)} ${ci(row.relativeReward)} |`),
+    "",
+    "さらに、focal 以外の Citizen 2席にいる COM-AI 人数も固定した参考解析です。`n < 1,000` は小標本の参考値として扱います。敵・味方 composition を固定しても bidding による focal role / hand selection は統制されないため、これも完全な因果比較ではありません。",
+    "",
+    "| Napoleon | Adjutant | other Citizen AI | focal Citizen | n | Citizen win rate (95% CI) | mean relative reward (95% CI) | note |",
+    "| --- | --- | ---: | --- | ---: | ---: | ---: | --- |",
+    ...summary.citizenFullyStratified.map((row: any) => `| ${row.napoleonPolicy} | ${row.adjutantPolicy} | ${row.otherCitizenAiCount} | ${row.focalPolicy} | ${row.win.n.toLocaleString()} | ${estimate(row.win, true)} ${ci(row.win, true)} | ${estimate(row.relativeReward)} ${ci(row.relativeReward)} | ${row.win.n < 1_000 ? "参考値（n<1,000）" : ""} |`),
+    "",
+    citizenCompositionInterpretation(summary),
+    "",
     "## 6. Napoleon-side composition 別",
     "",
     "| Napoleon | Adjutant | n | Napoleon-side win / contract success | mean contract margin (95% CI) |",
@@ -608,10 +682,47 @@ function conclusion(summary: any): string {
   const rewardDifference = summary.policyDifference.relativeReward;
   return [
     `全体では COM-AI の勝率は ${pct(ai.win.estimate)}、COM-RuleBase は ${pct(rb.win.estimate)}で、差は ${signedPct(overallDiff)}（95% CI ${pct(summary.policyDifference.win.ci95[0])} から ${pct(summary.policyDifference.win.ci95[1])}）でした。一方、mean relative reward はそれぞれ ${num(ai.relativeReward.estimate)} と ${num(rb.relativeReward.estimate)}で、AI−RuleBase 差は ${num(rewardDifference.estimate)}（95% CI ${num(rewardDifference.ci95[0])} から ${num(rewardDifference.ci95[1])}）です。つまり全体勝率は AI が明確に高いものの、役職構成を反映する relative reward は逆方向でした。`,
-    `${roleText}でした。Napoleon / Adjutant の差と Citizen の差を分けることで、AI の総合差がどの立場で生じたかを確認できます。`,
-    `最大の改善は Napoleon で見えます。COM-AI Napoleon は target を平均 ${Math.abs(targetDelta).toFixed(4)} ${targetDelta < 0 ? "低く" : "高く"}宣言し、Napoleon-side point cards は平均 ${signed(pointCardDelta)}、contract margin は ${signed(marginDelta)} 動きました。これは frozen bidding の契約選択と、Napoleon / Adjutant の non-playing・playing による契約実行の両方が寄与した可能性を示します。composition 比較でも Adjutant を RuleBase から AI に替えた組合せの成績が上がっています。一方で AI Citizen の勝率は下がっており、playing を含む AI の優位は全役職に一様ではありません。全 phase が同時に異なるため、単一 phase の因果効果とは断定しません。`,
-    "結論として、『作った AI は RuleBase を超えたか』には、全体 win rate と Napoleon / Adjutant の実戦成績では明確に yes です。しかし Citizen と relative reward では no であり、『全役職・全指標で全面的に超えた』とは言えません。正式 COM-AI は特に Napoleon-side を大きく強化した一方、Citizen performance と bidding による role acquisition の偏りを残した、というのがこの最終評価の正確な締めです。"
+    `${roleText}でした。Citizen の -3.52 pp は単純な role-conditioned 観測差であり、敵・味方 composition や bidding 後の role / hand selection を統制していないため、Citizen 打牌 policy 単体が弱いことを意味しません。逆に composition bias だけで全差を説明できるとも、この生集計だけからは断定しません。`,
+    citizenCompositionInterpretation(summary),
+    `最大の改善は Napoleon で見えます。COM-AI Napoleon は target を平均 ${Math.abs(targetDelta).toFixed(4)} ${targetDelta < 0 ? "低く" : "高く"}宣言し、Napoleon-side point cards は平均 ${signed(pointCardDelta)}、contract margin は ${signed(marginDelta)} 動きました。これは frozen bidding の契約選択と、Napoleon / Adjutant の non-playing・playing による契約実行の両方が寄与した可能性を示します。composition 比較でも Adjutant を RuleBase から AI に替えた組合せの成績が上がっています。全 phase が同時に異なるため、単一 phase の因果効果とは断定しません。`,
+    "結論として、全体 win rate と Napoleon / Adjutant の role-conditioned 実戦成績では正式 COM-AI が上回りました。一方、全体 relative reward は逆方向です。Citizen は composition-fixed 追加解析を含めても観測研究であり、policy 単体の優劣をこの mixed evaluation だけで確定しません。正式 COM-AI は特に Napoleon-side を大きく強化した、という点を確かな成果とし、Citizen については独立した打牌単体評価とは実験条件を分けて扱うのが正確な締めです。"
   ].join("\n\n");
+}
+
+function citizenCompositionInterpretation(summary: any): string {
+  const labels = summary.citizenEnemyComposition
+    .filter((row: any) => row.focalPolicy === "COM-AI")
+    .map((ai: any) => {
+      const ruleBase = summary.citizenEnemyComposition.find((row: any) =>
+        row.napoleonPolicy === ai.napoleonPolicy &&
+        row.adjutantPolicy === ai.adjutantPolicy &&
+        row.focalPolicy === "COM-RuleBase"
+      );
+      return `${ai.napoleonPolicy.replace("COM-", "")}/${ai.adjutantPolicy.replace("COM-", "")}: ${signedPct(ai.win.estimate - ruleBase.win.estimate)}`;
+    });
+  const detailedDifferences = summary.citizenFullyStratified
+    .filter((row: any) => row.focalPolicy === "COM-AI" && row.win.n >= 1_000)
+    .map((ai: any) => {
+      const ruleBase = summary.citizenFullyStratified.find((row: any) =>
+        row.napoleonPolicy === ai.napoleonPolicy &&
+        row.adjutantPolicy === ai.adjutantPolicy &&
+        row.otherCitizenAiCount === ai.otherCitizenAiCount &&
+        row.focalPolicy === "COM-RuleBase"
+      );
+      return ruleBase?.win.n >= 1_000 ? ai.win.estimate - ruleBase.win.estimate : null;
+    })
+    .filter((value: number | null): value is number => value !== null);
+  const positive = detailedDifferences.filter((value: number) => value > 0).length;
+  const negative = detailedDifferences.filter((value: number) => value < 0).length;
+  const range = detailedDifferences.length === 0
+    ? "比較可能な層なし"
+    : `${signedPct(Math.min(...detailedDifferences))} から ${signedPct(Math.max(...detailedDifferences))}`;
+  const interpretation = negative === detailedDifferences.length && detailedDifferences.length > 0
+    ? `全比較層で AI の観測勝率が低く、差の範囲は ${range} でした。観測できる敵・味方 composition を固定しても差は解消しておらず、Citizen は正式 COM-AI の残存課題として認めます。ただし focal policy の効果に加えて seat / hand と bidding による role selection が残るため、Citizen 打牌 policy 単体が因果的に弱いとまでは断定しません。`
+    : positive === detailedDifferences.length && detailedDifferences.length > 0
+      ? `全比較層で AI の観測勝率が高く、差の範囲は ${range} でした。ただし role / hand selection が残るため、Citizen 打牌 policy 単体の因果的優位とは断定しません。`
+      : `層によって方向が分かれ、差の範囲は ${range} でした。このばらつきと残る role / hand selection のため、Citizen policy 単体の一意な因果結論は出しません。`;
+  return `敵 Napoleon/Adjutant を固定した focal AI−RuleBase の Citizen 勝率差は ${labels.join("、")} でした。さらに other Citizen AI count まで固定し、両 policy とも n≥1,000 の ${detailedDifferences.length} 層では、AI が高い層 ${positive}、低い層 ${negative} でした。${interpretation}`;
 }
 
 function pct(value: number): string { return `${(value * 100).toFixed(2)}%`; }
