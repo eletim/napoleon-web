@@ -2646,6 +2646,15 @@ std::string evaluate_parameterized_candidate(
   called_cards.reserve(sources.size());
   buried_cards.reserve(sources.size());
   int fallback_count = 0;
+  int invariant_check_count = 0;
+  int invariant_failure_count = 0;
+  const auto check_invariant = [&](bool condition, const char* message) {
+    ++invariant_check_count;
+    if (!condition) {
+      ++invariant_failure_count;
+      throw std::runtime_error(std::string("parameterized evaluation invariant failed: ") + message);
+    }
+  };
   for (const auto& source : sources) {
     GameState state = source.choosing_state;
     const int napoleon = state.contract->napoleon_player_index;
@@ -2683,8 +2692,26 @@ std::string evaluate_parameterized_candidate(
       }
     }
     called_cards.push_back(card_id(adjutant.card));
+    check_invariant(state.phase == Phase::Exchanging, "adjutant phase");
+    check_invariant(state.contract.has_value(), "contract after adjutant");
+    check_invariant(state.adjutant.has_value(), "adjutant selection");
+    check_invariant(state.current_player_index == napoleon, "Napoleon exchange turn");
+    check_invariant(state.unused_cards.empty(), "kitty pickup");
+    check_invariant(
+        state.hands[static_cast<std::size_t>(napoleon)].size() ==
+            static_cast<std::size_t>(kCardsPerPlayer + 3),
+        "post-kitty hand size");
     buried_cards.push_back(cards_identity(exchange.cards));
     apply_action(state, exchange);
+    check_invariant(state.phase == Phase::Playing, "exchange phase");
+    check_invariant(state.contract.has_value(), "contract after exchange");
+    check_invariant(state.adjutant.has_value(), "adjutant after exchange");
+    check_invariant(state.current_player_index == napoleon, "Napoleon playing lead");
+    check_invariant(state.unused_cards.empty(), "empty kitty after exchange");
+    check_invariant(
+        state.hands[static_cast<std::size_t>(napoleon)].size() ==
+            static_cast<std::size_t>(kCardsPerPlayer),
+        "post-exchange hand size");
     playing_states.push_back(std::move(state));
   }
   const std::vector<RolloutValue> values =
@@ -2726,6 +2753,8 @@ std::string evaluate_parameterized_candidate(
       << ",\"meanContractMargin\":" << margin_sum / count
       << ",\"meanNapoleonPointCards\":" << points_sum / count
       << ",\"illegalCount\":0,\"fallbackCount\":" << fallback_count
+      << ",\"invariantCheckCount\":" << invariant_check_count
+      << ",\"invariantFailureCount\":" << invariant_failure_count
       << ",\"declaredTargetCounts\":{";
   bool first = true;
   for (const auto& item : target_counts) {

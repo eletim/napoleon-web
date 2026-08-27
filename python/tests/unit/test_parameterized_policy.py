@@ -10,6 +10,9 @@ import numpy as np
 import pytest
 
 from napoleon_ml.cli.optimize_parameterized_policy import (
+    ISSUE452_PARAMETER_SHA256,
+    _assert_feature_schema_parity,
+    _parser,
     _plateau_reached,
     _restore_checkpoint_progress,
     _seed_manifests_under,
@@ -23,8 +26,10 @@ from napoleon_ml.parameterized_policy.optimization import (
     create_cma_strategy,
     load_optimizer_state,
     load_parameter_artifact,
+    paired_block_comparisons,
     paired_comparison,
     parameter_artifact,
+    parameter_artifact_checksum,
     save_json,
     save_optimizer_state,
     seed_manifest,
@@ -90,6 +95,89 @@ def test_parameter_artifact_round_trip(tmp_path: Path) -> None:
     path.write_text(json.dumps(parsed), encoding="utf-8")
     with pytest.raises(ValueError, match="checksum mismatch"):
         load_parameter_artifact(path)
+
+
+def test_issue452_frozen_winner_and_feature_schema_are_unchanged() -> None:
+    repo = Path(__file__).resolve().parents[3]
+    root = repo / "benchmarks/exchange-values/issue452-parameterized-policy/main"
+    artifact = json.loads((root / "best-parameters.json").read_text(encoding="utf-8"))
+    schema = json.loads((root / "feature-schema.json").read_text(encoding="utf-8"))
+
+    assert artifact["sha256"] == ISSUE452_PARAMETER_SHA256
+    assert parameter_artifact_checksum(artifact) == ISSUE452_PARAMETER_SHA256
+    assert len(load_parameter_artifact(root / "best-parameters.json")) == PARAMETER_COUNT
+    assert sum(row["block"] == "adjutant" for row in artifact["weights"]) == 35
+    assert sum(row["block"] == "exchange" for row in artifact["weights"]) == 60
+    _assert_feature_schema_parity(schema, schema, artifact)
+
+    promoted_path = (
+        repo
+        / "benchmarks/non-playing-policies/parameterized-adjutant-exchange-v1/policy.json"
+    )
+    promoted = json.loads(promoted_path.read_text(encoding="utf-8"))
+    assert promoted["parameterSha256"] == ISSUE452_PARAMETER_SHA256
+    assert parameter_artifact_checksum(promoted) == promoted["sha256"]
+    assert load_parameter_artifact(promoted_path) == pytest.approx(
+        load_parameter_artifact(root / "best-parameters.json")
+    )
+    assert promoted["runtimeWiringIncluded"] is False
+
+
+def test_issue454_verification_seeds_are_disjoint_from_every_issue452_pool() -> None:
+    repo = Path(__file__).resolve().parents[3]
+    reserved = _seed_manifests_under(
+        repo / "benchmarks/exchange-values/issue452-parameterized-policy"
+    )
+    manifest_path = (
+        repo
+        / "benchmarks/exchange-values/issue454-independent-verification/seeds"
+        / "independent-verification.json"
+    )
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    verification = seed_manifest(
+        payload["pool"], payload["seeds"], payload["discovery_start"]
+    )
+
+    assert len(reserved) == 122
+    assert sum(len(manifest.seeds) for manifest in reserved) == 57_100
+    assert len(verification.seeds) == 10_000
+    assert verification.sha256 == payload["sha256"]
+    assert verification.sha256 == (
+        "0408442b7a3fa7dbb0521e4d15755262dd3af21aaf7478e1f5201c71312bff56"
+    )
+    assert_disjoint_seed_manifests([*reserved, verification])
+
+    report = json.loads(
+        (
+            repo
+            / "benchmarks/exchange-values/issue454-independent-verification"
+            / "verification-report.json"
+        ).read_text(encoding="utf-8")
+    )
+    for policy in (report["learned"], report["existingRuleBased"]):
+        assert policy["invariantCheckCount"] == 120_000
+        assert policy["invariantFailureCount"] == 0
+        assert policy["illegalCount"] == 0
+        assert policy["fallbackCount"] == 0
+
+
+def test_issue454_verification_identity_inputs_cannot_be_overridden() -> None:
+    with pytest.raises(SystemExit):
+        _parser().parse_args(
+            ["verification", "--output", "result", "--seed-start", "652000000"]
+        )
+    with pytest.raises(SystemExit):
+        _parser().parse_args(
+            ["verification", "--output", "result", "--seed-manifest-root", "partial"]
+        )
+    with pytest.raises(SystemExit):
+        _parser().parse_args(
+            ["verification", "--output", "result", "--parameters", "different.json"]
+        )
+    with pytest.raises(SystemExit):
+        _parser().parse_args(
+            ["verification", "--output", "result", "--games", "5000"]
+        )
 
 
 def test_resume_identity_and_recorded_seed_manifests_are_enforced(tmp_path: Path) -> None:
@@ -200,6 +288,16 @@ def test_paired_comparison_and_variance_diagnostic() -> None:
     paired = paired_comparison(learned, baseline)
     assert paired["meanDifference"] == pytest.approx(0.0)
     assert (paired["wins"], paired["ties"], paired["losses"]) == (1, 1, 1)
+    blocks = paired_block_comparisons(learned, baseline, block_size=1)
+    assert [block["meanDifference"] for block in blocks] == [1.0, 0.0, -1.0]
+    with pytest.raises(ValueError, match="same ordered seed sequence"):
+        paired_comparison(learned, {"perSeed": list(reversed(baseline["perSeed"]))})
+    with pytest.raises(ValueError, match="same ordered seed sequence"):
+        paired_block_comparisons(
+            learned,
+            {"perSeed": [*baseline["perSeed"], {"seed": 4, "relativeReward": 0.0}]},
+            block_size=1,
+        )
     diagnostic = variance_diagnostic([0.1, 0.2, 0.15], [-1.0, 1.0, 0.0])
     assert (
         diagnostic["commonSeedDifferenceVariance"] < diagnostic["independentSeedDifferenceVariance"]

@@ -23,6 +23,7 @@ from napoleon_ml.parameterized_policy.optimization import (
     SEED_RANGE_STRIDE,
     TRAIN_SEED_BASE,
     VALIDATION_SEED_BASE,
+    VERIFICATION_SEED_BASE,
     EvaluationServer,
     SeedManifest,
     assert_disjoint_seed_manifests,
@@ -30,14 +31,19 @@ from napoleon_ml.parameterized_policy.optimization import (
     discover_seeds,
     load_optimizer_state,
     load_parameter_artifact,
+    paired_block_comparisons,
     paired_comparison,
     parameter_artifact,
+    parameter_artifact_checksum,
     save_json,
     save_optimizer_state,
     seed_manifest,
     variance_diagnostic,
     write_seed_manifest,
 )
+
+ISSUE452_PARAMETER_SHA256 = "d364aef0c48a1832bd6602d254d0440f6cb2e2cb50492cfb53934e0378a84d69"
+ISSUE454_VERIFICATION_GAMES = 10_000
 
 
 def _repo_root() -> Path:
@@ -151,7 +157,7 @@ def _validate_final_provenance(
     if not isinstance(provenance, dict) or not isinstance(provenance.get("runState"), str):
         raise ValueError("parameter artifact has no bound run state")
     state_path = (parameter_path.resolve().parent / provenance["runState"]).resolve()
-    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state = cast(dict[str, Any], json.loads(state_path.read_text(encoding="utf-8")))
     config = state.get("config")
     if not isinstance(config, dict) or config.get("runtimeIdentity") != runtime_identity:
         raise ValueError("final evaluation runtime identity mismatch")
@@ -483,6 +489,236 @@ def _selection_tendencies(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _buried_content_distribution(report: dict[str, Any]) -> dict[str, Any]:
+    rows = report["perSeed"]
+    rank_counts: Counter[str] = Counter()
+    suit_counts: Counter[str] = Counter()
+    point_count = 0
+    trump_count = 0
+    for row in rows:
+        trump = str(row["contractSuit"])
+        for card in str(row["buriedCards"]).split(","):
+            if card == "joker":
+                rank_counts["joker"] += 1
+                suit_counts["joker"] += 1
+                continue
+            suit, rank = card.split("-", 1)
+            rank_counts[rank] += 1
+            suit_counts[suit] += 1
+            point_count += rank in {"10", "J", "Q", "K", "A"}
+            trump_count += suit == trump
+    game_count = len(rows)
+    return {
+        "rankCounts": dict(sorted(rank_counts.items())),
+        "suitCounts": dict(sorted(suit_counts.items())),
+        "pointCardCount": point_count,
+        "meanPointCardsPerGame": point_count / game_count,
+        "trumpCardCount": trump_count,
+        "meanTrumpCardsPerGame": trump_count / game_count,
+    }
+
+
+def _assert_feature_schema_parity(
+    runtime_schema: dict[str, Any],
+    recorded_schema: dict[str, Any],
+    parameter_artifact_payload: dict[str, Any],
+) -> None:
+    if runtime_schema != recorded_schema:
+        raise ValueError("#452 recorded feature schema differs from evaluator schema")
+    feature_keys = set(runtime_schema["features"][0])
+    artifact_features = [
+        {key: row[key] for key in feature_keys} for row in parameter_artifact_payload["weights"]
+    ]
+    if artifact_features != runtime_schema["features"]:
+        raise ValueError("parameter feature definitions differ from evaluator schema")
+    if parameter_artifact_payload.get("featureSchemaVersion") != runtime_schema.get(
+        "schemaVersion"
+    ):
+        raise ValueError("parameter feature schema version differs from evaluator schema")
+
+
+def _weight_vector_sha256(weights: Sequence[float]) -> str:
+    canonical = json.dumps(list(weights), separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _verification(args: argparse.Namespace) -> None:
+    """Independently re-evaluate the frozen #452 winner; never optimize or select weights."""
+    repo = args.repo.resolve()
+    evaluator = args.evaluator.resolve()
+    output = args.output.resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    work = output / "work"
+    work.mkdir(parents=True, exist_ok=True)
+    parameter_relative_path = Path(
+        "benchmarks/exchange-values/issue452-parameterized-policy/main/best-parameters.json"
+    )
+    parameter_path = repo / parameter_relative_path
+    parameter_payload = json.loads(parameter_path.read_text(encoding="utf-8"))
+    learned = load_parameter_artifact(parameter_path)
+    if parameter_payload.get("sha256") != ISSUE452_PARAMETER_SHA256:
+        raise ValueError("verification parameter is not the frozen #452 winner")
+
+    recorded_schema_path = parameter_path.parent / "feature-schema.json"
+    runtime_schema = _read_evaluator_json(evaluator, "--schema", repo)
+    recorded_schema = json.loads(recorded_schema_path.read_text(encoding="utf-8"))
+    _assert_feature_schema_parity(runtime_schema, recorded_schema, parameter_payload)
+
+    manifest_root = repo / "benchmarks/exchange-values/issue452-parameterized-policy"
+    reserved_manifests = _seed_manifests_under(manifest_root, exclude=output)
+    reserved_seed_count = sum(len(manifest.seeds) for manifest in reserved_manifests)
+    reserved_unique_seed_count = len(
+        {seed for manifest in reserved_manifests for seed in manifest.seeds}
+    )
+    if (
+        len(reserved_manifests) != 122
+        or reserved_seed_count != 57_100
+        or reserved_unique_seed_count != 57_100
+    ):
+        raise ValueError("incomplete or overlapping frozen #452 seed manifest inventory")
+    assert_disjoint_seed_manifests(reserved_manifests)
+    runtime_identity = _runtime_identity(repo, evaluator)
+    source_state_path = parameter_path.parent / parameter_payload["provenance"]["runState"]
+    source_state = cast(
+        dict[str, Any], json.loads(source_state_path.read_text(encoding="utf-8"))
+    )
+    source_runtime_identity = source_state["config"]["runtimeIdentity"]
+    bound_state = _validate_final_provenance(
+        parameter_path, parameter_payload, reserved_manifests, source_runtime_identity
+    )
+    policy_dependency_keys = {"biddingMargin", "playingPolicy", "playingCritic"}
+    if any(
+        runtime_identity[key] != source_runtime_identity[key] for key in policy_dependency_keys
+    ):
+        raise ValueError("verification bidding/playing dependency identity mismatch")
+    verification_manifest = _discover_manifest(
+        evaluator,
+        repo,
+        output,
+        pool="independent-verification",
+        start=VERIFICATION_SEED_BASE,
+        games=ISSUE454_VERIFICATION_GAMES,
+    )
+    assert_disjoint_seed_manifests([*reserved_manifests, verification_manifest])
+
+    with EvaluationServer(evaluator, verification_manifest, cwd=repo, work=work) as server:
+        learned_report = server.evaluate(learned.tolist(), detailed=True)
+        baseline_report = server.evaluate(None, detailed=True)
+    if learned_report["seedHash"] != baseline_report["seedHash"]:
+        raise RuntimeError("paired policies did not use the same seed sequence")
+    paired = paired_comparison(learned_report, baseline_report)
+    blocks = paired_block_comparisons(
+        learned_report, baseline_report, block_size=args.block_size
+    )
+    failures = sum(
+        int(policy[key])
+        for policy in (learned_report, baseline_report)
+        for key in ("illegalCount", "fallbackCount", "invariantFailureCount")
+    )
+    adopted = paired["meanDifference"] > 0 and paired["ci95"][0] > 0 and failures == 0
+    report = {
+        "artifactType": "parameterized-policy-independent-verification",
+        "issue": 454,
+        "featureSchemaVersion": runtime_schema["schemaVersion"],
+        "parameterCount": PARAMETER_COUNT,
+        "bestParameterSha256": parameter_payload["sha256"],
+        "weightVectorSha256": _weight_vector_sha256(learned.tolist()),
+        "verificationSeedManifest": asdict(verification_manifest),
+        "seedAudit": {
+            "reservedManifestRoot": str(manifest_root.relative_to(repo)),
+            "reservedManifestCount": len(reserved_manifests),
+            "reservedSeedCount": reserved_seed_count,
+            "reservedUniqueSeedCount": reserved_unique_seed_count,
+            "verificationSeedCount": len(verification_manifest.seeds),
+            "overlapCount": 0,
+        },
+        "fixedSemantics": {
+            "bidding": "frozen-raise-v1",
+            "playing": "ppo-separated-v1000",
+            "reward": "current-relative-reward",
+            "phaseOrder": ["bidding", "adjutant", "kitty", "exchange", "playing"],
+            "pairedPlayingRandomStream": True,
+        },
+        "dependencyProvenance": {
+            **runtime_identity,
+            "sourceIssue452Evaluator": source_runtime_identity["evaluator"],
+            "verificationEvaluator": runtime_identity["evaluator"],
+        },
+        "optimizerProvenance": {
+            "sourceIssue": 452,
+            "sourceParameterPath": str(parameter_relative_path),
+            "parameterArtifact": parameter_payload["provenance"],
+            "runConfiguration": bound_state["config"],
+        },
+        "learned": learned_report,
+        "existingRuleBased": baseline_report,
+        "pairedComparison": paired,
+        "blockSize": args.block_size,
+        "pairedBlockComparisons": blocks,
+        "learnedSelectionTendencies": _selection_tendencies(learned_report),
+        "ruleBasedSelectionTendencies": _selection_tendencies(baseline_report),
+        "learnedBuriedContentDistribution": _buried_content_distribution(learned_report),
+        "ruleBasedBuriedContentDistribution": _buried_content_distribution(baseline_report),
+        "adoptionCriteria": {
+            "positivePairedMean": paired["meanDifference"] > 0,
+            "ci95LowerBoundAboveZero": paired["ci95"][0] > 0,
+            "allFailureCountsZero": failures == 0,
+            "adoptedAsFormalArtifactCandidate": adopted,
+        },
+        "runtimeWiringIncluded": False,
+    }
+    report_path = output / "verification-report.json"
+    save_json(report_path, report)
+
+    if adopted and args.artifact_output is not None:
+        artifact_output = args.artifact_output.resolve()
+        artifact_output.mkdir(parents=True, exist_ok=True)
+        promoted = {
+            "artifactType": "parameterized-adjutant-exchange-policy-candidate",
+            "artifactVersion": 1,
+            "featureSchemaVersion": runtime_schema["schemaVersion"],
+            "parameterCount": PARAMETER_COUNT,
+            "parameterSha256": parameter_payload["sha256"],
+            "weightVectorSha256": report["weightVectorSha256"],
+            "weights": parameter_payload["weights"],
+            "optimizerProvenance": report["optimizerProvenance"],
+            "verificationProvenance": {
+                "sourceIssue": 454,
+                "seedManifest": str(args.output / "seeds/independent-verification.json"),
+                "seedManifestSha256": verification_manifest.sha256,
+                "seedManifestFileSha256": _file_sha256(
+                    output / "seeds/independent-verification.json"
+                ),
+                "report": str(args.output / "verification-report.json"),
+                "reportFileSha256": _file_sha256(report_path),
+                "games": ISSUE454_VERIFICATION_GAMES,
+                "pairedMeanDifference": paired["meanDifference"],
+                "pairedStandardError": paired["standardError"],
+                "pairedCi95": paired["ci95"],
+            },
+            "dependencyProvenance": report["dependencyProvenance"],
+            "runtimeWiringIncluded": False,
+        }
+        promoted["sha256"] = parameter_artifact_checksum(promoted)
+        save_json(artifact_output / "policy.json", promoted)
+        save_json(artifact_output / "feature-schema.json", runtime_schema)
+
+    print(
+        json.dumps(
+            {
+                "adoptedAsFormalArtifactCandidate": adopted,
+                "learnedMeanRelativeReward": learned_report["meanRelativeReward"],
+                "ruleBasedMeanRelativeReward": baseline_report["meanRelativeReward"],
+                "pairedComparison": {k: v for k, v in paired.items() if k != "perSeedDifferences"},
+                "pairedBlockComparisons": blocks,
+                "verificationSeedSha256": verification_manifest.sha256,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+
+
 def _final(args: argparse.Namespace) -> None:
     repo = args.repo.resolve()
     evaluator = args.evaluator.resolve()
@@ -588,6 +824,12 @@ def _parser() -> argparse.ArgumentParser:
     final.add_argument("--games", type=int, default=5000)
     final.add_argument("--seed-manifest-root", type=Path)
     final.set_defaults(run=_final)
+
+    verification = subparsers.add_parser("verification")
+    verification.add_argument("--output", type=Path, required=True)
+    verification.add_argument("--artifact-output", type=Path)
+    verification.add_argument("--block-size", type=int, default=1_000)
+    verification.set_defaults(run=_verification)
     return parser
 
 
@@ -596,6 +838,12 @@ def _validate_cli_args(args: argparse.Namespace) -> None:
         raise SystemExit("population must be >= 2")
     if args.command == "optimize" and args.generations < 1:
         raise SystemExit("generations must be >= 1")
+    if args.command == "verification":
+        if (
+            args.block_size <= 0
+            or ISSUE454_VERIFICATION_GAMES % args.block_size != 0
+        ):
+            raise SystemExit("verification games must be divisible by a positive block size")
 
 
 def main() -> None:
