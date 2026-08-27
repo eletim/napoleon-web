@@ -591,10 +591,16 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
-    args = _parser().parse_args()
+def _validate_cli_args(args: argparse.Namespace) -> None:
     if getattr(args, "population", 2) < 2:
         raise SystemExit("population must be >= 2")
+    if args.command == "optimize" and args.generations < 1:
+        raise SystemExit("generations must be >= 1")
+
+
+def main() -> None:
+    args = _parser().parse_args()
+    _validate_cli_args(args)
     args.run(args)
 
 

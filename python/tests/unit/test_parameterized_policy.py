@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 from dataclasses import asdict
 from pathlib import Path
@@ -12,6 +13,7 @@ from napoleon_ml.cli.optimize_parameterized_policy import (
     _plateau_reached,
     _restore_checkpoint_progress,
     _seed_manifests_under,
+    _validate_cli_args,
     _validate_final_provenance,
     _validate_resume_state,
 )
@@ -170,6 +172,14 @@ def test_final_provenance_binds_runtime_run_state_and_seed_pools(tmp_path: Path)
             [validation, train],
             {"evaluator": "different"},
         )
+
+
+def test_optimize_rejects_non_positive_generation_count() -> None:
+    _validate_cli_args(argparse.Namespace(command="optimize", population=8, generations=1))
+    with pytest.raises(SystemExit, match="generations must be >= 1"):
+        _validate_cli_args(argparse.Namespace(command="optimize", population=8, generations=0))
+    with pytest.raises(SystemExit, match="generations must be >= 1"):
+        _validate_cli_args(argparse.Namespace(command="optimize", population=8, generations=-1))
 
 
 def test_paired_comparison_and_variance_diagnostic() -> None:
