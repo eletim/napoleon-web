@@ -549,7 +549,10 @@ def _verification(args: argparse.Namespace) -> None:
     output.mkdir(parents=True, exist_ok=True)
     work = output / "work"
     work.mkdir(parents=True, exist_ok=True)
-    parameter_path = args.parameters.resolve()
+    parameter_relative_path = Path(
+        "benchmarks/exchange-values/issue452-parameterized-policy/main/best-parameters.json"
+    )
+    parameter_path = repo / parameter_relative_path
     parameter_payload = json.loads(parameter_path.read_text(encoding="utf-8"))
     learned = load_parameter_artifact(parameter_path)
     if parameter_payload.get("sha256") != ISSUE452_PARAMETER_SHA256:
@@ -560,10 +563,18 @@ def _verification(args: argparse.Namespace) -> None:
     recorded_schema = json.loads(recorded_schema_path.read_text(encoding="utf-8"))
     _assert_feature_schema_parity(runtime_schema, recorded_schema, parameter_payload)
 
-    manifest_root = args.seed_manifest_root.resolve()
+    manifest_root = repo / "benchmarks/exchange-values/issue452-parameterized-policy"
     reserved_manifests = _seed_manifests_under(manifest_root, exclude=output)
-    if not reserved_manifests:
-        raise ValueError(f"no #452 seed manifests found under {manifest_root}")
+    reserved_seed_count = sum(len(manifest.seeds) for manifest in reserved_manifests)
+    reserved_unique_seed_count = len(
+        {seed for manifest in reserved_manifests for seed in manifest.seeds}
+    )
+    if (
+        len(reserved_manifests) != 122
+        or reserved_seed_count != 57_100
+        or reserved_unique_seed_count != 57_100
+    ):
+        raise ValueError("incomplete or overlapping frozen #452 seed manifest inventory")
     assert_disjoint_seed_manifests(reserved_manifests)
     runtime_identity = _runtime_identity(repo, evaluator)
     source_state_path = parameter_path.parent / parameter_payload["provenance"]["runState"]
@@ -584,7 +595,7 @@ def _verification(args: argparse.Namespace) -> None:
         repo,
         output,
         pool="independent-verification",
-        start=args.seed_start,
+        start=VERIFICATION_SEED_BASE,
         games=args.games,
     )
     assert_disjoint_seed_manifests([*reserved_manifests, verification_manifest])
@@ -604,7 +615,6 @@ def _verification(args: argparse.Namespace) -> None:
         for key in ("illegalCount", "fallbackCount", "invariantFailureCount")
     )
     adopted = paired["meanDifference"] > 0 and paired["ci95"][0] > 0 and failures == 0
-    reserved_seed_count = sum(len(manifest.seeds) for manifest in reserved_manifests)
     report = {
         "artifactType": "parameterized-policy-independent-verification",
         "issue": 454,
@@ -614,12 +624,10 @@ def _verification(args: argparse.Namespace) -> None:
         "weightVectorSha256": _weight_vector_sha256(learned.tolist()),
         "verificationSeedManifest": asdict(verification_manifest),
         "seedAudit": {
-            "reservedManifestRoot": str(args.seed_manifest_root),
+            "reservedManifestRoot": str(manifest_root.relative_to(repo)),
             "reservedManifestCount": len(reserved_manifests),
             "reservedSeedCount": reserved_seed_count,
-            "reservedUniqueSeedCount": len(
-                {seed for manifest in reserved_manifests for seed in manifest.seeds}
-            ),
+            "reservedUniqueSeedCount": reserved_unique_seed_count,
             "verificationSeedCount": len(verification_manifest.seeds),
             "overlapCount": 0,
         },
@@ -637,7 +645,7 @@ def _verification(args: argparse.Namespace) -> None:
         },
         "optimizerProvenance": {
             "sourceIssue": 452,
-            "sourceParameterPath": str(args.parameters),
+            "sourceParameterPath": str(parameter_relative_path),
             "parameterArtifact": parameter_payload["provenance"],
             "runConfiguration": bound_state["config"],
         },
@@ -817,13 +825,10 @@ def _parser() -> argparse.ArgumentParser:
     final.set_defaults(run=_final)
 
     verification = subparsers.add_parser("verification")
-    verification.add_argument("--parameters", type=Path, required=True)
-    verification.add_argument("--seed-manifest-root", type=Path, required=True)
     verification.add_argument("--output", type=Path, required=True)
     verification.add_argument("--artifact-output", type=Path)
     verification.add_argument("--games", type=int, default=10_000)
     verification.add_argument("--block-size", type=int, default=1_000)
-    verification.add_argument("--seed-start", type=int, default=VERIFICATION_SEED_BASE)
     verification.set_defaults(run=_verification)
     return parser
 

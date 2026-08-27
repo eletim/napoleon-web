@@ -12,6 +12,7 @@ import pytest
 from napoleon_ml.cli.optimize_parameterized_policy import (
     ISSUE452_PARAMETER_SHA256,
     _assert_feature_schema_parity,
+    _parser,
     _plateau_reached,
     _restore_checkpoint_progress,
     _seed_manifests_under,
@@ -158,6 +159,21 @@ def test_issue454_verification_seeds_are_disjoint_from_every_issue452_pool() -> 
         assert policy["invariantFailureCount"] == 0
         assert policy["illegalCount"] == 0
         assert policy["fallbackCount"] == 0
+
+
+def test_issue454_verification_identity_inputs_cannot_be_overridden() -> None:
+    with pytest.raises(SystemExit):
+        _parser().parse_args(
+            ["verification", "--output", "result", "--seed-start", "652000000"]
+        )
+    with pytest.raises(SystemExit):
+        _parser().parse_args(
+            ["verification", "--output", "result", "--seed-manifest-root", "partial"]
+        )
+    with pytest.raises(SystemExit):
+        _parser().parse_args(
+            ["verification", "--output", "result", "--parameters", "different.json"]
+        )
 
 
 def test_resume_identity_and_recorded_seed_manifests_are_enforced(tmp_path: Path) -> None:
