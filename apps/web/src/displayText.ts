@@ -73,8 +73,14 @@ export function createGameStatusDisplay(
             ? []
             : [
                 {
-                  label: formatWinningTeamShort(state.result.winner),
-                  ariaLabel: `勝者: ${formatWinningTeam(state.result.winner)}`,
+                  label:
+                    state.result.resultType === "all-pass"
+                      ? "流局"
+                      : formatWinningTeamShort(state.result.winner),
+                  ariaLabel:
+                    state.result.resultType === "all-pass"
+                      ? `全員パス。親: ${formatPlayerLabel(state.result.starterPlayerId, players)}`
+                      : `勝者: ${formatWinningTeam(state.result.winner)}`,
                   tone: "result" as const
                 }
               ]),
@@ -103,7 +109,9 @@ export function createMessage(
   if (state.isGameOver) {
     return state.result === null
       ? "ゲーム終了です。"
-      : `ゲーム終了です。勝者: ${formatWinningTeam(state.result.winner)}`;
+      : state.result.resultType === "all-pass"
+        ? `全員パスで終了です。親の${formatPlayerLabel(state.result.starterPlayerId, players)}が+1、他の4人が-1です。`
+        : `ゲーム終了です。勝者: ${formatWinningTeam(state.result.winner)}`;
   }
 
   if (state.phase === "bidding") {
@@ -195,13 +203,13 @@ function formatAdjutantStatus(
 }
 
 export function formatWinningTeam(
-  winner: NonNullable<PublicGameState["result"]>["winner"]
+  winner: Extract<NonNullable<PublicGameState["result"]>, { resultType: "standard" }>["winner"]
 ): string {
   return winner === "napoleon-team" ? "ナポレオン陣営" : "連合軍";
 }
 
 function formatWinningTeamShort(
-  winner: NonNullable<PublicGameState["result"]>["winner"]
+  winner: Extract<NonNullable<PublicGameState["result"]>, { resultType: "standard" }>["winner"]
 ): string {
   return winner === "napoleon-team" ? "N勝" : "連勝";
 }

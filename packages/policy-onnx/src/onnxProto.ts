@@ -39,6 +39,19 @@ export async function validateOnnxModelIo(
   });
 }
 
+export async function validateOnnxModelExactIo(
+  onnxPath: string,
+  expected: {
+    inputs: readonly ExpectedRuntimeIo[];
+    outputs: readonly ExpectedRuntimeIo[];
+  }
+): Promise<void> {
+  const bytes = await readFile(onnxPath);
+  const modelIo = parseOnnxModelIo(bytes);
+  validateExactIoList("input", modelIo.inputs, expected.inputs);
+  validateExactIoList("output", modelIo.outputs, expected.outputs);
+}
+
 export interface ParsedOnnxModelIo {
   inputs: readonly PolicyOnnxIoMetadata[];
   outputs: readonly PolicyOnnxIoMetadata[];
@@ -98,6 +111,38 @@ function validateSingleIo(
     throw new PolicyOnnxCompatibilityError(
       `ONNX ${label} shape mismatch: expected ${JSON.stringify(expected.shape)}, got ${JSON.stringify(actual.shape)}.`
     );
+  }
+}
+
+function validateExactIoList(
+  label: string,
+  actualList: readonly PolicyOnnxIoMetadata[],
+  expectedList: readonly ExpectedRuntimeIo[]
+): void {
+  if (actualList.length !== expectedList.length) {
+    throw new PolicyOnnxCompatibilityError(
+      `ONNX model must have ${expectedList.length} ${label}s, got ${actualList.length}.`
+    );
+  }
+
+  for (let index = 0; index < expectedList.length; index += 1) {
+    const actual = actualList[index];
+    const expected = expectedList[index];
+    if (actual.name !== expected.name) {
+      throw new PolicyOnnxCompatibilityError(
+        `ONNX ${label} ${index} name mismatch: expected ${expected.name}, got ${actual.name}.`
+      );
+    }
+    if (actual.dtype !== expected.dtype) {
+      throw new PolicyOnnxCompatibilityError(
+        `ONNX ${label} ${index} dtype mismatch: expected ${expected.dtype}, got ${actual.dtype}.`
+      );
+    }
+    if (!sameRuntimeShape(actual.shape, expected.shape)) {
+      throw new PolicyOnnxCompatibilityError(
+        `ONNX ${label} ${index} shape mismatch: expected ${JSON.stringify(expected.shape)}, got ${JSON.stringify(actual.shape)}.`
+      );
+    }
   }
 }
 

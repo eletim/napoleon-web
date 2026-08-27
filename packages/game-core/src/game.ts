@@ -10,7 +10,7 @@ import {
   orumaCardId,
   yoromekiCardId
 } from "./cards.js";
-import { calculateGameResult } from "./scoring.js";
+import { calculateGameResult, createAllPassGameResult } from "./scoring.js";
 import type {
   AdjutantState,
   AwardedPointCards,
@@ -135,6 +135,29 @@ export function applyAction(state: GameState, action: GameAction): GameState {
     case "choose-adjutant":
       return chooseAdjutant(state, action.playerId, action.cardId);
   }
+}
+
+export function createContractEstablishedState(state: GameState, contract: Contract): GameState {
+  if (state.phase === "finished" || state.isGameOver) {
+    throw new GameRuleError("GAME_OVER", "The game is already over.");
+  }
+
+  if (state.phase !== "bidding") {
+    throw new GameRuleError(
+      "INVALID_ACTION_FOR_PHASE",
+      "A contract can only be established from bidding."
+    );
+  }
+
+  ensurePlayerExists(state, contract.napoleonPlayerId);
+
+  if (!isSuit(contract.trumpSuit)) {
+    throw new GameRuleError("INVALID_BID", "Bid suit is invalid.");
+  }
+
+  validateBidRange(contract.targetPointCards);
+
+  return completeBidding(state, contract);
 }
 
 export function clearLatestEvent(state: GameState): GameState {
@@ -396,11 +419,7 @@ function pass(state: GameState, playerId: PlayerId): GameState {
     nextBidding.highestBid === null &&
     nextBidding.consecutivePassCount === state.players.length
   ) {
-    return completeBidding(state, {
-      napoleonPlayerId: nextBidding.starterPlayerId,
-      trumpSuit: "spades",
-      targetPointCards: 12
-    });
+    return completeAllPassBidding(state, nextBidding.starterPlayerId);
   }
 
   return {
@@ -440,6 +459,30 @@ function completeBidding(state: GameState, contract: Contract): GameState {
     latestEvent: null,
     adjutant: null,
     result: null
+  };
+}
+
+function completeAllPassBidding(state: GameState, starterPlayerId: PlayerId): GameState {
+  return {
+    ...state,
+    phase: "finished",
+    currentPlayerId: starterPlayerId,
+    currentTrick: [],
+    completedTricks: [],
+    trumpSuit: null,
+    contract: null,
+    bidding: null,
+    awardedPointCards: [],
+    excludedCards: [],
+    latestEvent: null,
+    adjutant: null,
+    result: createAllPassGameResult(
+      state.players.map((player) => player.id),
+      starterPlayerId
+    ),
+    trickNumber: 1,
+    isTrickComplete: false,
+    isGameOver: true
   };
 }
 

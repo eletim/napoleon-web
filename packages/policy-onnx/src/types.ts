@@ -1,5 +1,6 @@
 export type PolicyOnnxDimension = string | number;
 export type NonPlayingPolicyType = "bidding" | "exchange" | "adjutant";
+export type ExchangePolicyDecisionMode = "top3-set-v1" | "sequential-card-v1";
 export type PolicyOnnxInferenceDevice = "cpu" | "auto" | "cuda";
 export type PolicyOnnxExecutionProvider = "cpu" | "cuda";
 
@@ -67,6 +68,32 @@ export interface PolicyCriticOnnxMetadata {
   sourceCheckpointSha256?: string;
 }
 
+export interface BiddingMarginOnnxMetadata {
+  metadataSchemaVersion: number;
+  artifactType: string;
+  modelType: string;
+  artifactId?: string;
+  displayName?: string;
+  checkpointSchemaVersion: number;
+  variant: "M1" | "M2";
+  modelConfig: unknown;
+  targetStandardization: {
+    enabled: boolean;
+    mean: number;
+    std: number;
+  };
+  constantSigma: number;
+  sourceCheckpointSha256?: string;
+  inputName: string;
+  outputNames: readonly [string, string];
+  outputValueType: string;
+  onnx: {
+    opsetVersion: number;
+    inputs: readonly PolicyOnnxIoMetadata[];
+    outputs: readonly PolicyOnnxIoMetadata[];
+  };
+}
+
 export interface NonPlayingPolicyOnnxMetadata {
   metadataSchemaVersion: number;
   artifactType: string;
@@ -86,6 +113,7 @@ export interface NonPlayingPolicyOnnxMetadata {
   inputDtype: string;
   outputDtype: string;
   discardCount?: number;
+  decisionMode?: ExchangePolicyDecisionMode;
   onnx: {
     opsetVersion: number;
     inputs: readonly PolicyOnnxIoMetadata[];
@@ -107,6 +135,12 @@ export interface PolicyOnnxLoadOptions {
 export interface PolicyCriticOnnxSelection {
   value: number;
   winRateEquivalent: number;
+}
+
+export interface BiddingMarginOnnxPrediction {
+  mean: Float32Array;
+  sigma: Float32Array;
+  logVariance: Float32Array;
 }
 
 export type PolicyOnnxSessionFactory = (

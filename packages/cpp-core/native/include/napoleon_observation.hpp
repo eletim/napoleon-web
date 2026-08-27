@@ -20,6 +20,10 @@ constexpr int kCardsPerTrick = 5;
 constexpr int kMaxBiddingActionCount = 117;
 constexpr int kPlayingModelInputFeatureCount = 6246;
 constexpr int kCompleteInfoPlayingModelInputFeatureCount = 385;
+constexpr int kBiddingEncoderSchemaVersion = 1;
+constexpr int kBiddingModelInputSchemaVersion = 2;
+constexpr int kBiddingActionCount = 29;
+constexpr int kBiddingModelInputFeatureCount = 278;
 constexpr int kFlatObservationFeatureCount = 684;
 constexpr int kCompleteInfoOwnerClassCount = 6;
 constexpr int kNotInHandOwnerClassIndex = 5;
@@ -86,19 +90,33 @@ struct VariantPlayingModelInput {
   std::array<int, kCardCount> legal_play_mask{};
 };
 
+struct BiddingModelInput {
+  int encoder_schema_version = kBiddingEncoderSchemaVersion;
+  int model_input_schema_version = kBiddingModelInputSchemaVersion;
+  int model_input_feature_count = kBiddingModelInputFeatureCount;
+  int player_index = 0;
+  std::array<int, kPlayerCount> relative_player_indices{};
+  std::array<float, kBiddingModelInputFeatureCount> model_input{};
+  std::array<int, kBiddingActionCount> legal_bid_mask{};
+};
+
 std::optional<PlayingModelInput> create_current_player_playing_model_input(const GameState& state);
 PlayingModelInput create_playing_model_input(const GameState& state, int player_index);
 VariantPlayingModelInput create_playing_model_input(
     const GameState& state,
     int player_index,
     PlayingObservationVariant variant);
+BiddingModelInput create_bidding_model_input(const GameState& state, int player_index);
 int playing_card_model_index(Card card);
 Card card_from_playing_model_index(int index);
+int bidding_action_index(const Action& action);
+Action bidding_action_from_index(int action_index, int player_index);
 PlayingObservationVariant parse_playing_observation_variant(const std::string& value);
 std::string playing_observation_variant_id(PlayingObservationVariant variant);
 int playing_encoder_schema_version(PlayingObservationVariant variant);
 int playing_model_input_schema_version(PlayingObservationVariant variant);
 int playing_model_input_feature_count(PlayingObservationVariant variant);
+std::string current_player_bidding_model_input_json(const GameState& state);
 std::string current_player_playing_model_input_json(const GameState& state);
 std::string canonical_snapshot_with_current_player_playing_model_input_json(const GameState& state);
 

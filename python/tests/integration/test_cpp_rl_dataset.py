@@ -6,11 +6,16 @@ import json
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import torch
 
+from napoleon_ml.bidding.ppo import (
+    BIDDING_MODEL_INPUT_FEATURE_COUNT,
+    iter_non_playing_bidding_rl_samples,
+    load_non_playing_bidding_rl_manifest,
+)
 from napoleon_ml.dataset import load_manifest
 from napoleon_ml.dataset.constants import (
     COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT,
@@ -23,6 +28,62 @@ from napoleon_ml.dataset.split import DatasetSplit, SplitConfig
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+@pytest.mark.integration
+def test_cpp_generated_nonplaying_bidding_dataset_loads_python_trainer_samples() -> None:
+    with tempfile.TemporaryDirectory(prefix="napoleon-cpp-nonplaying-bidding-") as tmp_dir_name:
+        tmp_root = Path(tmp_dir_name)
+        output_directory = tmp_root / "dataset"
+
+        _build_cpp_core()
+        result = subprocess.run(
+            [
+                str(_REPO_ROOT / "packages/cpp-core/build/napoleon_nonplaying_bidding_dataset_cli"),
+                "--output",
+                str(output_directory),
+                "--policy-backend",
+                "deterministic",
+                "--start-seed",
+                "11",
+                "--game-count",
+                "2",
+                "--games-per-shard",
+                "10",
+                "--max-concurrent-games",
+                "4",
+                "--inference-max-batch-size",
+                "8",
+            ],
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+
+        assert result.returncode == 0, (
+            f"napoleon_nonplaying_bidding_dataset_cli failed (exit {result.returncode}):\n"
+            f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+        )
+        cli_summary = json.loads(result.stdout)
+        assert cli_summary["actualGameCount"] == 10
+        assert cli_summary["sampleCount"] == 10
+        assert cli_summary["inferenceBatchCount"] > 0
+        assert cli_summary["meanBatchSize"] > 1
+
+        manifest = load_non_playing_bidding_rl_manifest(output_directory)
+        samples = list(iter_non_playing_bidding_rl_samples(output_directory))
+        assert manifest.raw["diagnostics"]["simulationBackend"] == "cpp"
+        non_learning = cast(dict[str, Any], manifest.raw["nonLearningAgents"])
+        assert non_learning["choosingAdjutant"] == {"type": "rule-based", "version": 1}
+        assert non_learning["exchanging"] == {"type": "rule-based", "version": 1}
+        assert manifest.sample_count == 10
+        assert len(samples) == 10
+        assert {sample.acting_player_index for sample in samples} == {0, 1, 2, 3, 4}
+        assert all(sample.model_input.shape == (BIDDING_MODEL_INPUT_FEATURE_COUNT,) for sample in samples)
+        assert all(len(sample.legal_bid_mask) == 29 for sample in samples)
+        assert all(sample.legal_bid_mask[sample.selected_action_index] == 1 for sample in samples)
+        assert all(sample.behavior_log_probability <= 0 for sample in samples)
 
 
 @pytest.mark.integration
@@ -182,14 +243,16 @@ def test_cpp_generated_rl_binary_dataset_loads_current_python_trainer_batch() ->
         # playing decisions per game become training samples.
         actor_by_seed = {
             int(seed): sorted(set(all_actors[all_seeds == seed].tolist()))
-            for seed in all_seeds.unique(sorted=True)
+            for seed in sorted({int(value) for value in all_seeds.tolist()})
         }
         assert actor_by_seed == {0: [0], 1: [1], 2: [2]}
 
 
 @pytest.mark.integration
 def test_cpp_generated_complete_info_rl_binary_dataset_uses_public_frozen_pool() -> None:
-    with tempfile.TemporaryDirectory(prefix="napoleon-cpp-complete-info-rl-dataset-") as tmp_dir_name:
+    with tempfile.TemporaryDirectory(
+        prefix="napoleon-cpp-complete-info-rl-dataset-"
+    ) as tmp_dir_name:
         tmp_root = Path(tmp_dir_name)
         output_directory = tmp_root / "dataset"
         compact_onnx = tmp_root / "compact-current.onnx"
@@ -256,11 +319,20 @@ def test_cpp_generated_complete_info_rl_binary_dataset_uses_public_frozen_pool()
             f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
         )
         cli_summary = json.loads(result.stdout)
-        assert cli_summary["playingObservationVariant"] == COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT
-        assert cli_summary["modelInputFeatureCount"] == COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT
+        assert (
+            cli_summary["playingObservationVariant"]
+            == COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT
+        )
+        assert (
+            cli_summary["modelInputFeatureCount"]
+            == COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT
+        )
 
         manifest = load_manifest(output_directory)
-        assert manifest.playing_observation_variant == COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT
+        assert (
+            manifest.playing_observation_variant
+            == COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT
+        )
         assert manifest.playing_encoder_schema_version == 1
         assert manifest.playing_model_input_schema_version == 1
         assert manifest.model_input_feature_count == COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT
@@ -269,18 +341,21 @@ def test_cpp_generated_complete_info_rl_binary_dataset_uses_public_frozen_pool()
             COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT,
         )
         assert manifest.behavior_policy is not None
-        assert manifest.behavior_policy.metadata["policyModel"]["input_dim"] == (
+        behavior_metadata = cast(dict[str, Any], manifest.behavior_policy.metadata)
+        behavior_policy_model = cast(dict[str, Any], behavior_metadata["policyModel"])
+        provenance = cast(dict[str, Any], manifest.provenance)
+        assert behavior_policy_model["input_dim"] == (
             COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT
         )
-        assert manifest.provenance["playingObservationVariant"] == (
+        assert provenance["playingObservationVariant"] == (
             COMPLETE_INFO_COMPACT_PLAYING_OBSERVATION_VARIANT
         )
-        assert manifest.provenance["modelInputFeatureCount"] == (
+        assert provenance["modelInputFeatureCount"] == (
             COMPLETE_INFO_PLAYING_MODEL_INPUT_FEATURE_COUNT
         )
-        assert manifest.provenance["frozenPlayingObservationVariant"] == "public"
-        assert manifest.provenance["frozenModelInputFeatureCount"] == MODEL_INPUT_FEATURE_COUNT
-        assert manifest.provenance["behaviorSamples"] == "current-policy-only"
+        assert provenance["frozenPlayingObservationVariant"] == "public"
+        assert provenance["frozenModelInputFeatureCount"] == MODEL_INPUT_FEATURE_COUNT
+        assert provenance["behaviorSamples"] == "current-policy-only"
         assert manifest.opponent_pool == {
             "weighted": [
                 {"source": "rule-based", "weight": 1},
@@ -307,7 +382,7 @@ def test_cpp_generated_complete_info_rl_binary_dataset_uses_public_frozen_pool()
         all_actors = torch.cat([batch["acting_player_index"] for batch in batches])
         actor_by_seed = {
             int(seed): sorted(set(all_actors[all_seeds == seed].tolist()))
-            for seed in all_seeds.unique(sorted=True)
+            for seed in sorted({int(value) for value in all_seeds.tolist()})
         }
         assert actor_by_seed == {10: [0], 11: [1], 12: [2]}
         assert sum(int(batch["seed"].shape[0]) for batch in batches) == 30

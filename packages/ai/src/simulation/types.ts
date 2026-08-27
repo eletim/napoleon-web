@@ -78,7 +78,7 @@ export interface RunEvaluationOptions {
   maxDecisionSteps?: number;
 }
 
-export type EvaluationSeatRole = "napoleon" | "adjutant" | "alliance" | "unknown";
+export type EvaluationSeatRole = "napoleon" | "adjutant" | "alliance" | "starter" | "all-pass-other" | "unknown";
 
 export interface EvaluationSeatAssignment {
   playerId: PlayerId;
@@ -102,15 +102,16 @@ export interface EvaluationPointCardSummary {
 export interface CompletedEvaluationGameRecord {
   schemaVersion: 1;
   status: "completed";
+  resultType: GameResult["resultType"];
   gameIndex: number;
   seed: number;
   rotationOffset: number;
   playerIds: readonly PlayerId[];
   seats: readonly EvaluationSeatAssignment[];
-  contract: EvaluationContractSummary;
-  pointCards: EvaluationPointCardSummary;
-  winner: WinningTeam;
-  contractSucceeded: boolean;
+  contract: EvaluationContractSummary | null;
+  pointCards: EvaluationPointCardSummary | null;
+  winner: WinningTeam | null;
+  contractSucceeded: boolean | null;
   result: GameResult;
 }
 

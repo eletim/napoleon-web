@@ -3,6 +3,7 @@ import {
   ADJUTANT_MODEL_INPUT_SCHEMA_VERSION,
   BIDDING_ACTION_COUNT,
   BIDDING_ENCODER_SCHEMA_VERSION,
+  BIDDING_MODEL_INPUT_FEATURE_COUNT as AI_OBSERVATION_BIDDING_MODEL_INPUT_FEATURE_COUNT,
   BIDDING_MODEL_INPUT_SCHEMA_VERSION,
   CARD_COUNT,
   EXCHANGE_ENCODER_SCHEMA_VERSION,
@@ -19,18 +20,23 @@ import { DATASET_SCHEMA_VERSION, MULTIPHASE_DATASET_SCHEMA_VERSION } from "@napo
 export const POLICY_ONNX_METADATA_SCHEMA_VERSION = 1 as const;
 export const NONPLAYING_ONNX_METADATA_SCHEMA_VERSION = 1 as const;
 export const POLICY_CRITIC_ONNX_METADATA_SCHEMA_VERSION = 1 as const;
+export const BIDDING_MARGIN_ONNX_METADATA_SCHEMA_VERSION = 1 as const;
 export const POLICY_CHECKPOINT_SCHEMA_VERSION = 1 as const;
 export const ONNX_OPSET_VERSION = 18 as const;
 export const ONNX_INPUT_NAME = "model_input" as const;
 export const ONNX_OUTPUT_NAME = "logits" as const;
 export const ONNX_CRITIC_OUTPUT_NAME = "value" as const;
+export const ONNX_MARGIN_MEAN_OUTPUT_NAME = "mean" as const;
+export const ONNX_MARGIN_LOG_VARIANCE_OUTPUT_NAME = "log_variance" as const;
 export const ONNX_DTYPE = "float32" as const;
 export const ONNX_TENSOR_FLOAT_TYPE = "tensor(float)" as const;
 export const ONNX_BATCH_DIMENSION = "batch" as const;
-export const BIDDING_MODEL_INPUT_FEATURE_COUNT = 2333 as const;
-export const EXCHANGE_MODEL_INPUT_FEATURE_COUNT = 2611 as const;
+export const BIDDING_MODEL_INPUT_FEATURE_COUNT = AI_OBSERVATION_BIDDING_MODEL_INPUT_FEATURE_COUNT;
+export const EXCHANGE_MODEL_INPUT_FEATURE_COUNT = 2671 as const;
 export const ADJUTANT_MODEL_INPUT_FEATURE_COUNT = 2553 as const;
 export const EXCHANGE_DISCARD_COUNT = 3 as const;
+export const EXCHANGE_DECISION_MODE_TOP3_SET = "top3-set-v1" as const;
+export const EXCHANGE_DECISION_MODE_SEQUENTIAL_CARD = "sequential-card-v1" as const;
 
 export {
   ADJUTANT_ENCODER_SCHEMA_VERSION,

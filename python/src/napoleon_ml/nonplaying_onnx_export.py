@@ -20,11 +20,35 @@ from napoleon_ml.adjutant.checkpoint import (
 )
 from napoleon_ml.adjutant.checkpoint import load_adjutant_checkpoint
 from napoleon_ml.adjutant.metrics import select_adjutant_action
+from napoleon_ml.adjutant.model import (
+    AdjutantMlpConfig,
+    create_seeded_adjutant_actor_critic_model,
+)
+from napoleon_ml.adjutant.ppo import (
+    ADJUTANT_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+    ADJUTANT_PPO_ALGORITHM,
+    ADJUTANT_PPO_CHECKPOINT_SCHEMA_VERSION,
+    iter_non_playing_adjutant_rl_samples,
+    load_adjutant_logits_checkpoint,
+)
+from napoleon_ml.adjutant.ppo import (
+    NON_PLAYING_RL_SAMPLE_TYPE as ADJUTANT_PPO_SAMPLE_TYPE,
+)
 from napoleon_ml.bidding.checkpoint import (
     CHECKPOINT_SCHEMA_VERSION as BIDDING_CHECKPOINT_SCHEMA_VERSION,
 )
 from napoleon_ml.bidding.checkpoint import load_bidding_checkpoint
 from napoleon_ml.bidding.metrics import select_bidding_action
+from napoleon_ml.bidding.model import BiddingMlpConfig, create_seeded_bidding_actor_critic_model
+from napoleon_ml.bidding.ppo import (
+    BIDDING_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+    BIDDING_PPO_ALGORITHM,
+    BIDDING_PPO_CHECKPOINT_SCHEMA_VERSION,
+    NON_PLAYING_RL_SAMPLE_TYPE,
+    iter_non_playing_bidding_rl_samples,
+    load_bidding_logits_checkpoint,
+    load_bidding_ppo_checkpoint,
+)
 from napoleon_ml.dataset.constants import (
     ADJUTANT_DATASET_SAMPLE_TYPE,
     ADJUTANT_ENCODER_SCHEMA_VERSION,
@@ -48,7 +72,6 @@ from napoleon_ml.dataset.tensors import (
     TensorizedAdjutantSample,
     TensorizedBiddingSample,
     TensorizedExchangeSample,
-    TensorizedTrainingSample,
 )
 from napoleon_ml.dataset.validation import calculate_card_ids_sha256
 from napoleon_ml.exchange.checkpoint import (
@@ -56,6 +79,19 @@ from napoleon_ml.exchange.checkpoint import (
 )
 from napoleon_ml.exchange.checkpoint import load_exchange_checkpoint
 from napoleon_ml.exchange.metrics import DISCARD_COUNT, select_exchange_discards
+from napoleon_ml.exchange.model import ExchangeMlpConfig, create_seeded_exchange_actor_critic_model
+from napoleon_ml.exchange.ppo import (
+    EXCHANGE_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+    EXCHANGE_DECISION_MODE,
+    EXCHANGE_PPO_ALGORITHM,
+    EXCHANGE_PPO_CHECKPOINT_SCHEMA_VERSION,
+    iter_non_playing_exchange_rl_samples,
+    load_exchange_logits_checkpoint,
+    load_exchange_ppo_checkpoint,
+)
+from napoleon_ml.exchange.ppo import (
+    NON_PLAYING_RL_SAMPLE_TYPE as EXCHANGE_PPO_SAMPLE_TYPE,
+)
 
 PolicyType = Literal["bidding", "exchange", "adjutant"]
 
@@ -63,6 +99,7 @@ ONNX_INPUT_NAME = "model_input"
 ONNX_OUTPUT_NAME = "logits"
 ONNX_OPSET_VERSION = 18
 NONPLAYING_ONNX_METADATA_SCHEMA_VERSION = 1
+NONPLAYING_POLICY_CHECKPOINT_SCHEMA_VERSION = 1
 _FLOAT32_DTYPE = "float32"
 _BATCH_DIMENSION = "batch"
 _PARITY_RTOL = 1e-4
@@ -129,18 +166,33 @@ class _NonPlayingPolicySpec:
 def _load_bidding(
     path: Path | str, manifest: DatasetManifest
 ) -> tuple[nn.Module, dict[str, object]]:
+    checkpoint = torch.load(Path(path), map_location="cpu", weights_only=True)
+    if isinstance(checkpoint, dict) and checkpoint.get("model_architecture") == (
+        BIDDING_ACTOR_CRITIC_MODEL_ARCHITECTURE
+    ):
+        return load_bidding_ppo_checkpoint(path)
     return load_bidding_checkpoint(path, manifest=manifest)
 
 
 def _load_exchange(
     path: Path | str, manifest: DatasetManifest
 ) -> tuple[nn.Module, dict[str, object]]:
+    checkpoint = torch.load(Path(path), map_location="cpu", weights_only=True)
+    if isinstance(checkpoint, dict) and checkpoint.get("model_architecture") == (
+        EXCHANGE_ACTOR_CRITIC_MODEL_ARCHITECTURE
+    ):
+        return load_exchange_ppo_checkpoint(path)
     return load_exchange_checkpoint(path, manifest=manifest)
 
 
 def _load_adjutant(
     path: Path | str, manifest: DatasetManifest
 ) -> tuple[nn.Module, dict[str, object]]:
+    checkpoint = torch.load(Path(path), map_location="cpu", weights_only=True)
+    if isinstance(checkpoint, dict) and checkpoint.get("model_architecture") == (
+        ADJUTANT_ACTOR_CRITIC_MODEL_ARCHITECTURE
+    ):
+        return load_adjutant_logits_checkpoint(path)
     return load_adjutant_checkpoint(path, manifest=manifest)
 
 
@@ -166,7 +218,7 @@ _SPECS: dict[PolicyType, _NonPlayingPolicySpec] = {
         policy_type="exchange",
         artifact_type="napoleon-exchange-policy-onnx",
         sample_type=EXCHANGE_DATASET_SAMPLE_TYPE,
-        checkpoint_schema_version=EXCHANGE_CHECKPOINT_SCHEMA_VERSION,
+        checkpoint_schema_version=NONPLAYING_POLICY_CHECKPOINT_SCHEMA_VERSION,
         encoder_schema_version=EXCHANGE_ENCODER_SCHEMA_VERSION,
         model_input_schema_version=EXCHANGE_MODEL_INPUT_SCHEMA_VERSION,
         model_input_feature_count=EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
@@ -198,6 +250,7 @@ _SPECS: dict[PolicyType, _NonPlayingPolicySpec] = {
         selection_kind="single",
     ),
 }
+NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION = 4
 
 
 def export_nonplaying_checkpoint_to_onnx(
@@ -285,6 +338,286 @@ def export_nonplaying_checkpoint_to_onnx(
     )
 
 
+def export_bidding_rl_checkpoint_to_onnx(
+    *,
+    dataset_directory: Path | str,
+    checkpoint_path: Path | str,
+    onnx_path: Path | str,
+    metadata_path: Path | str,
+) -> NonPlayingOnnxExportReport:
+    """Export a bidding PPO checkpoint using a #206 non-playing RL dataset sample."""
+
+    spec = _SPECS["bidding"]
+    checkpoint_file = Path(checkpoint_path)
+    output = Path(onnx_path)
+    metadata_output = Path(metadata_path)
+    _validate_export_paths(
+        checkpoint_path=checkpoint_file,
+        onnx_path=output,
+        metadata_path=metadata_output,
+    )
+    model, checkpoint = load_bidding_logits_checkpoint(checkpoint_file)
+    _validate_checkpoint_metadata_for_export(spec, checkpoint, model=model)
+    _validate_model_for_export(spec, model)
+
+    sample = next(iter_non_playing_bidding_rl_samples(dataset_directory), None)
+    if sample is None:
+        raise NonPlayingOnnxExportError("bidding RL dataset contains no samples.")
+
+    model.eval()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    metadata_output.parent.mkdir(parents=True, exist_ok=True)
+
+    dummy_input = torch.zeros((2, spec.model_input_feature_count), dtype=torch.float32)
+    staged_output = _temporary_sibling(output)
+    staged_metadata = _temporary_sibling(metadata_output)
+    try:
+        with torch.no_grad():
+            _export_onnx(model=model, dummy_input=dummy_input, output=staged_output)
+        metadata = build_nonplaying_onnx_metadata(
+            policy_type="bidding",
+            model=model,
+            checkpoint=checkpoint,
+        )
+        parity = _check_onnx_runtime_parity(
+            spec=spec,
+            model=model,
+            onnx_path=staged_output,
+            sample=sample,
+            metadata=metadata,
+        )
+        staged_metadata.write_text(
+            json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        staged_output.replace(output)
+        staged_metadata.replace(metadata_output)
+    except Exception:
+        staged_output.unlink(missing_ok=True)
+        staged_metadata.unlink(missing_ok=True)
+        raise
+
+    return NonPlayingOnnxExportReport(
+        policy_type="bidding",
+        onnx_path=output,
+        metadata_path=metadata_output,
+        sample_seed=sample.seed,
+        sample_step=sample.step,
+        max_abs_logit_diff=parity.max_abs_logit_diff,
+        pytorch_selection=parity.pytorch_selection,
+        onnx_selection=parity.onnx_selection,
+    )
+
+
+def export_adjutant_rl_checkpoint_to_onnx(
+    *,
+    dataset_directory: Path | str,
+    checkpoint_path: Path | str,
+    onnx_path: Path | str,
+    metadata_path: Path | str,
+) -> NonPlayingOnnxExportReport:
+    """Export an adjutant PPO checkpoint using a non-playing RL dataset sample."""
+
+    spec = _SPECS["adjutant"]
+    checkpoint_file = Path(checkpoint_path)
+    output = Path(onnx_path)
+    metadata_output = Path(metadata_path)
+    _validate_export_paths(
+        checkpoint_path=checkpoint_file,
+        onnx_path=output,
+        metadata_path=metadata_output,
+    )
+    model, checkpoint = load_adjutant_logits_checkpoint(checkpoint_file)
+    _validate_checkpoint_metadata_for_export(spec, checkpoint, model=model)
+    _validate_model_for_export(spec, model)
+
+    sample = next(iter_non_playing_adjutant_rl_samples(dataset_directory), None)
+    if sample is None:
+        raise NonPlayingOnnxExportError("adjutant RL dataset contains no samples.")
+
+    model.eval()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    metadata_output.parent.mkdir(parents=True, exist_ok=True)
+
+    dummy_input = torch.zeros((2, spec.model_input_feature_count), dtype=torch.float32)
+    staged_output = _temporary_sibling(output)
+    staged_metadata = _temporary_sibling(metadata_output)
+    try:
+        with torch.no_grad():
+            _export_onnx(model=model, dummy_input=dummy_input, output=staged_output)
+        metadata = build_nonplaying_onnx_metadata(
+            policy_type="adjutant",
+            model=model,
+            checkpoint=checkpoint,
+        )
+        parity = _check_onnx_runtime_parity(
+            spec=spec,
+            model=model,
+            onnx_path=staged_output,
+            sample=sample,
+            metadata=metadata,
+        )
+        staged_metadata.write_text(
+            json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        staged_output.replace(output)
+        staged_metadata.replace(metadata_output)
+    except Exception:
+        staged_output.unlink(missing_ok=True)
+        staged_metadata.unlink(missing_ok=True)
+        raise
+
+    return NonPlayingOnnxExportReport(
+        policy_type="adjutant",
+        onnx_path=output,
+        metadata_path=metadata_output,
+        sample_seed=sample.seed,
+        sample_step=sample.step,
+        max_abs_logit_diff=parity.max_abs_logit_diff,
+        pytorch_selection=parity.pytorch_selection,
+        onnx_selection=parity.onnx_selection,
+    )
+
+
+def export_exchange_rl_checkpoint_to_onnx(
+    *,
+    dataset_directory: Path | str,
+    checkpoint_path: Path | str,
+    onnx_path: Path | str,
+    metadata_path: Path | str,
+) -> NonPlayingOnnxExportReport:
+    """Export a sequential-card exchange PPO checkpoint using a non-playing RL sample."""
+
+    spec = _SPECS["exchange"]
+    checkpoint_file = Path(checkpoint_path)
+    output = Path(onnx_path)
+    metadata_output = Path(metadata_path)
+    _validate_export_paths(
+        checkpoint_path=checkpoint_file,
+        onnx_path=output,
+        metadata_path=metadata_output,
+    )
+    model, checkpoint = load_exchange_logits_checkpoint(checkpoint_file)
+    _validate_checkpoint_metadata_for_export(spec, checkpoint, model=model)
+    _validate_model_for_export(spec, model)
+
+    sample = next(iter_non_playing_exchange_rl_samples(dataset_directory), None)
+    if sample is None:
+        raise NonPlayingOnnxExportError("exchange RL dataset contains no samples.")
+
+    model.eval()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    metadata_output.parent.mkdir(parents=True, exist_ok=True)
+
+    dummy_input = torch.zeros((2, spec.model_input_feature_count), dtype=torch.float32)
+    staged_output = _temporary_sibling(output)
+    staged_metadata = _temporary_sibling(metadata_output)
+    try:
+        with torch.no_grad():
+            _export_onnx(model=model, dummy_input=dummy_input, output=staged_output)
+        metadata = build_nonplaying_onnx_metadata(
+            policy_type="exchange",
+            model=model,
+            checkpoint=checkpoint,
+        )
+        parity = _check_onnx_runtime_parity(
+            spec=spec,
+            model=model,
+            onnx_path=staged_output,
+            sample=sample,
+            metadata=metadata,
+        )
+        staged_metadata.write_text(
+            json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        staged_output.replace(output)
+        staged_metadata.replace(metadata_output)
+    except Exception:
+        staged_output.unlink(missing_ok=True)
+        staged_metadata.unlink(missing_ok=True)
+        raise
+
+    return NonPlayingOnnxExportReport(
+        policy_type="exchange",
+        onnx_path=output,
+        metadata_path=metadata_output,
+        sample_seed=sample.seed,
+        sample_step=sample.step,
+        max_abs_logit_diff=parity.max_abs_logit_diff,
+        pytorch_selection=parity.pytorch_selection,
+        onnx_selection=parity.onnx_selection,
+    )
+
+
+def export_seeded_nonplaying_bootstrap_policy_to_onnx(
+    *,
+    policy_type: PolicyType,
+    onnx_path: Path | str,
+    metadata_path: Path | str,
+    seed: int,
+    hidden_dim: int = 128,
+    hidden_layers: int = 2,
+    bidding_hidden_dims: tuple[int, ...] | None = None,
+    dropout: float = 0.0,
+) -> dict[str, object]:
+    """Export a seeded untrained non-playing policy for first rollout generation.
+
+    This intentionally keeps the same runtime ONNX and metadata contracts as trained
+    non-playing artifacts, but skips dataset-sample parity because the first rollout
+    dataset does not exist yet.
+    """
+
+    spec = _SPECS[policy_type]
+    output = Path(onnx_path)
+    metadata_output = Path(metadata_path)
+    _validate_bootstrap_export_paths(onnx_path=output, metadata_path=metadata_output)
+    model, checkpoint = _create_bootstrap_model_and_checkpoint(
+        policy_type=policy_type,
+        seed=seed,
+        hidden_dim=hidden_dim,
+        hidden_layers=hidden_layers,
+        bidding_hidden_dims=bidding_hidden_dims,
+        dropout=dropout,
+    )
+    _validate_checkpoint_metadata_for_export(spec, checkpoint, model=model)
+    _validate_model_for_export(spec, model)
+
+    model.eval()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    metadata_output.parent.mkdir(parents=True, exist_ok=True)
+
+    dummy_input = torch.zeros((2, spec.model_input_feature_count), dtype=torch.float32)
+    staged_output = _temporary_sibling(output)
+    staged_metadata = _temporary_sibling(metadata_output)
+    try:
+        with torch.no_grad():
+            _export_onnx(model=model, dummy_input=dummy_input, output=staged_output)
+        metadata = build_nonplaying_onnx_metadata(
+            policy_type=policy_type,
+            model=model,
+            checkpoint=checkpoint,
+        )
+        staged_metadata.write_text(
+            json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        staged_output.replace(output)
+        staged_metadata.replace(metadata_output)
+    except Exception:
+        staged_output.unlink(missing_ok=True)
+        staged_metadata.unlink(missing_ok=True)
+        raise
+
+    return {
+        "policyType": policy_type,
+        "onnxPath": str(output),
+        "metadataPath": str(metadata_output),
+        "seed": seed,
+    }
+
+
 def build_nonplaying_onnx_metadata(
     *,
     policy_type: PolicyType,
@@ -338,8 +671,13 @@ def build_nonplaying_onnx_metadata(
         "checkpointSeed": checkpoint["seed"],
         "checkpointCompatibilityMetadata": compatibility_metadata,
     }
+    terminal_reward_transform = checkpoint.get("terminal_reward_transform")
+    if isinstance(terminal_reward_transform, dict):
+        metadata["terminalRewardTransform"] = terminal_reward_transform
     if spec.discard_count is not None:
         metadata["discardCount"] = spec.discard_count
+    if spec.policy_type == "exchange":
+        metadata["decisionMode"] = checkpoint.get("decision_mode", "top3-set-v1")
     return metadata
 
 
@@ -370,6 +708,16 @@ def validate_nonplaying_onnx_metadata(metadata: dict[str, Any]) -> None:
     }
     if spec.discard_count is not None:
         expected["discardCount"] = spec.discard_count
+    if spec.policy_type == "exchange":
+        decision_mode = metadata.get("decisionMode", "top3-set-v1")
+        if decision_mode not in ("top3-set-v1", EXCHANGE_DECISION_MODE):
+            raise NonPlayingOnnxExportError(
+                f"metadata decisionMode is unsupported: {decision_mode!r}."
+            )
+    if "terminalRewardTransform" in metadata:
+        transform = metadata["terminalRewardTransform"]
+        if not isinstance(transform, dict):
+            raise NonPlayingOnnxExportError("metadata terminalRewardTransform must be an object.")
 
     for key, value in expected.items():
         actual = metadata.get(key)
@@ -400,6 +748,120 @@ def validate_nonplaying_onnx_metadata(metadata: dict[str, Any]) -> None:
         expected_dtype=_FLOAT32_DTYPE,
         label="output",
     )
+
+
+def _validate_bootstrap_export_paths(*, onnx_path: Path, metadata_path: Path) -> None:
+    resolved_onnx = onnx_path.resolve()
+    resolved_metadata = metadata_path.resolve()
+
+    if resolved_onnx == resolved_metadata:
+        raise NonPlayingOnnxExportError(
+            "ONNX output and metadata output must be different paths."
+        )
+    if _is_nested_path(resolved_onnx, resolved_metadata):
+        raise NonPlayingOnnxExportError(
+            "ONNX output and metadata output must not be nested under each other."
+        )
+    _validate_writable_artifact_path(onnx_path, label="ONNX output")
+    _validate_writable_artifact_path(metadata_path, label="metadata output")
+
+
+def _create_bootstrap_model_and_checkpoint(
+    *,
+    policy_type: PolicyType,
+    seed: int,
+    hidden_dim: int,
+    hidden_layers: int,
+    bidding_hidden_dims: tuple[int, ...] | None,
+    dropout: float,
+) -> tuple[nn.Module, dict[str, object]]:
+    if policy_type == "bidding":
+        bidding_config = BiddingMlpConfig(
+            hidden_dim=hidden_dim,
+            hidden_layers=hidden_layers,
+            hidden_dims=bidding_hidden_dims,
+            dropout=dropout,
+        )
+        model: nn.Module = create_seeded_bidding_actor_critic_model(bidding_config, seed=seed)
+        return model, {
+            "checkpoint_schema_version": BIDDING_PPO_CHECKPOINT_SCHEMA_VERSION,
+            "model_architecture": BIDDING_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+            "algorithm": BIDDING_PPO_ALGORITHM,
+            "model_config": bidding_config.to_dict(),
+            "training_config": {
+                "algorithm": BIDDING_PPO_ALGORITHM,
+                "bootstrap": True,
+                "entropyCoefficient": 0.0,
+            },
+            "dataset_schema_version": MULTIPHASE_DATASET_SCHEMA_VERSION,
+            "sample_type": NON_PLAYING_RL_SAMPLE_TYPE,
+            "sample_schema_version": NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION,
+            "phase_scope": "bidding-only",
+            "bidding_encoder_schema_version": BIDDING_ENCODER_SCHEMA_VERSION,
+            "model_input_schema_version": BIDDING_MODEL_INPUT_SCHEMA_VERSION,
+            "model_input_feature_count": BIDDING_MODEL_INPUT_FEATURE_COUNT,
+            "action_count": BIDDING_ACTION_COUNT,
+            "card_ids_sha256": calculate_card_ids_sha256(),
+            "seed": seed,
+        }
+
+    if policy_type == "adjutant":
+        adjutant_config = AdjutantMlpConfig(
+            hidden_dim=hidden_dim,
+            hidden_layers=hidden_layers,
+            dropout=dropout,
+        )
+        model = create_seeded_adjutant_actor_critic_model(adjutant_config, seed=seed)
+        return model, {
+            "checkpoint_schema_version": ADJUTANT_PPO_CHECKPOINT_SCHEMA_VERSION,
+            "model_architecture": ADJUTANT_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+            "algorithm": ADJUTANT_PPO_ALGORITHM,
+            "model_config": adjutant_config.to_dict(),
+            "training_config": {
+                "algorithm": ADJUTANT_PPO_ALGORITHM,
+                "bootstrap": True,
+            },
+            "dataset_schema_version": MULTIPHASE_DATASET_SCHEMA_VERSION,
+            "sample_type": ADJUTANT_PPO_SAMPLE_TYPE,
+            "sample_schema_version": NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION,
+            "phase_scope": "adjutant-only",
+            "adjutant_encoder_schema_version": ADJUTANT_ENCODER_SCHEMA_VERSION,
+            "adjutant_model_input_schema_version": ADJUTANT_MODEL_INPUT_SCHEMA_VERSION,
+            "model_input_schema_version": ADJUTANT_MODEL_INPUT_SCHEMA_VERSION,
+            "model_input_feature_count": ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
+            "action_count": CARD_COUNT,
+            "card_ids_sha256": calculate_card_ids_sha256(),
+            "seed": seed,
+        }
+
+    exchange_config = ExchangeMlpConfig(
+        hidden_dim=hidden_dim,
+        hidden_layers=hidden_layers,
+        dropout=dropout,
+    )
+    model = create_seeded_exchange_actor_critic_model(exchange_config, seed=seed)
+    return model, {
+        "checkpoint_schema_version": EXCHANGE_PPO_CHECKPOINT_SCHEMA_VERSION,
+        "model_architecture": EXCHANGE_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+        "algorithm": EXCHANGE_PPO_ALGORITHM,
+        "model_config": exchange_config.to_dict(),
+        "training_config": {
+            "algorithm": EXCHANGE_PPO_ALGORITHM,
+            "bootstrap": True,
+        },
+        "dataset_schema_version": MULTIPHASE_DATASET_SCHEMA_VERSION,
+        "sample_type": EXCHANGE_PPO_SAMPLE_TYPE,
+        "sample_schema_version": NON_PLAYING_RL_SAMPLE_SCHEMA_VERSION,
+        "phase_scope": "exchange-only",
+        "decision_mode": EXCHANGE_DECISION_MODE,
+        "exchange_encoder_schema_version": EXCHANGE_ENCODER_SCHEMA_VERSION,
+        "exchange_model_input_schema_version": EXCHANGE_MODEL_INPUT_SCHEMA_VERSION,
+        "model_input_schema_version": EXCHANGE_MODEL_INPUT_SCHEMA_VERSION,
+        "model_input_feature_count": EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
+        "action_count": CARD_COUNT,
+        "card_ids_sha256": calculate_card_ids_sha256(),
+        "seed": seed,
+    }
 
 
 def _temporary_sibling(path: Path) -> Path:
@@ -477,8 +939,30 @@ def _validate_checkpoint_metadata_for_export(
     model: nn.Module,
 ) -> None:
     model_config = _model_config_dict(model)
+    if (
+        spec.policy_type == "bidding"
+        and checkpoint.get("model_architecture") == BIDDING_ACTOR_CRITIC_MODEL_ARCHITECTURE
+    ):
+        _validate_bidding_ppo_checkpoint_for_export(checkpoint, model_config=model_config)
+        return
+    if (
+        spec.policy_type == "adjutant"
+        and checkpoint.get("model_architecture") == ADJUTANT_ACTOR_CRITIC_MODEL_ARCHITECTURE
+    ):
+        _validate_adjutant_ppo_checkpoint_for_export(checkpoint, model_config=model_config)
+        return
+    if (
+        spec.policy_type == "exchange"
+        and checkpoint.get("model_architecture") == EXCHANGE_ACTOR_CRITIC_MODEL_ARCHITECTURE
+    ):
+        _validate_exchange_ppo_checkpoint_for_export(checkpoint, model_config=model_config)
+        return
     expected_values: dict[str, object] = {
-        "checkpoint_schema_version": spec.checkpoint_schema_version,
+        "checkpoint_schema_version": (
+            EXCHANGE_CHECKPOINT_SCHEMA_VERSION
+            if spec.policy_type == "exchange"
+            else spec.checkpoint_schema_version
+        ),
         "dataset_schema_version": MULTIPHASE_DATASET_SCHEMA_VERSION,
         "sample_type": spec.sample_type,
         spec.encoder_checkpoint_key: spec.encoder_schema_version,
@@ -511,6 +995,95 @@ def _validate_checkpoint_metadata_for_export(
         )
 
 
+def _validate_bidding_ppo_checkpoint_for_export(
+    checkpoint: dict[str, object],
+    *,
+    model_config: dict[str, object],
+) -> None:
+    expected_values: dict[str, object] = {
+        "checkpoint_schema_version": BIDDING_PPO_CHECKPOINT_SCHEMA_VERSION,
+        "model_architecture": BIDDING_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+        "algorithm": BIDDING_PPO_ALGORITHM,
+        "sample_type": NON_PLAYING_RL_SAMPLE_TYPE,
+        "bidding_encoder_schema_version": BIDDING_ENCODER_SCHEMA_VERSION,
+        "model_input_schema_version": BIDDING_MODEL_INPUT_SCHEMA_VERSION,
+        "model_input_feature_count": BIDDING_MODEL_INPUT_FEATURE_COUNT,
+        "action_count": BIDDING_ACTION_COUNT,
+        "card_ids_sha256": calculate_card_ids_sha256(),
+        "model_config": model_config,
+    }
+    for key, expected in expected_values.items():
+        actual = checkpoint.get(key)
+        if actual != expected:
+            raise NonPlayingOnnxExportError(
+                f"bidding PPO checkpoint {key} mismatch: "
+                f"expected {expected!r}, got {actual!r}."
+            )
+    seed = checkpoint.get("seed")
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise NonPlayingOnnxExportError("bidding PPO checkpoint seed must be an integer.")
+
+
+def _validate_adjutant_ppo_checkpoint_for_export(
+    checkpoint: dict[str, object],
+    *,
+    model_config: dict[str, object],
+) -> None:
+    expected_values: dict[str, object] = {
+        "checkpoint_schema_version": ADJUTANT_PPO_CHECKPOINT_SCHEMA_VERSION,
+        "model_architecture": ADJUTANT_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+        "algorithm": ADJUTANT_PPO_ALGORITHM,
+        "sample_type": ADJUTANT_PPO_SAMPLE_TYPE,
+        "adjutant_encoder_schema_version": ADJUTANT_ENCODER_SCHEMA_VERSION,
+        "model_input_schema_version": ADJUTANT_MODEL_INPUT_SCHEMA_VERSION,
+        "model_input_feature_count": ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
+        "action_count": CARD_COUNT,
+        "card_ids_sha256": calculate_card_ids_sha256(),
+        "model_config": model_config,
+    }
+    for key, expected in expected_values.items():
+        actual = checkpoint.get(key)
+        if actual != expected:
+            raise NonPlayingOnnxExportError(
+                f"adjutant PPO checkpoint {key} mismatch: "
+                f"expected {expected!r}, got {actual!r}."
+            )
+    seed = checkpoint.get("seed")
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise NonPlayingOnnxExportError("adjutant PPO checkpoint seed must be an integer.")
+
+
+def _validate_exchange_ppo_checkpoint_for_export(
+    checkpoint: dict[str, object],
+    *,
+    model_config: dict[str, object],
+) -> None:
+    expected_values: dict[str, object] = {
+        "checkpoint_schema_version": EXCHANGE_PPO_CHECKPOINT_SCHEMA_VERSION,
+        "model_architecture": EXCHANGE_ACTOR_CRITIC_MODEL_ARCHITECTURE,
+        "algorithm": EXCHANGE_PPO_ALGORITHM,
+        "sample_type": EXCHANGE_PPO_SAMPLE_TYPE,
+        "phase_scope": "exchange-only",
+        "decision_mode": EXCHANGE_DECISION_MODE,
+        "exchange_encoder_schema_version": EXCHANGE_ENCODER_SCHEMA_VERSION,
+        "model_input_schema_version": EXCHANGE_MODEL_INPUT_SCHEMA_VERSION,
+        "model_input_feature_count": EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
+        "action_count": CARD_COUNT,
+        "card_ids_sha256": calculate_card_ids_sha256(),
+        "model_config": model_config,
+    }
+    for key, expected in expected_values.items():
+        actual = checkpoint.get(key)
+        if actual != expected:
+            raise NonPlayingOnnxExportError(
+                f"exchange PPO checkpoint {key} mismatch: "
+                f"expected {expected!r}, got {actual!r}."
+            )
+    seed = checkpoint.get("seed")
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise NonPlayingOnnxExportError("exchange PPO checkpoint seed must be an integer.")
+
+
 def _checkpoint_compatibility_metadata(
     spec: _NonPlayingPolicySpec,
     *,
@@ -521,7 +1094,10 @@ def _checkpoint_compatibility_metadata(
         "checkpointSchemaVersion": spec.checkpoint_schema_version,
         "datasetSchemaVersion": checkpoint["dataset_schema_version"],
         "sampleType": checkpoint["sample_type"],
-        "encoderSchemaVersion": checkpoint[spec.encoder_checkpoint_key],
+        "encoderSchemaVersion": checkpoint.get(
+            spec.encoder_checkpoint_key,
+            checkpoint.get("exchange_encoder_schema_version"),
+        ),
         "modelInputSchemaVersion": checkpoint[spec.model_input_checkpoint_key],
         "modelInputFeatureCount": spec.model_input_feature_count,
         "outputCount": checkpoint[spec.output_count_checkpoint_key],
@@ -530,7 +1106,30 @@ def _checkpoint_compatibility_metadata(
         "seed": checkpoint["seed"],
     }
     if spec.discard_count is not None:
-        metadata["discardCount"] = checkpoint["discard_count"]
+        metadata["discardCount"] = checkpoint.get("discard_count", spec.discard_count)
+    if spec.policy_type == "exchange" and "decision_mode" in checkpoint:
+        metadata["decisionMode"] = checkpoint["decision_mode"]
+    training_config = checkpoint.get("training_config")
+    if isinstance(training_config, dict):
+        metadata["trainingConfig"] = dict(training_config)
+        if spec.policy_type == "bidding":
+            metadata["biddingEntropyCoefficient"] = training_config.get(
+                "entropyCoefficient",
+                checkpoint.get("entropy_coefficient", 0.0),
+            )
+            bidding_advantage_normalization = training_config.get(
+                "advantageNormalization",
+                checkpoint.get("advantage_normalization"),
+            )
+            if bidding_advantage_normalization is not None:
+                metadata["biddingAdvantageNormalization"] = bidding_advantage_normalization
+            metadata["biddingMinibatchStrategy"] = training_config.get(
+                "minibatchStrategy",
+                checkpoint.get("minibatch_strategy", "random"),
+            )
+    terminal_reward_transform = checkpoint.get("terminal_reward_transform")
+    if isinstance(terminal_reward_transform, dict):
+        metadata["terminalRewardTransform"] = terminal_reward_transform
     return metadata
 
 
@@ -580,7 +1179,7 @@ def _check_onnx_runtime_parity(
     spec: _NonPlayingPolicySpec,
     model: nn.Module,
     onnx_path: Path,
-    sample: TensorizedTrainingSample,
+    sample: Any,
     metadata: dict[str, object],
 ) -> _OnnxParityResult:
     try:
@@ -601,7 +1200,12 @@ def _check_onnx_runtime_parity(
         model_input_torch = torch.from_numpy(model_input_np)
         legal_mask_torch = torch.from_numpy(legal_mask_np)
         pytorch_logits = model(model_input_torch)
-        pytorch_selection = _select(spec, pytorch_logits, legal_mask_torch)
+        pytorch_selection = _select(
+            spec,
+            pytorch_logits,
+            legal_mask_torch,
+            decision_mode=metadata.get("decisionMode"),
+        )
 
     session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
     _validate_onnx_runtime_io(spec, session)
@@ -631,7 +1235,12 @@ def _check_onnx_runtime_parity(
             "PyTorch and ONNX Runtime logits differ beyond tolerance."
         ) from error
 
-    onnx_selection = _select(spec, torch.from_numpy(onnx_logits_np), legal_mask_torch)
+    onnx_selection = _select(
+        spec,
+        torch.from_numpy(onnx_logits_np),
+        legal_mask_torch,
+        decision_mode=metadata.get("decisionMode"),
+    )
     pytorch_value = _selection_value(spec, pytorch_selection)
     onnx_value = _selection_value(spec, onnx_selection)
     if pytorch_value != onnx_value:
@@ -651,16 +1260,28 @@ def _check_onnx_runtime_parity(
     )
 
 
-def _select(spec: _NonPlayingPolicySpec, logits: Tensor, legal_mask: Tensor) -> Tensor:
+def _select(
+    spec: _NonPlayingPolicySpec,
+    logits: Tensor,
+    legal_mask: Tensor,
+    *,
+    decision_mode: object = None,
+) -> Tensor:
     if spec.policy_type == "bidding":
         return select_bidding_action(logits, legal_mask)
     if spec.policy_type == "exchange":
+        if decision_mode == EXCHANGE_DECISION_MODE:
+            masked = logits.masked_fill(
+                ~legal_mask.to(dtype=torch.bool),
+                torch.finfo(logits.dtype).min,
+            )
+            return torch.argmax(masked, dim=1)
         return select_exchange_discards(logits, legal_mask)
     return select_adjutant_action(logits, legal_mask)
 
 
 def _selection_value(spec: _NonPlayingPolicySpec, selection: Tensor) -> int | tuple[int, ...]:
-    if spec.selection_kind == "top3":
+    if selection.ndim == 2 and selection.shape[1] == DISCARD_COUNT:
         selected = tuple(sorted(int(index) for index in selection[0].tolist()))
         if len(selected) != DISCARD_COUNT or len(set(selected)) != DISCARD_COUNT:
             raise NonPlayingOnnxExportError(
@@ -677,7 +1298,7 @@ def _validate_selection_is_legal(
     selection: Tensor,
     legal_mask: Tensor,
 ) -> None:
-    if spec.selection_kind == "top3":
+    if selection.ndim == 2 and selection.shape[1] == DISCARD_COUNT:
         if selection.shape != (1, DISCARD_COUNT):
             raise NonPlayingOnnxExportError(
                 f"{spec.policy_type} selection must have shape (1, {DISCARD_COUNT})."

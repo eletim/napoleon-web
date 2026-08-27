@@ -1,6 +1,10 @@
 import type {
   CreateGameRequest,
   CreateGameResponse,
+  AiPolicyComposition,
+  AiPreset,
+  AiPresetId,
+  GetAiPresetsResponse,
   GetAgentsResponse,
   GetGameResponse,
   NextTrickResponse,
@@ -12,6 +16,20 @@ import { resolveAppPath } from "./appPath";
 
 export async function getAgents(): Promise<GetAgentsResponse> {
   return request<GetAgentsResponse>(resolveAppPath("api/agents"));
+}
+
+export async function getAiPresets(): Promise<GetAiPresetsResponse> {
+  return request<GetAiPresetsResponse>(resolveAppPath("api/ai-presets"));
+}
+
+export async function updateAiPreset(
+  presetId: AiPresetId,
+  composition: AiPolicyComposition
+): Promise<AiPreset> {
+  return request<AiPreset>(resolveAppPath(`api/ai-presets/${presetId}`), {
+    method: "PUT",
+    body: JSON.stringify({ composition })
+  });
 }
 
 export async function createGame(requestBody: CreateGameRequest = {}): Promise<CreateGameResponse> {

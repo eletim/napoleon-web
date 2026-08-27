@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import assert from "node:assert/strict";
 import {
@@ -13,13 +13,22 @@ import {
   type PlayerId,
   type Suit
 } from "@napoleon/game-core";
-import { selectPlayAction } from "@napoleon/ai";
 import {
+  selectParameterizedAdjutant,
+  selectParameterizedExchange,
+  selectPlayAction
+} from "@napoleon/ai";
+import {
+  BIDDING_ENCODER_SCHEMA_VERSION,
+  BIDDING_MODEL_INPUT_FEATURE_COUNT,
+  BIDDING_MODEL_INPUT_SCHEMA_VERSION,
   MODEL_INPUT_FEATURE_COUNT,
   MODEL_INPUT_SCHEMA_VERSION,
+  createBiddingModelInput,
   createPlayingModelInput,
   createRelativePlayerOrder,
   encodeBiddingHistoryFromPublicActions,
+  encodeBiddingObservation,
   encodePlayingObservation
 } from "@napoleon/ai-observation";
 
@@ -52,6 +61,7 @@ interface CanonicalSnapshot {
   isTrickComplete: boolean;
   isGameOver: boolean;
   playingModelInput: CanonicalPlayingModelInput | null;
+  biddingModelInput: CanonicalBiddingModelInput | null;
 }
 
 interface CanonicalPlayingModelInput {
@@ -60,6 +70,16 @@ interface CanonicalPlayingModelInput {
   playerId: string;
   observation: ReturnType<typeof encodePlayingObservation>;
   legalPlayMask: readonly number[];
+  modelInput: readonly number[];
+}
+
+interface CanonicalBiddingModelInput {
+  encoderSchemaVersion: typeof BIDDING_ENCODER_SCHEMA_VERSION;
+  modelInputSchemaVersion: typeof BIDDING_MODEL_INPUT_SCHEMA_VERSION;
+  modelInputFeatureCount: typeof BIDDING_MODEL_INPUT_FEATURE_COUNT;
+  playerId: string;
+  relativePlayerIds: readonly string[];
+  legalBidMask: readonly number[];
   modelInput: readonly number[];
 }
 
@@ -150,7 +170,40 @@ function toCanonicalSnapshot(
     trickNumber: state.trickNumber,
     isTrickComplete: state.isTrickComplete,
     isGameOver: state.isGameOver,
-    playingModelInput: toCanonicalPlayingModelInput(state, publicActionHistory)
+    playingModelInput: toCanonicalPlayingModelInput(state, publicActionHistory),
+    biddingModelInput: toCanonicalBiddingModelInput(state, publicActionHistory)
+  };
+}
+
+function toCanonicalBiddingModelInput(
+  state: GameState,
+  publicActionHistory: readonly PublicBiddingActionRecord[]
+): CanonicalBiddingModelInput | null {
+  if (state.phase !== "bidding") {
+    return null;
+  }
+
+  const playerId = state.currentPlayerId;
+  const absolutePlayerIds = state.players.map((player) => player.id);
+  const observation = encodeBiddingObservation(
+    {
+      playerId,
+      view: createPlayerView(state, playerId),
+      legalActions: getLegalActions(state, playerId),
+      publicActionHistory
+    },
+    absolutePlayerIds
+  );
+  const modelInput = createBiddingModelInput(observation);
+
+  return {
+    encoderSchemaVersion: BIDDING_ENCODER_SCHEMA_VERSION,
+    modelInputSchemaVersion: BIDDING_MODEL_INPUT_SCHEMA_VERSION,
+    modelInputFeatureCount: BIDDING_MODEL_INPUT_FEATURE_COUNT,
+    playerId,
+    relativePlayerIds: observation.relativePlayerIds,
+    legalBidMask: modelInput.legalBidMask,
+    modelInput: Array.from(modelInput.modelInput)
   };
 }
 
@@ -358,7 +411,13 @@ function writeRuleBasedOracle(
 }
 
 function allPassBiddingScript(): string[] {
-  return ["pass player-0", "pass player-1", "pass player-2", "pass player-3", "pass player-4"];
+  return [
+    "bid player-0 spades 13",
+    "pass player-1",
+    "pass player-2",
+    "pass player-3",
+    "pass player-4"
+  ];
 }
 
 function makeReadyToPlayScript(seed: number): string[] {
@@ -520,7 +579,104 @@ const cases = [
   ...Array.from({ length: 32 }, (_, index) => writeRandomizedGameCases(index)).flat()
 ];
 
+interface FormalParameterizedArtifact {
+  weights: readonly { weight: number }[];
+}
+
+function writeParameterizedParityCases(): readonly string[] {
+  const artifact = JSON.parse(
+    readFileSync(
+      resolve("../../benchmarks/non-playing-policies/parameterized-adjutant-exchange-v1/policy.json"),
+      "utf8"
+    )
+  ) as FormalParameterizedArtifact;
+  const values = artifact.weights.map((row) => row.weight);
+  assert.equal(values.length, 95);
+  writeFileSync(resolve(".differential/parameterized-weights.txt"), `${values.join("\n")}\n`);
+  const slugs: string[] = [];
+  const fixtures = [
+    { seed: 424242, suit: "spades" as const, target: 13 },
+    { seed: 452, suit: "hearts" as const, target: 15 },
+    { seed: 454, suit: "diamonds" as const, target: 18 },
+    { seed: 457, suit: "clubs" as const, target: 19 }
+  ];
+  for (const fixture of fixtures) {
+    const choosingScript = parameterizedBiddingScript(fixture.suit, fixture.target);
+    const choosingState = applyScriptToTs(fixture.seed, choosingScript);
+    assert.equal(choosingState.phase, "choosing-adjutant");
+    const choosingObservation = {
+      playerId: choosingState.currentPlayerId,
+      view: createPlayerView(choosingState, choosingState.currentPlayerId),
+      legalActions: getLegalActions(choosingState, choosingState.currentPlayerId),
+      publicActionHistory: publicBiddingHistoryFromScript(choosingScript)
+    };
+    const adjutant = selectParameterizedAdjutant(choosingObservation, values.slice(0, 35));
+    slugs.push(writeParameterizedParityCase(
+      `parameterized-adjutant-formal-${fixture.seed}`,
+      fixture.seed,
+      choosingScript,
+      adjutant
+    ));
+
+    const kittyCardIds = new Set(choosingState.unusedCards.map((card) => card.id));
+    const exchangeScript = [...choosingScript, actionToLine(adjutant.action)];
+    const exchangeState = applyScriptToTs(fixture.seed, exchangeScript);
+    assert.equal(exchangeState.phase, "exchanging");
+    const exchange = selectParameterizedExchange(
+      {
+        playerId: exchangeState.currentPlayerId,
+        view: createPlayerView(exchangeState, exchangeState.currentPlayerId),
+        legalActions: getLegalActions(exchangeState, exchangeState.currentPlayerId),
+        publicActionHistory: publicBiddingHistoryFromScript(exchangeScript)
+      },
+      kittyCardIds,
+      values.slice(35)
+    );
+    slugs.push(writeParameterizedParityCase(
+      `parameterized-exchange-formal-${fixture.seed}`,
+      fixture.seed,
+      exchangeScript,
+      exchange
+    ));
+  }
+  return slugs;
+}
+
+function parameterizedBiddingScript(suit: Suit, target: number): string[] {
+  return [
+    `bid player-0 ${suit} ${target}`,
+    "pass player-1",
+    "pass player-2",
+    "pass player-3",
+    "pass player-4"
+  ];
+}
+
+function writeParameterizedParityCase(
+  name: string,
+  seed: number,
+  script: readonly string[],
+  selection: { action: GameAction; score: number; features: readonly number[] }
+): string {
+  const slug = name.replaceAll(/[^a-zA-Z0-9]+/g, "-").toLowerCase();
+  const caseDir = resolve(".differential", slug);
+  mkdirSync(caseDir, { recursive: true });
+  writeFileSync(resolve(caseDir, "seed.txt"), `${seed}\n`);
+  writeFileSync(resolve(caseDir, "actions.txt"), `${script.join("\n")}\n`);
+  writeFileSync(
+    resolve(caseDir, "expected.json"),
+    `${JSON.stringify({ action: selection.action, score: selection.score, features: selection.features })}\n`
+  );
+  return slug;
+}
+
+const parameterizedCases = writeParameterizedParityCases();
+
 writeFileSync(resolve(".differential", "cases.txt"), `${cases.join("\n")}\n`);
+writeFileSync(
+  resolve(".differential", "parameterized-cases.txt"),
+  `${parameterizedCases.join("\n")}\n`
+);
 
 for (const slug of cases) {
   assert.match(slug, /^[a-z0-9-]+$/);

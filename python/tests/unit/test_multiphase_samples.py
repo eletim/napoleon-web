@@ -8,7 +8,12 @@ from typing import Any
 import numpy as np
 import pytest
 
-from napoleon_ml.dataset.constants import EXPECTED_CARD_IDS
+from napoleon_ml.dataset.constants import (
+    ADJUTANT_ENCODER_SCHEMA_VERSION,
+    BIDDING_ENCODER_SCHEMA_VERSION,
+    EXCHANGE_ENCODER_SCHEMA_VERSION,
+    EXPECTED_CARD_IDS,
+)
 from napoleon_ml.dataset.errors import SampleValidationError
 from napoleon_ml.dataset.reader import iter_samples, iter_tensorized_samples
 from napoleon_ml.dataset.sample import parse_sample
@@ -24,8 +29,8 @@ _NONPLAYING_MODEL_INPUT_FIXTURE_PATH = (
     Path(__file__).parent / "fixtures" / "nonplaying_model_input_samples.json"
 )
 _NONPLAYING_MODEL_INPUT_SHA256 = {
-    "bidding": "e4f86e8b9dd5661301e701c71ad6fc167123acedb8e118192e8ccfe6bc6df877",
-    "exchange": "f48558692dbd4bf825b0130e9940db4271c2f9653057e5f2186cb36d6d551233",
+    "bidding": "9adcbc9f24e2e6b3d96b760ae54782b5fed210aa2bba99267a9bb7ec1ac56a02",
+    "exchange": "ac24fe512fe3d620f39b97dc8cb648f844930c2e79d296c556d2224da4dd7a2a",
     "adjutant": "2f0c47b5a113059ed7d06a9966db1ee553163104215981928d6111917d603d52",
 }
 
@@ -85,20 +90,25 @@ def _bidding_sample() -> dict[str, Any]:
 def _exchange_sample() -> dict[str, Any]:
     self_hand = _mask(list(range(13)))
     observation = {
-        "schemaVersion": 1,
+        "schemaVersion": EXCHANGE_ENCODER_SCHEMA_VERSION,
         "relativePlayerIds": ["player-0", "player-1", "player-2", "player-3", "player-4"],
         "contractTargetPointCards": 12,
         "trumpSuitOneHot": [1, 0, 0, 0],
         "calledAdjutantCardMask": _mask([20]),
         "selfHandMask": self_hand,
+        "partialDiscardMask": _mask([]),
         "legalDiscardCardMask": list(self_hand),
+        "exchangeStepIndex": 0,
+        "remainingDiscardCount": 3,
         "handCountByPlayer": [13, 10, 10, 10, 10],
         "specialCardIndices": {"oruma": 0, "yoromeki": 15, "seiJack": 29, "uraJack": 16},
         "biddingHistory": _empty_bidding_history(),
     }
-    return _common_sample(
+    sample = _common_sample(
         "exchange-training-sample", observation, {"discardTargetMask": _mask([0, 1, 2])}
     )
+    sample["schemaVersion"] = EXCHANGE_ENCODER_SCHEMA_VERSION
+    return sample
 
 
 def _adjutant_sample() -> dict[str, Any]:
@@ -142,6 +152,16 @@ def test_multiphase_sample_parse_validate_tensorize_smoke(
 
 def test_nonplaying_model_input_shared_fixture_sha256_parity() -> None:
     fixture = json.loads(_NONPLAYING_MODEL_INPUT_FIXTURE_PATH.read_text(encoding="utf-8"))
+    exchange = fixture["exchange"]
+    exchange["schemaVersion"] = EXCHANGE_ENCODER_SCHEMA_VERSION
+    exchange["observation"].update(
+        {
+            "schemaVersion": EXCHANGE_ENCODER_SCHEMA_VERSION,
+            "partialDiscardMask": _mask([]),
+            "exchangeStepIndex": 0,
+            "remainingDiscardCount": 3,
+        }
+    )
 
     for phase, expected_sha256 in _NONPLAYING_MODEL_INPUT_SHA256.items():
         sample = parse_sample(fixture[phase])
@@ -272,10 +292,15 @@ def test_multiphase_reader_tensorizes_by_manifest_sample_type(tmp_path: Path) ->
 
 
 def _manifest(sample_type: str, byte_length: int, sha256: str) -> dict[str, Any]:
+    encoder_schema_versions = {
+        "bidding-training-sample": BIDDING_ENCODER_SCHEMA_VERSION,
+        "exchange-training-sample": EXCHANGE_ENCODER_SCHEMA_VERSION,
+        "adjutant-training-sample": ADJUTANT_ENCODER_SCHEMA_VERSION,
+    }
     return {
         "datasetSchemaVersion": 2,
         "generatorVersion": 2,
-        "encoderSchemaVersion": 1,
+        "encoderSchemaVersion": encoder_schema_versions[sample_type],
         "format": "jsonl",
         "sampleType": sample_type,
         "agent": {"type": "rule-based", "version": 1},

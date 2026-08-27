@@ -9,7 +9,7 @@ description = "Strict Python loader for the Napoleon self-play dataset (manifest
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "UNLICENSED" }
-dependencies = ["numpy>=1.26"]
+dependencies = ["cma>=4.0,<5", "numpy>=1.26"]
 
 [project.optional-dependencies]
 train = ["torch==2.13.0"]
@@ -48,11 +48,37 @@ napoleon-diagnose-policy-onnx-parity = "napoleon_ml.cli.diagnose_policy_onnx_par
 napoleon-migrate-policy-architecture = "napoleon_ml.cli.migrate_policy_architecture:main"
 napoleon-run-playing-rl = "napoleon_ml.cli.run_playing_rl:main"
 napoleon-train-bidding-mlp = "napoleon_ml.cli.train_bidding_mlp:main"
+napoleon-train-bidding-ppo = "napoleon_ml.cli.train_bidding_ppo:main"
 napoleon-evaluate-bidding-mlp = "napoleon_ml.cli.evaluate_bidding_mlp:main"
+napoleon-train-bidding-q = "napoleon_ml.cli.train_bidding_q:main"
+napoleon-train-bidding-role-q = "napoleon_ml.cli.train_bidding_role_q:main"
+napoleon-train-bidding-multi-head-q = "napoleon_ml.cli.train_bidding_multi_head_q:main"
+napoleon-train-bidding-margin-q = "napoleon_ml.cli.train_bidding_margin_q:main"
+napoleon-train-fixed-hand-bidding-margin = "napoleon_ml.cli.train_fixed_hand_bidding_margin:main"
+napoleon-train-napoleon-fixed-margin = "napoleon_ml.cli.train_napoleon_fixed_margin:main"
+napoleon-export-fixed-hand-bidding-margin-onnx = "napoleon_ml.cli.export_fixed_hand_bidding_margin_onnx:main"
+napoleon-train-fixed-hand-pass-outcome = "napoleon_ml.cli.train_fixed_hand_pass_outcome:main"
+napoleon-evaluate-fixed-hand-pass-ev = "napoleon_ml.cli.evaluate_fixed_hand_pass_ev:main"
+napoleon-train-bidding-role-value-q = "napoleon_ml.cli.train_bidding_role_value_q:main"
+napoleon-evaluate-bidding-role-score = "napoleon_ml.cli.evaluate_bidding_role_score:main"
+napoleon-train-bidding-pass-role-binary = "napoleon_ml.cli.train_bidding_pass_role_binary:main"
+napoleon-evaluate-bidding-pass-simple-score = "napoleon_ml.cli.evaluate_bidding_pass_simple_score:main"
+napoleon-train-bidding-role-margin-q = "napoleon_ml.cli.train_bidding_role_margin_q:main"
+napoleon-evaluate-bidding-reward-expectation = "napoleon_ml.cli.evaluate_bidding_reward_expectation:main"
 napoleon-train-adjutant-mlp = "napoleon_ml.cli.train_adjutant_mlp:main"
+napoleon-train-adjutant-ppo = "napoleon_ml.cli.train_adjutant_ppo:main"
 napoleon-evaluate-adjutant-mlp = "napoleon_ml.cli.evaluate_adjutant_mlp:main"
 napoleon-train-exchange-mlp = "napoleon_ml.cli.train_exchange_mlp:main"
+napoleon-train-exchange-ppo = "napoleon_ml.cli.train_exchange_ppo:main"
 napoleon-evaluate-exchange-mlp = "napoleon_ml.cli.evaluate_exchange_mlp:main"
+napoleon-train-exchange-value-mlp = "napoleon_ml.cli.train_exchange_value_mlp:main"
+napoleon-evaluate-exchange-value-mlp = "napoleon_ml.cli.evaluate_exchange_value_mlp:main"
+napoleon-report-issue442-exchange = "napoleon_ml.exchange_value.issue442_report:main"
+napoleon-generate-adjutant-value-dataset = "napoleon_ml.cli.generate_adjutant_value_dataset:main"
+napoleon-merge-adjutant-value-datasets = "napoleon_ml.cli.merge_adjutant_value_datasets:main"
+napoleon-train-adjutant-value-mlp = "napoleon_ml.cli.train_adjutant_value_mlp:main"
+napoleon-run-non-playing-rl = "napoleon_ml.cli.run_nonplaying_rl:main"
+napoleon-optimize-parameterized-policy = "napoleon_ml.cli.optimize_parameterized_policy:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

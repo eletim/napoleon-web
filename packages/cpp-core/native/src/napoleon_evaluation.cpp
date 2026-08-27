@@ -223,6 +223,9 @@ EvaluationPolicySpecs create_policy_specs(const EvaluationOptions& options) {
 }
 
 std::string winning_team_for_seat(const GameResult& result, int seat_index) {
+  if (result.result_type == "all-pass") {
+    return "";
+  }
   if (result.napoleon_player_index == seat_index ||
       (result.adjutant_player_index.has_value() && *result.adjutant_player_index == seat_index)) {
     return "napoleon-team";
@@ -238,6 +241,9 @@ int point_cards_for_seat(const GameResult& result, int seat_index) {
 
 void count_seat(MutableStats& stats, const GameResult& result, int seat_index) {
   stats.games += 1;
+  if (result.result_type == "all-pass") {
+    return;
+  }
   const bool won = winning_team_for_seat(result, seat_index) == result.winner;
   stats.wins += won ? 1 : 0;
   stats.losses += won ? 0 : 1;
@@ -248,6 +254,19 @@ void count_seat(MutableStats& stats, const GameResult& result, int seat_index) {
 Action deterministic_policy_action(const AgentRequest& request) {
   if (request.legal_actions.empty()) {
     throw std::runtime_error("policy request has no legal actions");
+  }
+
+  if (request.phase == Phase::Bidding) {
+    const auto bid_it = std::find_if(
+        request.legal_actions.begin(),
+        request.legal_actions.end(),
+        [](const Action& action) {
+          return action.type == Action::Type::Bid;
+        });
+    if (bid_it != request.legal_actions.end()) {
+      return *bid_it;
+    }
+    return request.legal_actions.front();
   }
 
   if (request.phase != Phase::Playing) {
@@ -511,7 +530,7 @@ EvaluationRun drive_schedule(
   EvaluationRun run;
   std::size_t next_schedule_index = 0;
   while (run.completed.size() < schedule.size()) {
-    const std::size_t in_flight = runtime.game_snapshots().size() - run.completed.size();
+    const std::size_t in_flight = runtime.active_game_count();
     if (next_schedule_index < schedule.size() && in_flight < options.max_concurrent_games) {
       const std::size_t open_slots = options.max_concurrent_games - in_flight;
       const std::size_t batch_count =
@@ -568,19 +587,20 @@ void write_rate(std::ostream& out, std::uint64_t numerator, std::uint64_t denomi
 }
 
 void write_stats(std::ostream& out, const MutableStats& stats) {
+  const std::uint64_t standard_games = stats.wins + stats.losses;
   out << "{\"games\":" << stats.games
       << ",\"wins\":" << stats.wins
       << ",\"losses\":" << stats.losses
       << ",\"winRate\":";
-  write_rate(out, stats.wins, stats.games);
+  write_rate(out, stats.wins, standard_games);
   out << ",\"contractSuccesses\":" << stats.contract_successes
       << ",\"contractSuccessRate\":";
-  write_rate(out, stats.contract_successes, stats.games);
+  write_rate(out, stats.contract_successes, standard_games);
   out << ",\"averagePointCards\":";
-  if (stats.games == 0) {
+  if (standard_games == 0) {
     out << "null";
   } else {
-    out << static_cast<double>(stats.point_cards_total) / static_cast<double>(stats.games);
+    out << static_cast<double>(stats.point_cards_total) / static_cast<double>(standard_games);
   }
   out << '}';
 }
@@ -624,26 +644,33 @@ void write_completed_games(std::ostream& out, const std::vector<CompletedRecord>
     const CompletedRecord& record = records[index];
     const GameResult& result = record.game.result;
     out << "{\"schemaVersion\":1,\"status\":\"completed\""
+        << ",\"resultType\":";
+    json_escape(out, result.result_type);
+    out
         << ",\"gameIndex\":" << record.game.game_index
         << ",\"seed\":" << record.evaluation_seed
         << ",\"runtimeSeed\":" << record.game.seed
         << ",\"rotationOffset\":" << record.rotation_offset
         << ",\"roster\":";
     write_roster_assignment(out, record.game.roster);
-    out << ",\"contract\":{\"napoleonPlayerId\":\"player-" << result.napoleon_player_index
-        << "\",\"targetPointCards\":" << result.target_point_cards
-        << ",\"adjutantPlayerId\":";
-    if (result.adjutant_player_index.has_value()) {
-      out << "\"player-" << *result.adjutant_player_index << "\"";
+    if (result.result_type == "all-pass") {
+      out << ",\"contract\":null,\"pointCards\":null,\"winner\":null,\"contractSucceeded\":null";
     } else {
-      out << "null";
+      out << ",\"contract\":{\"napoleonPlayerId\":\"player-" << result.napoleon_player_index
+          << "\",\"targetPointCards\":" << result.target_point_cards
+          << ",\"adjutantPlayerId\":";
+      if (result.adjutant_player_index.has_value()) {
+        out << "\"player-" << *result.adjutant_player_index << "\"";
+      } else {
+        out << "null";
+      }
+      out << "},\"pointCards\":{\"napoleonTeam\":" << result.napoleon_team_point_cards
+          << ",\"alliance\":" << result.alliance_point_cards
+          << "},\"winner\":";
+      json_escape(out, result.winner);
+      out << ",\"contractSucceeded\":" << (result.winner == "napoleon-team" ? "true" : "false");
     }
-    out << "},\"pointCards\":{\"napoleonTeam\":" << result.napoleon_team_point_cards
-        << ",\"alliance\":" << result.alliance_point_cards
-        << "},\"winner\":";
-    json_escape(out, result.winner);
-    out << ",\"contractSucceeded\":" << (result.winner == "napoleon-team" ? "true" : "false")
-        << '}';
+    out << '}';
   }
   out << ']';
 }

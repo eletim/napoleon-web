@@ -5,6 +5,10 @@ import { RuleBasedAgent, runAutomatedGame } from "@napoleon/ai";
 import {
   ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
   ADJUTANT_MODEL_INPUT_LAYOUT,
+  BIDDING_ACTION_TYPE_BID,
+  BIDDING_BID_OWNER_CLASS_COUNT,
+  BIDDING_BID_POSITION_SUIT_ORDER,
+  BIDDING_HISTORY_SUIT_ORDER,
   BIDDING_MODEL_INPUT_FEATURE_COUNT,
   BIDDING_MODEL_INPUT_LAYOUT,
   CARD_COUNT,
@@ -12,9 +16,11 @@ import {
   COMPLETE_INFO_PLAYING_MODEL_INPUT_LAYOUT,
   EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
   EXCHANGE_MODEL_INPUT_LAYOUT,
+  EXCHANGE_ENCODER_SCHEMA_VERSION,
   FLAT_OBSERVATION_FEATURE_COUNT,
   FLAT_OBSERVATION_LAYOUT,
   MAX_BIDDING_TARGET_POINT_CARDS,
+  MIN_BIDDING_TARGET_POINT_CARDS,
   MIN_CONTRACT_TARGET_POINT_CARDS,
   MODEL_INPUT_LAYOUT,
   MODEL_INPUT_FEATURE_COUNT,
@@ -50,9 +56,9 @@ const pythonNonplayingModelInputSamplesUrl = new URL(
 const pythonValidSampleModelInputSha256 =
   "b00d0806e8bafe90d7d942a55282928804b6f0856c3fb04d6f7b0a92210dc320";
 const pythonBiddingSampleModelInputSha256 =
-  "e4f86e8b9dd5661301e701c71ad6fc167123acedb8e118192e8ccfe6bc6df877";
+  "9adcbc9f24e2e6b3d96b760ae54782b5fed210aa2bba99267a9bb7ec1ac56a02";
 const pythonExchangeSampleModelInputSha256 =
-  "f48558692dbd4bf825b0130e9940db4271c2f9653057e5f2186cb36d6d551233";
+  "ac24fe512fe3d620f39b97dc8cb648f844930c2e79d296c556d2224da4dd7a2a";
 const pythonAdjutantSampleModelInputSha256 =
   "2f0c47b5a113059ed7d06a9966db1ee553163104215981928d6111917d603d52";
 const pythonNonplayingModelInputSamples = JSON.parse(
@@ -341,11 +347,7 @@ describe("encodeBiddingModelInput", () => {
       { name: "highestBidSuitOneHot", start: 93, stop: 97, shape: [4], dtype: "float32" },
       { name: "highestBidTargetPointCardsOneHot", start: 97, stop: 104, shape: [7], dtype: "float32" },
       { name: "consecutivePassCountOneHot", start: 104, stop: 110, shape: [6], dtype: "float32" },
-      { name: "biddingHistoryActionMask", start: 110, stop: 227, shape: [117], dtype: "float32" },
-      { name: "biddingHistoryActionTypeIndicesOneHot", start: 227, stop: 461, shape: [117, 2], dtype: "float32" },
-      { name: "biddingHistoryPlayerIndicesOneHot", start: 461, stop: 1046, shape: [117, 5], dtype: "float32" },
-      { name: "biddingHistorySuitIndicesOneHot", start: 1046, stop: 1514, shape: [117, 4], dtype: "float32" },
-      { name: "biddingHistoryTargetPointCardsOneHot", start: 1514, stop: 2333, shape: [117, 7], dtype: "float32" }
+      { name: "biddingBidOwnerTableOneHot", start: 110, stop: 278, shape: [28, 6], dtype: "float32" }
     ]);
   });
 
@@ -356,17 +358,86 @@ describe("encodeBiddingModelInput", () => {
     expect(sha256Float32(modelInput)).toBe(pythonBiddingSampleModelInputSha256);
   });
 
-  it("keeps absent highest bid and empty history one-hot rows all-zero", () => {
+  it("keeps absent highest bid all-zero and empty bid-owner table as nobody", () => {
     const sample = createBiddingFixture();
     const modelInput = encodeBiddingModelInput(sample.observation);
+    const table = bidOwnerTable(modelInput);
 
     expect(sumModelInputSlice(modelInput, "highestBidPlayerOneHot", BIDDING_MODEL_INPUT_LAYOUT)).toBe(0);
     expect(sumModelInputSlice(modelInput, "highestBidSuitOneHot", BIDDING_MODEL_INPUT_LAYOUT)).toBe(0);
     expect(sumModelInputSlice(modelInput, "highestBidTargetPointCardsOneHot", BIDDING_MODEL_INPUT_LAYOUT)).toBe(0);
-    expect(sumModelInputSlice(modelInput, "biddingHistoryActionTypeIndicesOneHot", BIDDING_MODEL_INPUT_LAYOUT)).toBe(0);
-    expect(sumModelInputSlice(modelInput, "biddingHistoryPlayerIndicesOneHot", BIDDING_MODEL_INPUT_LAYOUT)).toBe(0);
-    expect(sumModelInputSlice(modelInput, "biddingHistorySuitIndicesOneHot", BIDDING_MODEL_INPUT_LAYOUT)).toBe(0);
-    expect(sumModelInputSlice(modelInput, "biddingHistoryTargetPointCardsOneHot", BIDDING_MODEL_INPUT_LAYOUT)).toBe(0);
+    expect(table).toHaveLength(28);
+    for (const row of table) {
+      expect(row).toEqual([1, 0, 0, 0, 0, 0]);
+    }
+  });
+
+  it("encodes bid owners by compare-ordered position and relative player", () => {
+    const sample = withBiddingHistory(createBiddingFixture(), [
+      { playerIndex: 1, suit: "clubs", targetPointCards: 13 },
+      { playerIndex: 2, pass: true },
+      { playerIndex: 3, suit: "diamonds", targetPointCards: 13 },
+      { playerIndex: 0, suit: "spades", targetPointCards: 14 }
+    ]);
+    const table = bidOwnerTable(encodeBiddingModelInput(sample.observation));
+
+    expect(table[bidPosition("clubs", 13)]).toEqual([0, 0, 1, 0, 0, 0]);
+    expect(table[bidPosition("diamonds", 13)]).toEqual([0, 0, 0, 0, 1, 0]);
+    expect(table[bidPosition("spades", 14)]).toEqual([0, 1, 0, 0, 0, 0]);
+    expect(table[bidPosition("hearts", 13)]).toEqual([1, 0, 0, 0, 0, 0]);
+  });
+
+  it("maps every target and suit to the fixed 28 bid positions", () => {
+    const bids = [];
+    let playerIndex = 0;
+    for (
+      let targetPointCards = MIN_BIDDING_TARGET_POINT_CARDS;
+      targetPointCards <= MAX_BIDDING_TARGET_POINT_CARDS;
+      targetPointCards += 1
+    ) {
+      for (const suit of BIDDING_BID_POSITION_SUIT_ORDER) {
+        bids.push({ playerIndex, suit, targetPointCards });
+        playerIndex = (playerIndex + 1) % 5;
+      }
+    }
+
+    const table = bidOwnerTable(
+      encodeBiddingModelInput(withBiddingHistory(createBiddingFixture(), bids).observation)
+    );
+
+    for (let positionIndex = 0; positionIndex < 28; positionIndex += 1) {
+      const ownerClass = (positionIndex % 5) + 1;
+      expect(table[positionIndex].reduce((sum, value) => sum + value, 0)).toBe(1);
+      expect(table[positionIndex][ownerClass]).toBe(1);
+    }
+  });
+
+  it("rejects duplicate or non-increasing bid positions", () => {
+    const sample = withBiddingHistory(createBiddingFixture(), [
+      { playerIndex: 1, suit: "clubs", targetPointCards: 13 },
+      { playerIndex: 2, suit: "clubs", targetPointCards: 13 }
+    ]);
+
+    expect(() => encodeBiddingModelInput(sample.observation)).toThrow("strictly increasing");
+  });
+
+  it("preserves enough state to reconstruct bids and intervening passes", () => {
+    const actions = [
+      { playerIndex: 0, pass: true },
+      { playerIndex: 1, suit: "clubs", targetPointCards: 13 },
+      { playerIndex: 2, pass: true },
+      { playerIndex: 3, suit: "diamonds", targetPointCards: 13 },
+      { playerIndex: 4, pass: true },
+      { playerIndex: 0, pass: true }
+    ] as const;
+    const sample = withBiddingHistory(createBiddingFixture(), actions);
+    sample.observation.starterPlayerIndex = 0;
+    sample.observation.consecutivePassCount = 2;
+    const table = bidOwnerTable(encodeBiddingModelInput(sample.observation));
+
+    expect(reconstructBiddingActions(table, 0, sample.observation.consecutivePassCount)).toEqual(
+      actions
+    );
   });
 });
 
@@ -375,16 +446,19 @@ describe("encodeExchangeModelInput", () => {
     expect(EXCHANGE_MODEL_INPUT_LAYOUT).toEqual([
       { name: "trumpSuitOneHot", start: 0, stop: 4, shape: [4], dtype: "float32" },
       { name: "selfHandMask", start: 4, stop: 57, shape: [53], dtype: "float32" },
-      { name: "legalDiscardCardMask", start: 57, stop: 110, shape: [53], dtype: "float32" },
-      { name: "calledAdjutantCardMask", start: 110, stop: 163, shape: [53], dtype: "float32" },
-      { name: "contractTargetPointCardsOneHot", start: 163, stop: 171, shape: [8], dtype: "float32" },
-      { name: "handCountByPlayer", start: 171, stop: 176, shape: [5], dtype: "float32" },
-      { name: "specialCardIndicesOneHot", start: 176, stop: 388, shape: [4, 53], dtype: "float32" },
-      { name: "biddingHistoryActionMask", start: 388, stop: 505, shape: [117], dtype: "float32" },
-      { name: "biddingHistoryActionTypeIndicesOneHot", start: 505, stop: 739, shape: [117, 2], dtype: "float32" },
-      { name: "biddingHistoryPlayerIndicesOneHot", start: 739, stop: 1324, shape: [117, 5], dtype: "float32" },
-      { name: "biddingHistorySuitIndicesOneHot", start: 1324, stop: 1792, shape: [117, 4], dtype: "float32" },
-      { name: "biddingHistoryTargetPointCardsOneHot", start: 1792, stop: 2611, shape: [117, 7], dtype: "float32" }
+      { name: "partialDiscardMask", start: 57, stop: 110, shape: [53], dtype: "float32" },
+      { name: "legalDiscardCardMask", start: 110, stop: 163, shape: [53], dtype: "float32" },
+      { name: "calledAdjutantCardMask", start: 163, stop: 216, shape: [53], dtype: "float32" },
+      { name: "exchangeStepIndexOneHot", start: 216, stop: 219, shape: [3], dtype: "float32" },
+      { name: "remainingDiscardCountOneHot", start: 219, stop: 223, shape: [4], dtype: "float32" },
+      { name: "contractTargetPointCardsOneHot", start: 223, stop: 231, shape: [8], dtype: "float32" },
+      { name: "handCountByPlayer", start: 231, stop: 236, shape: [5], dtype: "float32" },
+      { name: "specialCardIndicesOneHot", start: 236, stop: 448, shape: [4, 53], dtype: "float32" },
+      { name: "biddingHistoryActionMask", start: 448, stop: 565, shape: [117], dtype: "float32" },
+      { name: "biddingHistoryActionTypeIndicesOneHot", start: 565, stop: 799, shape: [117, 2], dtype: "float32" },
+      { name: "biddingHistoryPlayerIndicesOneHot", start: 799, stop: 1384, shape: [117, 5], dtype: "float32" },
+      { name: "biddingHistorySuitIndicesOneHot", start: 1384, stop: 1852, shape: [117, 4], dtype: "float32" },
+      { name: "biddingHistoryTargetPointCardsOneHot", start: 1852, stop: 2671, shape: [117, 7], dtype: "float32" }
     ]);
   });
 
@@ -618,8 +692,121 @@ function createBiddingFixture(): BiddingTrainingSample {
   return structuredClone(pythonNonplayingModelInputSamples.bidding);
 }
 
+type BidOwnerTestAction =
+  | { playerIndex: number; pass: true }
+  | { playerIndex: number; suit: (typeof BIDDING_BID_POSITION_SUIT_ORDER)[number]; targetPointCards: number };
+
+function withBiddingHistory(
+  sample: BiddingTrainingSample,
+  actions: readonly BidOwnerTestAction[]
+): BiddingTrainingSample {
+  const history = sample.observation.biddingHistory;
+  const actionTypeIndices = [...history.actionTypeIndices];
+  const playerIndices = [...history.playerIndices];
+  const suitIndices = [...history.suitIndices];
+  const targetPointCards = [...history.targetPointCards];
+  const actionMask = [...history.actionMask];
+
+  actions.forEach((action, index) => {
+    playerIndices[index] = action.playerIndex;
+    actionMask[index] = 1;
+
+    if ("pass" in action) {
+      actionTypeIndices[index] = 0;
+      suitIndices[index] = -1;
+      targetPointCards[index] = 0;
+      return;
+    }
+
+    actionTypeIndices[index] = BIDDING_ACTION_TYPE_BID;
+    suitIndices[index] = BIDDING_HISTORY_SUIT_ORDER.indexOf(action.suit);
+    targetPointCards[index] = action.targetPointCards;
+  });
+
+  sample.observation.biddingHistory = {
+    actionTypeIndices,
+    playerIndices,
+    suitIndices,
+    targetPointCards,
+    actionMask
+  };
+
+  return sample;
+}
+
+function bidOwnerTable(modelInput: Float32Array): number[][] {
+  const values = Array.from(
+    modelInputSlice(modelInput, "biddingBidOwnerTableOneHot", BIDDING_MODEL_INPUT_LAYOUT)
+  );
+  const table: number[][] = [];
+
+  for (let index = 0; index < values.length; index += BIDDING_BID_OWNER_CLASS_COUNT) {
+    table.push(values.slice(index, index + BIDDING_BID_OWNER_CLASS_COUNT));
+  }
+
+  return table;
+}
+
+function bidPosition(
+  suit: (typeof BIDDING_BID_POSITION_SUIT_ORDER)[number],
+  targetPointCards: number
+): number {
+  return (
+    (targetPointCards - MIN_BIDDING_TARGET_POINT_CARDS) *
+      BIDDING_BID_POSITION_SUIT_ORDER.length +
+    BIDDING_BID_POSITION_SUIT_ORDER.indexOf(suit)
+  );
+}
+
+function reconstructBiddingActions(
+  table: readonly (readonly number[])[],
+  starterPlayerIndex: number,
+  trailingPassCount: number
+): BidOwnerTestAction[] {
+  const bids = table.flatMap((row, positionIndex) => {
+    const ownerClass = row.findIndex((value) => value === 1);
+    if (ownerClass === 0) {
+      return [];
+    }
+    const targetPointCards =
+      MIN_BIDDING_TARGET_POINT_CARDS +
+      Math.floor(positionIndex / BIDDING_BID_POSITION_SUIT_ORDER.length);
+    const suit = BIDDING_BID_POSITION_SUIT_ORDER[
+      positionIndex % BIDDING_BID_POSITION_SUIT_ORDER.length
+    ];
+    return [{ playerIndex: ownerClass - 1, suit, targetPointCards }];
+  });
+  const reconstructed: BidOwnerTestAction[] = [];
+  let expectedPlayer = starterPlayerIndex;
+
+  for (const bid of bids) {
+    while (expectedPlayer !== bid.playerIndex) {
+      reconstructed.push({ playerIndex: expectedPlayer, pass: true });
+      expectedPlayer = (expectedPlayer + 1) % 5;
+    }
+    reconstructed.push(bid);
+    expectedPlayer = (bid.playerIndex + 1) % 5;
+  }
+
+  for (let index = 0; index < trailingPassCount; index += 1) {
+    reconstructed.push({ playerIndex: expectedPlayer, pass: true });
+    expectedPlayer = (expectedPlayer + 1) % 5;
+  }
+
+  return reconstructed;
+}
+
 function createExchangeFixture(): ExchangeTrainingSample {
-  return structuredClone(pythonNonplayingModelInputSamples.exchange);
+  const sample = structuredClone(pythonNonplayingModelInputSamples.exchange);
+  sample.schemaVersion = EXCHANGE_ENCODER_SCHEMA_VERSION;
+  sample.observation = {
+    ...sample.observation,
+    schemaVersion: EXCHANGE_ENCODER_SCHEMA_VERSION,
+    partialDiscardMask: createMask([]),
+    exchangeStepIndex: 0,
+    remainingDiscardCount: 3
+  };
+  return sample;
 }
 
 function createAdjutantFixture(): AdjutantTrainingSample {

@@ -1,0 +1,2518 @@
+"""One-command non-playing RL rollout, PPO, ONNX export, and evaluation."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, replace
+from functools import partial
+from pathlib import Path
+from typing import Literal, TypeVar, cast
+
+from napoleon_ml.adjutant.model import AdjutantMlpConfig
+from napoleon_ml.adjutant.ppo import AdjutantPpoTrainSettings, train_adjutant_ppo
+from napoleon_ml.bidding.model import BiddingMlpConfig
+from napoleon_ml.bidding.ppo import (
+    BIDDING_MINIBATCH_STRATEGY_RANDOM,
+    DEFAULT_ADVANTAGE_NORMALIZATION,
+    SUPPORTED_ADVANTAGE_NORMALIZATIONS,
+    SUPPORTED_BIDDING_MINIBATCH_STRATEGIES,
+    BiddingPpoTrainSettings,
+    advantage_normalization_from_metadata,
+    advantage_normalization_metadata,
+    train_bidding_ppo,
+)
+from napoleon_ml.exchange.model import ExchangeMlpConfig
+from napoleon_ml.exchange.ppo import ExchangePpoTrainSettings, train_exchange_ppo
+from napoleon_ml.nonplaying_onnx_export import (
+    export_adjutant_rl_checkpoint_to_onnx,
+    export_bidding_rl_checkpoint_to_onnx,
+    export_exchange_rl_checkpoint_to_onnx,
+    export_seeded_nonplaying_bootstrap_policy_to_onnx,
+)
+from napoleon_ml.policy.device import (
+    SUPPORTED_TORCH_DEVICES,
+    RequestedTorchDevice,
+    TorchDeviceResolutionError,
+    resolve_torch_device,
+)
+
+DEFAULT_GAMES = 20
+DEFAULT_EVALUATION_GAMES = 5
+DEFAULT_GAMES_PER_SHARD = 20
+DEFAULT_ITERATIONS = 100
+DEFAULT_GAMES_PER_ITERATION = 200
+DEFAULT_ITERATIVE_EVALUATION_GAMES = 100
+DEFAULT_EVALUATION_INTERVAL = 10
+DEFAULT_EPOCHS = 1
+DEFAULT_ITERATIVE_EPOCHS = 4
+DEFAULT_BATCH_SIZE = 32
+DEFAULT_ITERATIVE_BATCH_SIZE = 128
+DEFAULT_LEARNING_RATE = 1e-3
+DEFAULT_ITERATIVE_LEARNING_RATE = 1e-4
+DEFAULT_HIDDEN_DIM = 128
+DEFAULT_HIDDEN_LAYERS = 2
+DEFAULT_DROPOUT = 0.0
+DEFAULT_PPO_CLIP_EPSILON = 0.2
+DEFAULT_VALUE_LOSS_COEFFICIENT = 0.5
+DEFAULT_BIDDING_ENTROPY_COEFFICIENT = 0.0
+DEFAULT_BIDDING_ADVANTAGE_NORMALIZATION = DEFAULT_ADVANTAGE_NORMALIZATION
+DEFAULT_BIDDING_MINIBATCH_STRATEGY = BIDDING_MINIBATCH_STRATEGY_RANDOM
+DEFAULT_TEMPERATURE = 1.0
+DEFAULT_INFERENCE_DEVICE: Literal["cpu", "auto", "cuda"] = "cpu"
+DEFAULT_TRAINING_DEVICE: RequestedTorchDevice = "cpu"
+DEFAULT_INFERENCE_MAX_BATCH_SIZE = 256
+DEFAULT_SEED = 202
+ITERATIVE_RUN_CONFIG_SCHEMA_VERSION = 12
+NONPLAYING_ROLLOUT_POLICY_TOPOLOGY = "candidate-x1-frozen-x4-v1"
+NONPLAYING_GAME_COUNT_UNIT = "logical-seeds"
+NONPLAYING_ROTATION_OFFSETS = [0, 1, 2, 3, 4]
+NONPLAYING_REWARD_TYPE = "non-playing-terminal-role-reward"
+NONPLAYING_REWARD_VERSION = 3
+NONPLAYING_REWARD_ID = "non-playing-terminal-role-reward-v3"
+NONPLAYING_TERMINAL_REWARD_TRANSFORM_TYPE = "raw-reward-minus-game-player-mean"
+NONPLAYING_TERMINAL_REWARD_TRANSFORM_VERSION = 1
+NONPLAYING_TERMINAL_REWARD_TRANSFORM_ID = (
+    "non-playing-terminal-role-reward-v3-minus-game-player-mean-v1"
+)
+NONPLAYING_BIDDING_REWARD_TYPE = "non-playing-bidding-contract-result-reward"
+NONPLAYING_BIDDING_REWARD_VERSION = 2
+NONPLAYING_BIDDING_REWARD_ID = "non-playing-bidding-contract-result-reward-v2"
+NONPLAYING_BIDDING_TERMINAL_REWARD_TRANSFORM_TYPE = "identity"
+NONPLAYING_BIDDING_TERMINAL_REWARD_TRANSFORM_VERSION = 1
+NONPLAYING_BIDDING_TERMINAL_REWARD_TRANSFORM_ID = (
+    "non-playing-bidding-contract-result-reward-v2-identity-v1"
+)
+NONPLAYING_ALL_PASS_RULE_ID = "all-pass-immediate-zero-raw-terminal-reward-v1"
+FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION = (
+    "per-seat-seeded-conservative-all-pass-50-50-v1"
+)
+CONSERVATIVE_BIDDING_BASELINE_ID = "conservative-bidding-v1"
+ALL_PASS_BIDDING_BASELINE_ID = "all-pass-bidding-v1"
+ITERATION_SEED_STRIDE = 1_000_000
+PHASE_SEED_STRIDE = 100_000
+EVALUATION_SEED_OFFSET = 300_000
+DEFAULT_PLAYING_POLICY_ARTIFACT_ID = "ppo-separated-v1000"
+DEFAULT_PLAYING_POLICY_ONNX = Path("benchmarks/playing-policies/ppo-separated-v1000/policy.onnx")
+DEFAULT_PLAYING_POLICY_METADATA = Path(
+    "benchmarks/playing-policies/ppo-separated-v1000/policy.json"
+)
+SUPPORTED_INFERENCE_DEVICES = ("cpu", "auto", "cuda")
+SUPPORTED_SIMULATION_BACKENDS = ("typescript", "cpp")
+
+PhaseName = Literal["bidding", "adjutant", "exchange"]
+IterativeTrainMode = Literal["multi-phase", "bidding-only"]
+PHASES: tuple[PhaseName, ...] = ("bidding", "adjutant", "exchange")
+TRAIN_MODE_MULTI_PHASE: IterativeTrainMode = "multi-phase"
+TRAIN_MODE_BIDDING_ONLY: IterativeTrainMode = "bidding-only"
+SUPPORTED_ITERATIVE_TRAIN_MODES = (TRAIN_MODE_MULTI_PHASE, TRAIN_MODE_BIDDING_ONLY)
+_T = TypeVar("_T")
+
+
+class NonPlayingRlOrchestratorError(RuntimeError):
+    """Raised when the non-playing RL pipeline cannot continue safely."""
+
+
+@dataclass(frozen=True)
+class NonPlayingRlRunConfig:
+    output_dir: Path
+    games: int = DEFAULT_GAMES
+    evaluation_games: int = DEFAULT_EVALUATION_GAMES
+    games_per_shard: int | None = None
+    epochs: int = DEFAULT_EPOCHS
+    batch_size: int = DEFAULT_BATCH_SIZE
+    learning_rate: float = DEFAULT_LEARNING_RATE
+    hidden_dim: int = DEFAULT_HIDDEN_DIM
+    hidden_layers: int = DEFAULT_HIDDEN_LAYERS
+    bidding_hidden_dims: tuple[int, ...] | None = None
+    dropout: float = DEFAULT_DROPOUT
+    ppo_clip_epsilon: float = DEFAULT_PPO_CLIP_EPSILON
+    value_loss_coefficient: float = DEFAULT_VALUE_LOSS_COEFFICIENT
+    bidding_entropy_coefficient: float = DEFAULT_BIDDING_ENTROPY_COEFFICIENT
+    bidding_advantage_normalization: str = DEFAULT_BIDDING_ADVANTAGE_NORMALIZATION
+    bidding_minibatch_strategy: str = DEFAULT_BIDDING_MINIBATCH_STRATEGY
+    seed: int = DEFAULT_SEED
+    temperature: float = DEFAULT_TEMPERATURE
+    inference_device: Literal["cpu", "auto", "cuda"] = DEFAULT_INFERENCE_DEVICE
+    training_device: RequestedTorchDevice = DEFAULT_TRAINING_DEVICE
+    inference_max_batch_size: int = DEFAULT_INFERENCE_MAX_BATCH_SIZE
+    simulation_backend: Literal["typescript", "cpp"] = "typescript"
+    playing_policy_onnx: Path = DEFAULT_PLAYING_POLICY_ONNX
+    playing_policy_metadata: Path = DEFAULT_PLAYING_POLICY_METADATA
+    playing_policy_artifact_id: str = DEFAULT_PLAYING_POLICY_ARTIFACT_ID
+    build_typescript: bool = True
+    overwrite: bool = False
+
+    def normalized(self) -> NonPlayingRlRunConfig:
+        return NonPlayingRlRunConfig(
+            output_dir=self.output_dir.expanduser().resolve(),
+            games=self.games,
+            evaluation_games=self.evaluation_games,
+            games_per_shard=self.games_per_shard,
+            epochs=self.epochs,
+            batch_size=self.batch_size,
+            learning_rate=self.learning_rate,
+            hidden_dim=self.hidden_dim,
+            hidden_layers=self.hidden_layers,
+            bidding_hidden_dims=self.bidding_hidden_dims,
+            dropout=self.dropout,
+            ppo_clip_epsilon=self.ppo_clip_epsilon,
+            value_loss_coefficient=self.value_loss_coefficient,
+            bidding_entropy_coefficient=self.bidding_entropy_coefficient,
+            bidding_advantage_normalization=self.bidding_advantage_normalization,
+            bidding_minibatch_strategy=self.bidding_minibatch_strategy,
+            seed=self.seed,
+            temperature=self.temperature,
+            inference_device=self.inference_device,
+            training_device=self.training_device,
+            inference_max_batch_size=self.inference_max_batch_size,
+            simulation_backend=self.simulation_backend,
+            playing_policy_onnx=_resolve_repo_path(self.playing_policy_onnx),
+            playing_policy_metadata=_resolve_repo_path(self.playing_policy_metadata),
+            playing_policy_artifact_id=self.playing_policy_artifact_id,
+            build_typescript=self.build_typescript,
+            overwrite=self.overwrite,
+        )
+
+    @property
+    def effective_games_per_shard(self) -> int:
+        return self.games_per_shard if self.games_per_shard is not None else self.games
+
+    def settings_dict(self) -> dict[str, object]:
+        return {
+            "games": self.games,
+            "evaluationGames": self.evaluation_games,
+            "gamesPerShard": self.effective_games_per_shard,
+            "epochs": self.epochs,
+            "batchSize": self.batch_size,
+            "learningRate": self.learning_rate,
+            "hiddenDim": self.hidden_dim,
+            "hiddenLayers": self.hidden_layers,
+            "biddingHiddenDims": list(self.resolved_bidding_hidden_dims),
+            "dropout": self.dropout,
+            "ppoClipEpsilon": self.ppo_clip_epsilon,
+            "valueLossCoefficient": self.value_loss_coefficient,
+            "biddingEntropyCoefficient": self.bidding_entropy_coefficient,
+            "biddingAdvantageNormalization": advantage_normalization_metadata(
+                self.bidding_advantage_normalization
+            ),
+            "biddingMinibatchStrategy": self.bidding_minibatch_strategy,
+            "seed": self.seed,
+            "temperature": self.temperature,
+            "reward": {
+                "type": NONPLAYING_REWARD_TYPE,
+                "version": NONPLAYING_REWARD_VERSION,
+                "id": NONPLAYING_REWARD_ID,
+            },
+            "terminalRewardTransform": _terminal_reward_transform_metadata(),
+            "biddingReward": _bidding_reward_metadata(),
+            "biddingTerminalRewardTransform": _bidding_terminal_reward_transform_metadata(),
+            "allPassRule": {
+                "id": NONPLAYING_ALL_PASS_RULE_ID,
+                "starterPayoff": 0,
+                "otherPayoff": 0,
+            },
+            "inferenceDevice": self.inference_device,
+            "trainingDevice": self.training_device,
+            "inferenceMaxBatchSize": self.inference_max_batch_size,
+            "simulationBackend": self.simulation_backend,
+            "playingPolicyOnnx": str(self.playing_policy_onnx),
+            "playingPolicyMetadata": str(self.playing_policy_metadata),
+            "playingPolicyArtifactId": self.playing_policy_artifact_id,
+        }
+
+    @property
+    def resolved_bidding_hidden_dims(self) -> tuple[int, ...]:
+        if self.bidding_hidden_dims is not None:
+            return self.bidding_hidden_dims
+        return (self.hidden_dim,) * self.hidden_layers
+
+
+@dataclass(frozen=True)
+class NonPlayingIterativeRlRunConfig:
+    output_dir: Path
+    train_mode: IterativeTrainMode = TRAIN_MODE_MULTI_PHASE
+    iterations: int = DEFAULT_ITERATIONS
+    games_per_iteration: int = DEFAULT_GAMES_PER_ITERATION
+    evaluation_interval: int = DEFAULT_EVALUATION_INTERVAL
+    evaluation_games: int = DEFAULT_ITERATIVE_EVALUATION_GAMES
+    games_per_shard: int | None = DEFAULT_GAMES_PER_SHARD
+    epochs: int = DEFAULT_ITERATIVE_EPOCHS
+    batch_size: int = DEFAULT_ITERATIVE_BATCH_SIZE
+    learning_rate: float = DEFAULT_ITERATIVE_LEARNING_RATE
+    hidden_dim: int = DEFAULT_HIDDEN_DIM
+    hidden_layers: int = DEFAULT_HIDDEN_LAYERS
+    bidding_hidden_dims: tuple[int, ...] | None = None
+    dropout: float = DEFAULT_DROPOUT
+    ppo_clip_epsilon: float = DEFAULT_PPO_CLIP_EPSILON
+    value_loss_coefficient: float = DEFAULT_VALUE_LOSS_COEFFICIENT
+    bidding_entropy_coefficient: float = DEFAULT_BIDDING_ENTROPY_COEFFICIENT
+    bidding_advantage_normalization: str = DEFAULT_BIDDING_ADVANTAGE_NORMALIZATION
+    bidding_minibatch_strategy: str = DEFAULT_BIDDING_MINIBATCH_STRATEGY
+    seed: int = DEFAULT_SEED
+    temperature: float = DEFAULT_TEMPERATURE
+    inference_device: Literal["cpu", "auto", "cuda"] = DEFAULT_INFERENCE_DEVICE
+    training_device: RequestedTorchDevice = DEFAULT_TRAINING_DEVICE
+    inference_max_batch_size: int = DEFAULT_INFERENCE_MAX_BATCH_SIZE
+    simulation_backend: Literal["typescript", "cpp"] = "typescript"
+    playing_policy_onnx: Path = DEFAULT_PLAYING_POLICY_ONNX
+    playing_policy_metadata: Path = DEFAULT_PLAYING_POLICY_METADATA
+    playing_policy_artifact_id: str = DEFAULT_PLAYING_POLICY_ARTIFACT_ID
+    build_typescript: bool = True
+    overwrite: bool = False
+
+    def normalized(self) -> NonPlayingIterativeRlRunConfig:
+        return NonPlayingIterativeRlRunConfig(
+            output_dir=self.output_dir.expanduser().resolve(),
+            train_mode=self.train_mode,
+            iterations=self.iterations,
+            games_per_iteration=self.games_per_iteration,
+            evaluation_interval=self.evaluation_interval,
+            evaluation_games=self.evaluation_games,
+            games_per_shard=self.games_per_shard,
+            epochs=self.epochs,
+            batch_size=self.batch_size,
+            learning_rate=self.learning_rate,
+            hidden_dim=self.hidden_dim,
+            hidden_layers=self.hidden_layers,
+            bidding_hidden_dims=self.bidding_hidden_dims,
+            dropout=self.dropout,
+            ppo_clip_epsilon=self.ppo_clip_epsilon,
+            value_loss_coefficient=self.value_loss_coefficient,
+            bidding_entropy_coefficient=self.bidding_entropy_coefficient,
+            bidding_advantage_normalization=self.bidding_advantage_normalization,
+            bidding_minibatch_strategy=self.bidding_minibatch_strategy,
+            seed=self.seed,
+            temperature=self.temperature,
+            inference_device=self.inference_device,
+            training_device=self.training_device,
+            inference_max_batch_size=self.inference_max_batch_size,
+            simulation_backend=self.simulation_backend,
+            playing_policy_onnx=_resolve_repo_path(self.playing_policy_onnx),
+            playing_policy_metadata=_resolve_repo_path(self.playing_policy_metadata),
+            playing_policy_artifact_id=self.playing_policy_artifact_id,
+            build_typescript=self.build_typescript,
+            overwrite=self.overwrite,
+        )
+
+    @property
+    def effective_games_per_shard(self) -> int:
+        if self.games_per_shard is None:
+            return self.games_per_iteration
+        return self.games_per_shard
+
+    def as_one_shot_config(self) -> NonPlayingRlRunConfig:
+        return NonPlayingRlRunConfig(
+            output_dir=self.output_dir,
+            games=self.games_per_iteration,
+            evaluation_games=self.evaluation_games,
+            games_per_shard=self.games_per_shard,
+            epochs=self.epochs,
+            batch_size=self.batch_size,
+            learning_rate=self.learning_rate,
+            hidden_dim=self.hidden_dim,
+            hidden_layers=self.hidden_layers,
+            bidding_hidden_dims=self.bidding_hidden_dims,
+            dropout=self.dropout,
+            ppo_clip_epsilon=self.ppo_clip_epsilon,
+            value_loss_coefficient=self.value_loss_coefficient,
+            bidding_entropy_coefficient=self.bidding_entropy_coefficient,
+            bidding_advantage_normalization=self.bidding_advantage_normalization,
+            bidding_minibatch_strategy=self.bidding_minibatch_strategy,
+            seed=self.seed,
+            temperature=self.temperature,
+            inference_device=self.inference_device,
+            training_device=self.training_device,
+            inference_max_batch_size=self.inference_max_batch_size,
+            simulation_backend=self.simulation_backend,
+            playing_policy_onnx=self.playing_policy_onnx,
+            playing_policy_metadata=self.playing_policy_metadata,
+            playing_policy_artifact_id=self.playing_policy_artifact_id,
+            build_typescript=self.build_typescript,
+            overwrite=self.overwrite,
+        )
+
+    @property
+    def train_phases(self) -> tuple[PhaseName, ...]:
+        if self.train_mode == TRAIN_MODE_BIDDING_ONLY:
+            return ("bidding",)
+        return PHASES
+
+    @property
+    def frozen_phases(self) -> tuple[PhaseName, ...]:
+        return tuple(phase for phase in PHASES if phase not in self.train_phases)
+
+    def file_dict(self) -> dict[str, object]:
+        return {
+            "schemaVersion": ITERATIVE_RUN_CONFIG_SCHEMA_VERSION,
+            "runType": "non-playing-iterative-ppo",
+            "trainMode": self.train_mode,
+            "trainPhases": list(self.train_phases),
+            "frozenPhases": list(self.frozen_phases),
+            "outputDir": str(self.output_dir),
+            "iterations": self.iterations,
+            "gamesPerIteration": self.games_per_iteration,
+            "gamesPerIterationUnit": NONPLAYING_GAME_COUNT_UNIT,
+            "actualGamesPerIteration": (
+                self.games_per_iteration * len(NONPLAYING_ROTATION_OFFSETS)
+            ),
+            "rolloutPolicyTopology": NONPLAYING_ROLLOUT_POLICY_TOPOLOGY,
+            "rotationOffsets": NONPLAYING_ROTATION_OFFSETS,
+            "reward": {
+                "type": NONPLAYING_REWARD_TYPE,
+                "version": NONPLAYING_REWARD_VERSION,
+                "id": NONPLAYING_REWARD_ID,
+            },
+            "terminalRewardTransform": _terminal_reward_transform_metadata(),
+            "biddingReward": _bidding_reward_metadata(),
+            "biddingTerminalRewardTransform": _bidding_terminal_reward_transform_metadata(),
+            "allPassRule": {
+                "id": NONPLAYING_ALL_PASS_RULE_ID,
+                "starterPayoff": 0,
+                "otherPayoff": 0,
+            },
+            "biddingFrozenOpponentMixRuleVersion": FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION,
+            "biddingFrozenOpponentPolicyIds": {
+                "conservative": CONSERVATIVE_BIDDING_BASELINE_ID,
+                "allPass": ALL_PASS_BIDDING_BASELINE_ID,
+            },
+            "gamesPerShard": self.effective_games_per_shard,
+            "evaluationInterval": self.evaluation_interval,
+            "evaluationGames": self.evaluation_games,
+            "epochs": self.epochs,
+            "batchSize": self.batch_size,
+            "learningRate": self.learning_rate,
+            "hiddenDim": self.hidden_dim,
+            "hiddenLayers": self.hidden_layers,
+            "biddingHiddenDims": list(self.resolved_bidding_hidden_dims),
+            "dropout": self.dropout,
+            "ppoClipEpsilon": self.ppo_clip_epsilon,
+            "valueLossCoefficient": self.value_loss_coefficient,
+            "biddingEntropyCoefficient": self.bidding_entropy_coefficient,
+            "biddingAdvantageNormalization": advantage_normalization_metadata(
+                self.bidding_advantage_normalization
+            ),
+            "biddingMinibatchStrategy": self.bidding_minibatch_strategy,
+            "seed": self.seed,
+            "temperature": self.temperature,
+            "inferenceDevice": self.inference_device,
+            "trainingDevice": self.training_device,
+            "inferenceMaxBatchSize": self.inference_max_batch_size,
+            "simulationBackend": self.simulation_backend,
+            "playingPolicyOnnx": str(self.playing_policy_onnx),
+            "playingPolicyOnnxSha256": _sha256_file(self.playing_policy_onnx),
+            "playingPolicyMetadata": str(self.playing_policy_metadata),
+            "playingPolicyMetadataSha256": _sha256_file(self.playing_policy_metadata),
+            "playingPolicyArtifactId": self.playing_policy_artifact_id,
+        }
+
+    @property
+    def resolved_bidding_hidden_dims(self) -> tuple[int, ...]:
+        if self.bidding_hidden_dims is not None:
+            return self.bidding_hidden_dims
+        return (self.hidden_dim,) * self.hidden_layers
+
+
+def run_nonplaying_rl_pipeline(config: NonPlayingRlRunConfig) -> dict[str, object]:
+    config = config.normalized()
+    _validate_config(config)
+    _prepare_output_dir(config)
+    if config.build_typescript:
+        _stage("typescript-build", _build_typescript_helpers)
+    if config.simulation_backend == "cpp":
+        _stage("cpp-build", _build_cpp_helpers)
+
+    started = time.monotonic()
+    summary: dict[str, object] = {
+        "schemaVersion": 1,
+        "runType": "non-playing-rl-smoke",
+        "settings": config.settings_dict(),
+        "artifacts": {
+            "playing": {
+                "onnxPath": str(config.playing_policy_onnx),
+                "metadataPath": str(config.playing_policy_metadata),
+            }
+        },
+        "phases": {},
+    }
+    final_artifacts: dict[PhaseName, dict[str, str]] = {}
+
+    for offset, phase in enumerate(("bidding", "adjutant", "exchange")):
+        phase_summary, artifact = _run_phase(config, cast(PhaseName, phase), offset)
+        cast(dict[str, object], summary["phases"])[phase] = phase_summary
+        final_artifacts[cast(PhaseName, phase)] = artifact
+
+    evaluation_path = config.output_dir / "evaluation.json"
+    evaluation_summary = _stage(
+        "full-policy-evaluation",
+        lambda: _run_full_policy_evaluation(config, final_artifacts, evaluation_path),
+    )
+    summary["evaluation"] = evaluation_summary
+    summary["artifactPaths"] = {
+        "bidding": final_artifacts["bidding"],
+        "adjutant": final_artifacts["adjutant"],
+        "exchange": final_artifacts["exchange"],
+        "evaluation": str(evaluation_path),
+        "runSummary": str(config.output_dir / "run-summary.json"),
+    }
+    summary["completedAtUnixSeconds"] = int(time.time())
+    summary["elapsedSeconds"] = time.monotonic() - started
+    _atomic_write_json(config.output_dir / "run-summary.json", summary)
+    _print_completion(summary)
+    return summary
+
+
+def run_iterative_nonplaying_rl_pipeline(
+    config: NonPlayingIterativeRlRunConfig,
+    *,
+    resume: bool = False,
+    stop_after_iterations: int | None = None,
+    provided_config_keys: Sequence[str] = (),
+) -> dict[str, object]:
+    config = config.normalized()
+    _validate_iterative_config(config)
+    file_config = config.file_dict()
+    config_path = config.output_dir / "config.json"
+
+    if resume:
+        requested_training_device = config.training_device
+        stored_config = _load_json_object(config_path)
+        _validate_iterative_resume_config(
+            stored_config,
+            file_config,
+            provided_config_keys=set(provided_config_keys) - {"trainingDevice"},
+        )
+        config = _iterative_config_from_file_dict(
+            stored_config,
+            build_typescript=config.build_typescript,
+        )
+        if "trainingDevice" in provided_config_keys:
+            config = replace(config, training_device=requested_training_device)
+        file_config = stored_config
+        _validate_iterative_config(config)
+    else:
+        _prepare_iterative_output_dir(config)
+
+    if config.build_typescript:
+        _stage("typescript-build", _build_typescript_helpers)
+    if config.simulation_backend == "cpp":
+        _stage("cpp-build", _build_cpp_helpers)
+
+    started = time.monotonic()
+    bootstrap_artifacts = _ensure_bootstrap_artifacts(config)
+    if resume:
+        _validate_frozen_artifacts_match_config(config, file_config, bootstrap_artifacts)
+    else:
+        file_config = _iterative_config_with_frozen_artifacts(config, bootstrap_artifacts)
+        _atomic_write_json(config_path, file_config)
+    next_iteration = _next_nonplaying_iteration(config, bootstrap_artifacts)
+    state = _load_iterative_state(config.output_dir)
+    state = _write_iterative_state(
+        config,
+        {
+            **state,
+            "completedIterationCount": next_iteration,
+            "latestCompletedIteration": next_iteration - 1,
+        },
+    )
+    stop_at = config.iterations
+    if stop_after_iterations is not None:
+        stop_at = min(config.iterations, next_iteration + stop_after_iterations)
+
+    for iteration in range(next_iteration, stop_at):
+        iteration_record = _run_iterative_iteration(config, iteration, bootstrap_artifacts)
+        state = _write_iterative_state(
+            config,
+            {
+                **state,
+                "completedIterationCount": iteration + 1,
+                "latestCompletedIteration": iteration,
+                "latestArtifacts": iteration_record["artifacts"],
+                "completedEvaluations": _completed_evaluation_iterations(config),
+            },
+        )
+        _append_jsonl(
+            config.output_dir / "run-summary.jsonl",
+            _iteration_summary_line(iteration_record),
+        )
+
+    completed_iteration_count = _next_nonplaying_iteration(config, bootstrap_artifacts)
+    summary = _write_iterative_run_summary(
+        config,
+        file_config,
+        completed_iteration_count=completed_iteration_count,
+        elapsed_seconds=time.monotonic() - started,
+        state=state,
+    )
+    _print_iterative_completion(summary)
+    return summary
+
+
+def _run_iterative_iteration(
+    config: NonPlayingIterativeRlRunConfig,
+    iteration: int,
+    bootstrap_artifacts: dict[PhaseName, dict[str, str]],
+) -> dict[str, object]:
+    total = config.iterations
+    iteration_dir = _iterative_iteration_dir(config, iteration)
+    completed = _load_completed_nonplaying_iteration(iteration_dir)
+    if completed is not None:
+        _validate_nonplaying_iteration_artifacts(completed)
+        return completed
+    if iteration_dir.exists():
+        _quarantine_incomplete_directory(iteration_dir, label="iteration")
+    iteration_dir.mkdir(parents=True)
+
+    phase_records: dict[str, object] = {}
+    final_artifacts: dict[PhaseName, dict[str, str]] = {}
+    started = time.monotonic()
+
+    print(f"[iter {iteration + 1}/{total}] starting", flush=True)
+    for offset, phase_name in enumerate(("bidding", "adjutant", "exchange")):
+        phase = cast(PhaseName, phase_name)
+        if phase not in config.train_phases:
+            artifact = bootstrap_artifacts[phase]
+            phase_records[phase] = _frozen_phase_record(phase, artifact)
+            final_artifacts[phase] = dict(artifact)
+            print(
+                f"[iter {iteration + 1}/{total}] {phase} frozen "
+                f"artifact={artifact['artifactId']} "
+                f"onnx_sha={artifact['onnxSha256']}",
+                flush=True,
+            )
+            continue
+
+        phase_dir = iteration_dir / phase
+        dataset_dir = phase_dir / "dataset"
+        input_checkpoint = _iterative_input_checkpoint(config, iteration, phase)
+        behavior_artifact = _iterative_behavior_artifact(
+            config,
+            iteration,
+            phase,
+            bootstrap_artifacts,
+        )
+        checkpoint_path = phase_dir / "output-checkpoint.pt"
+        onnx_path = phase_dir / "policy.onnx"
+        metadata_path = phase_dir / "policy.json"
+        rollout_seed = _iterative_rollout_seed(config, iteration, offset)
+        training_seed = _iterative_training_seed(config, iteration, offset)
+
+        print(
+            f"[iter {iteration + 1}/{total}] {phase} rollout "
+            f"logical_seeds={config.games_per_iteration} "
+            f"actual_games={config.games_per_iteration * len(NONPLAYING_ROTATION_OFFSETS)} "
+            f"start_seed={rollout_seed}",
+            flush=True,
+        )
+        rollout_summary = _stage(
+            f"iter-{iteration:06d}-{phase}-rollout",
+            partial(
+                _run_iterative_rollout_stage,
+                config,
+                phase=phase,
+                behavior_artifact=behavior_artifact,
+                bootstrap_artifacts=bootstrap_artifacts,
+                dataset_dir=dataset_dir,
+                rollout_seed=rollout_seed,
+                progress_prefix=f"[iter {iteration + 1}/{total}] {phase} rollout ",
+            ),
+        )
+        manifest_path = dataset_dir / "manifest.json"
+        behavior_onnx_sha256 = _sha256_file(Path(behavior_artifact["onnxPath"]))
+        behavior_metadata_sha256 = _sha256_file(Path(behavior_artifact["metadataPath"]))
+        _validate_nonplaying_rollout_manifest(
+            manifest_path,
+            phase=phase,
+            expected_start_seed=rollout_seed,
+            expected_game_count=config.games_per_iteration,
+            expected_behavior_onnx_sha256=behavior_onnx_sha256,
+            expected_behavior_metadata_sha256=behavior_metadata_sha256,
+            expected_playing_artifact_id=config.playing_policy_artifact_id,
+        )
+
+        print(f"[iter {iteration + 1}/{total}] {phase} train", flush=True)
+        train_report = _stage(
+            f"iter-{iteration:06d}-{phase}-train",
+            partial(
+                _train_iterative_phase,
+                config,
+                phase=phase,
+                dataset_dir=dataset_dir,
+                checkpoint_path=checkpoint_path,
+                training_seed=training_seed,
+                input_checkpoint=input_checkpoint,
+            ),
+        )
+        print(f"[iter {iteration + 1}/{total}] {phase} export", flush=True)
+        export_report = _stage(
+            f"iter-{iteration:06d}-{phase}-export",
+            partial(
+                _export_iterative_phase,
+                phase=phase,
+                dataset_dir=dataset_dir,
+                checkpoint_path=checkpoint_path,
+                onnx_path=onnx_path,
+                metadata_path=metadata_path,
+            ),
+        )
+
+        phase_artifact = {
+            "checkpointPath": str(checkpoint_path),
+            "checkpointSha256": _sha256_file(checkpoint_path),
+            "onnxPath": str(onnx_path),
+            "onnxSha256": _sha256_file(onnx_path),
+            "metadataPath": str(metadata_path),
+            "metadataSha256": _sha256_file(metadata_path),
+            "artifactId": f"{phase}-iter-{iteration + 1:06d}",
+        }
+        final_artifacts[phase] = {
+            "checkpointPath": str(checkpoint_path),
+            "onnxPath": str(onnx_path),
+            "onnxSha256": phase_artifact["onnxSha256"],
+            "metadataPath": str(metadata_path),
+            "metadataSha256": phase_artifact["metadataSha256"],
+            "artifactId": phase_artifact["artifactId"],
+            "provenance": f"iteration-{iteration:06d}",
+        }
+        phase_records[phase] = {
+            "datasetDirectory": str(dataset_dir),
+            "manifestPath": str(manifest_path),
+            "manifestSha256": _sha256_file(manifest_path),
+            "rollout": rollout_summary,
+            "rolloutStartSeed": rollout_seed,
+            "trainingSeed": training_seed,
+            "inputCheckpointPath": str(input_checkpoint) if input_checkpoint is not None else None,
+            "inputCheckpointSha256": (
+                _sha256_file(input_checkpoint) if input_checkpoint is not None else None
+            ),
+            "behaviorArtifact": {
+                **behavior_artifact,
+                "onnxSha256": behavior_onnx_sha256,
+                "metadataSha256": behavior_metadata_sha256,
+            },
+            "train": train_report,
+            "export": export_report,
+            "artifact": phase_artifact,
+        }
+        print(
+            f"[iter {iteration + 1}/{total}] {phase} complete "
+            f"samples={rollout_summary.get('sampleCount')} "
+            f"mean_reward={train_report.get('meanReward')} "
+            f"loss={train_report.get('meanTotalLoss')} "
+            f"value_loss={train_report.get('meanValueLoss')} "
+            f"clipped={train_report.get('clippedFraction')}",
+            flush=True,
+        )
+
+    evaluation_summary: dict[str, object] | None = None
+    evaluation_path: str | None = None
+    if _evaluation_is_due(config, iteration):
+        evaluation_file = iteration_dir / "evaluation.json"
+        evaluation_path = str(evaluation_file)
+        print(
+            f"[iter {iteration + 1}/{total}] full-policy evaluation "
+            f"games={config.evaluation_games}",
+            flush=True,
+        )
+        evaluation_summary = _stage(
+            f"iter-{iteration:06d}-full-policy-evaluation",
+            lambda: _run_full_policy_evaluation(
+                config.as_one_shot_config(),
+                final_artifacts,
+                evaluation_file,
+                start_seed=_iterative_evaluation_seed(config, iteration),
+            ),
+        )
+        print(
+            f"[iter {iteration + 1}/{total}] evaluation complete "
+            f"completed={evaluation_summary.get('completedGames')}/"
+            f"{evaluation_summary.get('scheduledGames')} "
+            f"fallback={evaluation_summary.get('fallbackCount')} "
+            f"illegal={evaluation_summary.get('illegalActionCount')}",
+            flush=True,
+        )
+
+    iteration_record: dict[str, object] = {
+        "schemaVersion": 1,
+        "completionState": "completed",
+        "iteration": iteration,
+        "iterationIndexWidth": 6,
+        "trainMode": config.train_mode,
+        "trainPhases": list(config.train_phases),
+        "frozenPhases": list(config.frozen_phases),
+        "phaseOrder": ["bidding", "adjutant", "exchange"],
+        "gamesPerIteration": config.games_per_iteration,
+        "gamesPerIterationUnit": NONPLAYING_GAME_COUNT_UNIT,
+        "actualGamesPerIteration": config.games_per_iteration * len(NONPLAYING_ROTATION_OFFSETS),
+        "rolloutPolicyTopology": NONPLAYING_ROLLOUT_POLICY_TOPOLOGY,
+        "rotationOffsets": NONPLAYING_ROTATION_OFFSETS,
+        "reward": {
+            "type": NONPLAYING_REWARD_TYPE,
+            "version": NONPLAYING_REWARD_VERSION,
+            "id": NONPLAYING_REWARD_ID,
+        },
+        "terminalRewardTransform": _terminal_reward_transform_metadata(),
+        "biddingReward": _bidding_reward_metadata(),
+        "biddingTerminalRewardTransform": _bidding_terminal_reward_transform_metadata(),
+        "allPassRule": {
+            "id": NONPLAYING_ALL_PASS_RULE_ID,
+            "starterPayoff": 0,
+            "otherPayoff": 0,
+        },
+        "evaluationDue": evaluation_summary is not None,
+        "evaluation": evaluation_summary,
+        "evaluationPath": evaluation_path,
+        "phases": phase_records,
+        "artifacts": final_artifacts,
+        "frozenArtifacts": _frozen_artifacts_metadata(config, bootstrap_artifacts),
+        "completedAtUnixSeconds": int(time.time()),
+        "elapsedSeconds": time.monotonic() - started,
+    }
+    _atomic_write_json(iteration_dir / "iteration.json", iteration_record)
+    _validate_nonplaying_iteration_artifacts(iteration_record)
+    _update_latest_links(config, iteration)
+    return iteration_record
+
+
+def _run_iterative_rollout_stage(
+    config: NonPlayingIterativeRlRunConfig,
+    *,
+    phase: PhaseName,
+    behavior_artifact: dict[str, str],
+    bootstrap_artifacts: dict[PhaseName, dict[str, str]],
+    dataset_dir: Path,
+    rollout_seed: int,
+    progress_prefix: str,
+) -> dict[str, object]:
+    return _run_nonplaying_rollout(
+        config.as_one_shot_config(),
+        phase=phase,
+        policy_onnx=Path(behavior_artifact["onnxPath"]),
+        policy_metadata=Path(behavior_artifact["metadataPath"]),
+        dataset_dir=dataset_dir,
+        start_seed=rollout_seed,
+        artifact_id=behavior_artifact["artifactId"],
+        fixed_artifacts=(
+            {
+                "adjutant": bootstrap_artifacts["adjutant"],
+                "exchange": bootstrap_artifacts["exchange"],
+            }
+            if config.train_mode == TRAIN_MODE_BIDDING_ONLY and phase == "bidding"
+            else None
+        ),
+        progress_prefix=progress_prefix,
+    )
+
+
+def _train_iterative_phase(
+    config: NonPlayingIterativeRlRunConfig,
+    *,
+    phase: PhaseName,
+    dataset_dir: Path,
+    checkpoint_path: Path,
+    training_seed: int,
+    input_checkpoint: Path | None,
+) -> dict[str, object]:
+    return _train_phase(
+        config.as_one_shot_config(),
+        phase,
+        dataset_dir,
+        checkpoint_path,
+        training_seed,
+        parent_checkpoint=input_checkpoint,
+    )
+
+
+def _export_iterative_phase(
+    *,
+    phase: PhaseName,
+    dataset_dir: Path,
+    checkpoint_path: Path,
+    onnx_path: Path,
+    metadata_path: Path,
+) -> dict[str, object]:
+    return _export_trained_phase(
+        phase,
+        dataset_dir,
+        checkpoint_path,
+        onnx_path,
+        metadata_path,
+    )
+
+
+def _frozen_phase_record(phase: PhaseName, artifact: dict[str, str]) -> dict[str, object]:
+    return {
+        "mode": "frozen",
+        "phase": phase,
+        "datasetDirectory": None,
+        "manifestPath": None,
+        "manifestSha256": None,
+        "rollout": None,
+        "rolloutStartSeed": None,
+        "trainingSeed": None,
+        "inputCheckpointPath": None,
+        "inputCheckpointSha256": None,
+        "behaviorArtifact": _artifact_provenance(artifact),
+        "train": None,
+        "export": None,
+        "artifact": _artifact_provenance(artifact),
+    }
+
+
+def _run_phase(
+    config: NonPlayingRlRunConfig,
+    phase: PhaseName,
+    offset: int,
+) -> tuple[dict[str, object], dict[str, str]]:
+    phase_dir = config.output_dir / phase
+    dataset_dir = phase_dir / "dataset"
+    checkpoint_path = phase_dir / "checkpoint.pt"
+    onnx_path = phase_dir / "policy.onnx"
+    metadata_path = phase_dir / "policy.json"
+    bootstrap_dir = phase_dir / "bootstrap"
+    bootstrap_onnx = bootstrap_dir / "policy.onnx"
+    bootstrap_metadata = bootstrap_dir / "policy.json"
+    rollout_seed = config.seed + offset * 100_000
+    training_seed = config.seed + offset * 100_000 + 1
+
+    bootstrap_report = _stage(
+        f"{phase}-bootstrap-export",
+        lambda: export_seeded_nonplaying_bootstrap_policy_to_onnx(
+            policy_type=phase,
+            onnx_path=bootstrap_onnx,
+            metadata_path=bootstrap_metadata,
+            seed=training_seed,
+            hidden_dim=config.hidden_dim,
+            hidden_layers=config.hidden_layers,
+            bidding_hidden_dims=(
+                config.resolved_bidding_hidden_dims if phase == "bidding" else None
+            ),
+            dropout=config.dropout,
+        ),
+    )
+    rollout_summary = _stage(
+        f"{phase}-rollout",
+        lambda: _run_nonplaying_rollout(
+            config,
+            phase=phase,
+            policy_onnx=bootstrap_onnx,
+            policy_metadata=bootstrap_metadata,
+            dataset_dir=dataset_dir,
+            start_seed=rollout_seed,
+        ),
+    )
+    train_report = _stage(
+        f"{phase}-train",
+        lambda: _train_phase(config, phase, dataset_dir, checkpoint_path, training_seed),
+    )
+    export_report = _stage(
+        f"{phase}-export",
+        lambda: _export_trained_phase(
+            phase,
+            dataset_dir,
+            checkpoint_path,
+            onnx_path,
+            metadata_path,
+        ),
+    )
+
+    artifact = {
+        "checkpointPath": str(checkpoint_path),
+        "onnxPath": str(onnx_path),
+        "metadataPath": str(metadata_path),
+    }
+    return (
+        {
+            "bootstrap": bootstrap_report,
+            "rollout": rollout_summary,
+            "train": train_report,
+            "export": export_report,
+            "artifact": artifact,
+        },
+        artifact,
+    )
+
+
+def _run_nonplaying_rollout(
+    config: NonPlayingRlRunConfig,
+    *,
+    phase: PhaseName,
+    policy_onnx: Path,
+    policy_metadata: Path,
+    dataset_dir: Path,
+    start_seed: int,
+    artifact_id: str | None = None,
+    fixed_artifacts: dict[PhaseName, dict[str, str]] | None = None,
+    progress_prefix: str | None = None,
+) -> dict[str, object]:
+    if config.simulation_backend == "cpp" and phase == "bidding":
+        cpp_binary = _cpp_build_dir() / "napoleon_nonplaying_bidding_dataset_cli"
+        summary = _run_node_json(
+            [
+                str(cpp_binary),
+                "--output",
+                str(dataset_dir),
+                "--bidding-onnx",
+                str(policy_onnx),
+                "--bidding-metadata",
+                str(policy_metadata),
+                "--bidding-artifact-id",
+                artifact_id if artifact_id is not None else f"{phase}-bootstrap-seed-{start_seed}",
+                "--playing-onnx",
+                str(config.playing_policy_onnx),
+                "--playing-metadata",
+                str(config.playing_policy_metadata),
+                "--playing-artifact-id",
+                config.playing_policy_artifact_id,
+                "--start-seed",
+                str(start_seed),
+                "--game-count",
+                str(config.games),
+                "--games-per-shard",
+                str(config.effective_games_per_shard),
+                "--temperature",
+                repr(config.temperature),
+                "--inference-device",
+                config.inference_device,
+                "--inference-max-batch-size",
+                str(config.inference_max_batch_size),
+                "--sampling-seed",
+                str(start_seed),
+                "--policy-backend",
+                "onnx",
+            ],
+            cwd=_repo_root(),
+        )
+        _patch_cpp_bidding_manifest(
+            config,
+            dataset_dir=dataset_dir,
+            policy_onnx=policy_onnx,
+            policy_metadata=policy_metadata,
+            start_seed=start_seed,
+            artifact_id=(
+                artifact_id
+                if artifact_id is not None
+                else f"{phase}-bootstrap-seed-{start_seed}"
+            ),
+        )
+        return summary
+
+    command = [
+        "node",
+        str(_repo_root() / "apps/self-play-cli/dist/index.js"),
+        "non-playing-rollout",
+        "--phase",
+        phase,
+        "--policy-onnx",
+        str(policy_onnx),
+        "--policy-metadata",
+        str(policy_metadata),
+        "--playing-onnx",
+        str(config.playing_policy_onnx),
+        "--playing-metadata",
+        str(config.playing_policy_metadata),
+        "--output",
+        str(dataset_dir),
+        "--start-seed",
+        str(start_seed),
+        "--games",
+        str(config.games),
+        "--games-per-shard",
+        str(config.effective_games_per_shard),
+        "--temperature",
+        repr(config.temperature),
+        "--inference-device",
+        config.inference_device,
+        "--inference-max-batch-size",
+        str(config.inference_max_batch_size),
+        "--artifact-id",
+        artifact_id if artifact_id is not None else f"{phase}-bootstrap-seed-{start_seed}",
+        "--playing-artifact-id",
+        config.playing_policy_artifact_id,
+        "--progress-prefix",
+        progress_prefix if progress_prefix is not None else f"[{phase} rollout] ",
+    ]
+    if fixed_artifacts is not None and phase == "bidding":
+        for frozen_phase in ("adjutant", "exchange"):
+            artifact = fixed_artifacts[frozen_phase]
+            command.extend(
+                [
+                    f"--{frozen_phase}-onnx",
+                    artifact["onnxPath"],
+                    f"--{frozen_phase}-metadata",
+                    artifact["metadataPath"],
+                    f"--{frozen_phase}-artifact-id",
+                    artifact["artifactId"],
+                ]
+            )
+    return _run_node_json(command, cwd=_repo_root())
+
+
+def _patch_cpp_bidding_manifest(
+    config: NonPlayingRlRunConfig,
+    *,
+    dataset_dir: Path,
+    policy_onnx: Path,
+    policy_metadata: Path,
+    start_seed: int,
+    artifact_id: str,
+) -> None:
+    manifest_path = dataset_dir / "manifest.json"
+    manifest = _load_json_object(manifest_path)
+    behavior = cast(dict[str, object], manifest.get("behaviorPolicy", {}))
+    behavior.update(
+        {
+            "type": "bidding-onnx",
+            "artifactId": artifact_id,
+            "onnxPath": str(policy_onnx),
+            "metadataPath": str(policy_metadata),
+            "onnxFileName": policy_onnx.name,
+            "metadataFileName": policy_metadata.name,
+            "onnxSha256": _sha256_file(policy_onnx),
+            "metadataSha256": _sha256_file(policy_metadata),
+            "requestedInferenceDevice": config.inference_device,
+            "metadata": _load_json_object(policy_metadata),
+        }
+    )
+    fixed = cast(dict[str, object], manifest.get("fixedPlayingPolicy", {}))
+    fixed.update(
+        {
+            "type": "playing-onnx",
+            "artifactId": config.playing_policy_artifact_id,
+            "onnxPath": str(config.playing_policy_onnx),
+            "metadataPath": str(config.playing_policy_metadata),
+            "onnxFileName": config.playing_policy_onnx.name,
+            "metadataFileName": config.playing_policy_metadata.name,
+            "onnxSha256": _sha256_file(config.playing_policy_onnx),
+            "metadataSha256": _sha256_file(config.playing_policy_metadata),
+            "metadata": _load_json_object(config.playing_policy_metadata),
+        }
+    )
+    assignments = _frozen_bidding_assignments(start_seed, config.games)
+    conservative_count = sum(
+        1
+        for item in assignments
+        if cast(dict[str, object], item["policy"])["type"] == "conservative-bidding"
+    )
+    all_pass_count = len(assignments) - conservative_count
+    non_learning_agents = cast(dict[str, object], manifest.get("nonLearningAgents", {}))
+    non_learning_agents.update(
+        {
+            "bidding": {
+                "type": "mixed-frozen-bidding",
+                "mixingRuleVersion": FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION,
+                "selectionUnit": "game-seat",
+                "conservativeWeight": 0.5,
+                "allPassWeight": 0.5,
+                "policies": {
+                    "conservative": {
+                        "type": "conservative-bidding",
+                        "id": CONSERVATIVE_BIDDING_BASELINE_ID,
+                    },
+                    "allPass": {
+                        "type": "all-pass-bidding",
+                        "id": ALL_PASS_BIDDING_BASELINE_ID,
+                    },
+                },
+            },
+            "playing": fixed,
+        }
+    )
+    manifest.update(
+        {
+            "startSeed": start_seed,
+            "endSeed": start_seed + config.games - 1,
+            "gameCount": config.games,
+            "gameCountUnit": NONPLAYING_GAME_COUNT_UNIT,
+            "logicalSeedCount": config.games,
+            "actualGameCount": config.games * len(NONPLAYING_ROTATION_OFFSETS),
+            "rolloutPolicyTopology": NONPLAYING_ROLLOUT_POLICY_TOPOLOGY,
+            "rotationOffsets": NONPLAYING_ROTATION_OFFSETS,
+            "reward": _bidding_reward_metadata(),
+            "terminalRewardTransform": _bidding_terminal_reward_transform_metadata(),
+            "behaviorPolicy": behavior,
+            "fixedPlayingPolicy": fixed,
+            "nonLearningAgents": non_learning_agents,
+            "diagnostics": {
+                **cast(dict[str, object], manifest.get("diagnostics", {})),
+                "candidateSeatCount": 1,
+                "frozenSeatCount": 4,
+                "candidateRotationSeatCount": len(NONPLAYING_ROTATION_OFFSETS),
+                "actualGameCount": config.games * len(NONPLAYING_ROTATION_OFFSETS),
+                "logicalSeedCount": config.games,
+                "rotationOffsets": NONPLAYING_ROTATION_OFFSETS,
+                "frozenBiddingOpponentMix": {
+                    "type": "mixed-frozen-bidding",
+                    "mixingRuleVersion": FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION,
+                    "selectionUnit": "game-seat",
+                    "conservativeWeight": 0.5,
+                    "allPassWeight": 0.5,
+                    "policies": {
+                        "conservative": {
+                            "type": "conservative-bidding",
+                            "id": CONSERVATIVE_BIDDING_BASELINE_ID,
+                        },
+                        "allPass": {
+                            "type": "all-pass-bidding",
+                            "id": ALL_PASS_BIDDING_BASELINE_ID,
+                        },
+                    },
+                    "conservativeSeatCount": conservative_count,
+                    "allPassSeatCount": all_pass_count,
+                    "seatAssignments": assignments,
+                },
+            },
+        }
+    )
+    _atomic_write_json(manifest_path, manifest)
+
+
+def _frozen_bidding_assignments(start_seed: int, game_count: int) -> list[dict[str, object]]:
+    assignments: list[dict[str, object]] = []
+    for offset in range(game_count):
+        seed = start_seed + offset
+        for candidate_seat in NONPLAYING_ROTATION_OFFSETS:
+            for player_index in range(5):
+                if player_index == candidate_seat:
+                    continue
+                policy = _frozen_bidding_policy(seed, candidate_seat, player_index)
+                assignments.append(
+                    {
+                        "seed": seed,
+                        "rotationOffset": candidate_seat,
+                        "candidateSeatIndex": candidate_seat,
+                        "playerIndex": player_index,
+                        "playerId": f"player-{player_index}",
+                        "policy": policy,
+                    }
+                )
+    return assignments
+
+
+def _frozen_bidding_policy(seed: int, candidate_seat: int, player_index: int) -> dict[str, object]:
+    digest = hashlib.sha256(
+        f"{FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION}:{seed}:{candidate_seat}:{player_index}".encode()
+    ).digest()
+    bucket = int.from_bytes(digest[:4], "big") % 2
+    if bucket == 0:
+        return {"type": "conservative-bidding", "id": CONSERVATIVE_BIDDING_BASELINE_ID}
+    return {"type": "all-pass-bidding", "id": ALL_PASS_BIDDING_BASELINE_ID}
+
+
+def _train_phase(
+    config: NonPlayingRlRunConfig,
+    phase: PhaseName,
+    dataset_dir: Path,
+    checkpoint_path: Path,
+    training_seed: int,
+    parent_checkpoint: Path | None = None,
+) -> dict[str, object]:
+    if phase == "bidding":
+        return train_bidding_ppo(
+            dataset_directory=dataset_dir,
+            output_checkpoint_path=checkpoint_path,
+            settings=BiddingPpoTrainSettings(
+                seed=training_seed,
+                epochs=config.epochs,
+                batch_size=config.batch_size,
+                learning_rate=config.learning_rate,
+                ppo_clip_epsilon=config.ppo_clip_epsilon,
+                value_loss_coefficient=config.value_loss_coefficient,
+                entropy_coefficient=config.bidding_entropy_coefficient,
+                advantage_normalization=config.bidding_advantage_normalization,
+                training_device=config.training_device,
+                parent_actor_checkpoint=None,
+                parent_checkpoint=str(parent_checkpoint) if parent_checkpoint is not None else None,
+                minibatch_strategy=config.bidding_minibatch_strategy,
+            ),
+            model_config=BiddingMlpConfig(
+                hidden_dim=config.hidden_dim,
+                hidden_layers=config.hidden_layers,
+                hidden_dims=config.resolved_bidding_hidden_dims,
+                dropout=config.dropout,
+            ),
+        ).to_dict()
+    if phase == "adjutant":
+        return train_adjutant_ppo(
+            dataset_directory=dataset_dir,
+            output_checkpoint_path=checkpoint_path,
+            settings=AdjutantPpoTrainSettings(
+                seed=training_seed,
+                epochs=config.epochs,
+                batch_size=config.batch_size,
+                learning_rate=config.learning_rate,
+                ppo_clip_epsilon=config.ppo_clip_epsilon,
+                value_loss_coefficient=config.value_loss_coefficient,
+                training_device=config.training_device,
+                parent_actor_checkpoint=None,
+                parent_checkpoint=str(parent_checkpoint) if parent_checkpoint is not None else None,
+            ),
+            model_config=AdjutantMlpConfig(
+                hidden_dim=config.hidden_dim,
+                hidden_layers=config.hidden_layers,
+                dropout=config.dropout,
+            ),
+        ).to_dict()
+    return train_exchange_ppo(
+        dataset_directory=dataset_dir,
+        output_checkpoint_path=checkpoint_path,
+        settings=ExchangePpoTrainSettings(
+            seed=training_seed,
+            epochs=config.epochs,
+            batch_size=config.batch_size,
+            learning_rate=config.learning_rate,
+            ppo_clip_epsilon=config.ppo_clip_epsilon,
+            value_loss_coefficient=config.value_loss_coefficient,
+            training_device=config.training_device,
+            parent_actor_checkpoint=None,
+            parent_checkpoint=str(parent_checkpoint) if parent_checkpoint is not None else None,
+        ),
+        model_config=ExchangeMlpConfig(
+            hidden_dim=config.hidden_dim,
+            hidden_layers=config.hidden_layers,
+            dropout=config.dropout,
+        ),
+    ).to_dict()
+
+
+def _export_trained_phase(
+    phase: PhaseName,
+    dataset_dir: Path,
+    checkpoint_path: Path,
+    onnx_path: Path,
+    metadata_path: Path,
+) -> dict[str, object]:
+    if phase == "bidding":
+        report = export_bidding_rl_checkpoint_to_onnx(
+            dataset_directory=dataset_dir,
+            checkpoint_path=checkpoint_path,
+            onnx_path=onnx_path,
+            metadata_path=metadata_path,
+        )
+    elif phase == "adjutant":
+        report = export_adjutant_rl_checkpoint_to_onnx(
+            dataset_directory=dataset_dir,
+            checkpoint_path=checkpoint_path,
+            onnx_path=onnx_path,
+            metadata_path=metadata_path,
+        )
+    else:
+        report = export_exchange_rl_checkpoint_to_onnx(
+            dataset_directory=dataset_dir,
+            checkpoint_path=checkpoint_path,
+            onnx_path=onnx_path,
+            metadata_path=metadata_path,
+        )
+    return report.to_dict()
+
+
+def _run_full_policy_evaluation(
+    config: NonPlayingRlRunConfig,
+    artifacts: dict[PhaseName, dict[str, str]],
+    evaluation_path: Path,
+    start_seed: int | None = None,
+) -> dict[str, object]:
+    summary = _run_node_json(
+        [
+            "node",
+            str(_repo_root() / "apps/self-play-cli/dist/index.js"),
+            "full-policy-evaluate",
+            "--playing-onnx",
+            str(config.playing_policy_onnx),
+            "--playing-metadata",
+            str(config.playing_policy_metadata),
+            "--bidding-onnx",
+            artifacts["bidding"]["onnxPath"],
+            "--bidding-metadata",
+            artifacts["bidding"]["metadataPath"],
+            "--adjutant-onnx",
+            artifacts["adjutant"]["onnxPath"],
+            "--adjutant-metadata",
+            artifacts["adjutant"]["metadataPath"],
+            "--exchange-onnx",
+            artifacts["exchange"]["onnxPath"],
+            "--exchange-metadata",
+            artifacts["exchange"]["metadataPath"],
+            "--output",
+            str(evaluation_path),
+            "--start-seed",
+            str(start_seed if start_seed is not None else config.seed + EVALUATION_SEED_OFFSET),
+            "--games",
+            str(config.evaluation_games),
+            "--inference-device",
+            config.inference_device,
+            "--inference-max-batch-size",
+            str(config.inference_max_batch_size),
+            "--progress-prefix",
+            "[full-policy eval] ",
+        ],
+        cwd=_repo_root(),
+    )
+    provenance = _policy_artifact_provenance(config, artifacts)
+    if evaluation_path.exists():
+        evaluation = _load_json_object(evaluation_path)
+        evaluation["policyArtifacts"] = provenance
+        _atomic_write_json(evaluation_path, evaluation)
+    summary["policyArtifacts"] = provenance
+    return summary
+
+
+def _policy_artifact_provenance(
+    config: NonPlayingRlRunConfig,
+    artifacts: dict[PhaseName, dict[str, str]],
+) -> dict[str, object]:
+    return {
+        "bidding": _artifact_provenance(artifacts["bidding"]),
+        "adjutant": _artifact_provenance(artifacts["adjutant"]),
+        "exchange": _artifact_provenance(artifacts["exchange"]),
+        "playing": {
+            "onnxPath": str(config.playing_policy_onnx),
+            "onnxSha256": _sha256_file(config.playing_policy_onnx),
+            "metadataPath": str(config.playing_policy_metadata),
+            "metadataSha256": _sha256_file(config.playing_policy_metadata),
+            "artifactId": config.playing_policy_artifact_id,
+            "provenance": "frozen-playing-policy",
+        },
+    }
+
+
+def _artifact_provenance(artifact: dict[str, str]) -> dict[str, object]:
+    data: dict[str, object] = {
+        "onnxPath": artifact["onnxPath"],
+        "onnxSha256": artifact.get("onnxSha256")
+        or _sha256_file(Path(artifact["onnxPath"])),
+        "metadataPath": artifact["metadataPath"],
+        "metadataSha256": artifact.get("metadataSha256")
+        or _sha256_file(Path(artifact["metadataPath"])),
+    }
+    if "checkpointPath" in artifact:
+        data["checkpointPath"] = artifact["checkpointPath"]
+        data["checkpointSha256"] = artifact.get("checkpointSha256") or _sha256_file(
+            Path(artifact["checkpointPath"])
+        )
+    if "artifactId" in artifact:
+        data["artifactId"] = artifact["artifactId"]
+    if "provenance" in artifact:
+        data["provenance"] = artifact["provenance"]
+    return data
+
+
+def _ensure_bootstrap_artifacts(
+    config: NonPlayingIterativeRlRunConfig,
+) -> dict[PhaseName, dict[str, str]]:
+    bootstrap_artifacts: dict[PhaseName, dict[str, str]] = {}
+    for offset, phase_name in enumerate(("bidding", "adjutant", "exchange")):
+        phase = cast(PhaseName, phase_name)
+        bootstrap_dir = config.output_dir / "bootstrap" / phase
+        onnx_path = bootstrap_dir / "policy.onnx"
+        metadata_path = bootstrap_dir / "policy.json"
+        if not onnx_path.exists() or not metadata_path.exists():
+            _stage(
+                f"{phase}-bootstrap-export",
+                partial(
+                    _export_iterative_bootstrap,
+                    config,
+                    phase=phase,
+                    onnx_path=onnx_path,
+                    metadata_path=metadata_path,
+                    phase_offset=offset,
+                ),
+            )
+        _ensure_file(onnx_path, f"{phase} bootstrap ONNX")
+        _ensure_file(metadata_path, f"{phase} bootstrap metadata")
+        bootstrap_artifacts[phase] = {
+            "onnxPath": str(onnx_path),
+            "onnxSha256": _sha256_file(onnx_path),
+            "metadataPath": str(metadata_path),
+            "metadataSha256": _sha256_file(metadata_path),
+            "artifactId": f"{phase}-bootstrap-seed-{config.seed}",
+            "provenance": "bootstrap",
+        }
+    return bootstrap_artifacts
+
+
+def _iterative_config_with_frozen_artifacts(
+    config: NonPlayingIterativeRlRunConfig,
+    bootstrap_artifacts: dict[PhaseName, dict[str, str]],
+) -> dict[str, object]:
+    data = config.file_dict()
+    data["frozenArtifacts"] = _frozen_artifacts_metadata(config, bootstrap_artifacts)
+    return data
+
+
+def _frozen_artifacts_metadata(
+    config: NonPlayingIterativeRlRunConfig,
+    bootstrap_artifacts: dict[PhaseName, dict[str, str]],
+) -> dict[str, object]:
+    return {
+        phase: _artifact_provenance(bootstrap_artifacts[phase])
+        for phase in config.frozen_phases
+    }
+
+
+def _validate_frozen_artifacts_match_config(
+    config: NonPlayingIterativeRlRunConfig,
+    file_config: dict[str, object],
+    bootstrap_artifacts: dict[PhaseName, dict[str, str]],
+) -> None:
+    expected = _frozen_artifacts_metadata(config, bootstrap_artifacts)
+    stored = file_config.get("frozenArtifacts", {})
+    if stored != expected:
+        raise NonPlayingRlOrchestratorError("resume frozen artifact provenance mismatch.")
+
+
+def _export_iterative_bootstrap(
+    config: NonPlayingIterativeRlRunConfig,
+    *,
+    phase: PhaseName,
+    onnx_path: Path,
+    metadata_path: Path,
+    phase_offset: int,
+) -> dict[str, object]:
+    return export_seeded_nonplaying_bootstrap_policy_to_onnx(
+        policy_type=phase,
+        onnx_path=onnx_path,
+        metadata_path=metadata_path,
+        seed=config.seed + phase_offset * PHASE_SEED_STRIDE + 1,
+        hidden_dim=config.hidden_dim,
+        hidden_layers=config.hidden_layers,
+        bidding_hidden_dims=(
+            config.resolved_bidding_hidden_dims if phase == "bidding" else None
+        ),
+        dropout=config.dropout,
+    )
+
+
+def _next_nonplaying_iteration(
+    config: NonPlayingIterativeRlRunConfig,
+    bootstrap_artifacts: dict[PhaseName, dict[str, str]],
+) -> int:
+    next_index = 0
+    expected_inputs: dict[PhaseName, str | None] = {
+        "bidding": None,
+        "adjutant": None,
+        "exchange": None,
+    }
+    expected_behaviors: dict[PhaseName, str] = {
+        phase: _sha256_file(Path(artifact["onnxPath"]))
+        for phase, artifact in bootstrap_artifacts.items()
+    }
+    for iteration in range(config.iterations):
+        iteration_dir = _iterative_iteration_dir(config, iteration)
+        record = _load_completed_nonplaying_iteration(iteration_dir)
+        if record is None:
+            break
+        _validate_nonplaying_iteration_artifacts(record)
+        record_train_mode = record.get("trainMode", TRAIN_MODE_MULTI_PHASE)
+        if record_train_mode != config.train_mode:
+            raise NonPlayingRlOrchestratorError(
+                f"{iteration_dir}: trainMode mismatch: "
+                f"{record_train_mode!r} != {config.train_mode!r}"
+            )
+        phases = _require_dict(record.get("phases"), f"{iteration_dir}/iteration.json.phases")
+        for phase in PHASES:
+            phase_record = _require_dict(phases.get(phase), f"{phase}.record")
+            if phase not in config.train_phases:
+                artifact = _require_dict(phase_record.get("artifact"), f"{phase}.artifact")
+                if artifact.get("onnxSha256") != expected_behaviors[phase]:
+                    raise NonPlayingRlOrchestratorError(
+                        f"{iteration_dir}: {phase} frozen ONNX mismatch."
+                    )
+                behavior = _require_dict(
+                    phase_record.get("behaviorArtifact"),
+                    f"{phase}.behaviorArtifact",
+                )
+                if behavior.get("onnxSha256") != expected_behaviors[phase]:
+                    raise NonPlayingRlOrchestratorError(
+                        f"{iteration_dir}: {phase} frozen behavior mismatch."
+                    )
+                continue
+            input_sha = phase_record.get("inputCheckpointSha256")
+            if input_sha != expected_inputs[phase]:
+                raise NonPlayingRlOrchestratorError(
+                    f"{iteration_dir}: {phase} input checkpoint chain mismatch: "
+                    f"{input_sha!r} != {expected_inputs[phase]!r}"
+                )
+            behavior = _require_dict(
+                phase_record.get("behaviorArtifact"),
+                f"{phase}.behaviorArtifact",
+            )
+            if behavior.get("onnxSha256") != expected_behaviors[phase]:
+                raise NonPlayingRlOrchestratorError(
+                    f"{iteration_dir}: {phase} behavior ONNX chain mismatch."
+                )
+            artifact = _require_dict(phase_record.get("artifact"), f"{phase}.artifact")
+            expected_inputs[phase] = _required_str(artifact.get("checkpointSha256"))
+            expected_behaviors[phase] = _required_str(artifact.get("onnxSha256"))
+        next_index = iteration + 1
+    return next_index
+
+
+def _iterative_input_checkpoint(
+    config: NonPlayingIterativeRlRunConfig,
+    iteration: int,
+    phase: PhaseName,
+) -> Path | None:
+    if iteration == 0:
+        return None
+    previous = _iterative_iteration_dir(config, iteration - 1) / phase / "output-checkpoint.pt"
+    _ensure_file(previous, f"{phase} previous checkpoint")
+    return previous
+
+
+def _iterative_behavior_artifact(
+    config: NonPlayingIterativeRlRunConfig,
+    iteration: int,
+    phase: PhaseName,
+    bootstrap_artifacts: dict[PhaseName, dict[str, str]],
+) -> dict[str, str]:
+    if iteration == 0:
+        return dict(bootstrap_artifacts[phase])
+    previous_phase_dir = _iterative_iteration_dir(config, iteration - 1) / phase
+    return {
+        "onnxPath": str(previous_phase_dir / "policy.onnx"),
+        "metadataPath": str(previous_phase_dir / "policy.json"),
+        "artifactId": f"{phase}-iter-{iteration:06d}",
+        "provenance": f"iteration-{iteration - 1:06d}",
+    }
+
+
+def _evaluation_is_due(config: NonPlayingIterativeRlRunConfig, iteration: int) -> bool:
+    return (iteration + 1) % config.evaluation_interval == 0 or iteration + 1 == config.iterations
+
+
+def _iterative_rollout_seed(
+    config: NonPlayingIterativeRlRunConfig,
+    iteration: int,
+    phase_offset: int,
+) -> int:
+    return config.seed + iteration * ITERATION_SEED_STRIDE + phase_offset * PHASE_SEED_STRIDE
+
+
+def _iterative_training_seed(
+    config: NonPlayingIterativeRlRunConfig,
+    iteration: int,
+    phase_offset: int,
+) -> int:
+    return _iterative_rollout_seed(config, iteration, phase_offset) + 1
+
+
+def _iterative_evaluation_seed(
+    config: NonPlayingIterativeRlRunConfig,
+    iteration: int,
+) -> int:
+    return config.seed + iteration * ITERATION_SEED_STRIDE + EVALUATION_SEED_OFFSET
+
+
+def _iterative_iteration_dir(config: NonPlayingIterativeRlRunConfig, iteration: int) -> Path:
+    return config.output_dir / "iterations" / f"iter-{iteration:06d}"
+
+
+def _load_completed_nonplaying_iteration(iteration_dir: Path) -> dict[str, object] | None:
+    iteration_path = iteration_dir / "iteration.json"
+    if not iteration_path.exists():
+        return None
+    data = _load_json_object(iteration_path)
+    if data.get("completionState") != "completed":
+        return None
+    return data
+
+
+def _validate_nonplaying_iteration_artifacts(record: dict[str, object]) -> None:
+    phases = _require_dict(record.get("phases"), "iteration.phases")
+    for phase_name in ("bidding", "adjutant", "exchange"):
+        phase = _require_dict(phases.get(phase_name), f"iteration.phases.{phase_name}")
+        artifact = _require_dict(phase.get("artifact"), f"{phase_name}.artifact")
+        if phase.get("mode") == "frozen":
+            for path_key, sha_key in (
+                ("onnxPath", "onnxSha256"),
+                ("metadataPath", "metadataSha256"),
+            ):
+                path = Path(_required_str(artifact.get(path_key)))
+                _ensure_file(path, f"{phase_name} {path_key}")
+                expected_sha = _required_str(artifact.get(sha_key))
+                actual_sha = _sha256_file(path)
+                if actual_sha != expected_sha:
+                    raise NonPlayingRlOrchestratorError(
+                        f"{phase_name} {path_key} SHA mismatch: {actual_sha} != {expected_sha}"
+                    )
+            continue
+        for path_key, sha_key in (
+            ("checkpointPath", "checkpointSha256"),
+            ("onnxPath", "onnxSha256"),
+            ("metadataPath", "metadataSha256"),
+        ):
+            path = Path(_required_str(artifact.get(path_key)))
+            _ensure_file(path, f"{phase_name} {path_key}")
+            expected_sha = _required_str(artifact.get(sha_key))
+            actual_sha = _sha256_file(path)
+            if actual_sha != expected_sha:
+                raise NonPlayingRlOrchestratorError(
+                    f"{phase_name} {path_key} SHA mismatch: {actual_sha} != {expected_sha}"
+                )
+        manifest_path = Path(_required_str(phase.get("manifestPath")))
+        _ensure_file(manifest_path, f"{phase_name} manifest")
+        if _sha256_file(manifest_path) != _required_str(phase.get("manifestSha256")):
+            raise NonPlayingRlOrchestratorError(f"{phase_name} manifest SHA mismatch.")
+    if record.get("evaluationDue") is True:
+        evaluation_path = Path(_required_str(record.get("evaluationPath")))
+        _ensure_file(evaluation_path, "iteration evaluation")
+
+
+def _validate_nonplaying_rollout_manifest(
+    manifest_path: Path,
+    *,
+    phase: PhaseName,
+    expected_start_seed: int,
+    expected_game_count: int,
+    expected_behavior_onnx_sha256: str,
+    expected_behavior_metadata_sha256: str,
+    expected_playing_artifact_id: str,
+) -> None:
+    manifest = _load_json_object(manifest_path)
+    if manifest.get("startSeed") != expected_start_seed:
+        raise NonPlayingRlOrchestratorError("rollout manifest startSeed mismatch.")
+    if manifest.get("gameCount") != expected_game_count:
+        raise NonPlayingRlOrchestratorError("rollout manifest gameCount mismatch.")
+    if manifest.get("gameCountUnit") != NONPLAYING_GAME_COUNT_UNIT:
+        raise NonPlayingRlOrchestratorError("rollout manifest gameCountUnit mismatch.")
+    if manifest.get("logicalSeedCount") != expected_game_count:
+        raise NonPlayingRlOrchestratorError("rollout manifest logicalSeedCount mismatch.")
+    if manifest.get("actualGameCount") != expected_game_count * len(NONPLAYING_ROTATION_OFFSETS):
+        raise NonPlayingRlOrchestratorError("rollout manifest actualGameCount mismatch.")
+    if manifest.get("rolloutPolicyTopology") != NONPLAYING_ROLLOUT_POLICY_TOPOLOGY:
+        raise NonPlayingRlOrchestratorError("rollout manifest policy topology mismatch.")
+    if manifest.get("rotationOffsets") != NONPLAYING_ROTATION_OFFSETS:
+        raise NonPlayingRlOrchestratorError("rollout manifest rotationOffsets mismatch.")
+    reward = _require_dict(manifest.get("reward"), "manifest.reward")
+    if phase == "bidding":
+        if reward != _bidding_reward_metadata():
+            raise NonPlayingRlOrchestratorError("rollout manifest bidding reward metadata mismatch.")
+        _validate_bidding_terminal_reward_transform(
+            manifest.get("terminalRewardTransform"), "manifest.terminalRewardTransform"
+        )
+    else:
+        if (
+            reward.get("type") != NONPLAYING_REWARD_TYPE
+            or reward.get("version") != NONPLAYING_REWARD_VERSION
+            or reward.get("id") != NONPLAYING_REWARD_ID
+        ):
+            raise NonPlayingRlOrchestratorError("rollout manifest reward metadata mismatch.")
+        _validate_terminal_reward_transform(
+            manifest.get("terminalRewardTransform"), "manifest.terminalRewardTransform"
+        )
+    all_pass_rule = _require_dict(manifest.get("allPassRule"), "manifest.allPassRule")
+    if (
+        all_pass_rule.get("id") != NONPLAYING_ALL_PASS_RULE_ID
+        or all_pass_rule.get("starterPayoff") != 0
+        or all_pass_rule.get("otherPayoff") != 0
+    ):
+        raise NonPlayingRlOrchestratorError("rollout manifest all-pass rule metadata mismatch.")
+    behavior = _require_dict(manifest.get("behaviorPolicy"), "manifest.behaviorPolicy")
+    if behavior.get("onnxSha256") != expected_behavior_onnx_sha256:
+        raise NonPlayingRlOrchestratorError("rollout behavior ONNX SHA mismatch.")
+    if behavior.get("metadataSha256") != expected_behavior_metadata_sha256:
+        raise NonPlayingRlOrchestratorError("rollout behavior metadata SHA mismatch.")
+    fixed_playing = _require_dict(manifest.get("fixedPlayingPolicy"), "manifest.fixedPlayingPolicy")
+    if fixed_playing.get("artifactId") != expected_playing_artifact_id:
+        raise NonPlayingRlOrchestratorError("rollout fixed playing artifact mismatch.")
+    if phase == "bidding":
+        _validate_frozen_bidding_opponent_mix(manifest, expected_game_count)
+
+
+def _validate_frozen_bidding_opponent_mix(
+    manifest: dict[str, object],
+    expected_game_count: int,
+) -> None:
+    non_learning = _require_dict(manifest.get("nonLearningAgents"), "manifest.nonLearningAgents")
+    bidding = _require_dict(non_learning.get("bidding"), "manifest.nonLearningAgents.bidding")
+    if bidding.get("type") != "mixed-frozen-bidding":
+        raise NonPlayingRlOrchestratorError("rollout frozen bidding mix metadata mismatch.")
+    if bidding.get("mixingRuleVersion") != FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION:
+        raise NonPlayingRlOrchestratorError("rollout frozen bidding mix rule mismatch.")
+    if bidding.get("selectionUnit") != "game-seat":
+        raise NonPlayingRlOrchestratorError("rollout frozen bidding mix selection unit mismatch.")
+    if bidding.get("conservativeWeight") != 0.5 or bidding.get("allPassWeight") != 0.5:
+        raise NonPlayingRlOrchestratorError("rollout frozen bidding mix weights mismatch.")
+    policies = _require_dict(bidding.get("policies"), "manifest.nonLearningAgents.bidding.policies")
+    if set(policies) != {"conservative", "allPass"}:
+        raise NonPlayingRlOrchestratorError("rollout frozen bidding policy set mismatch.")
+    conservative = _require_dict(policies.get("conservative"), "bidding.policies.conservative")
+    all_pass = _require_dict(policies.get("allPass"), "bidding.policies.allPass")
+    if conservative.get("type") != "conservative-bidding":
+        raise NonPlayingRlOrchestratorError("rollout conservative bidding policy type mismatch.")
+    if conservative.get("id") != CONSERVATIVE_BIDDING_BASELINE_ID:
+        raise NonPlayingRlOrchestratorError("rollout conservative bidding baseline mismatch.")
+    if all_pass.get("type") != "all-pass-bidding":
+        raise NonPlayingRlOrchestratorError("rollout all-pass bidding policy type mismatch.")
+    if all_pass.get("id") != ALL_PASS_BIDDING_BASELINE_ID:
+        raise NonPlayingRlOrchestratorError("rollout all-pass bidding baseline mismatch.")
+
+    diagnostics = _require_dict(manifest.get("diagnostics"), "manifest.diagnostics")
+    mix = _require_dict(
+        diagnostics.get("frozenBiddingOpponentMix"),
+        "manifest.diagnostics.frozenBiddingOpponentMix",
+    )
+    if mix.get("mixingRuleVersion") != FROZEN_BIDDING_OPPONENT_MIX_RULE_VERSION:
+        raise NonPlayingRlOrchestratorError("rollout frozen bidding diagnostics mix rule mismatch.")
+    expected_assignment_count = expected_game_count * len(NONPLAYING_ROTATION_OFFSETS) * 4
+    assignments = mix.get("seatAssignments")
+    if not isinstance(assignments, list) or len(assignments) != expected_assignment_count:
+        raise NonPlayingRlOrchestratorError("rollout frozen bidding assignment count mismatch.")
+    conservative_count = _required_int(mix.get("conservativeSeatCount"))
+    all_pass_count = _required_int(mix.get("allPassSeatCount"))
+    if conservative_count + all_pass_count != expected_assignment_count:
+        raise NonPlayingRlOrchestratorError("rollout frozen bidding mix counts mismatch.")
+    for assignment in assignments:
+        assignment_obj = _require_dict(
+            assignment,
+            "manifest.diagnostics.frozenBiddingOpponentMix.seatAssignments[]",
+        )
+        policy = _require_dict(
+            assignment_obj.get("policy"),
+            "manifest.diagnostics.frozenBiddingOpponentMix.seatAssignments[].policy",
+        )
+        if policy.get("type") == "conservative-bidding":
+            if policy.get("id") != CONSERVATIVE_BIDDING_BASELINE_ID:
+                raise NonPlayingRlOrchestratorError(
+                    "rollout frozen bidding conservative assignment mismatch."
+                )
+        elif policy.get("type") == "all-pass-bidding":
+            if policy.get("id") != ALL_PASS_BIDDING_BASELINE_ID:
+                raise NonPlayingRlOrchestratorError(
+                    "rollout frozen bidding all-pass assignment mismatch."
+                )
+        else:
+            raise NonPlayingRlOrchestratorError(
+                "rollout frozen bidding assignment policy mismatch."
+            )
+
+
+def _terminal_reward_transform_metadata() -> dict[str, object]:
+    return {
+        "type": NONPLAYING_TERMINAL_REWARD_TRANSFORM_TYPE,
+        "version": NONPLAYING_TERMINAL_REWARD_TRANSFORM_VERSION,
+        "id": NONPLAYING_TERMINAL_REWARD_TRANSFORM_ID,
+        "sourceRewardId": NONPLAYING_REWARD_ID,
+        "baseline": "meanRawRewardAllPlayers",
+        "formula": "relative_reward_i = raw_reward_i - mean(raw_reward_all_players)",
+    }
+
+
+def _bidding_reward_metadata() -> dict[str, object]:
+    return {
+        "type": NONPLAYING_BIDDING_REWARD_TYPE,
+        "version": NONPLAYING_BIDDING_REWARD_VERSION,
+        "id": NONPLAYING_BIDDING_REWARD_ID,
+        "sourceRewardId": NONPLAYING_REWARD_ID,
+        "appliesTo": "bidding",
+        "napoleonWinMultiplier": 2,
+        "napoleonAdjutantWinMultiplier": 3,
+        "contractLossReward": 0,
+        "nonContractReward": 0,
+    }
+
+
+def _bidding_terminal_reward_transform_metadata() -> dict[str, object]:
+    return {
+        "type": NONPLAYING_BIDDING_TERMINAL_REWARD_TRANSFORM_TYPE,
+        "version": NONPLAYING_BIDDING_TERMINAL_REWARD_TRANSFORM_VERSION,
+        "id": NONPLAYING_BIDDING_TERMINAL_REWARD_TRANSFORM_ID,
+        "sourceRewardId": NONPLAYING_BIDDING_REWARD_ID,
+        "baseline": "none",
+        "formula": "bidding_training_reward_i = raw_bidding_reward_i",
+    }
+
+
+def _validate_terminal_reward_transform(value: object, path: str) -> None:
+    transform = _require_dict(value, path)
+    if transform != _terminal_reward_transform_metadata():
+        raise NonPlayingRlOrchestratorError(f"{path} metadata mismatch.")
+
+
+def _validate_bidding_terminal_reward_transform(value: object, path: str) -> None:
+    transform = _require_dict(value, path)
+    if transform != _bidding_terminal_reward_transform_metadata():
+        raise NonPlayingRlOrchestratorError(f"{path} metadata mismatch.")
+
+
+def _update_latest_links(config: NonPlayingIterativeRlRunConfig, iteration: int) -> None:
+    latest = config.output_dir / "latest"
+    latest.mkdir(parents=True, exist_ok=True)
+    for phase_name in ("bidding", "adjutant", "exchange"):
+        link = latest / phase_name
+        if phase_name in config.train_phases:
+            target = Path("..") / "iterations" / f"iter-{iteration:06d}" / phase_name
+        else:
+            target = Path("..") / "bootstrap" / phase_name
+        if link.exists() or link.is_symlink():
+            if link.is_dir() and not link.is_symlink():
+                raise NonPlayingRlOrchestratorError(f"latest path is not a symlink: {link}")
+            link.unlink()
+        link.symlink_to(target)
+
+
+def _completed_evaluation_iterations(config: NonPlayingIterativeRlRunConfig) -> list[int]:
+    completed: list[int] = []
+    for iteration in range(config.iterations):
+        record = _load_completed_nonplaying_iteration(_iterative_iteration_dir(config, iteration))
+        if record is None:
+            break
+        if record.get("evaluationDue") is True:
+            completed.append(iteration)
+    return completed
+
+
+def _iteration_summary_line(record: dict[str, object]) -> dict[str, object]:
+    phases = _require_dict(record["phases"], "iteration.phases")
+    summary: dict[str, object] = {
+        "iteration": record["iteration"],
+        "evaluationDue": record["evaluationDue"],
+        "elapsedSeconds": record["elapsedSeconds"],
+    }
+    for phase_name in ("bidding", "adjutant", "exchange"):
+        phase = _require_dict(phases[phase_name], phase_name)
+        if phase.get("mode") == "frozen":
+            artifact = _require_dict(phase["artifact"], "artifact")
+            summary[phase_name] = {
+                "mode": "frozen",
+                "artifactId": artifact.get("artifactId"),
+                "provenance": artifact.get("provenance"),
+                "onnxSha256": artifact.get("onnxSha256"),
+                "metadataSha256": artifact.get("metadataSha256"),
+            }
+            continue
+        train = _require_dict(phase["train"], f"{phase_name}.train")
+        rollout = _require_dict(phase["rollout"], f"{phase_name}.rollout")
+        summary[phase_name] = {
+            "sampleCount": rollout.get("sampleCount"),
+            "gameCountUnit": rollout.get("gameCountUnit"),
+            "logicalSeedCount": rollout.get("logicalSeedCount"),
+            "actualGameCount": rollout.get("actualGameCount"),
+            "diagnostics": rollout.get("diagnostics"),
+            "meanReward": train.get("meanReward"),
+            "meanTotalLoss": train.get("meanTotalLoss"),
+            "meanValueLoss": train.get("meanValueLoss"),
+            "clippedFraction": train.get("clippedFraction"),
+            "checkpointSha256": _require_dict(phase["artifact"], "artifact").get(
+                "checkpointSha256"
+            ),
+        }
+    evaluation = record.get("evaluation")
+    if isinstance(evaluation, dict):
+        summary["evaluation"] = {
+            "completedGames": evaluation.get("completedGames"),
+            "scheduledGames": evaluation.get("scheduledGames"),
+            "fallbackCount": evaluation.get("fallbackCount"),
+            "illegalActionCount": evaluation.get("illegalActionCount"),
+        }
+    return summary
+
+
+def _write_iterative_run_summary(
+    config: NonPlayingIterativeRlRunConfig,
+    file_config: dict[str, object],
+    *,
+    completed_iteration_count: int,
+    elapsed_seconds: float,
+    state: dict[str, object],
+) -> dict[str, object]:
+    latest_iteration = completed_iteration_count - 1
+    latest_record = (
+        _load_completed_nonplaying_iteration(_iterative_iteration_dir(config, latest_iteration))
+        if latest_iteration >= 0
+        else None
+    )
+    summary: dict[str, object] = {
+        "schemaVersion": 1,
+        "runType": "non-playing-iterative-ppo",
+        "trainMode": config.train_mode,
+        "trainPhases": list(config.train_phases),
+        "frozenPhases": list(config.frozen_phases),
+        "frozenArtifacts": file_config.get("frozenArtifacts", {}),
+        "config": file_config,
+        "completedIterationCount": completed_iteration_count,
+        "requestedIterations": config.iterations,
+        "latestCompletedIteration": latest_iteration,
+        "state": state,
+        "latestIteration": latest_record,
+        "completedAtUnixSeconds": int(time.time()),
+        "elapsedSeconds": elapsed_seconds,
+    }
+    _atomic_write_json(config.output_dir / "run-summary.json", summary)
+    return summary
+
+
+def _load_iterative_state(run_dir: Path) -> dict[str, object]:
+    state_path = run_dir / "state.json"
+    if not state_path.exists():
+        return {
+            "schemaVersion": 1,
+            "completedIterationCount": 0,
+            "latestCompletedIteration": -1,
+            "completedEvaluations": [],
+        }
+    return _load_json_object(state_path)
+
+
+def _write_iterative_state(
+    config: NonPlayingIterativeRlRunConfig,
+    state: dict[str, object],
+) -> dict[str, object]:
+    data = {"schemaVersion": 1, **state}
+    _atomic_write_json(config.output_dir / "state.json", data)
+    return data
+
+
+def _prepare_iterative_output_dir(config: NonPlayingIterativeRlRunConfig) -> None:
+    if config.output_dir.exists():
+        if not config.output_dir.is_dir():
+            raise NonPlayingRlOrchestratorError(
+                f"output-dir exists and is not a directory: {config.output_dir}"
+            )
+        if any(config.output_dir.iterdir()):
+            if not config.overwrite:
+                raise NonPlayingRlOrchestratorError(
+                    f"output-dir is not empty; choose a new path or pass --overwrite: "
+                    f"{config.output_dir}"
+                )
+            shutil.rmtree(config.output_dir)
+    config.output_dir.mkdir(parents=True, exist_ok=True)
+
+
+def _validate_iterative_resume_config(
+    stored_config: dict[str, object],
+    requested_config: dict[str, object],
+    *,
+    provided_config_keys: set[str],
+) -> None:
+    if stored_config.get("schemaVersion") != ITERATIVE_RUN_CONFIG_SCHEMA_VERSION:
+        raise NonPlayingRlOrchestratorError("stored config schemaVersion mismatch.")
+    always_check = {
+        "schemaVersion",
+        "runType",
+        "outputDir",
+        "gamesPerIterationUnit",
+        "rolloutPolicyTopology",
+        "rotationOffsets",
+        "reward",
+        "terminalRewardTransform",
+        "biddingReward",
+        "biddingTerminalRewardTransform",
+        "allPassRule",
+        "biddingFrozenOpponentMixRuleVersion",
+        "biddingFrozenOpponentPolicyIds",
+        "biddingAdvantageNormalization",
+        "biddingMinibatchStrategy",
+        "playingPolicyOnnxSha256",
+        "playingPolicyMetadataSha256",
+        "playingPolicyArtifactId",
+        "simulationBackend",
+    }
+    semantic_provided_config_keys = provided_config_keys - {"trainingDevice"}
+    for key in always_check | semantic_provided_config_keys:
+        requested_value = requested_config.get(key)
+        stored_value = stored_config.get(key)
+        if key == "trainMode" and stored_value is None:
+            stored_value = TRAIN_MODE_MULTI_PHASE
+        if key == "trainPhases" and stored_value is None:
+            stored_value = list(PHASES)
+        if key == "frozenPhases" and stored_value is None:
+            stored_value = []
+        if key == "simulationBackend" and stored_value is None:
+            stored_value = "typescript"
+        if key == "biddingMinibatchStrategy" and stored_value is None:
+            stored_value = BIDDING_MINIBATCH_STRATEGY_RANDOM
+        if stored_value != requested_value:
+            raise NonPlayingRlOrchestratorError(
+                f"resume config mismatch for {key}: {requested_value!r} != {stored_value!r}"
+            )
+
+
+def _iterative_config_from_file_dict(
+    data: dict[str, object],
+    *,
+    build_typescript: bool,
+) -> NonPlayingIterativeRlRunConfig:
+    return NonPlayingIterativeRlRunConfig(
+        output_dir=Path(_required_str(data["outputDir"])),
+        train_mode=_required_train_mode(data.get("trainMode", TRAIN_MODE_MULTI_PHASE)),
+        iterations=_required_int(data["iterations"]),
+        games_per_iteration=_required_int(data["gamesPerIteration"]),
+        evaluation_interval=_required_int(data["evaluationInterval"]),
+        evaluation_games=_required_int(data["evaluationGames"]),
+        games_per_shard=_required_int(data["gamesPerShard"]),
+        epochs=_required_int(data["epochs"]),
+        batch_size=_required_int(data["batchSize"]),
+        learning_rate=_required_float(data["learningRate"]),
+        hidden_dim=_required_int(data["hiddenDim"]),
+        hidden_layers=_required_int(data["hiddenLayers"]),
+        bidding_hidden_dims=_required_int_tuple(
+            data.get("biddingHiddenDims"),
+            "biddingHiddenDims",
+        ),
+        dropout=_required_float(data["dropout"]),
+        ppo_clip_epsilon=_required_float(data["ppoClipEpsilon"]),
+        value_loss_coefficient=_required_float(data["valueLossCoefficient"]),
+        bidding_entropy_coefficient=_required_float(data["biddingEntropyCoefficient"]),
+        bidding_advantage_normalization=advantage_normalization_from_metadata(
+            data.get("biddingAdvantageNormalization")
+        ),
+        bidding_minibatch_strategy=_required_minibatch_strategy(
+            data.get("biddingMinibatchStrategy", BIDDING_MINIBATCH_STRATEGY_RANDOM)
+        ),
+        seed=_required_int(data["seed"]),
+        temperature=_required_float(data["temperature"]),
+        inference_device=cast(
+            Literal["cpu", "auto", "cuda"],
+            _required_str(data["inferenceDevice"]),
+        ),
+        training_device=_required_training_device(
+            data.get("trainingDevice", DEFAULT_TRAINING_DEVICE)
+        ),
+        inference_max_batch_size=_required_int(data["inferenceMaxBatchSize"]),
+        simulation_backend=cast(
+            Literal["typescript", "cpp"],
+            _required_str(data.get("simulationBackend", "typescript")),
+        ),
+        playing_policy_onnx=Path(_required_str(data["playingPolicyOnnx"])),
+        playing_policy_metadata=Path(_required_str(data["playingPolicyMetadata"])),
+        playing_policy_artifact_id=_required_str(data["playingPolicyArtifactId"]),
+        build_typescript=build_typescript,
+        overwrite=False,
+    )
+
+
+def _stage(name: str, fn: Callable[[], _T]) -> _T:
+    print(f"[stage] {name}", flush=True)
+    try:
+        return fn()
+    except Exception as error:
+        if isinstance(error, NonPlayingRlOrchestratorError) and str(error).startswith("stage "):
+            raise
+        raise NonPlayingRlOrchestratorError(f"stage '{name}' failed: {error}") from error
+
+
+def _validate_config(config: NonPlayingRlRunConfig) -> None:
+    _validate_positive_int(config.games, "games")
+    _validate_positive_int(config.evaluation_games, "evaluation-games")
+    _validate_positive_int(config.effective_games_per_shard, "games-per-shard")
+    _validate_positive_int(config.epochs, "epochs")
+    _validate_positive_int(config.batch_size, "batch-size")
+    _validate_positive_int(config.hidden_dim, "hidden-dim")
+    _validate_positive_int(config.hidden_layers, "hidden-layers")
+    _validate_hidden_dims(config.resolved_bidding_hidden_dims, "bidding-hidden-dims")
+    _validate_positive_int(config.inference_max_batch_size, "inference-max-batch-size")
+    _validate_positive_float(config.learning_rate, "learning-rate")
+    _validate_positive_float(config.ppo_clip_epsilon, "ppo-clip-epsilon")
+    _validate_positive_float(config.temperature, "temperature")
+    if config.value_loss_coefficient < 0.0:
+        raise NonPlayingRlOrchestratorError("value-loss-coefficient must be non-negative.")
+    if config.bidding_entropy_coefficient < 0.0:
+        raise NonPlayingRlOrchestratorError(
+            "bidding-entropy-coefficient must be non-negative."
+        )
+    if config.bidding_advantage_normalization not in SUPPORTED_ADVANTAGE_NORMALIZATIONS:
+        raise NonPlayingRlOrchestratorError(
+            "bidding-advantage-normalization must be one of "
+            f"{', '.join(SUPPORTED_ADVANTAGE_NORMALIZATIONS)}."
+        )
+    if config.bidding_minibatch_strategy not in SUPPORTED_BIDDING_MINIBATCH_STRATEGIES:
+        raise NonPlayingRlOrchestratorError(
+            "bidding-minibatch-strategy must be one of "
+            f"{', '.join(SUPPORTED_BIDDING_MINIBATCH_STRATEGIES)}."
+        )
+    if config.dropout < 0.0 or config.dropout >= 1.0:
+        raise NonPlayingRlOrchestratorError("dropout must be in [0.0, 1.0).")
+    if config.inference_device not in SUPPORTED_INFERENCE_DEVICES:
+        raise NonPlayingRlOrchestratorError(
+            f"inference-device must be one of {', '.join(SUPPORTED_INFERENCE_DEVICES)}."
+        )
+    if config.simulation_backend not in SUPPORTED_SIMULATION_BACKENDS:
+        raise NonPlayingRlOrchestratorError(
+            f"simulation-backend must be one of {', '.join(SUPPORTED_SIMULATION_BACKENDS)}."
+        )
+    _validate_training_device(config.training_device)
+    _ensure_file(config.playing_policy_onnx, "playing policy ONNX")
+    _ensure_file(config.playing_policy_metadata, "playing policy metadata")
+
+
+def _validate_iterative_config(config: NonPlayingIterativeRlRunConfig) -> None:
+    if config.train_mode not in SUPPORTED_ITERATIVE_TRAIN_MODES:
+        raise NonPlayingRlOrchestratorError(
+            "train-mode must be one of "
+            f"{', '.join(SUPPORTED_ITERATIVE_TRAIN_MODES)}."
+        )
+    _validate_positive_int(config.iterations, "iterations")
+    _validate_positive_int(config.games_per_iteration, "games-per-iteration")
+    _validate_positive_int(config.evaluation_interval, "evaluation-interval")
+    _validate_positive_int(config.evaluation_games, "evaluation-games")
+    _validate_positive_int(config.effective_games_per_shard, "games-per-shard")
+    _validate_positive_int(config.epochs, "epochs")
+    _validate_positive_int(config.batch_size, "batch-size")
+    _validate_positive_int(config.hidden_dim, "hidden-dim")
+    _validate_positive_int(config.hidden_layers, "hidden-layers")
+    _validate_hidden_dims(config.resolved_bidding_hidden_dims, "bidding-hidden-dims")
+    _validate_positive_int(config.inference_max_batch_size, "inference-max-batch-size")
+    _validate_positive_float(config.learning_rate, "learning-rate")
+    _validate_positive_float(config.ppo_clip_epsilon, "ppo-clip-epsilon")
+    _validate_positive_float(config.temperature, "temperature")
+    if config.value_loss_coefficient < 0.0:
+        raise NonPlayingRlOrchestratorError("value-loss-coefficient must be non-negative.")
+    if config.bidding_entropy_coefficient < 0.0:
+        raise NonPlayingRlOrchestratorError(
+            "bidding-entropy-coefficient must be non-negative."
+        )
+    if config.bidding_advantage_normalization not in SUPPORTED_ADVANTAGE_NORMALIZATIONS:
+        raise NonPlayingRlOrchestratorError(
+            "bidding-advantage-normalization must be one of "
+            f"{', '.join(SUPPORTED_ADVANTAGE_NORMALIZATIONS)}."
+        )
+    if config.bidding_minibatch_strategy not in SUPPORTED_BIDDING_MINIBATCH_STRATEGIES:
+        raise NonPlayingRlOrchestratorError(
+            "bidding-minibatch-strategy must be one of "
+            f"{', '.join(SUPPORTED_BIDDING_MINIBATCH_STRATEGIES)}."
+        )
+    if config.dropout < 0.0 or config.dropout >= 1.0:
+        raise NonPlayingRlOrchestratorError("dropout must be in [0.0, 1.0).")
+    if config.inference_device not in SUPPORTED_INFERENCE_DEVICES:
+        raise NonPlayingRlOrchestratorError(
+            f"inference-device must be one of {', '.join(SUPPORTED_INFERENCE_DEVICES)}."
+        )
+    if config.train_mode == TRAIN_MODE_BIDDING_ONLY and config.simulation_backend == "cpp":
+        raise NonPlayingRlOrchestratorError(
+            "bidding-only train-mode requires simulation-backend typescript because "
+            "the C++ non-playing bidding rollout does not yet support frozen adjutant/"
+            "exchange ONNX policies."
+        )
+    _validate_training_device(config.training_device)
+    if config.playing_policy_artifact_id != DEFAULT_PLAYING_POLICY_ARTIFACT_ID:
+        raise NonPlayingRlOrchestratorError(
+            "iterative non-playing RL currently requires frozen playing policy "
+            f"{DEFAULT_PLAYING_POLICY_ARTIFACT_ID!r}."
+        )
+    _ensure_file(config.playing_policy_onnx, "playing policy ONNX")
+    _ensure_file(config.playing_policy_metadata, "playing policy metadata")
+
+
+def _prepare_output_dir(config: NonPlayingRlRunConfig) -> None:
+    if config.output_dir.exists():
+        if not config.output_dir.is_dir():
+            raise NonPlayingRlOrchestratorError(
+                f"output-dir exists and is not a directory: {config.output_dir}"
+            )
+        if any(config.output_dir.iterdir()):
+            if not config.overwrite:
+                raise NonPlayingRlOrchestratorError(
+                    f"output-dir is not empty; choose a new path or pass --overwrite: "
+                    f"{config.output_dir}"
+                )
+            shutil.rmtree(config.output_dir)
+    config.output_dir.mkdir(parents=True, exist_ok=True)
+
+
+def _build_typescript_helpers() -> None:
+    result = subprocess.run(
+        ["pnpm", "--filter", "@napoleon/self-play-cli...", "build"],
+        cwd=_repo_root(),
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    if result.stdout:
+        print(result.stdout, end="", flush=True)
+    if result.stderr:
+        print(result.stderr, end="", file=sys.stderr, flush=True)
+    if result.returncode != 0:
+        raise NonPlayingRlOrchestratorError(
+            f"TypeScript helper build failed with exit {result.returncode}."
+        )
+
+
+def _build_cpp_helpers() -> None:
+    build_dir = _cpp_build_dir()
+    cache_path = build_dir / "CMakeCache.txt"
+    needs_configure = True
+    if cache_path.exists():
+        try:
+            needs_configure = "NAPOLEON_ENABLE_ONNXRUNTIME:BOOL=ON" not in cache_path.read_text(
+                encoding="utf-8"
+            )
+        except OSError:
+            needs_configure = True
+    if needs_configure:
+        configure = subprocess.run(
+            [
+                "cmake",
+                "-S",
+                "packages/cpp-core/native",
+                "-B",
+                str(build_dir),
+                "-DNAPOLEON_ENABLE_ONNXRUNTIME=ON",
+            ],
+            cwd=_repo_root(),
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+        if configure.stdout:
+            print(configure.stdout, end="", flush=True)
+        if configure.stderr:
+            print(configure.stderr, end="", file=sys.stderr, flush=True)
+        if configure.returncode != 0:
+            raise NonPlayingRlOrchestratorError(
+                f"C++ helper configure failed with exit {configure.returncode}."
+            )
+    result = subprocess.run(
+        ["cmake", "--build", str(build_dir), "--target", "napoleon_nonplaying_bidding_dataset_cli"],
+        cwd=_repo_root(),
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    if result.stdout:
+        print(result.stdout, end="", flush=True)
+    if result.stderr:
+        print(result.stderr, end="", file=sys.stderr, flush=True)
+    if result.returncode != 0:
+        raise NonPlayingRlOrchestratorError(
+            f"C++ helper build failed with exit {result.returncode}."
+        )
+
+
+def _cpp_build_dir() -> Path:
+    value = os.environ.get("NAPOLEON_CPP_BUILD_DIR")
+    if value:
+        path = Path(value).expanduser()
+        return path if path.is_absolute() else _repo_root() / path
+    return _repo_root() / "packages/cpp-core/build"
+
+
+def _run_node_json(command: Sequence[str], *, cwd: Path) -> dict[str, object]:
+    result = subprocess.run(
+        list(command),
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.stderr:
+        print(result.stderr, end="", file=sys.stderr, flush=True)
+    if result.returncode != 0:
+        raise NonPlayingRlOrchestratorError(
+            f"command failed with exit {result.returncode}: {command}\n"
+            f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+        )
+    try:
+        parsed = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise NonPlayingRlOrchestratorError(
+            f"subprocess did not return JSON: {result.stdout!r}"
+        ) from error
+    if not isinstance(parsed, dict):
+        raise NonPlayingRlOrchestratorError("subprocess JSON output must be an object.")
+    return cast(dict[str, object], parsed)
+
+
+def _atomic_write_json(path: Path, value: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_name(f".{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
+    try:
+        temp_path.write_text(
+            json.dumps(value, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        temp_path.replace(path)
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
+
+
+def _append_jsonl(path: Path, value: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as file:
+        file.write(json.dumps(value, sort_keys=True) + "\n")
+
+
+def _load_json_object(path: Path) -> dict[str, object]:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as error:
+        raise NonPlayingRlOrchestratorError(f"cannot read JSON file {path}: {error}") from error
+    except json.JSONDecodeError as error:
+        raise NonPlayingRlOrchestratorError(f"invalid JSON file {path}: {error}") from error
+    if not isinstance(raw, dict):
+        raise NonPlayingRlOrchestratorError(f"JSON file must contain an object: {path}")
+    return cast(dict[str, object], raw)
+
+
+def _sha256_file(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def _print_completion(summary: dict[str, object]) -> None:
+    evaluation = cast(dict[str, object], summary["evaluation"])
+    counts = cast(dict[str, object], evaluation["policyAgentDecisionCounts"])
+    print(
+        "[complete] "
+        f"runSummary={cast(dict[str, object], summary['artifactPaths'])['runSummary']} "
+        f"completed={evaluation['completedGames']}/{evaluation['scheduledGames']} "
+        f"fallback={evaluation['fallbackCount']} "
+        f"illegal={evaluation['illegalActionCount']} "
+        f"bidding={counts['biddingOnnxCallCount']} "
+        f"adjutant={counts['adjutantOnnxCallCount']} "
+        f"exchange={counts['exchangeOnnxCallCount']}",
+        flush=True,
+    )
+
+
+def _print_iterative_completion(summary: dict[str, object]) -> None:
+    latest_iteration = summary["latestCompletedIteration"]
+    latest = summary.get("latestIteration")
+    config = cast(dict[str, object], summary["config"])
+    fallback: object = "n/a"
+    illegal: object = "n/a"
+    if isinstance(latest, dict) and isinstance(latest.get("evaluation"), dict):
+        evaluation = cast(dict[str, object], latest["evaluation"])
+        fallback = evaluation.get("fallbackCount", "n/a")
+        illegal = evaluation.get("illegalActionCount", "n/a")
+    print(
+        "[complete] "
+        f"runSummary={config['outputDir']}/run-summary.json "
+        f"completedIterations={summary['completedIterationCount']}/"
+        f"{summary['requestedIterations']} "
+        f"latestIteration={latest_iteration} "
+        f"fallback={fallback} "
+        f"illegal={illegal}",
+        flush=True,
+    )
+
+
+def _quarantine_incomplete_directory(directory: Path, *, label: str) -> None:
+    target = directory.with_name(
+        f"{directory.name}.incomplete-{int(time.time())}-{os.getpid()}"
+    )
+    print(f"[resume] moving incomplete {label} aside: {directory} -> {target}", flush=True)
+    directory.rename(target)
+
+
+def _require_dict(value: object, label: str) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise NonPlayingRlOrchestratorError(f"{label} must be an object.")
+    return cast(dict[str, object], value)
+
+
+def _required_str(value: object) -> str:
+    if not isinstance(value, str) or value == "":
+        raise NonPlayingRlOrchestratorError("required string is missing.")
+    return value
+
+
+def _required_int(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise NonPlayingRlOrchestratorError("required integer is missing.")
+    return value
+
+
+def _required_float(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise NonPlayingRlOrchestratorError("required number is missing.")
+    return float(value)
+
+
+def _required_int_tuple(value: object, label: str) -> tuple[int, ...] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list | tuple) or len(value) == 0:
+        raise NonPlayingRlOrchestratorError(f"{label} must be a non-empty list.")
+    values: list[int] = []
+    for index, item in enumerate(value):
+        if isinstance(item, bool) or not isinstance(item, int):
+            raise NonPlayingRlOrchestratorError(
+                f"{label}[{index}] must be a positive integer."
+            )
+        values.append(item)
+    return tuple(values)
+
+
+def _required_training_device(value: object) -> RequestedTorchDevice:
+    if value not in SUPPORTED_TORCH_DEVICES:
+        raise NonPlayingRlOrchestratorError(
+            "training-device must be one of "
+            f"{', '.join(SUPPORTED_TORCH_DEVICES)}, got {value!r}."
+        )
+    return value
+
+
+def _required_train_mode(value: object) -> IterativeTrainMode:
+    if value not in SUPPORTED_ITERATIVE_TRAIN_MODES:
+        raise NonPlayingRlOrchestratorError(
+            "train-mode must be one of "
+            f"{', '.join(SUPPORTED_ITERATIVE_TRAIN_MODES)}, got {value!r}."
+        )
+    return value
+
+
+def _required_minibatch_strategy(value: object) -> str:
+    if value not in SUPPORTED_BIDDING_MINIBATCH_STRATEGIES:
+        raise NonPlayingRlOrchestratorError(
+            "bidding-minibatch-strategy must be one of "
+            f"{', '.join(SUPPORTED_BIDDING_MINIBATCH_STRATEGIES)}, got {value!r}."
+        )
+    return value
+
+
+def _validate_training_device(value: object) -> None:
+    requested = _required_training_device(value)
+    if requested != "cuda":
+        return
+    try:
+        resolve_torch_device(requested, flag_name="--training-device")
+    except TorchDeviceResolutionError as error:
+        raise NonPlayingRlOrchestratorError(str(error)) from error
+
+
+def _validate_positive_int(value: int, label: str) -> None:
+    if isinstance(value, bool) or value <= 0:
+        raise NonPlayingRlOrchestratorError(f"{label} must be a positive integer.")
+
+
+def _validate_hidden_dims(value: tuple[int, ...], label: str) -> None:
+    if len(value) == 0:
+        raise NonPlayingRlOrchestratorError(f"{label} must contain at least one width.")
+    for width in value:
+        _validate_positive_int(width, label)
+
+
+def _validate_positive_float(value: float, label: str) -> None:
+    if value <= 0.0:
+        raise NonPlayingRlOrchestratorError(f"{label} must be positive.")
+
+
+def _ensure_file(path: Path, label: str) -> None:
+    if not path.is_file():
+        raise NonPlayingRlOrchestratorError(f"{label} file does not exist: {path}")
+
+
+def _resolve_repo_path(path: Path) -> Path:
+    expanded = path.expanduser()
+    if expanded.is_absolute():
+        return expanded.resolve()
+    return (_repo_root() / expanded).resolve()
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[3]

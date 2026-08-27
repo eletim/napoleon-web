@@ -16,6 +16,9 @@ constexpr int kBiddingActionTypePass = 0;
 constexpr int kBiddingActionTypeBid = 1;
 constexpr int kMinBiddingTargetPointCards = 13;
 constexpr int kBiddingTargetPointCardsClassCount = 7;
+constexpr int kBiddingBidPositionCount = 28;
+constexpr int kBiddingBidOwnerClassCount = kPlayerCount + 1;
+constexpr int kConsecutivePassCountClassCount = kPlayerCount + 1;
 constexpr int kCompletedTrickCardSlotCount = kTrickCount * kCardsPerTrick;
 constexpr int kSelfRoleCount = 4;
 
@@ -164,6 +167,21 @@ int bidding_suit_index(Suit suit) {
   return static_cast<int>(suit);
 }
 
+int bidding_bid_position_suit_index(Suit suit) {
+  switch (suit) {
+    case Suit::Clubs:
+      return 0;
+    case Suit::Diamonds:
+      return 1;
+    case Suit::Hearts:
+      return 2;
+    case Suit::Spades:
+      return 3;
+  }
+
+  throw std::runtime_error("invalid bidding suit");
+}
+
 Card sei_jack_card(Suit trump_suit) {
   return Card{static_cast<std::uint8_t>(static_cast<int>(trump_suit) * 13 + 10)};
 }
@@ -203,21 +221,24 @@ void append_matrix(
   }
 }
 
-void append_one_hot(
+template <typename Iterator, std::size_t EmptySize>
+void append_one_hot_range(
     std::vector<float>& target,
-    const std::vector<int>& indices,
+    Iterator begin,
+    Iterator end,
     int slot_count,
     int class_count,
     int min_value,
-    const std::vector<int>& empty_values) {
-  if (static_cast<int>(indices.size()) != slot_count) {
+    const std::array<int, EmptySize>& empty_values) {
+  if (static_cast<int>(std::distance(begin, end)) != slot_count) {
     throw std::runtime_error("one-hot index field has an invalid slot count");
   }
 
-  for (int index_value : indices) {
+  for (Iterator it = begin; it != end; ++it) {
+    const int index_value = *it;
     const int class_index = index_value - min_value;
-    const bool is_empty = std::find(empty_values.begin(), empty_values.end(), index_value) !=
-                          empty_values.end();
+    const bool is_empty =
+        std::find(empty_values.begin(), empty_values.end(), index_value) != empty_values.end();
     if ((class_index < 0 || class_index >= class_count) && !is_empty) {
       throw std::runtime_error("one-hot index out of range");
     }
@@ -228,9 +249,75 @@ void append_one_hot(
   }
 }
 
-template <std::size_t Size>
-std::vector<int> to_vector(const std::array<int, Size>& values) {
-  return std::vector<int>(values.begin(), values.end());
+template <std::size_t Size, std::size_t EmptySize>
+void append_one_hot_array(
+    std::vector<float>& target,
+    const std::array<int, Size>& indices,
+    int class_count,
+    int min_value,
+    const std::array<int, EmptySize>& empty_values) {
+  append_one_hot_range(
+      target,
+      indices.begin(),
+      indices.end(),
+      static_cast<int>(indices.size()),
+      class_count,
+      min_value,
+      empty_values);
+}
+
+template <std::size_t EmptySize>
+void append_one_hot_value(
+    std::vector<float>& target,
+    int index,
+    int class_count,
+    int min_value,
+    const std::array<int, EmptySize>& empty_values) {
+  const std::array<int, 1> indices{index};
+  append_one_hot_array(target, indices, class_count, min_value, empty_values);
+}
+
+void append_bidding_bid_owner_table(
+    std::vector<float>& target,
+    const EncodedBiddingHistory& bidding_history) {
+  std::array<float, kBiddingBidPositionCount * kBiddingBidOwnerClassCount> table{};
+  for (int position_index = 0; position_index < kBiddingBidPositionCount; ++position_index) {
+    table[static_cast<std::size_t>(position_index * kBiddingBidOwnerClassCount)] = 1.0F;
+  }
+
+  int highest_seen_position = -1;
+  for (int slot_index = 0; slot_index < kMaxBiddingActionCount; ++slot_index) {
+    const std::size_t slot = static_cast<std::size_t>(slot_index);
+    if (bidding_history.action_mask[slot] == 0) {
+      continue;
+    }
+    if (bidding_history.action_type_indices[slot] != kBiddingActionTypeBid) {
+      continue;
+    }
+
+    const int player_index = bidding_history.player_indices[slot];
+    if (player_index < 0 || player_index >= kPlayerCount) {
+      throw std::runtime_error("bidding history bid player index out of range");
+    }
+    const Suit suit = static_cast<Suit>(bidding_history.suit_indices[slot]);
+    const int target_offset =
+        bidding_history.target_point_cards[slot] - kMinBiddingTargetPointCards;
+    const int position_index = target_offset * 4 + bidding_bid_position_suit_index(suit);
+    if (position_index <= highest_seen_position) {
+      throw std::runtime_error("bidding bid positions must be strictly increasing");
+    }
+    highest_seen_position = position_index;
+
+    const std::size_t table_offset =
+        static_cast<std::size_t>(position_index * kBiddingBidOwnerClassCount);
+    if (table[table_offset] != 1.0F) {
+      throw std::runtime_error("duplicate bid position in bidding history");
+    }
+    table[table_offset] = 0.0F;
+    table[table_offset + static_cast<std::size_t>(player_index + 1)] = 1.0F;
+  }
+
+  target.insert(target.end(), table.begin(), table.end());
 }
 
 EncodedBiddingHistory encode_bidding_history(
@@ -298,76 +385,66 @@ std::array<float, kPlayingModelInputFeatureCount> encode_model_input(
     throw std::runtime_error("flat observation feature count drift");
   }
 
-  append_one_hot(
+  append_one_hot_array(
       values,
-      {observation.special_card_indices.begin(), observation.special_card_indices.end()},
-      4,
+      observation.special_card_indices,
       kCardCount,
       0,
-      {kEmptyCardIndex});
-  append_one_hot(
+      std::array<int, 1>{kEmptyCardIndex});
+  append_one_hot_array(
       values,
-      to_vector(observation.current_trick_card_indices),
-      kCardsPerTrick,
+      observation.current_trick_card_indices,
       kCardCount,
       0,
-      {kEmptyCardIndex});
-  append_one_hot(
+      std::array<int, 1>{kEmptyCardIndex});
+  append_one_hot_array(
       values,
-      to_vector(observation.completed_trick_card_indices),
-      kCompletedTrickCardSlotCount,
+      observation.completed_trick_card_indices,
       kCardCount,
       0,
-      {kEmptyCardIndex});
-  append_one_hot(
+      std::array<int, 1>{kEmptyCardIndex});
+  append_one_hot_array(
       values,
-      to_vector(observation.current_trick_player_indices),
-      kCardsPerTrick,
+      observation.current_trick_player_indices,
       kPlayerCount,
       0,
-      {kEmptyPlayerIndex});
-  append_one_hot(
+      std::array<int, 1>{kEmptyPlayerIndex});
+  append_one_hot_array(
       values,
-      to_vector(observation.completed_trick_player_indices),
-      kCompletedTrickCardSlotCount,
+      observation.completed_trick_player_indices,
       kPlayerCount,
       0,
-      {kEmptyPlayerIndex});
-  append_one_hot(
+      std::array<int, 1>{kEmptyPlayerIndex});
+  append_one_hot_array(
       values,
-      to_vector(observation.completed_trick_winner_indices),
-      kTrickCount,
+      observation.completed_trick_winner_indices,
       kPlayerCount,
       0,
-      {kEmptyPlayerIndex});
-  append_one_hot(
+      std::array<int, 1>{kEmptyPlayerIndex});
+  append_one_hot_array(
       values,
-      to_vector(observation.bidding_history.action_type_indices),
-      kMaxBiddingActionCount,
+      observation.bidding_history.action_type_indices,
       2,
       0,
-      {kEmptyBiddingActionType});
-  append_one_hot(
+      std::array<int, 1>{kEmptyBiddingActionType});
+  append_one_hot_array(
       values,
-      to_vector(observation.bidding_history.player_indices),
-      kMaxBiddingActionCount,
+      observation.bidding_history.player_indices,
       kPlayerCount,
       0,
-      {kEmptyPlayerIndex});
-  append_one_hot(
+      std::array<int, 1>{kEmptyPlayerIndex});
+  append_one_hot_array(
       values,
-      to_vector(observation.bidding_history.suit_indices),
-      kMaxBiddingActionCount,
+      observation.bidding_history.suit_indices,
       4,
       0,
-      {kEmptyBiddingSuitIndex});
-  append_one_hot(
+      std::array<int, 1>{kEmptyBiddingSuitIndex});
+  append_one_hot_array(
       values,
-      to_vector(observation.bidding_history.target_point_cards),
-      kMaxBiddingActionCount,
+      observation.bidding_history.target_point_cards,
       kBiddingTargetPointCardsClassCount,
       kMinBiddingTargetPointCards,
-      {0});
+      std::array<int, 1>{0});
   append_values(values, observation.self_role_one_hot);
 
   if (static_cast<int>(values.size()) != kPlayingModelInputFeatureCount) {
@@ -379,6 +456,68 @@ std::array<float, kPlayingModelInputFeatureCount> encode_model_input(
   return result;
 }
 
+std::array<float, kBiddingModelInputFeatureCount> encode_bidding_model_input(
+    const BiddingModelInput& input,
+    const EncodedBiddingHistory& bidding_history,
+    const GameState& state) {
+  std::vector<float> values;
+  values.reserve(kBiddingModelInputFeatureCount);
+
+  const int player_index = input.player_index;
+  std::array<int, kCardCount> self_hand_mask{};
+  for (Card card : state.hands[static_cast<std::size_t>(player_index)]) {
+    set_card_mask(self_hand_mask, card);
+  }
+
+  append_values(values, self_hand_mask);
+  append_values(values, input.legal_bid_mask);
+  append_one_hot_value(
+      values,
+      relative_player_index(player_index, state.bidding->starter_player_index),
+      kPlayerCount,
+      0,
+      std::array<int, 0>{});
+
+  const bool has_highest_bid = state.bidding->highest_bid.has_value();
+  values.push_back(has_highest_bid ? 1.0F : 0.0F);
+  append_one_hot_value(
+      values,
+      has_highest_bid ? relative_player_index(player_index, state.bidding->highest_bid->player_index)
+                      : kEmptyPlayerIndex,
+      kPlayerCount,
+      0,
+      std::array<int, 1>{kEmptyPlayerIndex});
+  append_one_hot_value(
+      values,
+      has_highest_bid ? bidding_suit_index(state.bidding->highest_bid->suit)
+                      : kEmptyBiddingSuitIndex,
+      4,
+      0,
+      std::array<int, 1>{kEmptyBiddingSuitIndex});
+  append_one_hot_value(
+      values,
+      has_highest_bid ? state.bidding->highest_bid->target_point_cards : 0,
+      kBiddingTargetPointCardsClassCount,
+      kMinBiddingTargetPointCards,
+      std::array<int, 1>{0});
+  append_one_hot_value(
+      values,
+      state.bidding->consecutive_pass_count,
+      kConsecutivePassCountClassCount,
+      0,
+      std::array<int, 0>{});
+
+  append_bidding_bid_owner_table(values, bidding_history);
+
+  if (static_cast<int>(values.size()) != kBiddingModelInputFeatureCount) {
+    throw std::runtime_error("bidding model input feature count drift");
+  }
+
+  std::array<float, kBiddingModelInputFeatureCount> result{};
+  std::copy(values.begin(), values.end(), result.begin());
+  return result;
+}
+
 std::vector<float> encode_complete_info_model_input(
     const EncodedPlayingObservation& observation,
     const std::array<int, kCardCount>& card_owner_class_by_card,
@@ -386,13 +525,12 @@ std::vector<float> encode_complete_info_model_input(
   std::vector<float> values;
   values.reserve(kCompleteInfoPlayingModelInputFeatureCount);
 
-  append_one_hot(
+  append_one_hot_array(
       values,
-      to_vector(card_owner_class_by_card),
-      kCardCount,
+      card_owner_class_by_card,
       kCompleteInfoOwnerClassCount,
       0,
-      {});
+      std::array<int, 0>{});
   append_values(values, captured_point_card_count_by_player);
   append_values(values, observation.trump_suit_one_hot);
   values.push_back(static_cast<float>(observation.contract_target_point_cards));
@@ -411,13 +549,12 @@ std::vector<float> encode_complete_info_model_input(
   append_values(values, observation.special_card_indices);
   append_values(values, observation.current_trick_slot_mask);
   append_values(values, observation.current_trick_card_indices);
-  append_one_hot(
+  append_one_hot_array(
       values,
-      to_vector(observation.current_trick_player_indices),
-      kCardsPerTrick,
+      observation.current_trick_player_indices,
       kPlayerCount,
       0,
-      {kEmptyPlayerIndex});
+      std::array<int, 1>{kEmptyPlayerIndex});
   values.push_back(static_cast<float>(observation.trick_number));
   values.push_back(static_cast<float>(observation.completed_trick_count));
 
@@ -738,12 +875,69 @@ VariantPlayingModelInput create_playing_model_input(
   return result;
 }
 
+BiddingModelInput create_bidding_model_input(const GameState& state, int player_index) {
+  if (state.phase != Phase::Bidding || !state.bidding.has_value()) {
+    throw std::runtime_error("bidding model input requires an active bidding state");
+  }
+  if (player_index < 0 || player_index >= kPlayerCount) {
+    throw std::runtime_error("player index out of range");
+  }
+
+  BiddingModelInput result;
+  result.player_index = player_index;
+  for (int relative_index = 0; relative_index < kPlayerCount; ++relative_index) {
+    result.relative_player_indices[static_cast<std::size_t>(relative_index)] =
+        absolute_player_index(player_index, relative_index);
+  }
+  for (const Action& action : get_legal_actions(state, player_index)) {
+    if (action.type == Action::Type::Bid || action.type == Action::Type::Pass) {
+      result.legal_bid_mask[static_cast<std::size_t>(bidding_action_index(action))] = 1;
+    }
+  }
+  const EncodedBiddingHistory bidding_history =
+      encode_bidding_history(state, result.relative_player_indices);
+  result.model_input = encode_bidding_model_input(result, bidding_history, state);
+  return result;
+}
+
 int playing_card_model_index(Card card) {
   return card_model_index(card);
 }
 
 Card card_from_playing_model_index(int index) {
   return card_from_model_index(index);
+}
+
+int bidding_action_index(const Action& action) {
+  if (action.type == Action::Type::Pass) {
+    return 0;
+  }
+  if (action.type != Action::Type::Bid || !action.suit.has_value()) {
+    throw std::runtime_error("bidding action index requires pass or bid");
+  }
+  if (action.target_point_cards < kMinBiddingTargetPointCards ||
+      action.target_point_cards > kMinBiddingTargetPointCards + kBiddingTargetPointCardsClassCount - 1) {
+    throw std::runtime_error("bidding target out of range");
+  }
+  return 1 + (action.target_point_cards - kMinBiddingTargetPointCards) * 4 +
+         static_cast<int>(*action.suit);
+}
+
+Action bidding_action_from_index(int action_index, int player_index) {
+  if (action_index < 0 || action_index >= kBiddingActionCount) {
+    throw std::runtime_error("bidding action index out of range");
+  }
+  Action action;
+  action.player_index = player_index;
+  if (action_index == 0) {
+    action.type = Action::Type::Pass;
+    return action;
+  }
+  const int offset = action_index - 1;
+  action.type = Action::Type::Bid;
+  action.target_point_cards = kMinBiddingTargetPointCards + offset / 4;
+  action.suit = static_cast<Suit>(offset % 4);
+  return action;
 }
 
 PlayingObservationVariant parse_playing_observation_variant(const std::string& value) {
@@ -825,6 +1019,34 @@ std::string current_player_playing_model_input_json(const GameState& state) {
   return out.str();
 }
 
+std::string current_player_bidding_model_input_json(const GameState& state) {
+  if (state.phase != Phase::Bidding) {
+    return "null";
+  }
+
+  const BiddingModelInput model_input =
+      create_bidding_model_input(state, state.current_player_index);
+  std::ostringstream out;
+  out << "{\"encoderSchemaVersion\":" << model_input.encoder_schema_version;
+  out << ",\"modelInputSchemaVersion\":" << model_input.model_input_schema_version;
+  out << ",\"modelInputFeatureCount\":" << model_input.model_input_feature_count;
+  out << ",\"playerId\":";
+  json_escape(out, player_id(model_input.player_index));
+  out << ",\"relativePlayerIds\":[";
+  for (std::size_t index = 0; index < model_input.relative_player_indices.size(); ++index) {
+    if (index != 0) {
+      out << ',';
+    }
+    json_escape(out, player_id(model_input.relative_player_indices[index]));
+  }
+  out << "],\"legalBidMask\":";
+  write_array(out, model_input.legal_bid_mask);
+  out << ",\"modelInput\":";
+  write_array(out, model_input.model_input);
+  out << '}';
+  return out.str();
+}
+
 std::string canonical_snapshot_with_current_player_playing_model_input_json(const GameState& state) {
   std::string snapshot = canonical_snapshot_json(state);
   if (snapshot.empty() || snapshot.back() != '}') {
@@ -834,6 +1056,8 @@ std::string canonical_snapshot_with_current_player_playing_model_input_json(cons
   snapshot.pop_back();
   snapshot += ",\"playingModelInput\":";
   snapshot += current_player_playing_model_input_json(state);
+  snapshot += ",\"biddingModelInput\":";
+  snapshot += current_player_bidding_model_input_json(state);
   snapshot += '}';
   return snapshot;
 }

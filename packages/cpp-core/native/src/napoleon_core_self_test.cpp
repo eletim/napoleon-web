@@ -1,5 +1,6 @@
 #include "napoleon_core.hpp"
 #include "napoleon_evaluation.hpp"
+#include "napoleon_joint_teacher.hpp"
 #include "napoleon_onnx_policy.hpp"
 #include "napoleon_rule_based.hpp"
 #include "napoleon_roster.hpp"
@@ -26,6 +27,25 @@ bool same_agent(const napoleon::AgentIdentity& left, const napoleon::AgentIdenti
 napoleon::AgentResult first_result_for_request(const napoleon::AgentRequest& request) {
   napoleon::AgentResult result;
   result.request_id = request.request_id;
+  result.action = request.legal_actions.front();
+  return result;
+}
+
+napoleon::AgentResult setup_result_for_playing_request_test(const napoleon::AgentRequest& request) {
+  napoleon::AgentResult result;
+  result.request_id = request.request_id;
+  if (request.phase == napoleon::Phase::Bidding) {
+    const auto bid_it = std::find_if(
+        request.legal_actions.begin(),
+        request.legal_actions.end(),
+        [](const napoleon::Action& action) {
+          return action.type == napoleon::Action::Type::Bid;
+        });
+    if (bid_it != request.legal_actions.end()) {
+      result.action = *bid_it;
+      return result;
+    }
+  }
   result.action = request.legal_actions.front();
   return result;
 }
@@ -106,7 +126,7 @@ std::vector<napoleon::AgentRequest> collect_playing_requests(
     for (const napoleon::AgentRequest& request : requests) {
       assert(request.phase != napoleon::Phase::Playing);
       assert(!request.legal_actions.empty());
-      setup_results.push_back(first_result_for_request(request));
+      setup_results.push_back(setup_result_for_playing_request_test(request));
     }
     runtime.submit_agent_results(setup_results);
   }
@@ -152,11 +172,17 @@ int main() {
     napoleon::apply_action(first, pass);
   }
 
-  assert(first.phase == napoleon::Phase::ChoosingAdjutant);
-  assert(first.contract.has_value());
-  assert(first.contract->napoleon_player_index == 0);
-  assert(first.contract->trump_suit == napoleon::Suit::Spades);
-  assert(first.contract->target_point_cards == 12);
+  assert(first.phase == napoleon::Phase::Finished);
+  assert(first.is_game_over);
+  assert(!first.contract.has_value());
+  assert(!first.trump_suit.has_value());
+  assert(first.result.has_value());
+  assert(first.result->result_type == "all-pass");
+  assert(first.result->starter_player_index == 0);
+  assert(first.result->payoffs[0] == 1);
+  for (int player_index = 1; player_index < 5; ++player_index) {
+    assert(first.result->payoffs[static_cast<std::size_t>(player_index)] == -1);
+  }
 
   const napoleon::AgentIdentity current = napoleon::current_policy_agent("current");
   const napoleon::AgentIdentity rule = napoleon::rule_based_agent("rule");
@@ -222,11 +248,42 @@ int main() {
   assert(napoleon::roster_assignment_manifest_json(sampled_a).find("\"seats\"") !=
          std::string::npos);
 
+  assert(napoleon::joint_teacher::kAdjutantCompactValueInputFeatureCount == 290);
+  assert(napoleon::joint_teacher::kExchangeCompactValueInputFeatureCount == 396);
+  const std::string compact_audit = napoleon::joint_teacher::compact290_audit_json();
+  assert(compact_audit.find("\"featureCount\":290") != std::string::npos);
+  assert(compact_audit.find("kittyPickup3") != std::string::npos);
+
+  napoleon::joint_teacher::JointTeacherOptions joint_options;
+  joint_options.start_seed = 444000000;
+  joint_options.requested_source_states = 1;
+  joint_options.max_deal_attempts = 25;
+  joint_options.exhaustive_state_count = 1;
+  joint_options.heuristic_top_k = 3;
+  joint_options.agent_seed = 444;
+  const napoleon::joint_teacher::JointTeacherReport joint_report =
+      napoleon::joint_teacher::run_joint_teacher_diagnostic(joint_options);
+  assert(joint_report.source_state_count == 1);
+  assert(joint_report.exhaustive_state_count == 1);
+  assert(joint_report.terminal_rollout_count >=
+         napoleon::joint_teacher::kAdjutantCandidateCount *
+             napoleon::joint_teacher::kExchangeDiscardCombinationCount);
+  assert(joint_report.json.find("\"runtimeOrder\"") != std::string::npos);
+  assert(joint_report.json.find("\"candidateCount\":53") != std::string::npos);
+  assert(joint_report.json.find("\"discardCandidatesPerAdjutant\":286") !=
+         std::string::npos);
+
   int completed_rule_games = 0;
   int selected_rule_actions = 0;
   for (std::uint32_t game_seed : {424242u, 424243u, 424244u, 424245u}) {
     napoleon::GameState rule_game = napoleon::create_initial_game(game_seed);
-    for (int player_index = 0; player_index < 5; ++player_index) {
+    napoleon::Action opening_bid;
+    opening_bid.type = napoleon::Action::Type::Bid;
+    opening_bid.player_index = 0;
+    opening_bid.suit = napoleon::Suit::Spades;
+    opening_bid.target_point_cards = 13;
+    napoleon::apply_action(rule_game, opening_bid);
+    for (int player_index = 1; player_index < 5; ++player_index) {
       napoleon::Action pass;
       pass.type = napoleon::Action::Type::Pass;
       pass.player_index = player_index;
@@ -312,21 +369,23 @@ int main() {
     assert(!initial_requests[index].snapshot_json.empty());
   }
 
-  std::vector<napoleon::AgentResult> reversed_passes;
+  std::vector<napoleon::AgentResult> reversed_bids;
   for (auto it = initial_requests.rbegin(); it != initial_requests.rend(); ++it) {
-    const auto pass_it = std::find_if(
+    const auto bid_it = std::find_if(
         it->legal_actions.begin(),
         it->legal_actions.end(),
         [](const napoleon::Action& action) {
-          return action.type == napoleon::Action::Type::Pass;
+          return action.type == napoleon::Action::Type::Bid &&
+                 action.suit == napoleon::Suit::Spades &&
+                 action.target_point_cards == 19;
         });
-    assert(pass_it != it->legal_actions.end());
+    assert(bid_it != it->legal_actions.end());
     napoleon::AgentResult result;
     result.request_id = it->request_id;
-    result.action = *pass_it;
-    reversed_passes.push_back(result);
+    result.action = *bid_it;
+    reversed_bids.push_back(result);
   }
-  waiting_runtime.submit_agent_results(reversed_passes);
+  waiting_runtime.submit_agent_results(reversed_bids);
   waiting_runtime.advance_runnable_games();
   const std::vector<napoleon::AgentRequest> adjutant_requests =
       waiting_runtime.collect_agent_requests();
@@ -361,7 +420,13 @@ int main() {
 
   napoleon::AgentRequest compact_request = playing_requests.front();
   napoleon::GameState compact_state = napoleon::create_initial_game(2024);
-  for (int player_index = 0; player_index < 5; ++player_index) {
+  napoleon::Action compact_opening_bid;
+  compact_opening_bid.type = napoleon::Action::Type::Bid;
+  compact_opening_bid.player_index = 0;
+  compact_opening_bid.suit = napoleon::Suit::Spades;
+  compact_opening_bid.target_point_cards = 13;
+  napoleon::apply_action(compact_state, compact_opening_bid);
+  for (int player_index = 1; player_index < 5; ++player_index) {
     napoleon::Action pass;
     pass.type = napoleon::Action::Type::Pass;
     pass.player_index = player_index;
@@ -385,10 +450,25 @@ int main() {
       compact_state.current_player_index,
       napoleon::observation::PlayingObservationVariant::CompleteInfoCompact,
       compact_request);
+  compact_request.legal_actions =
+      napoleon::get_legal_actions(compact_state, compact_state.current_player_index);
   assert(compact_request.playing_model_input.size() ==
          napoleon::observation::kCompleteInfoPlayingModelInputFeatureCount);
   assert(compact_request.legal_play_mask.size() == napoleon::observation::kCardCount);
   assert(std::accumulate(compact_request.legal_play_mask.begin(), compact_request.legal_play_mask.end(), 0) > 0);
+
+  napoleon::AgentRequest batch_request = compact_request;
+  napoleon::onnx_policy::attach_playing_model_input(
+      compact_state,
+      compact_state.current_player_index,
+      batch_request);
+  batch_request.legal_actions =
+      napoleon::get_legal_actions(compact_state, compact_state.current_player_index);
+
+  playing_requests.assign(5, batch_request);
+  for (std::size_t index = 0; index < playing_requests.size(); ++index) {
+    playing_requests[index].request_id = 1000 + static_cast<std::uint64_t>(index);
+  }
 
   std::array<float, napoleon::onnx_policy::kPolicyLogitCount> logits{};
   logits.fill(0.0F);
@@ -525,6 +605,53 @@ int main() {
   assert(forced_results.front().selected_card_index == forced_card_index);
   assert(forced_results.front().behavior_log_probability == 0.0);
 
+  napoleon::GameState bidding_state = napoleon::create_initial_game(202);
+  napoleon::AgentRequest bidding_request;
+  bidding_request.request_id = 2001;
+  bidding_request.sequence = 2001;
+  bidding_request.seed = 202;
+  bidding_request.player_index = bidding_state.current_player_index;
+  bidding_request.agent = current;
+  bidding_request.phase = napoleon::Phase::Bidding;
+  bidding_request.legal_actions =
+      napoleon::get_legal_actions(bidding_state, bidding_state.current_player_index);
+  napoleon::onnx_policy::attach_bidding_model_input(
+      bidding_state,
+      bidding_state.current_player_index,
+      bidding_request);
+  assert(bidding_request.bidding_model_input.size() ==
+         static_cast<std::size_t>(napoleon::observation::kBiddingModelInputFeatureCount));
+  assert(bidding_request.legal_bid_mask.size() ==
+         static_cast<std::size_t>(napoleon::observation::kBiddingActionCount));
+  assert(std::accumulate(
+             bidding_request.legal_bid_mask.begin(),
+             bidding_request.legal_bid_mask.end(),
+             0) == napoleon::observation::kBiddingActionCount);
+
+  std::array<float, napoleon::onnx_policy::kPolicyLogitCount> bidding_logits{};
+  bidding_logits.fill(0.0F);
+  bidding_logits[4] = 100000.0F;
+  napoleon::onnx_policy::BatchedPolicyExecutor bidding_executor(
+      napoleon::onnx_policy::BatchedPolicyConfig{8, 1.0, 2024});
+  bidding_executor.add_policy(
+      napoleon::onnx_policy::policy_key_from_agent(current),
+      std::make_unique<napoleon::onnx_policy::DeterministicPolicySession>(
+          bidding_logits,
+          napoleon::onnx_policy::ExecutionProvider::Cpu,
+          napoleon::observation::kBiddingModelInputFeatureCount,
+          napoleon::observation::kBiddingActionCount));
+  const std::vector<napoleon::onnx_policy::PolicyActionResult> bidding_results =
+      bidding_executor.run({bidding_request});
+  assert(bidding_results.size() == 1);
+  assert(bidding_results.front().result.selected_action_index == 4);
+  assert(bidding_results.front().result.action.type == napoleon::Action::Type::Bid);
+  assert(bidding_results.front().result.action.suit == napoleon::Suit::Clubs);
+  assert(bidding_results.front().result.action.target_point_cards == 13);
+  assert(bidding_request.legal_bid_mask[static_cast<std::size_t>(
+             bidding_results.front().result.selected_action_index)] == 1);
+  assert(std::isfinite(bidding_results.front().behavior_log_probability));
+  assert(bidding_results.front().behavior_log_probability <= 1e-12);
+
   bool rejected_non_playing = false;
   try {
     napoleon::AgentRequest invalid_request = playing_requests.front();
@@ -602,8 +729,51 @@ int main() {
   const std::vector<napoleon::AgentRequest> scheduled_requests =
       scheduled_runtime.collect_agent_requests();
   assert(scheduled_requests.size() == 2);
+  assert(scheduled_runtime.active_game_count() == 2);
   assert(scheduled_runtime.game_snapshots()[0].seed == 900);
   assert(scheduled_runtime.game_snapshots()[1].seed == 900);
+
+  napoleon::SimulationRuntime single_slot_runtime(napoleon::SimulationRuntimeConfig{
+      napoleon::fixed_roster({rule, rule, rule, rule, rule}),
+      1000,
+      0,
+      1});
+  single_slot_runtime.add_games(1);
+  assert(single_slot_runtime.active_game_count() == 1);
+  bool rejected_over_capacity = false;
+  try {
+    single_slot_runtime.add_games(1);
+  } catch (const std::runtime_error&) {
+    rejected_over_capacity = true;
+  }
+  assert(rejected_over_capacity);
+  single_slot_runtime.advance_runnable_games();
+  const std::vector<napoleon::FinishedGame> single_finished =
+      single_slot_runtime.collect_finished_games();
+  assert(single_finished.size() == 1);
+  assert(single_slot_runtime.active_game_count() == 0);
+  single_slot_runtime.add_games(1);
+  assert(single_slot_runtime.active_game_count() == 1);
+
+  napoleon::SimulationRuntime oversized_slot_runtime(napoleon::SimulationRuntimeConfig{
+      napoleon::fixed_roster({rule, rule, rule, rule, rule}),
+      2000,
+      0,
+      8});
+  oversized_slot_runtime.add_scheduled_games({
+      napoleon::ScheduledGame{
+          2001,
+          napoleon::sample_roster(napoleon::fixed_roster({rule, rule, rule, rule, rule}), 0, 0)},
+      napoleon::ScheduledGame{
+          2002,
+          napoleon::sample_roster(napoleon::fixed_roster({rule, rule, rule, rule, rule}), 0, 1)}});
+  assert(oversized_slot_runtime.active_game_count() == 2);
+  const std::vector<napoleon::FinishedGame> oversized_finished =
+      drive_external_first_legal(oversized_slot_runtime, 2);
+  assert(oversized_finished.size() == 2);
+  assert(oversized_finished[0].seed == 2001);
+  assert(oversized_finished[1].seed == 2002);
+  assert(oversized_slot_runtime.active_game_count() == 0);
 
   const napoleon::evaluation::EvaluationArtifact eval_artifact =
       napoleon::evaluation::run_evaluation(napoleon::evaluation::EvaluationOptions{

@@ -34,7 +34,7 @@ class TorchDeviceResolutionError(ValueError):
     """Raised when a requested PyTorch device cannot be used."""
 
 
-def resolve_torch_device(requested: str) -> ResolvedTorchDevice:
+def resolve_torch_device(requested: str, *, flag_name: str = "--device") -> ResolvedTorchDevice:
     if requested not in SUPPORTED_TORCH_DEVICES:
         choices = ", ".join(SUPPORTED_TORCH_DEVICES)
         raise TorchDeviceResolutionError(
@@ -52,7 +52,7 @@ def resolve_torch_device(requested: str) -> ResolvedTorchDevice:
     cuda_available = torch.cuda.is_available()
     if normalized == "cuda" and not cuda_available:
         raise TorchDeviceResolutionError(
-            "CUDA was explicitly requested with --device cuda, but torch.cuda.is_available() "
+            f"CUDA was explicitly requested with {flag_name} cuda, but torch.cuda.is_available() "
             "is false."
         )
 

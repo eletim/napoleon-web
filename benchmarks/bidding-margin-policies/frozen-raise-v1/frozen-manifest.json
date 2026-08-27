@@ -1,0 +1,1860 @@
+{
+  "artifactFiles": {
+    "export-report.json": "8c871120927f3e99ef4e37926733f73184cd4bce12a0bdda117a3e8962ce33f3",
+    "margin.json": "6b3eb4f1d5d5f6f1d6986a7e960f0770292ae8b74dc184d8c237e476e17ce479",
+    "margin.onnx": "f3454cca5d2ef667942431296b1260da114f255ce9a03594d32720b180c9c623",
+    "margin.onnx.data": "37f5c882cbdf3b0a4deb4635a81d0eaa76d0987f305663451e8488ed92401872"
+  },
+  "artifactId": "frozen-raise-v1",
+  "baseCheckpoint": {
+    "description": "Issue #423 single-head M2 5k checkpoint",
+    "path": "/tmp/issue423-model-5k-M2/checkpoint.pt",
+    "sha256": "c6b0f6cf09407da90791f1a47f51f7d3525603f427178946acffdfc14a8f5bd6"
+  },
+  "dataset": {
+    "counts": {
+      "actionPairs": 50000,
+      "currentSuit": {
+        "clubs": 13248,
+        "diamonds": 13204,
+        "hearts": 12040,
+        "spades": 11508
+      },
+      "currentTarget": {
+        "14": 44132,
+        "15": 5816,
+        "16": 52
+      },
+      "handStrengthPairs": {
+        "strong": 50000
+      },
+      "suit": {
+        "clubs": 12500,
+        "diamonds": 12500,
+        "hearts": 12500,
+        "spades": 12500
+      },
+      "target": {
+        "14": 17179,
+        "15": 29303,
+        "16": 3485,
+        "17": 33
+      },
+      "uniqueDealSeeds": 12500,
+      "uniqueFixedHands": 12500,
+      "uniqueRaiseStates": 12500
+    },
+    "generatorVersion": 1,
+    "manifestSha256": "72956c0e8420e569da78552da82727a793d5a7728f37233285b57c589eb46a0b",
+    "scale": "50k action pairs",
+    "semantics": [
+      "candidate hand fixed",
+      "remaining deck shuffled to a hidden deal before source bidding",
+      "RuleBased/Conservative 50:50 source bidding runs from the initial bidding state",
+      "only naturally reached candidate-turn states with a current bid are collected",
+      "visible bidding context from that source state is used as model input",
+      "teacher rollout only fixes candidate=Napoleon, contract owner=candidate, target/suit=evaluated legal raise",
+      "no downstream bidding during teacher rollout",
+      "adjutant selection, exchange/bury, and play use normal rules",
+      "no post-history hidden-hand reshuffle and no repeated N=50 hidden-deal averaging"
+    ],
+    "teacherId": "history-consistent-raise-contract-margin-v1"
+  },
+  "displayName": "Frozen bidding margin v1 (Issue #431 50k)",
+  "evaluation": {
+    "currentRuntimeBaseline1k": {
+      "agentName": "CriticEvBidding",
+      "allPassRate": 0,
+      "bidRate": 1,
+      "candidateRelativeRewardCi95": {
+        "lower": -4.018431999999999,
+        "upper": -3.9431680000000013
+      },
+      "candidateRelativeRewardMean": -3.9808000000000003,
+      "contractSuccessRate": 0.001,
+      "finalCandidateNapoleonRate": 1,
+      "games": 1000,
+      "openingBidRate": 1,
+      "passRate": 0,
+      "raiseOpportunityCount": 0,
+      "raiseRate": null,
+      "safety": {
+        "crashCount": 0,
+        "fallbackCount": 0,
+        "illegalBidCount": 0,
+        "invalidMaskCount": 0,
+        "modelInferenceFailureCount": 0
+      },
+      "strengthBuckets": {
+        "low": {
+          "contractSuccessRate": {
+            "denominator": 162,
+            "numerator": 0,
+            "rate": 0
+          },
+          "finalCandidateNapoleonRate": {
+            "denominator": 162,
+            "numerator": 162,
+            "rate": 1
+          },
+          "gameCount": 162,
+          "openingBidRate": {
+            "denominator": 162,
+            "numerator": 162,
+            "rate": 1
+          },
+          "raiseRate": {
+            "denominator": 0,
+            "numerator": 0,
+            "rate": null
+          }
+        },
+        "medium": {
+          "contractSuccessRate": {
+            "denominator": 740,
+            "numerator": 1,
+            "rate": 0.0013513513513513514
+          },
+          "finalCandidateNapoleonRate": {
+            "denominator": 740,
+            "numerator": 740,
+            "rate": 1
+          },
+          "gameCount": 740,
+          "openingBidRate": {
+            "denominator": 740,
+            "numerator": 740,
+            "rate": 1
+          },
+          "raiseRate": {
+            "denominator": 0,
+            "numerator": 0,
+            "rate": null
+          }
+        },
+        "strong": {
+          "contractSuccessRate": {
+            "denominator": 87,
+            "numerator": 0,
+            "rate": 0
+          },
+          "finalCandidateNapoleonRate": {
+            "denominator": 87,
+            "numerator": 87,
+            "rate": 1
+          },
+          "gameCount": 87,
+          "openingBidRate": {
+            "denominator": 87,
+            "numerator": 87,
+            "rate": 1
+          },
+          "raiseRate": {
+            "denominator": 0,
+            "numerator": 0,
+            "rate": null
+          }
+        },
+        "veryStrong": {
+          "contractSuccessRate": {
+            "denominator": 11,
+            "numerator": 0,
+            "rate": 0
+          },
+          "finalCandidateNapoleonRate": {
+            "denominator": 11,
+            "numerator": 11,
+            "rate": 1
+          },
+          "gameCount": 11,
+          "openingBidRate": {
+            "denominator": 11,
+            "numerator": 11,
+            "rate": 1
+          },
+          "raiseRate": {
+            "denominator": 0,
+            "numerator": 0,
+            "rate": null
+          }
+        }
+      },
+      "suits": {
+        "clubs": 9,
+        "diamonds": 164,
+        "hearts": 4,
+        "spades": 823
+      },
+      "targetPointCards": {
+        "13": 0,
+        "14": 0,
+        "15": 0,
+        "16": 0,
+        "17": 1,
+        "18": 0,
+        "19": 999
+      }
+    },
+    "currentRuntimeBaseline5k": {
+      "agentName": "CriticEvBidding",
+      "allPassRate": 0,
+      "bidRate": 1,
+      "candidateRelativeRewardCi95": {
+        "lower": -3.968620398633232,
+        "upper": -3.908499601366765
+      },
+      "candidateRelativeRewardMean": -3.9385599999999985,
+      "contractSuccessRate": 0.0032,
+      "finalCandidateNapoleonRate": 1,
+      "games": 5000,
+      "openingBidRate": 1,
+      "passRate": 0,
+      "raiseOpportunityCount": 0,
+      "raiseRate": null,
+      "safety": {
+        "crashCount": 0,
+        "fallbackCount": 0,
+        "illegalBidCount": 0,
+        "invalidMaskCount": 0,
+        "modelInferenceFailureCount": 0
+      },
+      "strengthBuckets": {
+        "low": {
+          "contractSuccessRate": {
+            "denominator": 733,
+            "numerator": 2,
+            "rate": 0.002728512960436562
+          },
+          "finalCandidateNapoleonRate": {
+            "denominator": 733,
+            "numerator": 733,
+            "rate": 1
+          },
+          "gameCount": 733,
+          "openingBidRate": {
+            "denominator": 733,
+            "numerator": 733,
+            "rate": 1
+          },
+          "raiseRate": {
+            "denominator": 0,
+            "numerator": 0,
+            "rate": null
+          }
+        },
+        "medium": {
+          "contractSuccessRate": {
+            "denominator": 3749,
+            "numerator": 10,
+            "rate": 0.002667377967457989
+          },
+          "finalCandidateNapoleonRate": {
+            "denominator": 3749,
+            "numerator": 3749,
+            "rate": 1
+          },
+          "gameCount": 3749,
+          "openingBidRate": {
+            "denominator": 3749,
+            "numerator": 3749,
+            "rate": 1
+          },
+          "raiseRate": {
+            "denominator": 0,
+            "numerator": 0,
+            "rate": null
+          }
+        },
+        "strong": {
+          "contractSuccessRate": {
+            "denominator": 484,
+            "numerator": 4,
+            "rate": 0.008264462809917356
+          },
+          "finalCandidateNapoleonRate": {
+            "denominator": 484,
+            "numerator": 484,
+            "rate": 1
+          },
+          "gameCount": 484,
+          "openingBidRate": {
+            "denominator": 484,
+            "numerator": 484,
+            "rate": 1
+          },
+          "raiseRate": {
+            "denominator": 0,
+            "numerator": 0,
+            "rate": null
+          }
+        },
+        "veryStrong": {
+          "contractSuccessRate": {
+            "denominator": 34,
+            "numerator": 0,
+            "rate": 0
+          },
+          "finalCandidateNapoleonRate": {
+            "denominator": 34,
+            "numerator": 34,
+            "rate": 1
+          },
+          "gameCount": 34,
+          "openingBidRate": {
+            "denominator": 34,
+            "numerator": 34,
+            "rate": 1
+          },
+          "raiseRate": {
+            "denominator": 0,
+            "numerator": 0,
+            "rate": null
+          }
+        }
+      },
+      "suits": {
+        "clubs": 40,
+        "diamonds": 798,
+        "hearts": 10,
+        "spades": 4152
+      },
+      "targetPointCards": {
+        "13": 0,
+        "14": 0,
+        "15": 0,
+        "16": 0,
+        "17": 1,
+        "18": 3,
+        "19": 4996
+      }
+    },
+    "learningCurve": {
+      "10k": {
+        "actionPairs": 10000,
+        "currentSuit": {
+          "clubs": 2636,
+          "diamonds": 2464,
+          "hearts": 2564,
+          "spades": 2336
+        },
+        "currentTarget": {
+          "14": 8824,
+          "15": 1176
+        },
+        "handStrengthPairs": {
+          "strong": 10000
+        },
+        "heldOut": {
+          "bestEpoch": 5,
+          "margin": {
+            "bias": 0.06542260932922363,
+            "mae": 2.7040292167663575,
+            "pearson": 0.5786564309730852,
+            "rmse": 3.2642932804038467
+          },
+          "pWin": {
+            "brier": 0.11705384185993828,
+            "mae": 0.2583127971507143,
+            "pearson": 0.4621484829405478,
+            "rmse": 0.34213132253557005
+          },
+          "sameStatePairwise": 0.7140814867762688,
+          "topAction": 0.58
+        },
+        "issue421Raise": {
+          "evBias": -6.303688020667311,
+          "evMae": 7.61714302862639,
+          "falsePass": 10,
+          "falseRaise": 1,
+          "pearson": 0.5234753572483207,
+          "raiseRate": 0.5,
+          "signAccuracy": 0.725,
+          "spearman": 0.55140712945591
+        },
+        "issue422Opening": {
+          "bidRate": 0.9777777777777777,
+          "evBias": -0.9957870492546996,
+          "evMae": 3.795147022735578,
+          "falseBid": 5,
+          "falsePass": 1,
+          "pearson": 0.5669656906807505,
+          "signAccuracy": 0.8666666666666667,
+          "spearman": 0.6126482213438734
+        },
+        "suit": {
+          "clubs": 2500,
+          "diamonds": 2500,
+          "hearts": 2500,
+          "spades": 2500
+        },
+        "target": {
+          "14": 3401,
+          "15": 5872,
+          "16": 727
+        },
+        "uniqueDealSeeds": 2500,
+        "uniqueFixedHands": 2500,
+        "uniqueRaiseStates": 2500
+      },
+      "20k": {
+        "actionPairs": 20000,
+        "currentSuit": {
+          "clubs": 5356,
+          "diamonds": 5180,
+          "hearts": 4780,
+          "spades": 4684
+        },
+        "currentTarget": {
+          "14": 17480,
+          "15": 2500,
+          "16": 20
+        },
+        "handStrengthPairs": {
+          "strong": 20000
+        },
+        "heldOut": {
+          "bestEpoch": 5,
+          "margin": {
+            "bias": 0.14344036781787872,
+            "mae": 2.7695406361818313,
+            "pearson": 0.559100740546174,
+            "rmse": 3.4194688110283753
+          },
+          "pWin": {
+            "brier": 0.1281008586641149,
+            "mae": 0.27388917101389426,
+            "pearson": 0.429984556635007,
+            "rmse": 0.35791180291255403
+          },
+          "sameStatePairwise": 0.7294496068620443,
+          "topAction": 0.572
+        },
+        "issue421Raise": {
+          "evBias": -5.551821886777638,
+          "evMae": 7.816988050882037,
+          "falsePass": 7,
+          "falseRaise": 3,
+          "pearson": 0.490802019853639,
+          "raiseRate": 0.625,
+          "signAccuracy": 0.75,
+          "spearman": 0.5037523452157598
+        },
+        "issue422Opening": {
+          "bidRate": 1.0,
+          "evBias": -0.6102022586526573,
+          "evMae": 4.315338195227472,
+          "falseBid": 5,
+          "falsePass": 0,
+          "pearson": 0.3585151224813633,
+          "signAccuracy": 0.8888888888888888,
+          "spearman": 0.38208168642951246
+        },
+        "suit": {
+          "clubs": 5000,
+          "diamonds": 5000,
+          "hearts": 5000,
+          "spades": 5000
+        },
+        "target": {
+          "14": 6821,
+          "15": 11632,
+          "16": 1535,
+          "17": 12
+        },
+        "uniqueDealSeeds": 5000,
+        "uniqueFixedHands": 5000,
+        "uniqueRaiseStates": 5000
+      },
+      "50k": {
+        "actionPairs": 50000,
+        "currentSuit": {
+          "clubs": 13248,
+          "diamonds": 13204,
+          "hearts": 12040,
+          "spades": 11508
+        },
+        "currentTarget": {
+          "14": 44132,
+          "15": 5816,
+          "16": 52
+        },
+        "handStrengthPairs": {
+          "strong": 50000
+        },
+        "heldOut": {
+          "bestEpoch": 2,
+          "margin": {
+            "bias": -0.10953491411209107,
+            "mae": 2.7308870308876037,
+            "pearson": 0.5691839544969867,
+            "rmse": 3.3688641454566115
+          },
+          "pWin": {
+            "brier": 0.12437741781161676,
+            "mae": 0.2620046052630942,
+            "pearson": 0.4437581102363195,
+            "rmse": 0.35267182735741276
+          },
+          "sameStatePairwise": 0.7262737262737263,
+          "topAction": 0.612
+        },
+        "issue421Raise": {
+          "evBias": -5.456422217715965,
+          "evMae": 7.344523857388308,
+          "falsePass": 6,
+          "falseRaise": 2,
+          "pearson": 0.5098283193709795,
+          "raiseRate": 0.625,
+          "signAccuracy": 0.8,
+          "spearman": 0.50281425891182
+        },
+        "issue422Opening": {
+          "bidRate": 1.0,
+          "evBias": -0.019299048467706945,
+          "evMae": 3.850244180085779,
+          "falseBid": 5,
+          "falsePass": 0,
+          "pearson": 0.48227693168208824,
+          "signAccuracy": 0.8888888888888888,
+          "spearman": 0.4942028985507246
+        },
+        "suit": {
+          "clubs": 12500,
+          "diamonds": 12500,
+          "hearts": 12500,
+          "spades": 12500
+        },
+        "target": {
+          "14": 17179,
+          "15": 29303,
+          "16": 3485,
+          "17": 33
+        },
+        "uniqueDealSeeds": 12500,
+        "uniqueFixedHands": 12500,
+        "uniqueRaiseStates": 12500
+      },
+      "5k": {
+        "actionPairs": 5000,
+        "currentSuit": {
+          "clubs": 1396,
+          "diamonds": 1316,
+          "hearts": 1220,
+          "spades": 1068
+        },
+        "currentTarget": {
+          "14": 4356,
+          "15": 644
+        },
+        "handStrengthPairs": {
+          "strong": 5000
+        },
+        "heldOut": {
+          "bestEpoch": 3,
+          "margin": {
+            "bias": -0.021219589233398437,
+            "mae": 2.73768111038208,
+            "pearson": 0.511112302762537,
+            "rmse": 3.419022558264778
+          },
+          "pWin": {
+            "brier": 0.13197101456467716,
+            "mae": 0.2735788994555795,
+            "pearson": 0.3059050412117322,
+            "rmse": 0.3632781504091282
+          },
+          "sameStatePairwise": 0.7238372093023255,
+          "topAction": 0.528
+        },
+        "issue421Raise": {
+          "evBias": -5.553732484168444,
+          "evMae": 7.339513223135926,
+          "falsePass": 7,
+          "falseRaise": 1,
+          "pearson": 0.5548458713658255,
+          "raiseRate": 0.575,
+          "signAccuracy": 0.8,
+          "spearman": 0.5592870544090057
+        },
+        "issue422Opening": {
+          "bidRate": 1.0,
+          "evBias": -0.12662917498990955,
+          "evMae": 3.9396870285189514,
+          "falseBid": 5,
+          "falsePass": 0,
+          "pearson": 0.5079543540929583,
+          "signAccuracy": 0.8888888888888888,
+          "spearman": 0.5552042160737813
+        },
+        "suit": {
+          "clubs": 1250,
+          "diamonds": 1250,
+          "hearts": 1250,
+          "spades": 1250
+        },
+        "target": {
+          "14": 1753,
+          "15": 2860,
+          "16": 387
+        },
+        "uniqueDealSeeds": 1250,
+        "uniqueFixedHands": 1250,
+        "uniqueRaiseStates": 1250
+      }
+    },
+    "runtime1k": {
+      "10k": {
+        "allPassRate": 0,
+        "bidRate": 0.3325426944971537,
+        "candidateRelativeRewardCi95": {
+          "lower": -0.1729202231655346,
+          "upper": 0.2205202231655348
+        },
+        "candidateRelativeRewardMean": 0.02380000000000009,
+        "contractSuccessRate": 0.337,
+        "decisionQuality": {
+          "available": true,
+          "highPWinPassRate": {
+            "denominator": 1407,
+            "numerator": 0,
+            "rate": 0
+          },
+          "lowPWinBidRate": {
+            "denominator": 701,
+            "numerator": 0,
+            "rate": 0
+          },
+          "openingNearZeroRate": {
+            "denominator": 1000,
+            "numerator": 102,
+            "rate": 0.102
+          },
+          "raiseNearZeroDeltaRate": {
+            "denominator": 1108,
+            "numerator": 27,
+            "rate": 0.024368231046931407
+          }
+        },
+        "finalCandidateNapoleonRate": 0.062,
+        "games": 1000,
+        "openingBidRate": 0.645,
+        "pairedComparisonAgainstCurrent": {
+          "t1MinusCurrentCandidateRelativeReward": 4.004600000000001,
+          "t1MinusCurrentContractSuccessRate": 0.336,
+          "t1MinusCurrentOpeningBidRate": -0.355,
+          "t1MinusCurrentRaiseRate": null
+        },
+        "passRate": 0.6674573055028463,
+        "raiseOpportunityCount": 1108,
+        "raiseRate": 0.05054151624548736,
+        "safety": {
+          "crashCount": 0,
+          "fallbackCount": 0,
+          "illegalBidCount": 0,
+          "invalidMaskCount": 0,
+          "modelInferenceFailureCount": 0
+        },
+        "strengthBuckets": {
+          "low": {
+            "contractSuccessRate": {
+              "denominator": 0,
+              "numerator": 0,
+              "rate": null
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 162,
+              "numerator": 0,
+              "rate": 0
+            },
+            "gameCount": 162,
+            "openingBidRate": {
+              "denominator": 162,
+              "numerator": 12,
+              "rate": 0.07407407407407407
+            },
+            "raiseRate": {
+              "denominator": 202,
+              "numerator": 0,
+              "rate": 0
+            }
+          },
+          "medium": {
+            "contractSuccessRate": {
+              "denominator": 24,
+              "numerator": 12,
+              "rate": 0.5
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 740,
+              "numerator": 24,
+              "rate": 0.032432432432432434
+            },
+            "gameCount": 740,
+            "openingBidRate": {
+              "denominator": 740,
+              "numerator": 535,
+              "rate": 0.722972972972973
+            },
+            "raiseRate": {
+              "denominator": 797,
+              "numerator": 9,
+              "rate": 0.011292346298619825
+            }
+          },
+          "strong": {
+            "contractSuccessRate": {
+              "denominator": 32,
+              "numerator": 17,
+              "rate": 0.53125
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 87,
+              "numerator": 32,
+              "rate": 0.367816091954023
+            },
+            "gameCount": 87,
+            "openingBidRate": {
+              "denominator": 87,
+              "numerator": 87,
+              "rate": 1
+            },
+            "raiseRate": {
+              "denominator": 97,
+              "numerator": 40,
+              "rate": 0.41237113402061853
+            }
+          },
+          "veryStrong": {
+            "contractSuccessRate": {
+              "denominator": 6,
+              "numerator": 3,
+              "rate": 0.5
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 11,
+              "numerator": 6,
+              "rate": 0.5454545454545454
+            },
+            "gameCount": 11,
+            "openingBidRate": {
+              "denominator": 11,
+              "numerator": 11,
+              "rate": 1
+            },
+            "raiseRate": {
+              "denominator": 12,
+              "numerator": 7,
+              "rate": 0.5833333333333334
+            }
+          }
+        },
+        "suits": {
+          "clubs": 265,
+          "diamonds": 281,
+          "hearts": 257,
+          "spades": 197
+        },
+        "targetPointCards": {
+          "13": 52,
+          "14": 513,
+          "15": 372,
+          "16": 60,
+          "17": 3,
+          "18": 0,
+          "19": 0
+        }
+      },
+      "20k": {
+        "allPassRate": 0,
+        "bidRate": 0.3646329837940896,
+        "candidateRelativeRewardCi95": {
+          "lower": -0.2176721553250011,
+          "upper": 0.21407215532500098
+        },
+        "candidateRelativeRewardMean": -0.0018000000000000487,
+        "contractSuccessRate": 0.339,
+        "decisionQuality": {
+          "available": true,
+          "highPWinPassRate": {
+            "denominator": 1333,
+            "numerator": 0,
+            "rate": 0
+          },
+          "lowPWinBidRate": {
+            "denominator": 765,
+            "numerator": 0,
+            "rate": 0
+          },
+          "openingNearZeroRate": {
+            "denominator": 1000,
+            "numerator": 118,
+            "rate": 0.118
+          },
+          "raiseNearZeroDeltaRate": {
+            "denominator": 1098,
+            "numerator": 21,
+            "rate": 0.01912568306010929
+          }
+        },
+        "finalCandidateNapoleonRate": 0.095,
+        "games": 1000,
+        "openingBidRate": 0.673,
+        "pairedComparisonAgainstCurrent": {
+          "t1MinusCurrentCandidateRelativeReward": 3.979,
+          "t1MinusCurrentContractSuccessRate": 0.338,
+          "t1MinusCurrentOpeningBidRate": -0.32699999999999996,
+          "t1MinusCurrentRaiseRate": null
+        },
+        "passRate": 0.6353670162059104,
+        "raiseOpportunityCount": 1098,
+        "raiseRate": 0.08378870673952642,
+        "safety": {
+          "crashCount": 0,
+          "fallbackCount": 0,
+          "illegalBidCount": 0,
+          "invalidMaskCount": 0,
+          "modelInferenceFailureCount": 0
+        },
+        "strengthBuckets": {
+          "low": {
+            "contractSuccessRate": {
+              "denominator": 0,
+              "numerator": 0,
+              "rate": null
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 162,
+              "numerator": 0,
+              "rate": 0
+            },
+            "gameCount": 162,
+            "openingBidRate": {
+              "denominator": 162,
+              "numerator": 27,
+              "rate": 0.16666666666666666
+            },
+            "raiseRate": {
+              "denominator": 197,
+              "numerator": 0,
+              "rate": 0
+            }
+          },
+          "medium": {
+            "contractSuccessRate": {
+              "denominator": 41,
+              "numerator": 13,
+              "rate": 0.3170731707317073
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 740,
+              "numerator": 41,
+              "rate": 0.05540540540540541
+            },
+            "gameCount": 740,
+            "openingBidRate": {
+              "denominator": 740,
+              "numerator": 548,
+              "rate": 0.7405405405405405
+            },
+            "raiseRate": {
+              "denominator": 790,
+              "numerator": 27,
+              "rate": 0.03417721518987342
+            }
+          },
+          "strong": {
+            "contractSuccessRate": {
+              "denominator": 45,
+              "numerator": 21,
+              "rate": 0.4666666666666667
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 87,
+              "numerator": 45,
+              "rate": 0.5172413793103449
+            },
+            "gameCount": 87,
+            "openingBidRate": {
+              "denominator": 87,
+              "numerator": 87,
+              "rate": 1
+            },
+            "raiseRate": {
+              "denominator": 99,
+              "numerator": 55,
+              "rate": 0.5555555555555556
+            }
+          },
+          "veryStrong": {
+            "contractSuccessRate": {
+              "denominator": 9,
+              "numerator": 4,
+              "rate": 0.4444444444444444
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 11,
+              "numerator": 9,
+              "rate": 0.8181818181818182
+            },
+            "gameCount": 11,
+            "openingBidRate": {
+              "denominator": 11,
+              "numerator": 11,
+              "rate": 1
+            },
+            "raiseRate": {
+              "denominator": 12,
+              "numerator": 10,
+              "rate": 0.8333333333333334
+            }
+          }
+        },
+        "suits": {
+          "clubs": 256,
+          "diamonds": 286,
+          "hearts": 259,
+          "spades": 199
+        },
+        "targetPointCards": {
+          "13": 48,
+          "14": 505,
+          "15": 382,
+          "16": 60,
+          "17": 5,
+          "18": 0,
+          "19": 0
+        }
+      },
+      "50k": {
+        "allPassRate": 0,
+        "bidRate": 0.3912835249042146,
+        "candidateRelativeRewardCi95": {
+          "lower": -0.13030148604775607,
+          "upper": 0.30190148604775646
+        },
+        "candidateRelativeRewardMean": 0.08580000000000018,
+        "contractSuccessRate": 0.337,
+        "decisionQuality": {
+          "available": true,
+          "highPWinPassRate": {
+            "denominator": 1271,
+            "numerator": 0,
+            "rate": 0
+          },
+          "lowPWinBidRate": {
+            "denominator": 817,
+            "numerator": 0,
+            "rate": 0
+          },
+          "openingNearZeroRate": {
+            "denominator": 1000,
+            "numerator": 108,
+            "rate": 0.108
+          },
+          "raiseNearZeroDeltaRate": {
+            "denominator": 1088,
+            "numerator": 33,
+            "rate": 0.030330882352941176
+          }
+        },
+        "finalCandidateNapoleonRate": 0.09,
+        "games": 1000,
+        "openingBidRate": 0.729,
+        "pairedComparisonAgainstCurrent": {
+          "t1MinusCurrentCandidateRelativeReward": 4.0666,
+          "t1MinusCurrentContractSuccessRate": 0.336,
+          "t1MinusCurrentOpeningBidRate": -0.271,
+          "t1MinusCurrentRaiseRate": null
+        },
+        "passRate": 0.6087164750957854,
+        "raiseOpportunityCount": 1088,
+        "raiseRate": 0.08088235294117647,
+        "safety": {
+          "crashCount": 0,
+          "fallbackCount": 0,
+          "illegalBidCount": 0,
+          "invalidMaskCount": 0,
+          "modelInferenceFailureCount": 0
+        },
+        "strengthBuckets": {
+          "low": {
+            "contractSuccessRate": {
+              "denominator": 0,
+              "numerator": 0,
+              "rate": null
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 162,
+              "numerator": 0,
+              "rate": 0
+            },
+            "gameCount": 162,
+            "openingBidRate": {
+              "denominator": 162,
+              "numerator": 34,
+              "rate": 0.20987654320987653
+            },
+            "raiseRate": {
+              "denominator": 197,
+              "numerator": 0,
+              "rate": 0
+            }
+          },
+          "medium": {
+            "contractSuccessRate": {
+              "denominator": 39,
+              "numerator": 14,
+              "rate": 0.358974358974359
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 740,
+              "numerator": 39,
+              "rate": 0.052702702702702706
+            },
+            "gameCount": 740,
+            "openingBidRate": {
+              "denominator": 740,
+              "numerator": 597,
+              "rate": 0.8067567567567567
+            },
+            "raiseRate": {
+              "denominator": 780,
+              "numerator": 26,
+              "rate": 0.03333333333333333
+            }
+          },
+          "strong": {
+            "contractSuccessRate": {
+              "denominator": 41,
+              "numerator": 23,
+              "rate": 0.5609756097560976
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 87,
+              "numerator": 41,
+              "rate": 0.47126436781609193
+            },
+            "gameCount": 87,
+            "openingBidRate": {
+              "denominator": 87,
+              "numerator": 87,
+              "rate": 1
+            },
+            "raiseRate": {
+              "denominator": 99,
+              "numerator": 51,
+              "rate": 0.5151515151515151
+            }
+          },
+          "veryStrong": {
+            "contractSuccessRate": {
+              "denominator": 10,
+              "numerator": 4,
+              "rate": 0.4
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 11,
+              "numerator": 10,
+              "rate": 0.9090909090909091
+            },
+            "gameCount": 11,
+            "openingBidRate": {
+              "denominator": 11,
+              "numerator": 11,
+              "rate": 1
+            },
+            "raiseRate": {
+              "denominator": 12,
+              "numerator": 11,
+              "rate": 0.9166666666666666
+            }
+          }
+        },
+        "suits": {
+          "clubs": 260,
+          "diamonds": 291,
+          "hearts": 246,
+          "spades": 203
+        },
+        "targetPointCards": {
+          "13": 46,
+          "14": 504,
+          "15": 389,
+          "16": 58,
+          "17": 3,
+          "18": 0,
+          "19": 0
+        }
+      },
+      "5k": {
+        "allPassRate": 0,
+        "bidRate": 0.39253231211105793,
+        "candidateRelativeRewardCi95": {
+          "lower": -0.205934511215218,
+          "upper": 0.21673451121521792
+        },
+        "candidateRelativeRewardMean": 0.005399999999999965,
+        "contractSuccessRate": 0.338,
+        "decisionQuality": {
+          "available": true,
+          "highPWinPassRate": {
+            "denominator": 1269,
+            "numerator": 0,
+            "rate": 0
+          },
+          "lowPWinBidRate": {
+            "denominator": 820,
+            "numerator": 0,
+            "rate": 0
+          },
+          "openingNearZeroRate": {
+            "denominator": 1000,
+            "numerator": 97,
+            "rate": 0.097
+          },
+          "raiseNearZeroDeltaRate": {
+            "denominator": 1089,
+            "numerator": 25,
+            "rate": 0.02295684113865932
+          }
+        },
+        "finalCandidateNapoleonRate": 0.092,
+        "games": 1000,
+        "openingBidRate": 0.734,
+        "pairedComparisonAgainstCurrent": {
+          "t1MinusCurrentCandidateRelativeReward": 3.9862,
+          "t1MinusCurrentContractSuccessRate": 0.337,
+          "t1MinusCurrentOpeningBidRate": -0.266,
+          "t1MinusCurrentRaiseRate": null
+        },
+        "passRate": 0.6074676878889421,
+        "raiseOpportunityCount": 1089,
+        "raiseRate": 0.07897153351698806,
+        "safety": {
+          "crashCount": 0,
+          "fallbackCount": 0,
+          "illegalBidCount": 0,
+          "invalidMaskCount": 0,
+          "modelInferenceFailureCount": 0
+        },
+        "strengthBuckets": {
+          "low": {
+            "contractSuccessRate": {
+              "denominator": 0,
+              "numerator": 0,
+              "rate": null
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 162,
+              "numerator": 0,
+              "rate": 0
+            },
+            "gameCount": 162,
+            "openingBidRate": {
+              "denominator": 162,
+              "numerator": 24,
+              "rate": 0.14814814814814814
+            },
+            "raiseRate": {
+              "denominator": 199,
+              "numerator": 0,
+              "rate": 0
+            }
+          },
+          "medium": {
+            "contractSuccessRate": {
+              "denominator": 38,
+              "numerator": 14,
+              "rate": 0.3684210526315789
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 740,
+              "numerator": 38,
+              "rate": 0.051351351351351354
+            },
+            "gameCount": 740,
+            "openingBidRate": {
+              "denominator": 740,
+              "numerator": 612,
+              "rate": 0.827027027027027
+            },
+            "raiseRate": {
+              "denominator": 780,
+              "numerator": 23,
+              "rate": 0.029487179487179487
+            }
+          },
+          "strong": {
+            "contractSuccessRate": {
+              "denominator": 45,
+              "numerator": 20,
+              "rate": 0.4444444444444444
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 87,
+              "numerator": 45,
+              "rate": 0.5172413793103449
+            },
+            "gameCount": 87,
+            "openingBidRate": {
+              "denominator": 87,
+              "numerator": 87,
+              "rate": 1
+            },
+            "raiseRate": {
+              "denominator": 98,
+              "numerator": 53,
+              "rate": 0.5408163265306123
+            }
+          },
+          "veryStrong": {
+            "contractSuccessRate": {
+              "denominator": 9,
+              "numerator": 4,
+              "rate": 0.4444444444444444
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 11,
+              "numerator": 9,
+              "rate": 0.8181818181818182
+            },
+            "gameCount": 11,
+            "openingBidRate": {
+              "denominator": 11,
+              "numerator": 11,
+              "rate": 1
+            },
+            "raiseRate": {
+              "denominator": 12,
+              "numerator": 10,
+              "rate": 0.8333333333333334
+            }
+          }
+        },
+        "suits": {
+          "clubs": 261,
+          "diamonds": 286,
+          "hearts": 256,
+          "spades": 197
+        },
+        "targetPointCards": {
+          "13": 44,
+          "14": 511,
+          "15": 373,
+          "16": 69,
+          "17": 2,
+          "18": 1,
+          "19": 0
+        }
+      }
+    },
+    "runtime5kTop3": {
+      "10k": {
+        "allPassRate": 0,
+        "bidRate": 0.3361970217640321,
+        "candidateRelativeRewardCi95": {
+          "lower": -0.19236003104737706,
+          "upper": -0.02843996895262202
+        },
+        "candidateRelativeRewardMean": -0.11039999999999954,
+        "contractSuccessRate": 0.3296,
+        "decisionQuality": {
+          "available": true,
+          "highPWinPassRate": {
+            "denominator": 6954,
+            "numerator": 0,
+            "rate": 0
+          },
+          "lowPWinBidRate": {
+            "denominator": 3522,
+            "numerator": 0,
+            "rate": 0
+          },
+          "openingNearZeroRate": {
+            "denominator": 5000,
+            "numerator": 541,
+            "rate": 0.1082
+          },
+          "raiseNearZeroDeltaRate": {
+            "denominator": 5476,
+            "numerator": 107,
+            "rate": 0.01953981008035062
+          }
+        },
+        "finalCandidateNapoleonRate": 0.0656,
+        "games": 5000,
+        "openingBidRate": 0.6502,
+        "pairedComparisonAgainstCurrent": {
+          "t1MinusCurrentCandidateRelativeReward": 3.828159999999999,
+          "t1MinusCurrentContractSuccessRate": 0.3264,
+          "t1MinusCurrentOpeningBidRate": -0.3498,
+          "t1MinusCurrentRaiseRate": null
+        },
+        "passRate": 0.6638029782359679,
+        "raiseOpportunityCount": 5476,
+        "raiseRate": 0.04948867786705625,
+        "safety": {
+          "crashCount": 0,
+          "fallbackCount": 0,
+          "illegalBidCount": 0,
+          "invalidMaskCount": 0,
+          "modelInferenceFailureCount": 0
+        },
+        "strengthBuckets": {
+          "low": {
+            "contractSuccessRate": {
+              "denominator": 0,
+              "numerator": 0,
+              "rate": null
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 733,
+              "numerator": 0,
+              "rate": 0
+            },
+            "gameCount": 733,
+            "openingBidRate": {
+              "denominator": 733,
+              "numerator": 77,
+              "rate": 0.10504774897680765
+            },
+            "raiseRate": {
+              "denominator": 895,
+              "numerator": 0,
+              "rate": 0
+            }
+          },
+          "medium": {
+            "contractSuccessRate": {
+              "denominator": 126,
+              "numerator": 42,
+              "rate": 0.3333333333333333
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 3749,
+              "numerator": 126,
+              "rate": 0.03360896238997066
+            },
+            "gameCount": 3749,
+            "openingBidRate": {
+              "denominator": 3749,
+              "numerator": 2656,
+              "rate": 0.7084555881568418
+            },
+            "raiseRate": {
+              "denominator": 4047,
+              "numerator": 66,
+              "rate": 0.01630837657524092
+            }
+          },
+          "strong": {
+            "contractSuccessRate": {
+              "denominator": 173,
+              "numerator": 72,
+              "rate": 0.4161849710982659
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 484,
+              "numerator": 173,
+              "rate": 0.3574380165289256
+            },
+            "gameCount": 484,
+            "openingBidRate": {
+              "denominator": 484,
+              "numerator": 484,
+              "rate": 1
+            },
+            "raiseRate": {
+              "denominator": 497,
+              "numerator": 173,
+              "rate": 0.34808853118712274
+            }
+          },
+          "veryStrong": {
+            "contractSuccessRate": {
+              "denominator": 29,
+              "numerator": 16,
+              "rate": 0.5517241379310345
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 34,
+              "numerator": 29,
+              "rate": 0.8529411764705882
+            },
+            "gameCount": 34,
+            "openingBidRate": {
+              "denominator": 34,
+              "numerator": 34,
+              "rate": 1
+            },
+            "raiseRate": {
+              "denominator": 37,
+              "numerator": 32,
+              "rate": 0.8648648648648649
+            }
+          }
+        },
+        "suits": {
+          "clubs": 1253,
+          "diamonds": 1403,
+          "hearts": 1313,
+          "spades": 1031
+        },
+        "targetPointCards": {
+          "13": 248,
+          "14": 2650,
+          "15": 1799,
+          "16": 289,
+          "17": 14,
+          "18": 0,
+          "19": 0
+        }
+      },
+      "50k": {
+        "allPassRate": 0,
+        "bidRate": 0.3871587850826605,
+        "candidateRelativeRewardCi95": {
+          "lower": -0.11002646065286337,
+          "upper": 0.06930646065286361
+        },
+        "candidateRelativeRewardMean": -0.02035999999999987,
+        "contractSuccessRate": 0.3322,
+        "decisionQuality": {
+          "available": true,
+          "highPWinPassRate": {
+            "denominator": 6376,
+            "numerator": 0,
+            "rate": 0
+          },
+          "lowPWinBidRate": {
+            "denominator": 4028,
+            "numerator": 0,
+            "rate": 0
+          },
+          "openingNearZeroRate": {
+            "denominator": 5000,
+            "numerator": 522,
+            "rate": 0.1044
+          },
+          "raiseNearZeroDeltaRate": {
+            "denominator": 5404,
+            "numerator": 138,
+            "rate": 0.02553663952627683
+          }
+        },
+        "finalCandidateNapoleonRate": 0.0822,
+        "games": 5000,
+        "openingBidRate": 0.7296,
+        "pairedComparisonAgainstCurrent": {
+          "t1MinusCurrentCandidateRelativeReward": 3.918199999999999,
+          "t1MinusCurrentContractSuccessRate": 0.329,
+          "t1MinusCurrentOpeningBidRate": -0.2704,
+          "t1MinusCurrentRaiseRate": null
+        },
+        "passRate": 0.6128412149173394,
+        "raiseOpportunityCount": 5404,
+        "raiseRate": 0.07031828275351591,
+        "safety": {
+          "crashCount": 0,
+          "fallbackCount": 0,
+          "illegalBidCount": 0,
+          "invalidMaskCount": 0,
+          "modelInferenceFailureCount": 0
+        },
+        "strengthBuckets": {
+          "low": {
+            "contractSuccessRate": {
+              "denominator": 0,
+              "numerator": 0,
+              "rate": null
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 733,
+              "numerator": 0,
+              "rate": 0
+            },
+            "gameCount": 733,
+            "openingBidRate": {
+              "denominator": 733,
+              "numerator": 166,
+              "rate": 0.22646657571623466
+            },
+            "raiseRate": {
+              "denominator": 880,
+              "numerator": 0,
+              "rate": 0
+            }
+          },
+          "medium": {
+            "contractSuccessRate": {
+              "denominator": 167,
+              "numerator": 56,
+              "rate": 0.33532934131736525
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 3749,
+              "numerator": 167,
+              "rate": 0.04454521205654841
+            },
+            "gameCount": 3749,
+            "openingBidRate": {
+              "denominator": 3749,
+              "numerator": 2964,
+              "rate": 0.7906108295545479
+            },
+            "raiseRate": {
+              "denominator": 3982,
+              "numerator": 122,
+              "rate": 0.03063787041687594
+            }
+          },
+          "strong": {
+            "contractSuccessRate": {
+              "denominator": 212,
+              "numerator": 101,
+              "rate": 0.47641509433962265
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 484,
+              "numerator": 212,
+              "rate": 0.4380165289256198
+            },
+            "gameCount": 484,
+            "openingBidRate": {
+              "denominator": 484,
+              "numerator": 484,
+              "rate": 1
+            },
+            "raiseRate": {
+              "denominator": 505,
+              "numerator": 223,
+              "rate": 0.4415841584158416
+            }
+          },
+          "veryStrong": {
+            "contractSuccessRate": {
+              "denominator": 32,
+              "numerator": 16,
+              "rate": 0.5
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 34,
+              "numerator": 32,
+              "rate": 0.9411764705882353
+            },
+            "gameCount": 34,
+            "openingBidRate": {
+              "denominator": 34,
+              "numerator": 34,
+              "rate": 1
+            },
+            "raiseRate": {
+              "denominator": 37,
+              "numerator": 35,
+              "rate": 0.9459459459459459
+            }
+          }
+        },
+        "suits": {
+          "clubs": 1247,
+          "diamonds": 1438,
+          "hearts": 1272,
+          "spades": 1043
+        },
+        "targetPointCards": {
+          "13": 228,
+          "14": 2608,
+          "15": 1857,
+          "16": 293,
+          "17": 14,
+          "18": 0,
+          "19": 0
+        }
+      },
+      "5k": {
+        "allPassRate": 0,
+        "bidRate": 0.3839646221880408,
+        "candidateRelativeRewardCi95": {
+          "lower": -0.1730205206250012,
+          "upper": 0.002220520624999306
+        },
+        "candidateRelativeRewardMean": -0.08540000000000095,
+        "contractSuccessRate": 0.3296,
+        "decisionQuality": {
+          "available": true,
+          "highPWinPassRate": {
+            "denominator": 6408,
+            "numerator": 0,
+            "rate": 0
+          },
+          "lowPWinBidRate": {
+            "denominator": 3994,
+            "numerator": 0,
+            "rate": 0
+          },
+          "openingNearZeroRate": {
+            "denominator": 5000,
+            "numerator": 518,
+            "rate": 0.1036
+          },
+          "raiseNearZeroDeltaRate": {
+            "denominator": 5402,
+            "numerator": 111,
+            "rate": 0.02054794520547945
+          }
+        },
+        "finalCandidateNapoleonRate": 0.0844,
+        "games": 5000,
+        "openingBidRate": 0.7234,
+        "pairedComparisonAgainstCurrent": {
+          "t1MinusCurrentCandidateRelativeReward": 3.8531599999999977,
+          "t1MinusCurrentContractSuccessRate": 0.3264,
+          "t1MinusCurrentOpeningBidRate": -0.27659999999999996,
+          "t1MinusCurrentRaiseRate": null
+        },
+        "passRate": 0.6160353778119593,
+        "raiseOpportunityCount": 5402,
+        "raiseRate": 0.06978896704924102,
+        "safety": {
+          "crashCount": 0,
+          "fallbackCount": 0,
+          "illegalBidCount": 0,
+          "invalidMaskCount": 0,
+          "modelInferenceFailureCount": 0
+        },
+        "strengthBuckets": {
+          "low": {
+            "contractSuccessRate": {
+              "denominator": 0,
+              "numerator": 0,
+              "rate": null
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 733,
+              "numerator": 0,
+              "rate": 0
+            },
+            "gameCount": 733,
+            "openingBidRate": {
+              "denominator": 733,
+              "numerator": 114,
+              "rate": 0.15552523874488403
+            },
+            "raiseRate": {
+              "denominator": 890,
+              "numerator": 0,
+              "rate": 0
+            }
+          },
+          "medium": {
+            "contractSuccessRate": {
+              "denominator": 156,
+              "numerator": 49,
+              "rate": 0.3141025641025641
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 3749,
+              "numerator": 156,
+              "rate": 0.04161109629234463
+            },
+            "gameCount": 3749,
+            "openingBidRate": {
+              "denominator": 3749,
+              "numerator": 2985,
+              "rate": 0.7962123232862096
+            },
+            "raiseRate": {
+              "denominator": 3976,
+              "numerator": 104,
+              "rate": 0.026156941649899398
+            }
+          },
+          "strong": {
+            "contractSuccessRate": {
+              "denominator": 235,
+              "numerator": 92,
+              "rate": 0.39148936170212767
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 484,
+              "numerator": 235,
+              "rate": 0.4855371900826446
+            },
+            "gameCount": 484,
+            "openingBidRate": {
+              "denominator": 484,
+              "numerator": 484,
+              "rate": 1
+            },
+            "raiseRate": {
+              "denominator": 499,
+              "numerator": 239,
+              "rate": 0.4789579158316633
+            }
+          },
+          "veryStrong": {
+            "contractSuccessRate": {
+              "denominator": 31,
+              "numerator": 16,
+              "rate": 0.5161290322580645
+            },
+            "finalCandidateNapoleonRate": {
+              "denominator": 34,
+              "numerator": 31,
+              "rate": 0.9117647058823529
+            },
+            "gameCount": 34,
+            "openingBidRate": {
+              "denominator": 34,
+              "numerator": 34,
+              "rate": 1
+            },
+            "raiseRate": {
+              "denominator": 37,
+              "numerator": 34,
+              "rate": 0.918918918918919
+            }
+          }
+        },
+        "suits": {
+          "clubs": 1262,
+          "diamonds": 1417,
+          "hearts": 1313,
+          "spades": 1008
+        },
+        "targetPointCards": {
+          "13": 229,
+          "14": 2620,
+          "15": 1791,
+          "16": 344,
+          "17": 15,
+          "18": 1,
+          "19": 0
+        }
+      }
+    },
+    "selectionRationale": "50k had the best 5,000-game candidate relative reward among promoted candidates, no safety failures, #421 sign tied with 5k while reducing false PASS from 7 to 6, and #422 opening remained at 88.9% sign / 0 false PASS / 5 false BID. Held-out metrics plateaued rather than improved monotonically, so this is a modest data-scale gain, not an architecture/reward/runtime change."
+  },
+  "frozenPolicy": {
+    "intendedUse": "repo-managed frozen bidding margin artifact for future benchmark/runtime references",
+    "retrainPolicy": "Do not retrain bidding AI unless a new clear issue is found.",
+    "status": "adopted"
+  },
+  "issue": 431,
+  "leakageGuard": {
+    "checks": {
+      "10k": {
+        "invariantViolationCount": 0,
+        "maxDealSeedsPerFixedHand": 1,
+        "maxHiddenDealsPerRaiseState": 1,
+        "maxRaiseStatesPerFixedHand": 1,
+        "rawRolloutsChecked": 10000,
+        "uniqueDealSeeds": 2500,
+        "uniqueFixedHands": 2500,
+        "uniqueRaiseStates": 2500
+      },
+      "20k": {
+        "invariantViolationCount": 0,
+        "maxDealSeedsPerFixedHand": 1,
+        "maxHiddenDealsPerRaiseState": 1,
+        "maxRaiseStatesPerFixedHand": 1,
+        "rawRolloutsChecked": 20000,
+        "uniqueDealSeeds": 5000,
+        "uniqueFixedHands": 5000,
+        "uniqueRaiseStates": 5000
+      },
+      "50k": {
+        "invariantViolationCount": 0,
+        "maxDealSeedsPerFixedHand": 1,
+        "maxHiddenDealsPerRaiseState": 1,
+        "maxRaiseStatesPerFixedHand": 1,
+        "rawRolloutsChecked": 50000,
+        "uniqueDealSeeds": 12500,
+        "uniqueFixedHands": 12500,
+        "uniqueRaiseStates": 12500
+      },
+      "5k": {
+        "invariantViolationCount": 0,
+        "maxDealSeedsPerFixedHand": 1,
+        "maxHiddenDealsPerRaiseState": 1,
+        "maxRaiseStatesPerFixedHand": 1,
+        "rawRolloutsChecked": 5000,
+        "uniqueDealSeeds": 1250,
+        "uniqueFixedHands": 1250,
+        "uniqueRaiseStates": 1250
+      }
+    },
+    "generatorOneDealAndStatePerFixedHand": true,
+    "reasoning": "fixedHandId split also separates sourceStateKey and dealSeed because every checked fixedHandId maps to one dealSeed and one sourceStateKey.",
+    "representativeStateExclusion": {
+      "10k": {
+        "modelInputHashIntersections": {
+          "issue421": 0,
+          "issue422": 0
+        },
+        "samplesChecked": 10000
+      },
+      "20k": {
+        "modelInputHashIntersections": {
+          "issue421": 0,
+          "issue422": 0
+        },
+        "samplesChecked": 20000
+      },
+      "50k": {
+        "modelInputHashIntersections": {
+          "issue421": 0,
+          "issue422": 0
+        },
+        "samplesChecked": 50000
+      },
+      "5k": {
+        "modelInputHashIntersections": {
+          "issue421": 0,
+          "issue422": 0
+        },
+        "samplesChecked": 5000
+      }
+    },
+    "splitUnit": "fixedHandId"
+  },
+  "replacesOrSupersedes": {
+    "artifactId": "issue427-t1-strong-raise-ft",
+    "relationship": "50k scale learning curve successor to the Issue #427 T1 5k history-consistent raise fine-tune; runtime semantics unchanged."
+  },
+  "schemaVersion": 1,
+  "selectedCheckpoint": {
+    "path": "/tmp/issue431-model-50k/checkpoint.pt",
+    "sha256": "11d0bc9c2ce5a99d4293b20f08e7437c36bca3eb7b3da8a3de7076ee63bc3b00"
+  },
+  "selectedScale": "50k",
+  "source": {
+    "baseBranch": "feature/issue-202-non-playing-ai",
+    "baseCommit": "bc12b88d8442c25441ed02f94b241ab4ac52a01a"
+  },
+  "training": {
+    "architectureChanged": false,
+    "batchSize": 256,
+    "device": "cpu",
+    "dropout": 0,
+    "epochs": 30,
+    "finalRatio": 0.1,
+    "hiddenDims": [
+      512,
+      512,
+      256,
+      256
+    ],
+    "initCheckpoint": "/tmp/issue423-model-5k-M2/checkpoint.pt",
+    "learningRate": 0.0003,
+    "patience": 6,
+    "rewardChanged": false,
+    "runtimeSemanticsChanged": false,
+    "seed": 4273,
+    "singleHead": true,
+    "stdLossWeight": 0.25,
+    "validationRatio": 0.1,
+    "variant": "M2",
+    "weightDecay": 0.0001
+  }
+}

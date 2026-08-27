@@ -56,4 +56,25 @@ while IFS= read -r case_name; do
   fi
 done < .differential/cases.txt
 
+while IFS= read -r case_name; do
+  if [[ -z "$case_name" ]]; then
+    continue
+  fi
+  case_dir=".differential/$case_name"
+  seed="$(cat "$case_dir/seed.txt")"
+  ./build/napoleon_core_cli --select-parameterized-action --seed "$seed" \
+    --parameters .differential/parameterized-weights.txt \
+    < "$case_dir/actions.txt" \
+    > "$case_dir/actual.json"
+  node -e '
+    const assert = require("node:assert/strict");
+    const fs = require("node:fs");
+    const [expectedPath, actualPath, caseName] = process.argv.slice(1);
+    const expected = JSON.parse(fs.readFileSync(expectedPath, "utf8"));
+    const actual = JSON.parse(fs.readFileSync(actualPath, "utf8"));
+    assert.deepStrictEqual(actual, expected);
+    console.log(`parameterized evaluator/runtime parity ok: ${caseName}`);
+  ' "$case_dir/expected.json" "$case_dir/actual.json" "$case_name"
+done < .differential/parameterized-cases.txt
+
 echo "C++ core differential harness ok"

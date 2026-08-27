@@ -1,5 +1,7 @@
 import type {
   BidRequest,
+  AiPolicyComposition,
+  AiPresetId,
   ChooseAdjutantRequest,
   CreateGameAgentSelection,
   CreateGameRequest,
@@ -7,7 +9,8 @@ import type {
   PassRequest,
   PlayCardRequest,
   PublicGameAction,
-  RunAutomatedSimulationRequest
+  RunAutomatedSimulationRequest,
+  UpdateAiPresetRequest
 } from "@napoleon/protocol";
 
 export function isPlayCardRequest(value: unknown): value is PlayCardRequest {
@@ -121,7 +124,15 @@ export function readCreateGameBody(value: unknown): CreateGameRequest | undefine
     return {};
   }
 
-  if (keys.length !== 1 || !keys.includes("aiAgents") || !Array.isArray(value.aiAgents)) {
+  if (keys.length !== 1) {
+    return undefined;
+  }
+
+  if (keys.includes("aiPresetId") && typeof value.aiPresetId === "string") {
+    return { aiPresetId: value.aiPresetId as AiPresetId };
+  }
+
+  if (!keys.includes("aiAgents") || !Array.isArray(value.aiAgents)) {
     return undefined;
   }
 
@@ -142,6 +153,14 @@ export function readCreateGameBody(value: unknown): CreateGameRequest | undefine
   };
 }
 
+export function readUpdateAiPresetBody(value: unknown): UpdateAiPresetRequest | undefined {
+  if (!isRecord(value) || Object.keys(value).length !== 1 || !("composition" in value)) {
+    return undefined;
+  }
+  const composition = readAiPolicyComposition(value.composition);
+  return composition === undefined ? undefined : { composition };
+}
+
 export function readRunAutomatedSimulationBody(
   value: unknown
 ): RunAutomatedSimulationRequest | undefined {
@@ -151,7 +170,13 @@ export function readRunAutomatedSimulationBody(
 
   const keys = Object.keys(value);
 
-  if (keys.length !== 1 || !keys.includes("seed")) {
+  if (
+    (keys.length !== 1 && keys.length !== 2) ||
+    !keys.includes("seed") ||
+    (keys.length === 2 &&
+      !keys.includes("policyComposition") &&
+      !keys.includes("aiPresetId"))
+  ) {
     return undefined;
   }
 
@@ -164,9 +189,25 @@ export function readRunAutomatedSimulationBody(
     return undefined;
   }
 
-  return {
-    seed: value.seed
-  };
+  const policyComposition = keys.includes("policyComposition")
+    ? readAiPolicyComposition(value.policyComposition)
+    : undefined;
+  if (keys.includes("policyComposition") && policyComposition === undefined) {
+    return undefined;
+  }
+  const aiPresetId = keys.includes("aiPresetId") && typeof value.aiPresetId === "string"
+    ? value.aiPresetId as AiPresetId
+    : undefined;
+  if (keys.includes("aiPresetId") && aiPresetId === undefined) {
+    return undefined;
+  }
+  if (aiPresetId !== undefined) {
+    return { seed: value.seed, aiPresetId };
+  }
+  if (policyComposition !== undefined) {
+    return { seed: value.seed, policyComposition };
+  }
+  return { seed: value.seed };
 }
 
 function readCreateGameAgentSelection(
@@ -178,19 +219,49 @@ function readCreateGameAgentSelection(
 
   const keys = Object.keys(value);
 
+  if (keys.length !== 2 || !keys.includes("playerId") || typeof value.playerId !== "string") {
+    return undefined;
+  }
+  if (keys.includes("agentId") && typeof value.agentId === "string") {
+    return {
+      playerId: value.playerId,
+      agentId: value.agentId
+    };
+  }
+  if (keys.includes("policyComposition")) {
+    const policyComposition = readAiPolicyComposition(value.policyComposition);
+    if (policyComposition !== undefined) {
+      return { playerId: value.playerId, policyComposition };
+    }
+  }
+  return undefined;
+}
+
+export function readAiPolicyComposition(value: unknown): AiPolicyComposition | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const keys = Object.keys(value);
   if (
-    keys.length !== 2 ||
-    !keys.includes("playerId") ||
-    !keys.includes("agentId") ||
-    typeof value.playerId !== "string" ||
-    typeof value.agentId !== "string"
+    keys.length !== 3 ||
+    !keys.includes("playing") ||
+    !keys.includes("bidding") ||
+    !keys.includes("nonPlaying")
   ) {
     return undefined;
   }
-
+  if (
+    (value.playing !== "rule-based" && value.playing !== "ppo-separated-v1000") ||
+    (value.bidding !== "rule-based" && value.bidding !== "frozen-raise-v1") ||
+    (value.nonPlaying !== "rule-based" &&
+      value.nonPlaying !== "parameterized-adjutant-exchange-v1")
+  ) {
+    return undefined;
+  }
   return {
-    playerId: value.playerId,
-    agentId: value.agentId
+    playing: value.playing,
+    bidding: value.bidding,
+    nonPlaying: value.nonPlaying
   };
 }
 

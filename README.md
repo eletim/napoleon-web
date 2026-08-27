@@ -189,6 +189,40 @@ pnpm dev
 - Server: http://127.0.0.1:3000
 - サーバーは`tsx watch`で起動し、サーバーコードとworkspaceパッケージの変更を開発時に反映します。
 
+### サーバーAI Policy設定
+
+正式AIはphaseごとのpolicy registryとして`GET /api/agents`の`policyRegistry`に公開されます。server APIでは次のように3軸を独立に構成できます。`nonPlaying`は副官指定と埋札交換を常に1セットとして選択します。
+
+```json
+{
+  "playing": "ppo-separated-v1000",
+  "bidding": "frozen-raise-v1",
+  "nonPlaying": "parameterized-adjutant-exchange-v1"
+}
+```
+
+`parameterized-adjutant-exchange-v1`はrepo-managedの`benchmarks/non-playing-policies/parameterized-adjutant-exchange-v1/policy.json`をhuman-readable source of truthとして直接読みます。schema/version、35+60 weights、SHA、optimizer/verification/dependency provenanceを起動時に検証し、欠損・不正artifactはエラーとして扱います。ONNXへの変換やsilent fallbackは行いません。`frozen-raise-v1`と`ppo-separated-v1000`は既存の正式repo-managed ONNX artifactを使用します。
+
+以下の環境変数ベースのagent設定は後方互換用です。`NAPOLEON_POLICY_1_*`〜`NAPOLEON_POLICY_5_*`はプレイフェーズだけをONNXに差し替えるlegacy playing-only設定です。`DISPLAY_NAME`が空のスロットは無効です。
+
+`NAPOLEON_FULL_POLICY_1_*`〜`NAPOLEON_FULL_POLICY_5_*`もlegacy compatibilityとして残しています。この旧full-policy設定だけがplaying / bidding / adjutant / exchangeすべてのONNXを要求します。新しい正式phase composition pathはこれらの環境変数やfull-ONNX bundleを要求しません。
+
+通常ゲームではphase policyを直接選ばず、server-managedのAI presetを選びます。builtin presetは`COM-RuleBase`（全phase RuleBased）と`COM-AI`（正式採用済み3 policy）の2つです。ゲーム開始時にclientが送るのは`com-rule-base`または`com-ai`のpreset IDだけで、serverが4 AI席すべてに同じphase compositionを解決します。artifact pathやONNX pathはclientへ渡しません。
+
+AI設定画面の保存先はserver process内のpreset storeです。`GET /api/ai-presets`で一覧と利用可能policyを取得し、`PUT /api/ai-presets/:presetId`でcompositionを保存します。ブラウザ再読込後も同じserver process内では保持され、server再起動時は検証済みbuiltin defaultsへ戻ります。初版ではpreset追加・削除やDB永続化は行いません。unknown/unavailable policyは保存時にrejectされ、silent fallbackしません。
+
+```env
+NAPOLEON_FULL_POLICY_1_DISPLAY_NAME=Full policy v1
+NAPOLEON_FULL_POLICY_1_PLAYING_ONNX_PATH=artifacts/playing/policy.onnx
+NAPOLEON_FULL_POLICY_1_PLAYING_METADATA_PATH=artifacts/playing/policy.json
+NAPOLEON_FULL_POLICY_1_BIDDING_ONNX_PATH=artifacts/bidding/policy.onnx
+NAPOLEON_FULL_POLICY_1_BIDDING_METADATA_PATH=artifacts/bidding/policy.json
+NAPOLEON_FULL_POLICY_1_ADJUTANT_ONNX_PATH=artifacts/adjutant/policy.onnx
+NAPOLEON_FULL_POLICY_1_ADJUTANT_METADATA_PATH=artifacts/adjutant/policy.json
+NAPOLEON_FULL_POLICY_1_EXCHANGE_ONNX_PATH=artifacts/exchange/policy.onnx
+NAPOLEON_FULL_POLICY_1_EXCHANGE_METADATA_PATH=artifacts/exchange/policy.json
+```
+
 ### Tailscale Serve経由のWeb開発アクセス
 
 `./start-dev.sh`と`pnpm dev`は同じ処理です。初回起動時にルートの`.env`がなければ`.env.sample`から生成し、その後`apps/web/.env.local`を確認します。ファイルがなければ`tailscale status --json`の`Self.DNSName`から端末のTailscale DNS名を取得し、末尾の`.`を除去して自動生成します。`VITE_ALLOWED_HOSTS`を読んで、外部アクセス設定がある場合だけTailscale Serveを設定してからVite/Fastifyを起動します。

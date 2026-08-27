@@ -1,13 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
-  CreateGameAgentSelection,
-  PublicAgentDescriptor,
+  AiPolicyComposition,
+  AiPreset,
+  AiPresetId,
   PublicCard,
   PublicGameAction,
   PublicGameState,
   PublicRank,
-  PublicSuit
+  PublicSuit,
+  PublicPhasePolicyRegistry
 } from "@napoleon/protocol";
+import {
+  AiSettingsPanel,
+  GamePresetSelector,
+  isPresetCompositionAvailable
+} from "./AiPresetControls";
 import { AutomatedSimulationViewer } from "./AutomatedSimulationViewer";
 import { CardDesignMock } from "./CardDesignMock";
 import { TableSurface } from "./TableSurface";
@@ -23,7 +30,7 @@ import {
   type AdjutantSelection,
   type AdjutantSuitOption
 } from "./adjutantSelection";
-import { createGame, getAgents, nextTrick, sendAction } from "./api";
+import { createGame, getAiPresets, nextTrick, sendAction, updateAiPreset } from "./api";
 import { suitSymbols } from "./cardSymbols";
 import { createMessage, formatPlayerLabel, formatWinningTeam } from "./displayText";
 import { createTablePlayers } from "./tablePlayers";
@@ -36,20 +43,9 @@ interface Session {
   state: PublicGameState;
 }
 
-type AppMode = "game" | "simulation";
+type AppMode = "game" | "simulation" | "ai-settings";
 
-const defaultAgentId = "rule-based";
-const defaultAiPlayerIds = ["player-1", "player-2", "player-3", "player-4"] as const;
-const fallbackAgents: readonly PublicAgentDescriptor[] = [
-  {
-    id: defaultAgentId,
-    displayName: "Rule-based AI",
-    isAvailable: true
-  }
-];
-const defaultAgentSelections: Record<string, string> = Object.fromEntries(
-  defaultAiPlayerIds.map((playerId) => [playerId, defaultAgentId])
-);
+const defaultPresetId: AiPresetId = "com-ai";
 
 export function App() {
   if (window.location.pathname.endsWith("/mock/card-design")) {
@@ -80,9 +76,12 @@ function GameApp() {
   const [session, setSession] = useState<Session | undefined>();
   const [message, setMessage] = useState("ゲームを開始してください。");
   const [isBusy, setIsBusy] = useState(false);
-  const [agents, setAgents] = useState<readonly PublicAgentDescriptor[]>(fallbackAgents);
-  const [agentSelections, setAgentSelections] =
-    useState<Record<string, string>>(defaultAgentSelections);
+  const [presets, setPresets] = useState<readonly AiPreset[]>([]);
+  const [policyRegistry, setPolicyRegistry] = useState<PublicPhasePolicyRegistry>();
+  const [selectedPresetId, setSelectedPresetId] = useState<AiPresetId>(defaultPresetId);
+  const [presetDrafts, setPresetDrafts] =
+    useState<Partial<Record<AiPresetId, AiPolicyComposition>>>({});
+  const [settingsMessage, setSettingsMessage] = useState("設定を読み込んでいます。");
   const [selectedDiscardCardIds, setSelectedDiscardCardIds] = useState<readonly string[]>([]);
   const [adjutantSelection, setAdjutantSelection] =
     useState<AdjutantSelection>(defaultAdjutantSelection);
@@ -115,7 +114,6 @@ function GameApp() {
     session.state.adjutantChoice?.napoleonPlayerId === session.playerId;
 
   const tablePlayers = useMemo(() => createTablePlayers(session?.state), [session?.state]);
-  const aiPlayers = tablePlayers.filter((player) => !player.isSelf);
   const adjutantShortcutOptions = useMemo(
     () => createAdjutantShortcutOptions(session?.state.specialCards),
     [session?.state.specialCards]
@@ -126,12 +124,9 @@ function GameApp() {
     adjutantShortcutOptions
   );
   const canSelectJoker = session?.state.adjutantChoice?.jokerAllowed === true;
-  const hasUnavailableAgentSelection = aiPlayers.some((player) => {
-    const agentId = agentSelections[player.id] ?? defaultAgentId;
-    const agent = agents.find((candidate) => candidate.id === agentId);
-
-    return agent?.isAvailable !== true;
-  });
+  const selectedPreset = presets.find((preset) => preset.id === selectedPresetId);
+  const hasUnavailablePresetSelection = selectedPreset === undefined ||
+    !isPresetCompositionAvailable(selectedPreset.composition, policyRegistry);
   const hasActionPrompt =
     session !== undefined &&
     (session.state.currentPlayerId === session.playerId ||
@@ -159,18 +154,31 @@ function GameApp() {
   useEffect(() => {
     let cancelled = false;
 
-    void getAgents()
+    void getAiPresets()
       .then((response) => {
         if (cancelled) {
           return;
         }
 
-        setAgents(response.agents.length > 0 ? response.agents : fallbackAgents);
-        setAgentSelections((current) => normalizeAgentSelections(current, response.agents));
+        setPresets(response.presets);
+        setPolicyRegistry(response.policyRegistry);
+        setPresetDrafts(Object.fromEntries(
+          response.presets.map((preset) => [preset.id, { ...preset.composition }])
+        ));
+        setSelectedPresetId((current) =>
+          response.presets.some(({ id }) => id === current)
+            ? current
+            : response.presets[0]?.id ?? defaultPresetId
+        );
+        setSettingsMessage("変更後はpresetごとに保存・適用してください。");
       })
       .catch((error) => {
         if (!cancelled) {
-          setMessage(error instanceof Error ? error.message : "AI一覧を取得できませんでした。");
+          const errorMessage = error instanceof Error
+            ? error.message
+            : "AI preset一覧を取得できませんでした。";
+          setMessage(errorMessage);
+          setSettingsMessage(errorMessage);
           setHasRequestError(true);
         }
       });
@@ -182,11 +190,7 @@ function GameApp() {
 
   async function handleCreateGame(): Promise<void> {
     await runRequest(async () => {
-      const aiAgents: CreateGameAgentSelection[] = aiPlayers.map((player) => ({
-        playerId: player.id,
-        agentId: agentSelections[player.id] ?? defaultAgentId
-      }));
-      const response = await createGame({ aiAgents });
+      const response = await createGame({ aiPresetId: selectedPresetId });
       setSession(response);
       setSelectedDiscardCardIds([]);
       setAdjutantSelection(defaultAdjutantSelection);
@@ -196,11 +200,34 @@ function GameApp() {
     });
   }
 
-  function handleAgentSelectionChange(playerId: string, agentId: string): void {
-    setAgentSelections((current) => ({
-      ...current,
-      [playerId]: agentId
+  function handlePresetDraftChange(
+    presetId: AiPresetId,
+    phase: keyof AiPolicyComposition,
+    policyId: string
+  ): void {
+    const current = presetDrafts[presetId] ?? presets.find(({ id }) => id === presetId)?.composition;
+    if (current === undefined) {
+      return;
+    }
+    setPresetDrafts((drafts) => ({
+      ...drafts,
+      [presetId]: { ...current, [phase]: policyId } as AiPolicyComposition
     }));
+  }
+
+  async function handleSavePreset(presetId: AiPresetId): Promise<void> {
+    const composition = presetDrafts[presetId];
+    if (composition === undefined) {
+      return;
+    }
+    await runRequest(async () => {
+      const saved = await updateAiPreset(presetId, composition);
+      setPresets((current) => current.map((preset) =>
+        preset.id === saved.id ? saved : preset
+      ));
+      setPresetDrafts((current) => ({ ...current, [saved.id]: saved.composition }));
+      setSettingsMessage(`${saved.displayName}を保存・適用しました。`);
+    });
   }
 
   async function handlePlay(card: PublicCard): Promise<void> {
@@ -293,8 +320,14 @@ function GameApp() {
     try {
       await work();
     } catch (error) {
+      const errorMessage = error instanceof Error
+        ? error.message
+        : "予期しないエラーが発生しました。";
       setHasRequestError(true);
-      setMessage(error instanceof Error ? error.message : "予期しないエラーが発生しました。");
+      setMessage(errorMessage);
+      if (mode === "ai-settings") {
+        setSettingsMessage(errorMessage);
+      }
     } finally {
       requestInFlightRef.current = false;
       setIsBusy(false);
@@ -334,6 +367,15 @@ function GameApp() {
           {session !== undefined && mode === "game" ? "卓" : "通常プレイ"}
         </button>
         <button
+          aria-label="AI設定"
+          aria-pressed={mode === "ai-settings"}
+          className={mode === "ai-settings" ? "mode-button mode-button-active" : "mode-button"}
+          onClick={() => setMode("ai-settings")}
+          type="button"
+        >
+          AI設定
+        </button>
+        <button
           aria-label={session !== undefined && mode === "game" ? "ログ（AI対戦ログ）" : "AI対戦ログ"}
           aria-pressed={mode === "simulation"}
           className={mode === "simulation" ? "mode-button mode-button-active" : "mode-button"}
@@ -362,7 +404,7 @@ function GameApp() {
             </div>
             <button
               className="primary-button"
-              disabled={isInteractionLocked || hasUnavailableAgentSelection}
+              disabled={isInteractionLocked || hasUnavailablePresetSelection}
               onClick={handleCreateGame}
               type="button"
             >
@@ -371,30 +413,12 @@ function GameApp() {
           </section>
 
           {session === undefined ? (
-            <section className="agent-setup" aria-label="AI選択">
-              <h2>AI選択</h2>
-              <div className="agent-selector-grid">
-                {aiPlayers.map((player) => (
-                  <label className="agent-selector" key={player.id}>
-                    <span>{player.label}</span>
-                    <select
-                      disabled={isBusy}
-                      onChange={(event) =>
-                        handleAgentSelectionChange(player.id, event.target.value)
-                      }
-                      value={agentSelections[player.id] ?? defaultAgentId}
-                    >
-                      {agents.map((agent) => (
-                        <option disabled={!agent.isAvailable} key={agent.id} value={agent.id}>
-                          {agent.displayName}
-                          {agent.isAvailable ? "" : " (未設定)"}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ))}
-              </div>
-            </section>
+            <GamePresetSelector
+              disabled={isBusy || presets.length === 0}
+              onChange={setSelectedPresetId}
+              presets={presets}
+              selectedPresetId={selectedPresetId}
+            />
           ) : null}
 
           <section className="mobile-landscape-guide" aria-label="横向きプレイ案内">
@@ -569,24 +593,48 @@ function GameApp() {
                     {session?.state.result !== null && session?.state.result !== undefined ? (
                       <section className="result-panel" aria-label="ゲーム結果">
                         <h2>ゲーム終了</h2>
-                        <div className="result-grid">
-                          <span>勝者</span>
-                          <strong>{formatWinningTeam(session.state.result.winner)}</strong>
-                          <span>契約</span>
-                          <strong>{session.state.result.targetPointCards}枚</strong>
-                          <span>ナポレオン陣営</span>
-                          <strong>{session.state.result.napoleonTeamPointCards}枚</strong>
-                          <span>連合軍</span>
-                          <strong>{session.state.result.alliancePointCards}枚</strong>
-                          <span>ナポレオン</span>
-                          <strong>
-                            {formatPlayerLabel(session.state.result.napoleonPlayerId, tablePlayers)}
-                          </strong>
-                          <span>副官</span>
-                          <strong>
-                            {formatPlayerLabel(session.state.result.adjutantPlayerId, tablePlayers)}
-                          </strong>
-                        </div>
+                        {session.state.result.resultType === "all-pass" ? (
+                          <div className="result-grid">
+                            <span>結果</span>
+                            <strong>全員パス</strong>
+                            <span>親</span>
+                            <strong>
+                              {formatPlayerLabel(
+                                session.state.result.starterPlayerId,
+                                tablePlayers
+                              )}
+                            </strong>
+                            <span>親の報酬</span>
+                            <strong>+1</strong>
+                            <span>他プレイヤー</span>
+                            <strong>-1</strong>
+                          </div>
+                        ) : (
+                          <div className="result-grid">
+                            <span>勝者</span>
+                            <strong>{formatWinningTeam(session.state.result.winner)}</strong>
+                            <span>契約</span>
+                            <strong>{session.state.result.targetPointCards}枚</strong>
+                            <span>ナポレオン陣営</span>
+                            <strong>{session.state.result.napoleonTeamPointCards}枚</strong>
+                            <span>連合軍</span>
+                            <strong>{session.state.result.alliancePointCards}枚</strong>
+                            <span>ナポレオン</span>
+                            <strong>
+                              {formatPlayerLabel(
+                                session.state.result.napoleonPlayerId,
+                                tablePlayers
+                              )}
+                            </strong>
+                            <span>副官</span>
+                            <strong>
+                              {formatPlayerLabel(
+                                session.state.result.adjutantPlayerId,
+                                tablePlayers
+                              )}
+                            </strong>
+                          </div>
+                        )}
                       </section>
                     ) : null}
                   </div>
@@ -616,8 +664,18 @@ function GameApp() {
             />
           </section>
         </>
-      ) : (
+      ) : mode === "simulation" ? (
         <AutomatedSimulationViewer />
+      ) : (
+        <AiSettingsPanel
+          disabled={isBusy}
+          drafts={presetDrafts}
+          message={settingsMessage}
+          onChange={handlePresetDraftChange}
+          onSave={(presetId) => void handleSavePreset(presetId)}
+          policyRegistry={policyRegistry}
+          presets={presets}
+        />
       )}
     </main>
   );
@@ -639,21 +697,3 @@ const rankOptions: readonly PublicRank[] = [
   "3",
   "2"
 ];
-
-function normalizeAgentSelections(
-  current: Record<string, string>,
-  agents: readonly PublicAgentDescriptor[]
-): Record<string, string> {
-  const availableAgentIds = new Set(
-    agents.filter((agent) => agent.isAvailable).map((agent) => agent.id)
-  );
-  const next = { ...current };
-
-  for (const playerId of defaultAiPlayerIds) {
-    if (!availableAgentIds.has(next[playerId])) {
-      next[playerId] = defaultAgentId;
-    }
-  }
-
-  return next;
-}

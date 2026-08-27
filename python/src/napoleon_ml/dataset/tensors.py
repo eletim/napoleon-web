@@ -40,6 +40,7 @@ import numpy as np
 
 from .constants import (
     BIDDING_ACTION_COUNT,
+    BIDDING_ACTION_TYPE_BID,
     BIDDING_HISTORY_SUIT_ORDER,
     CARD_COUNT,
     CARDS_PER_TRICK,
@@ -71,8 +72,8 @@ from .sample import (
 )
 
 MODEL_INPUT_SCHEMA_VERSION = 2
-BIDDING_MODEL_INPUT_SCHEMA_VERSION = 1
-EXCHANGE_MODEL_INPUT_SCHEMA_VERSION = 1
+BIDDING_MODEL_INPUT_SCHEMA_VERSION = 2
+EXCHANGE_MODEL_INPUT_SCHEMA_VERSION = 2
 ADJUTANT_MODEL_INPUT_SCHEMA_VERSION = 1
 
 if MODEL_INPUT_SCHEMA_VERSION != PLAYING_MODEL_INPUT_SCHEMA_VERSION:
@@ -85,6 +86,11 @@ _COMPLETED_TRICK_CARD_SLOT_COUNT = TRICK_COUNT * CARDS_PER_TRICK
 _SPECIAL_CARD_INDEX_COUNT = 4
 _BIDDING_ACTION_TYPE_CLASS_COUNT = 2
 _BIDDING_SUIT_CLASS_COUNT = len(BIDDING_HISTORY_SUIT_ORDER)
+_BIDDING_BID_POSITION_SUIT_ORDER = ("clubs", "diamonds", "hearts", "spades")
+_BIDDING_BID_POSITION_COUNT = (
+    MAX_BIDDING_TARGET_POINT_CARDS - MIN_BIDDING_TARGET_POINT_CARDS + 1
+) * len(_BIDDING_BID_POSITION_SUIT_ORDER)
+_BIDDING_BID_OWNER_CLASS_COUNT = PLAYER_COUNT + 1
 _BIDDING_TARGET_POINT_CARDS_CLASS_COUNT = (
     MAX_BIDDING_TARGET_POINT_CARDS - MIN_BIDDING_TARGET_POINT_CARDS + 1
 )
@@ -193,7 +199,10 @@ class ExchangeObservationTensors:
     trump_suit_one_hot: np.ndarray
     called_adjutant_card_mask: np.ndarray
     self_hand_mask: np.ndarray
+    partial_discard_mask: np.ndarray
     legal_discard_card_mask: np.ndarray
+    exchange_step_index: np.int64
+    remaining_discard_count: np.int64
     contract_target_point_cards: np.int64
     hand_count_by_player: np.ndarray
     special_card_indices: np.ndarray
@@ -475,14 +484,20 @@ _BIDDING_MODEL_INPUT_SPEC: tuple[tuple[str, tuple[int, ...]], ...] = (
     ("highestBidSuitOneHot", (_BIDDING_SUIT_CLASS_COUNT,)),
     ("highestBidTargetPointCardsOneHot", (_BIDDING_TARGET_POINT_CARDS_CLASS_COUNT,)),
     ("consecutivePassCountOneHot", (_CONSECUTIVE_PASS_COUNT_CLASS_COUNT,)),
-    ("biddingHistoryActionMask", (MAX_BIDDING_ACTION_COUNT,)),
-) + _BIDDING_HISTORY_ONEHOT_SPEC
+    (
+        "biddingBidOwnerTableOneHot",
+        (_BIDDING_BID_POSITION_COUNT, _BIDDING_BID_OWNER_CLASS_COUNT),
+    ),
+)
 
 _EXCHANGE_MODEL_INPUT_SPEC: tuple[tuple[str, tuple[int, ...]], ...] = (
     ("trumpSuitOneHot", (_TRUMP_SUIT_OPTION_COUNT,)),
     ("selfHandMask", (CARD_COUNT,)),
+    ("partialDiscardMask", (CARD_COUNT,)),
     ("legalDiscardCardMask", (CARD_COUNT,)),
     ("calledAdjutantCardMask", (CARD_COUNT,)),
+    ("exchangeStepIndexOneHot", (3,)),
+    ("remainingDiscardCountOneHot", (4,)),
     ("contractTargetPointCardsOneHot", (_CONTRACT_TARGET_POINT_CARDS_CLASS_COUNT,)),
     ("handCountByPlayer", (PLAYER_COUNT,)),
     ("specialCardIndicesOneHot", (_SPECIAL_CARD_INDEX_COUNT, CARD_COUNT)),
@@ -522,13 +537,13 @@ _validate_layout(
 )
 ADJUTANT_MODEL_INPUT_FEATURE_COUNT: int = ADJUTANT_MODEL_INPUT_LAYOUT[-1].stop
 
-if BIDDING_MODEL_INPUT_FEATURE_COUNT != 2333:
+if BIDDING_MODEL_INPUT_FEATURE_COUNT != 278:
     raise AssertionError(
-        f"BIDDING_MODEL_INPUT_FEATURE_COUNT must be 2333, got {BIDDING_MODEL_INPUT_FEATURE_COUNT}."
+        f"BIDDING_MODEL_INPUT_FEATURE_COUNT must be 278, got {BIDDING_MODEL_INPUT_FEATURE_COUNT}."
     )
-if EXCHANGE_MODEL_INPUT_FEATURE_COUNT != 2611:
+if EXCHANGE_MODEL_INPUT_FEATURE_COUNT != 2671:
     raise AssertionError(
-        "EXCHANGE_MODEL_INPUT_FEATURE_COUNT must be 2611, "
+        "EXCHANGE_MODEL_INPUT_FEATURE_COUNT must be 2671, "
         f"got {EXCHANGE_MODEL_INPUT_FEATURE_COUNT}."
     )
 if ADJUTANT_MODEL_INPUT_FEATURE_COUNT != 2553:
@@ -630,6 +645,53 @@ def _bidding_history_one_hot_parts(
             min_value=MIN_BIDDING_TARGET_POINT_CARDS,
         ).reshape(-1),
     )
+
+
+def _bidding_bid_owner_table(
+    action_mask: np.ndarray,
+    action_type_indices: np.ndarray,
+    player_indices: np.ndarray,
+    suit_indices: np.ndarray,
+    target_point_cards: np.ndarray,
+) -> np.ndarray:
+    table = np.zeros(
+        (_BIDDING_BID_POSITION_COUNT, _BIDDING_BID_OWNER_CLASS_COUNT), dtype=np.float32
+    )
+    table[:, 0] = 1.0
+
+    highest_seen_position = -1
+    for slot_index, mask in enumerate(action_mask):
+        if int(mask) == 0:
+            continue
+        if int(action_type_indices[slot_index]) != BIDDING_ACTION_TYPE_BID:
+            continue
+
+        player_index = int(player_indices[slot_index])
+        if player_index < 0 or player_index >= PLAYER_COUNT:
+            raise AssertionError(
+                f"biddingHistory[{slot_index}].playerIndex must be between 0 and 4."
+            )
+
+        suit_index = int(suit_indices[slot_index])
+        suit = BIDDING_HISTORY_SUIT_ORDER[suit_index]
+        suit_position = _BIDDING_BID_POSITION_SUIT_ORDER.index(suit)
+        target_offset = int(target_point_cards[slot_index]) - MIN_BIDDING_TARGET_POINT_CARDS
+        position_index = target_offset * len(_BIDDING_BID_POSITION_SUIT_ORDER) + suit_position
+
+        if position_index <= highest_seen_position:
+            raise AssertionError("Bidding bid positions must be strictly increasing.")
+        highest_seen_position = position_index
+
+        if table[position_index, 0] != 1.0:
+            raise AssertionError(
+                f"Duplicate bid position in bidding history at position {position_index}."
+            )
+
+        table[position_index, 0] = 0.0
+        table[position_index, player_index + 1] = 1.0
+
+    table.setflags(write=False)
+    return table.reshape(-1)
 
 
 def tensorize_observation(observation: EncodedPlayingObservation) -> PlayingObservationTensors:
@@ -743,7 +805,10 @@ def tensorize_exchange_observation(
         trump_suit_one_hot=_one_hot_array(observation.trump_suit_one_hot),
         called_adjutant_card_mask=_mask_array(observation.called_adjutant_card_mask),
         self_hand_mask=_mask_array(observation.self_hand_mask),
+        partial_discard_mask=_mask_array(observation.partial_discard_mask),
         legal_discard_card_mask=_mask_array(observation.legal_discard_card_mask),
+        exchange_step_index=np.int64(observation.exchange_step_index),
+        remaining_discard_count=np.int64(observation.remaining_discard_count),
         contract_target_point_cards=np.int64(observation.contract_target_point_cards),
         hand_count_by_player=hand_count_by_player,
         special_card_indices=_special_card_indices_array(observation),
@@ -859,8 +924,8 @@ def _bidding_model_input(tensors: BiddingObservationTensors) -> np.ndarray:
         _single_one_hot(
             int(tensors.consecutive_pass_count), num_classes=_CONSECUTIVE_PASS_COUNT_CLASS_COUNT
         ),
-        tensors.bidding_history_action_mask.astype(np.float32),
-        *_bidding_history_one_hot_parts(
+        _bidding_bid_owner_table(
+            tensors.bidding_history_action_mask,
             tensors.bidding_history_action_type_indices,
             tensors.bidding_history_player_indices,
             tensors.bidding_history_suit_indices,
@@ -878,8 +943,11 @@ def _exchange_model_input(tensors: ExchangeObservationTensors) -> np.ndarray:
     parts = (
         tensors.trump_suit_one_hot,
         tensors.self_hand_mask.astype(np.float32),
+        tensors.partial_discard_mask.astype(np.float32),
         tensors.legal_discard_card_mask.astype(np.float32),
         tensors.called_adjutant_card_mask.astype(np.float32),
+        _single_one_hot(int(tensors.exchange_step_index), num_classes=3),
+        _single_one_hot(int(tensors.remaining_discard_count), num_classes=4),
         _single_one_hot(
             int(tensors.contract_target_point_cards),
             num_classes=_CONTRACT_TARGET_POINT_CARDS_CLASS_COUNT,

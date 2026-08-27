@@ -2,16 +2,22 @@ import { readFile } from "node:fs/promises";
 import * as ort from "onnxruntime-node";
 import {
   BIDDING_ACTION_COUNT,
+  BIDDING_MODEL_INPUT_FEATURE_COUNT,
   CARD_COUNT,
-  EXCHANGE_DISCARD_COUNT
+  EXCHANGE_DISCARD_COUNT,
+  ONNX_INPUT_NAME,
+  ONNX_MARGIN_LOG_VARIANCE_OUTPUT_NAME,
+  ONNX_MARGIN_MEAN_OUTPUT_NAME,
+  ONNX_TENSOR_FLOAT_TYPE
 } from "./constants.js";
 import { PolicyOnnxCompatibilityError } from "./errors.js";
 import {
   parseNonPlayingPolicyOnnxMetadata,
+  parseBiddingMarginOnnxMetadata,
   parsePolicyCriticOnnxMetadata,
   parsePolicyOnnxMetadata
 } from "./metadata.js";
-import { validateOnnxModelIo } from "./onnxProto.js";
+import { validateOnnxModelExactIo, validateOnnxModelIo } from "./onnxProto.js";
 import {
   getNonPlayingPolicyOnnxSpec,
   getPlayingPolicyOnnxSpec,
@@ -24,6 +30,8 @@ import type {
   NonPlayingPolicyOnnxExchangeSelection,
   NonPlayingPolicyOnnxMetadata,
   NonPlayingPolicyOnnxSingleSelection,
+  BiddingMarginOnnxMetadata,
+  BiddingMarginOnnxPrediction,
   CalculateLegalPolicyLogProbabilityOptions,
   PolicyCriticOnnxMetadata,
   PolicyCriticOnnxSelection,
@@ -148,6 +156,15 @@ export class NonPlayingPolicyOnnxModel {
     };
   }
 
+  async selectExchangeCard(input: SelectLegalExchangeInput): Promise<NonPlayingPolicyOnnxSingleSelection> {
+    this.assertPolicyType("exchange");
+    const logits = await this.predictLogits(input.modelInput);
+    return {
+      selectedIndex: selectLegalExchangeCard(logits, input.legalDiscardMask),
+      logits
+    };
+  }
+
   async selectAdjutant(input: SelectLegalAdjutantInput): Promise<NonPlayingPolicyOnnxSingleSelection> {
     this.assertPolicyType("adjutant");
     const logits = await this.predictLogits(input.modelInput);
@@ -211,6 +228,46 @@ export class PolicyCriticOnnxModel {
   }
 }
 
+export class BiddingMarginOnnxModel {
+  constructor(
+    readonly metadata: BiddingMarginOnnxMetadata,
+    private readonly session: ort.InferenceSession,
+    readonly runtime: PolicyOnnxRuntimeInfo
+  ) {}
+
+  async predict(modelInput: Float32Array | readonly number[]): Promise<BiddingMarginOnnxPrediction> {
+    return this.predictBatch([modelInput]).then((outputs) => outputs[0]);
+  }
+
+  async predictBatch(
+    modelInputs: readonly (Float32Array | readonly number[])[]
+  ): Promise<readonly BiddingMarginOnnxPrediction[]> {
+    const inputs = normalizeBiddingMarginModelInputBatch(modelInputs);
+    const batchInput = new Float32Array(inputs.length * BIDDING_MODEL_INPUT_FEATURE_COUNT);
+    inputs.forEach((input, index) => {
+      batchInput.set(input, index * BIDDING_MODEL_INPUT_FEATURE_COUNT);
+    });
+    const tensor = new ort.Tensor("float32", batchInput, [inputs.length, BIDDING_MODEL_INPUT_FEATURE_COUNT]);
+    const outputs = await this.session.run(
+      { [ONNX_INPUT_NAME]: tensor },
+      [ONNX_MARGIN_MEAN_OUTPUT_NAME, ONNX_MARGIN_LOG_VARIANCE_OUTPUT_NAME]
+    );
+    const mean = getBiddingMarginOutput(outputs, ONNX_MARGIN_MEAN_OUTPUT_NAME, inputs.length);
+    const logVariance = getBiddingMarginOutput(outputs, ONNX_MARGIN_LOG_VARIANCE_OUTPUT_NAME, inputs.length);
+    return inputs.map((_, index) => {
+      const start = index * BIDDING_ACTION_COUNT;
+      const end = start + BIDDING_ACTION_COUNT;
+      const standardizedMean = mean.slice(start, end);
+      const selectedLogVariance = logVariance.slice(start, end);
+      return {
+        mean: decodeBiddingMarginMean(standardizedMean, this.metadata),
+        sigma: decodeBiddingMarginSigma(selectedLogVariance, this.metadata),
+        logVariance: new Float32Array(selectedLogVariance)
+      };
+    });
+  }
+}
+
 export async function loadPolicyOnnxModel(options: PolicyOnnxLoadOptions): Promise<PolicyOnnxModel> {
   const metadata = parsePolicyOnnxMetadata(await readFile(options.metadataPath, "utf8"));
   const spec = getPlayingPolicyOnnxSpec(metadata.playingObservationVariant ?? "public");
@@ -252,12 +309,134 @@ export async function loadPolicyCriticOnnxModel(options: PolicyOnnxLoadOptions):
   });
 }
 
+export async function loadBiddingMarginOnnxModel(options: PolicyOnnxLoadOptions): Promise<BiddingMarginOnnxModel> {
+  const metadata = parseBiddingMarginOnnxMetadata(await readFile(options.metadataPath, "utf8"));
+  await validateOnnxModelExactIo(options.onnxPath, {
+    inputs: [{
+      name: ONNX_INPUT_NAME,
+      dtype: ONNX_TENSOR_FLOAT_TYPE,
+      shape: ["batch", BIDDING_MODEL_INPUT_FEATURE_COUNT]
+    }],
+    outputs: [
+      {
+        name: ONNX_MARGIN_MEAN_OUTPUT_NAME,
+        dtype: ONNX_TENSOR_FLOAT_TYPE,
+        shape: ["batch", BIDDING_ACTION_COUNT]
+      },
+      {
+        name: ONNX_MARGIN_LOG_VARIANCE_OUTPUT_NAME,
+        dtype: ONNX_TENSOR_FLOAT_TYPE,
+        shape: ["batch", BIDDING_ACTION_COUNT]
+      }
+    ]
+  });
+
+  const { session, runtime } = await createPolicyOnnxSession(options);
+
+  if (!sameNames(session.inputNames, [ONNX_INPUT_NAME])) {
+    throw new PolicyOnnxCompatibilityError(
+      `ONNX Runtime input names mismatch: expected ${ONNX_INPUT_NAME}, got ${session.inputNames.join(", ")}.`
+    );
+  }
+  if (!sameNames(session.outputNames, [ONNX_MARGIN_MEAN_OUTPUT_NAME, ONNX_MARGIN_LOG_VARIANCE_OUTPUT_NAME])) {
+    throw new PolicyOnnxCompatibilityError(
+      "ONNX Runtime output names mismatch: expected " +
+        `${ONNX_MARGIN_MEAN_OUTPUT_NAME}, ${ONNX_MARGIN_LOG_VARIANCE_OUTPUT_NAME}, got ${session.outputNames.join(", ")}.`
+    );
+  }
+
+  return new BiddingMarginOnnxModel(metadata, session, runtime);
+}
+
 export function criticValueToWinRateEquivalent(value: number): number {
   if (!Number.isFinite(value)) {
     throw new PolicyOnnxCompatibilityError(`critic value must be finite, got ${value}.`);
   }
 
   return Math.min(1, Math.max(0, (value + 1) / 2));
+}
+
+function normalizeBiddingMarginModelInputBatch(
+  modelInputs: readonly (Float32Array | readonly number[])[]
+): readonly Float32Array[] {
+  if (modelInputs.length === 0) {
+    throw new PolicyOnnxCompatibilityError("modelInputs batch must contain at least one input.");
+  }
+  return modelInputs.map((modelInput) => {
+    if (modelInput.length !== BIDDING_MODEL_INPUT_FEATURE_COUNT) {
+      throw new PolicyOnnxCompatibilityError(
+        `bidding margin modelInput must contain ${BIDDING_MODEL_INPUT_FEATURE_COUNT} values, got ${modelInput.length}.`
+      );
+    }
+    const input = modelInput instanceof Float32Array ? new Float32Array(modelInput) : Float32Array.from(modelInput);
+    for (let index = 0; index < input.length; index += 1) {
+      if (!Number.isFinite(input[index])) {
+        throw new PolicyOnnxCompatibilityError(`bidding margin modelInput[${index}] must be finite.`);
+      }
+    }
+    return input;
+  });
+}
+
+function getBiddingMarginOutput(
+  outputs: Awaited<ReturnType<ort.InferenceSession["run"]>>,
+  name: string,
+  batchSize: number
+): Float32Array {
+  const output = outputs[name];
+  if (output === undefined) {
+    throw new PolicyOnnxCompatibilityError(`ONNX output ${name} is missing.`);
+  }
+  if (output.type !== "float32") {
+    throw new PolicyOnnxCompatibilityError(`ONNX output ${name} dtype mismatch: expected float32, got ${output.type}.`);
+  }
+  if (output.dims.length !== 2 || output.dims[0] !== batchSize || output.dims[1] !== BIDDING_ACTION_COUNT) {
+    throw new PolicyOnnxCompatibilityError(
+      `ONNX output ${name} shape mismatch: expected [${batchSize}, ${BIDDING_ACTION_COUNT}], got ${JSON.stringify(output.dims)}.`
+    );
+  }
+  if (!(output.data instanceof Float32Array)) {
+    throw new PolicyOnnxCompatibilityError(`ONNX output ${name} data must be Float32Array.`);
+  }
+  return output.data;
+}
+
+function decodeBiddingMarginMean(
+  standardizedMean: Float32Array,
+  metadata: BiddingMarginOnnxMetadata
+): Float32Array {
+  const result = new Float32Array(standardizedMean.length);
+  const standardization = metadata.targetStandardization;
+  for (let index = 0; index < standardizedMean.length; index += 1) {
+    const value = standardization.enabled
+      ? standardizedMean[index] * standardization.std + standardization.mean
+      : standardizedMean[index];
+    if (!Number.isFinite(value)) {
+      throw new PolicyOnnxCompatibilityError(`bidding margin mean[${index}] must be finite.`);
+    }
+    result[index] = value;
+  }
+  return result;
+}
+
+function decodeBiddingMarginSigma(
+  logVariance: Float32Array,
+  metadata: BiddingMarginOnnxMetadata
+): Float32Array {
+  const result = new Float32Array(logVariance.length);
+  const scale = metadata.variant === "M1"
+    ? metadata.constantSigma
+    : (metadata.targetStandardization.enabled ? metadata.targetStandardization.std : 1);
+  for (let index = 0; index < logVariance.length; index += 1) {
+    const value = metadata.variant === "M1"
+      ? scale
+      : Math.exp(0.5 * logVariance[index]) * scale;
+    if (!Number.isFinite(value) || value < 0) {
+      throw new PolicyOnnxCompatibilityError(`bidding margin sigma[${index}] must be finite and non-negative.`);
+    }
+    result[index] = Math.max(value, 1e-12);
+  }
+  return result;
 }
 
 async function createPolicyOnnxSession(options: PolicyOnnxLoadOptions): Promise<{
@@ -452,6 +631,17 @@ export function selectLegalAdjutantCard(
     logitsLabel: "adjutant logits",
     maskLabel: "legalAdjutantMask",
     emptyMessage: "legalAdjutantMask must contain at least one legal card."
+  });
+}
+
+export function selectLegalExchangeCard(
+  logits: Float32Array | readonly number[],
+  legalDiscardMask: ArrayLike<number | boolean>
+): number {
+  return selectLegalIndex(logits, legalDiscardMask, CARD_COUNT, {
+    logitsLabel: "exchange logits",
+    maskLabel: "legalDiscardMask",
+    emptyMessage: "legalDiscardMask must contain at least one legal card."
   });
 }
 

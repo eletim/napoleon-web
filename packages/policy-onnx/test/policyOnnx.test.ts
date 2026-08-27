@@ -6,6 +6,7 @@ import {
   ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
   BIDDING_ACTION_COUNT,
   BIDDING_MODEL_INPUT_FEATURE_COUNT,
+  BIDDING_MODEL_INPUT_SCHEMA_VERSION,
   CARD_COUNT,
   EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
   MODEL_INPUT_FEATURE_COUNT,
@@ -222,7 +223,7 @@ describe("non-playing policy ONNX metadata", () => {
       ["policyType", { ...bidding, policyType: "playing" }],
       ["datasetSchemaVersion", { ...bidding, datasetSchemaVersion: MULTIPHASE_DATASET_SCHEMA_VERSION + 1 }],
       ["encoderSchemaVersion", { ...bidding, encoderSchemaVersion: 2 }],
-      ["modelInputSchemaVersion", { ...bidding, modelInputSchemaVersion: 2 }],
+      ["modelInputSchemaVersion", { ...bidding, modelInputSchemaVersion: 1 }],
       ["modelInputFeatureCount", { ...bidding, modelInputFeatureCount: BIDDING_MODEL_INPUT_FEATURE_COUNT + 1 }],
       ["outputLogitCount", { ...bidding, outputLogitCount: BIDDING_ACTION_COUNT + 1 }],
       ["cardIdsSha256", { ...bidding, cardIdsSha256: "0".repeat(64) }],
@@ -692,7 +693,7 @@ describe("non-playing policy ONNX Runtime smoke", () => {
 
     const model = await loadNonPlayingPolicyOnnxModel({ onnxPath, metadataPath });
     await expect(model.predictLogits(new Float32Array(BIDDING_MODEL_INPUT_FEATURE_COUNT - 1))).rejects.toThrow(
-      /2333/
+      /278/
     );
 
     const input = new Float32Array(BIDDING_MODEL_INPUT_FEATURE_COUNT);
@@ -827,8 +828,8 @@ function createNonPlayingMetadata(policyType: NonPlayingPolicyType): NonPlayingP
     policyType,
     checkpointSchemaVersion: 1,
     datasetSchemaVersion: MULTIPHASE_DATASET_SCHEMA_VERSION,
-    encoderSchemaVersion: 1,
-    modelInputSchemaVersion: 1,
+    encoderSchemaVersion: spec.encoderSchemaVersion,
+    modelInputSchemaVersion: spec.modelInputSchemaVersion,
     modelInputFeatureCount: spec.inputFeatureCount,
     outputLogitCount: spec.outputCount,
     actionCount: spec.outputCount,
@@ -878,25 +879,33 @@ function nonPlayingSpec(policyType: NonPlayingPolicyType): {
   artifactType: string;
   inputFeatureCount: number;
   outputCount: number;
+  encoderSchemaVersion: number;
+  modelInputSchemaVersion: number;
 } {
   if (policyType === "bidding") {
     return {
       artifactType: "napoleon-bidding-policy-onnx",
       inputFeatureCount: BIDDING_MODEL_INPUT_FEATURE_COUNT,
-      outputCount: BIDDING_ACTION_COUNT
+      outputCount: BIDDING_ACTION_COUNT,
+      encoderSchemaVersion: 1,
+      modelInputSchemaVersion: BIDDING_MODEL_INPUT_SCHEMA_VERSION
     };
   }
   if (policyType === "exchange") {
     return {
       artifactType: "napoleon-exchange-policy-onnx",
       inputFeatureCount: EXCHANGE_MODEL_INPUT_FEATURE_COUNT,
-      outputCount: CARD_COUNT
+      outputCount: CARD_COUNT,
+      encoderSchemaVersion: 2,
+      modelInputSchemaVersion: 2
     };
   }
   return {
     artifactType: "napoleon-adjutant-policy-onnx",
     inputFeatureCount: ADJUTANT_MODEL_INPUT_FEATURE_COUNT,
-    outputCount: CARD_COUNT
+    outputCount: CARD_COUNT,
+    encoderSchemaVersion: 1,
+    modelInputSchemaVersion: 1
   };
 }
 

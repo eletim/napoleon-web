@@ -89,7 +89,13 @@ export interface PublicAdjutantChoiceState {
 
 export type PublicWinningTeam = "napoleon-team" | "alliance";
 
-export interface PublicGameResult {
+export interface PublicPlayerPayoff {
+  playerId: string;
+  payoff: number;
+}
+
+export interface PublicStandardGameResult {
+  resultType: "standard";
   winner: PublicWinningTeam;
   napoleonTeamPointCards: number;
   alliancePointCards: number;
@@ -97,6 +103,14 @@ export interface PublicGameResult {
   napoleonPlayerId: string;
   adjutantPlayerId: string | null;
 }
+
+export interface PublicAllPassGameResult {
+  resultType: "all-pass";
+  starterPlayerId: string;
+  payoffs: readonly PublicPlayerPayoff[];
+}
+
+export type PublicGameResult = PublicStandardGameResult | PublicAllPassGameResult;
 
 export interface PublicBuriedCardsResolvedEvent {
   type: "buried-cards-resolved";
@@ -242,21 +256,103 @@ export interface PublicAgentDescriptor {
   isAvailable: boolean;
 }
 
-export interface GetAgentsResponse {
-  agents: readonly PublicAgentDescriptor[];
+export type PlayingPolicyId = "rule-based" | "ppo-separated-v1000";
+export type BiddingPolicyId = "rule-based" | "frozen-raise-v1";
+export type NonPlayingPolicyId =
+  | "rule-based"
+  | "parameterized-adjutant-exchange-v1";
+
+export interface AiPolicyComposition {
+  playing: PlayingPolicyId;
+  bidding: BiddingPolicyId;
+  nonPlaying: NonPlayingPolicyId;
 }
 
-export interface CreateGameAgentSelection {
+export type AiPresetId = "com-rule-base" | "com-ai";
+
+export interface AiPreset {
+  id: AiPresetId;
+  displayName: string;
+  composition: AiPolicyComposition;
+}
+
+export interface PublicPhasePolicyDescriptor {
+  id: string;
+  displayName: string;
+  isAvailable: boolean;
+  artifactProvenance: Readonly<Record<string, string>> | null;
+}
+
+export interface PublicPhasePolicyRegistry {
+  playing: readonly PublicPhasePolicyDescriptor[];
+  bidding: readonly PublicPhasePolicyDescriptor[];
+  nonPlaying: readonly PublicPhasePolicyDescriptor[];
+}
+
+export interface GetAgentsResponse {
+  agents: readonly PublicAgentDescriptor[];
+  policyRegistry?: PublicPhasePolicyRegistry;
+}
+
+export interface GetAiPresetsResponse {
+  presets: readonly AiPreset[];
+  policyRegistry: PublicPhasePolicyRegistry;
+}
+
+export interface UpdateAiPresetRequest {
+  composition: AiPolicyComposition;
+}
+
+export interface CreateGameLegacyAgentSelection {
   playerId: string;
   agentId: string;
 }
 
-export interface CreateGameRequest {
-  aiAgents?: readonly CreateGameAgentSelection[];
+export interface CreateGamePolicyCompositionSelection {
+  playerId: string;
+  policyComposition: AiPolicyComposition;
 }
 
-export interface RunAutomatedSimulationRequest {
-  seed: number;
+export type CreateGameAgentSelection =
+  | CreateGameLegacyAgentSelection
+  | CreateGamePolicyCompositionSelection;
+
+export type CreateGameRequest =
+  | {
+      aiAgents?: readonly CreateGameAgentSelection[];
+      aiPresetId?: never;
+    }
+  | {
+      aiAgents?: never;
+      aiPresetId: AiPresetId;
+    };
+
+export type RunAutomatedSimulationRequest =
+  | {
+      seed: number;
+      policyComposition?: AiPolicyComposition;
+      aiPresetId?: never;
+    }
+  | {
+      seed: number;
+      policyComposition?: never;
+      aiPresetId: AiPresetId;
+    };
+
+export interface PublicAiPhaseCallDiagnostics {
+  composition: AiPolicyComposition;
+  playingCalls: number;
+  biddingCalls: number;
+  adjutantCalls: number;
+  exchangeCalls: number;
+  fallbackCount: number;
+  illegalCount: number;
+}
+
+export interface GetGamePolicyDiagnosticsResponse {
+  gameId: string;
+  presetId?: AiPresetId;
+  diagnostics: Readonly<Record<string, PublicAiPhaseCallDiagnostics>>;
 }
 
 export interface PublicSimulationObservedPlayer {
@@ -336,6 +432,8 @@ export interface RunAutomatedSimulationResponse {
   decisions: readonly PublicSimulationDecision[];
   summary: PublicSimulationSummary;
   result: PublicGameResult;
+  presetId?: AiPresetId;
+  policyDiagnostics?: Readonly<Record<string, PublicAiPhaseCallDiagnostics>>;
 }
 
 export interface ApiError {

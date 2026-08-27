@@ -51,13 +51,11 @@ from .constants import (
     MAX_SHARD_COUNT,
     MIN_BIDDING_TARGET_POINT_CARDS,
     MIN_CONTRACT_TARGET_POINT_CARDS,
-    MODEL_INPUT_FEATURE_COUNT,
     MULTIPHASE_DATASET_GENERATOR_VERSION,
     MULTIPHASE_DATASET_SCHEMA_VERSION,
     NOT_IN_HAND_CLASS_INDEX,
     PLAYER_COUNT,
     PLAYING_ENCODER_SCHEMA_VERSION,
-    PLAYING_MODEL_INPUT_SCHEMA_VERSION,
     PLAYING_SELF_PLAY_BEHAVIOR_POLICY_TYPE,
     PLAYING_SELF_PLAY_BINARY_DATASET_FORMAT,
     PLAYING_SELF_PLAY_BINARY_SHARD_SCHEMA_VERSION,
@@ -1307,6 +1305,7 @@ def validate_encoded_exchange_observation(observation: EncodedExchangeObservatio
     _expect_length("trumpSuitOneHot", observation.trump_suit_one_hot, _TRUMP_SUIT_OPTION_COUNT)
     _expect_length("calledAdjutantCardMask", observation.called_adjutant_card_mask, CARD_COUNT)
     _expect_length("selfHandMask", observation.self_hand_mask, CARD_COUNT)
+    _expect_length("partialDiscardMask", observation.partial_discard_mask, CARD_COUNT)
     _expect_length("legalDiscardCardMask", observation.legal_discard_card_mask, CARD_COUNT)
     _expect_length("handCountByPlayer", observation.hand_count_by_player, PLAYER_COUNT)
     validate_encoded_bidding_history(observation.bidding_history)
@@ -1322,10 +1321,26 @@ def validate_encoded_exchange_observation(observation: EncodedExchangeObservatio
     _expect_sum("calledAdjutantCardMask", observation.called_adjutant_card_mask, 1)
     _validate_mask("selfHandMask", observation.self_hand_mask)
     _expect_sum("selfHandMask", observation.self_hand_mask, 13)
+    _validate_mask("partialDiscardMask", observation.partial_discard_mask)
     _validate_mask("legalDiscardCardMask", observation.legal_discard_card_mask)
+    _expect_int_range("exchangeStepIndex", observation.exchange_step_index, 0, 2)
+    _expect_int_range("remainingDiscardCount", observation.remaining_discard_count, 1, 3)
 
-    if observation.legal_discard_card_mask != observation.self_hand_mask:
-        raise SampleValidationError("legalDiscardCardMask must equal selfHandMask at exchange.")
+    if observation.remaining_discard_count != 3 - observation.exchange_step_index:
+        raise SampleValidationError("remainingDiscardCount must equal 3 - exchangeStepIndex.")
+    partial_discard_count = 0
+    for index, value in enumerate(observation.partial_discard_mask):
+        if value == 1:
+            partial_discard_count += 1
+            if observation.self_hand_mask[index] != 1:
+                raise SampleValidationError("partialDiscardMask must be a subset of selfHandMask.")
+        expected_legal = 1 if observation.self_hand_mask[index] == 1 and value == 0 else 0
+        if observation.legal_discard_card_mask[index] != expected_legal:
+            raise SampleValidationError(
+                "legalDiscardCardMask must equal selfHandMask minus partialDiscardMask."
+            )
+    if partial_discard_count != observation.exchange_step_index:
+        raise SampleValidationError("partialDiscardMask count must equal exchangeStepIndex.")
 
     for index, value in enumerate(observation.hand_count_by_player):
         _expect_int_range(f"handCountByPlayer[{index}]", value, 0, MAX_HAND_COUNT)

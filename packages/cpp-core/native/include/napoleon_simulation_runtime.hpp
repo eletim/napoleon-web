@@ -9,6 +9,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace napoleon {
@@ -22,6 +23,8 @@ enum class RuntimeGameStatus : std::uint8_t {
 struct AgentRequest;
 using AgentRequestPayloadBuilder =
     std::function<void(const GameState& state, int player_index, AgentRequest& request)>;
+using AgentIdentityResolver =
+    std::function<AgentIdentity(const GameState& state, int player_index, const RosterAssignment& roster)>;
 
 struct SimulationRuntimeConfig {
   RosterSpec roster;
@@ -29,6 +32,8 @@ struct SimulationRuntimeConfig {
   std::uint32_t roster_seed = 0;
   std::size_t max_concurrent_games = 1024;
   AgentRequestPayloadBuilder build_agent_request_payload;
+  AgentIdentityResolver resolve_agent_identity;
+  bool materialize_agent_request_snapshot = true;
 };
 
 struct RuntimeGameSnapshot {
@@ -51,6 +56,7 @@ struct AgentRequest {
   std::uint64_t request_id = 0;
   std::uint32_t game_id = 0;
   std::uint32_t game_index = 0;
+  std::uint32_t seed = 0;
   std::uint64_t sequence = 0;
   std::uint64_t game_decision_count = 0;
   int player_index = 0;
@@ -60,12 +66,15 @@ struct AgentRequest {
   std::string snapshot_json;
   std::vector<float> playing_model_input;
   std::vector<int> legal_play_mask;
+  std::vector<float> bidding_model_input;
+  std::vector<int> legal_bid_mask;
 };
 
 struct AgentResult {
   std::uint64_t request_id = 0;
   Action action;
   int selected_card_index = -1;
+  int selected_action_index = -1;
   double behavior_log_probability = 0.0;
   std::string policy_key;
 };
@@ -89,6 +98,22 @@ struct RuntimeMetrics {
   std::uint64_t internal_transition_count = 0;
   std::uint64_t runnable_pass_count = 0;
   std::uint64_t cpu_elapsed_ns = 0;
+  std::uint64_t add_scheduled_games_elapsed_ns = 0;
+  std::uint64_t advance_runnable_games_elapsed_ns = 0;
+  std::uint64_t rule_based_action_elapsed_ns = 0;
+  std::uint64_t observation_generation_elapsed_ns = 0;
+  std::uint64_t legal_action_elapsed_ns = 0;
+  std::uint64_t state_transition_elapsed_ns = 0;
+  std::uint64_t request_build_elapsed_ns = 0;
+  std::uint64_t collect_agent_requests_elapsed_ns = 0;
+  std::uint64_t request_sort_elapsed_ns = 0;
+  std::uint64_t submit_agent_results_elapsed_ns = 0;
+  std::uint64_t result_sort_elapsed_ns = 0;
+  std::uint64_t result_lookup_elapsed_ns = 0;
+  std::uint64_t result_validation_elapsed_ns = 0;
+  std::uint64_t result_commit_elapsed_ns = 0;
+  std::uint64_t collect_finished_games_elapsed_ns = 0;
+  std::uint64_t finished_materialization_elapsed_ns = 0;
   double games_per_second = 0.0;
   double decisions_per_second = 0.0;
 };
@@ -105,16 +130,22 @@ class SimulationRuntime {
   void submit_agent_results(const std::vector<AgentResult>& results);
   std::vector<FinishedGame> collect_finished_games();
 
+  std::size_t active_game_count() const;
   RuntimeMetrics metrics() const;
   std::vector<RuntimeGameSnapshot> game_snapshots() const;
 
  private:
   struct RuntimeGame;
+  void mark_finished(std::size_t game_index);
 
   SimulationRuntimeConfig config_;
   std::vector<RuntimeGame> games_;
+  std::vector<std::size_t> active_game_indices_;
+  std::vector<std::size_t> finished_game_indices_;
   std::vector<AgentRequest> pending_requests_;
+  std::unordered_map<std::uint64_t, std::size_t> pending_request_game_indices_;
   RuntimeMetrics metrics_;
+  std::size_t active_game_count_ = 0;
   std::chrono::steady_clock::time_point started_at_;
   std::uint32_t next_game_id_ = 1;
   std::uint32_t next_game_index_ = 0;

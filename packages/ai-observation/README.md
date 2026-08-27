@@ -64,10 +64,9 @@ Adjutant training sample generation also uses this same public history schema.
 - `actionMask`: `1` real bidding action, `0` empty slot
 
 The suit index order matches `trumpSuitOneHot` for model I/O. It is separate
-from the internal bidding suit priority. An all-pass contract is represented as
-the real five pass actions. The automatic 12-card spades contract is visible via
-`contractTargetPointCards` and `trumpSuitOneHot`; it is not added as a synthetic
-bid.
+from the internal bidding suit priority. An all-pass game is represented as the
+real five pass actions and then ends during bidding. It does not create a
+contract, adjutant observation, exchange observation, or playing observation.
 
 ## Bidding Observation
 
@@ -88,9 +87,9 @@ the absolute table player order, and public bidding history. It contains:
 `legalBidMask` is generated only from `decision.observation.legalActions`; it
 does not recalculate bidding rules. `actorTarget` is the RuleBasedAgent-selected
 action encoded into `0..28`, and the validator requires
-`legalBidMask[actorTarget] === 1`. The all-pass automatic spades-12 contract is
-not part of the action space, so the fifth all-pass teacher action remains
-`pass = 0`.
+`legalBidMask[actorTarget] === 1`. All-pass resolution is not part of the action
+space; the fifth all-pass teacher action remains `pass = 0`, and the game ends
+immediately after it.
 
 ## Adjutant Observation
 
@@ -187,7 +186,7 @@ The non-playing phases expose the same API shape:
 
 | Phase | Encoder | Wrapper | Features | Legal mask returned by wrapper |
 | --- | --- | --- | ---: | --- |
-| bidding | `encodeBiddingModelInput()` | `createBiddingModelInput()` | 2333 | `legalBidMask` |
+| bidding | `encodeBiddingModelInput()` | `createBiddingModelInput()` | 278 | `legalBidMask` |
 | exchange | `encodeExchangeModelInput()` | `createExchangeModelInput()` | 2611 | `legalDiscardCardMask` |
 | adjutant | `encodeAdjutantModelInput()` | `createAdjutantModelInput()` | 2553 | `legalAdjutantMask` |
 
