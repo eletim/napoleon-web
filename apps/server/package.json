@@ -9,6 +9,7 @@
     "dev": "tsx watch --conditions=development src/index.ts",
     "build": "tsc -p tsconfig.json",
     "evaluate:final-mixed": "node dist/finalMixedEvaluation.js",
+    "evaluate:final-roster": "node dist/finalRosterEvaluation.js",
     "start": "node dist/index.js",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
