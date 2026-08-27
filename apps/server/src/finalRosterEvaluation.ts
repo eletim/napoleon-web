@@ -28,6 +28,8 @@ const RB_COMPOSITION = {
   bidding: "rule-based",
   nonPlaying: "rule-based"
 } as const satisfies AiPolicyComposition;
+const SCHEDULE_GAME_COUNT = 6_000;
+const MAX_UINT32_SEED = 0xffff_ffff;
 
 type PolicyName = typeof POLICY_NAMES[number];
 type CompositionKey = typeof COMPOSITION_KEYS[number];
@@ -248,27 +250,29 @@ async function runFinalRosterEvaluation(options: CliOptions): Promise<void> {
     phaseRegistry
   };
   const artifact = { schemaVersion: 1, manifestHash, ...summary };
-  const report = renderRosterReport({ manifestHash, manifest: manifestCore, summary: artifact,
-    outputDirectory: options.outputDirectory });
-
-  await Promise.all([
-    mkdir(options.outputDirectory, { recursive: true }),
-    mkdir(dirname(options.repoReport), { recursive: true })
-  ]);
+  await mkdir(options.outputDirectory, { recursive: true });
   await Promise.all([
     writeFile(join(options.outputDirectory, "games.jsonl"),
       `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`),
     writeFile(join(options.outputDirectory, "summary.json"), `${JSON.stringify(artifact, null, 2)}\n`),
     writeFile(join(options.outputDirectory, "config.json"), `${JSON.stringify(config, null, 2)}\n`),
     writeFile(join(options.outputDirectory, "manifest.json"),
-      `${JSON.stringify({ ...manifestCore, manifestHash }, null, 2)}\n`),
+      `${JSON.stringify({ ...manifestCore, manifestHash }, null, 2)}\n`)
+  ]);
+
+  if (summary.failures.total !== 0 || summary.rawRowCount !== schedule.length ||
+      summary.completedGames !== schedule.length) {
+    throw new Error(
+      `Final roster evaluation has ${summary.failures.total} failures, ${summary.rawRowCount} raw rows, and ${summary.completedGames} completed games.`
+    );
+  }
+  const report = renderRosterReport({ manifestHash, manifest: manifestCore, summary: artifact,
+    outputDirectory: options.outputDirectory });
+  await mkdir(dirname(options.repoReport), { recursive: true });
+  await Promise.all([
     writeFile(join(options.outputDirectory, "report.md"), report),
     writeFile(options.repoReport, report)
   ]);
-
-  if (summary.failures.total !== 0 || summary.rawRowCount !== schedule.length) {
-    throw new Error(`Final roster evaluation has ${summary.failures.total} failures and ${summary.rawRowCount} raw rows.`);
-  }
   process.stdout.write(`${JSON.stringify({
     games: summary.completedGames,
     rawRows: summary.rawRowCount,
@@ -593,11 +597,15 @@ function rosterConclusion(summary: any): string {
     summary.rosterSummaries.map((row: any) => row.napoleonSideWinRate)
   );
   const byKey = Object.fromEntries(summary.overallComposition.map((row: any) => [row.key, row]));
+  const compositionTrend = describeCompositionTrend(byKey);
+  const finalAssessment = describeFinalAssessment(
+    summary.rosterSummaries.map((row: any) => row.napoleonSideWinRate)
+  );
   return [
     `Napoleon-side win rateは、${rates}でした。今回の独立seed群では${rosterTrend}。AI0からAI5までの差は ${formatSignedPercentagePoints(rosterDifference)}でした。`,
-    `全roster合計の記述集計では、Napoleon=AI / Adjutant=AI は ${formatPercent(byKey["napoleon-ai-adjutant-ai"].napoleonSideWinRate)}、Napoleon=AI / Adjutant=RB は ${formatPercent(byKey["napoleon-ai-adjutant-rb"].napoleonSideWinRate)}、Napoleon=RB / Adjutant=AI は ${formatPercent(byKey["napoleon-rb-adjutant-ai"].napoleonSideWinRate)}、Napoleon=RB / Adjutant=RB は ${formatPercent(byKey["napoleon-rb-adjutant-rb"].napoleonSideWinRate)}でした。Napoleon policyをAIにした構成、Adjutant policyをAIにした構成の双方で高い生勝率が観測され、AI+AIが最も高い値でした。`,
+    `全roster合計の記述集計では、Napoleon=AI / Adjutant=AI は ${formatPercent(byKey["napoleon-ai-adjutant-ai"].napoleonSideWinRate)}、Napoleon=AI / Adjutant=RB は ${formatPercent(byKey["napoleon-ai-adjutant-rb"].napoleonSideWinRate)}、Napoleon=RB / Adjutant=AI は ${formatPercent(byKey["napoleon-rb-adjutant-ai"].napoleonSideWinRate)}、Napoleon=RB / Adjutant=RB は ${formatPercent(byKey["napoleon-rb-adjutant-rb"].napoleonSideWinRate)}でした。${compositionTrend}`,
     `solo NapoleonはAI ${formatPercent(byKey["solo-napoleon-ai"].napoleonSideWinRate)}、RB ${formatPercent(byKey["solo-napoleon-rb"].napoleonSideWinRate)}でした。またroster平均では、AI0→AI5でdeclared targetが ${firstRoster.meanTarget.toFixed(3)}→${lastRoster.meanTarget.toFixed(3)}、contract marginが ${firstRoster.meanMargin.toFixed(3)}→${lastRoster.meanMargin.toFixed(3)}へ変化しました。`,
-    "したがって、この固定roster評価では、正式COM-AIを増やした編成ほどNapoleon-side成績が良く、Napoleon・Adjutant・soloの構成別集計もCOM-AIの有効性と整合しています。一方、異なるrosterは同一dealの対比較ではなく、biddingによるrole selection、deal、Citizen側構成も同時に変わります。このため各差を特定phaseの因果効果やCitizen policy単体の優劣とは断定しません。"
+    `${finalAssessment} 一方、異なるrosterは同一dealの対比較ではなく、biddingによるrole selection、deal、Citizen側構成も同時に変わります。このため各差を特定phaseの因果効果やCitizen policy単体の優劣とは断定しません。`
   ].join("\n\n");
 }
 
@@ -628,6 +636,34 @@ export function describeRosterTrend(rates: readonly number[]): string {
   return monotonicIncrease
     ? "AI人数が増える各段階で単調に上がりました"
     : "AI人数が増える各段階での単調増加にはなりませんでした";
+}
+export function describeCompositionTrend(byKey: Record<string, { napoleonSideWinRate: number }>): string {
+  const aiAi = byKey["napoleon-ai-adjutant-ai"].napoleonSideWinRate;
+  const aiRb = byKey["napoleon-ai-adjutant-rb"].napoleonSideWinRate;
+  const rbAi = byKey["napoleon-rb-adjutant-ai"].napoleonSideWinRate;
+  const rbRb = byKey["napoleon-rb-adjutant-rb"].napoleonSideWinRate;
+  const napoleonAiHigher = aiAi > rbAi && aiRb > rbRb;
+  const adjutantAiHigher = aiAi > aiRb && rbAi > rbRb;
+  const aiAiHighest = aiAi === Math.max(aiAi, aiRb, rbAi, rbRb);
+  if (napoleonAiHigher && adjutantAiHigher && aiAiHighest) {
+    return "Napoleon policyをAIにした対応構成、Adjutant policyをAIにした対応構成はいずれも高い生勝率で、AI+AIが4分類中最大でした。";
+  }
+  return "4分類の生勝率の順序は、Napoleon/AdjutantのどちらかをAIにすれば常に高くなるという一方向の関係には揃いませんでした。";
+}
+export function describeFinalAssessment(rates: readonly number[]): string {
+  const monotonicIncrease = rates.every((value, index) => index === 0 || value >= rates[index - 1]);
+  return monotonicIncrease
+    ? "したがって、この固定roster評価では、正式COM-AIを増やした編成ほどNapoleon-side成績が良い結果でした。"
+    : "したがって、この固定roster評価では、正式COM-AIを増やすこととNapoleon-side成績の間に一貫した単調関係は確認できませんでした。";
+}
+export function validateStartSeed(startSeed: number): number {
+  const lastSeed = startSeed + SCHEDULE_GAME_COUNT - 1;
+  if (!Number.isSafeInteger(startSeed) || startSeed < 0 || lastSeed > MAX_UINT32_SEED) {
+    throw new Error(
+      `start-seed must keep all ${SCHEDULE_GAME_COUNT.toLocaleString()} seeds within 0..${MAX_UINT32_SEED}.`
+    );
+  }
+  return startSeed;
 }
 function sha256(value: string): string { return createHash("sha256").update(value).digest("hex"); }
 
@@ -666,7 +702,7 @@ function parseArgs(argv: readonly string[]): CliOptions {
     return value;
   };
   return {
-    startSeed: integer("start-seed", 462_600_000),
+    startSeed: validateStartSeed(Number(values.get("start-seed") ?? 462_600_000)),
     concurrency: integer("concurrency", 16),
     progressEvery: integer("progress-every", 250),
     outputDirectory: resolve(values.get("output-directory") ?? "/tmp/napoleon-final-roster-eval"),

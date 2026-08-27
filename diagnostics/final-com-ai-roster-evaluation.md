@@ -159,10 +159,10 @@ Sample phase audit:
 
 Napoleon-side win rateは、RB5 / AI0 29.60%、RB4 / AI1 35.90%、RB3 / AI2 39.00%、RB2 / AI3 44.50%、RB1 / AI4 51.80%、RB0 / AI5 61.70%でした。今回の独立seed群ではAI人数が増える各段階で単調に上がりました。AI0からAI5までの差は +32.10 percentage pointsでした。
 
-全roster合計の記述集計では、Napoleon=AI / Adjutant=AI は 61.03%、Napoleon=AI / Adjutant=RB は 50.29%、Napoleon=RB / Adjutant=AI は 44.04%、Napoleon=RB / Adjutant=RB は 33.96%でした。Napoleon policyをAIにした構成、Adjutant policyをAIにした構成の双方で高い生勝率が観測され、AI+AIが最も高い値でした。
+全roster合計の記述集計では、Napoleon=AI / Adjutant=AI は 61.03%、Napoleon=AI / Adjutant=RB は 50.29%、Napoleon=RB / Adjutant=AI は 44.04%、Napoleon=RB / Adjutant=RB は 33.96%でした。Napoleon policyをAIにした対応構成、Adjutant policyをAIにした対応構成はいずれも高い生勝率で、AI+AIが4分類中最大でした。
 
 solo NapoleonはAI 44.50%、RB 16.57%でした。またroster平均では、AI0→AI5でdeclared targetが 14.597→13.308、contract marginが -2.596→0.266へ変化しました。
 
-したがって、この固定roster評価では、正式COM-AIを増やした編成ほどNapoleon-side成績が良く、Napoleon・Adjutant・soloの構成別集計もCOM-AIの有効性と整合しています。一方、異なるrosterは同一dealの対比較ではなく、biddingによるrole selection、deal、Citizen側構成も同時に変わります。このため各差を特定phaseの因果効果やCitizen policy単体の優劣とは断定しません。
+したがって、この固定roster評価では、正式COM-AIを増やした編成ほどNapoleon-side成績が良い結果でした。 一方、異なるrosterは同一dealの対比較ではなく、biddingによるrole selection、deal、Citizen側構成も同時に変わります。このため各差を特定phaseの因果効果やCitizen policy単体の優劣とは断定しません。
 
 この結果を見てpolicy再学習、artifact再選定、reward/preset変更は行っていません。
