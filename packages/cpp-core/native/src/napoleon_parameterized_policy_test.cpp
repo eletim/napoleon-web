@@ -91,6 +91,12 @@ int main() {
       std::vector<std::uint8_t> kitty;
       for (Card card : source.unused_cards) kitty.push_back(card.id);
       apply_action(source, learned_adjutant.action);
+      require(source.phase == Phase::Exchanging, "adjutant did not reach exchange");
+      require(source.unused_cards.empty(), "kitty was not picked up");
+      require(
+          source.hands[static_cast<std::size_t>(napoleon)].size() ==
+              static_cast<std::size_t>(kCardsPerPlayer + 3),
+          "post-kitty hand size mismatch");
       const Action rb_exchange = select_rule_based_action(source, napoleon, rb_rng);
       const SelectionResult learned_exchange = select_exchange(source, napoleon, kitty, initial);
       require(
@@ -103,6 +109,10 @@ int main() {
           "exchange features are not deterministic");
       apply_action(source, learned_exchange.action);
       require(source.phase == Phase::Playing, "joint policy did not reach playing");
+      require(
+          source.hands[static_cast<std::size_t>(napoleon)].size() ==
+              static_cast<std::size_t>(kCardsPerPlayer),
+          "post-exchange hand size mismatch");
       ++checked;
     }
     require(checked == 100, "insufficient policy fixtures");

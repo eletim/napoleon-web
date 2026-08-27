@@ -6,7 +6,7 @@ the 95-weight policy selected by Issue #452 and independently verified by Issue
 v1. `feature-schema.json` is the exact schema used by the evaluator.
 
 The logical candidate artifact SHA-256 is
-`34f90a4f767c678365ad33e19206c088ea1ef359f02c2aa7787da37857f9e59c`.
+`a6e97b72160338d3f0ce831f5b1422f86dafb419ff8e458b79741440b2433faa`.
 The unchanged source parameter SHA-256 is
 `d364aef0c48a1832bd6602d254d0440f6cb2e2cb50492cfb53934e0378a84d69`.
 

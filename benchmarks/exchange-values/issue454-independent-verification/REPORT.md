@@ -54,6 +54,11 @@ narrower and its lower bound remains clearly above zero. Paired win/tie/loss is
 | Mean buried point cards | 1.2415 | 0.0887 |
 | Illegal / fallback / invariant failure | 0 / 0 / 0 | 0 / 0 / 0 |
 
+The evaluator executed 120,000 explicit phase/contract/adjutant/turn/kitty/hand-size
+invariant checks for each policy. All passed. The instrumented verification
+evaluator SHA and the original Issue #452 evaluator SHA are both retained in the
+dependency provenance; bidding and playing artifact hashes are unchanged.
+
 Declared-target distributions are byte-for-byte equal between policies because
 bidding is fixed before the evaluated decisions. Full declared-target, adjutant
 choice, buried-card/rank/suit, per-seed reward, margin, success, and point-card
@@ -82,13 +87,13 @@ therefore directionally stable at the requested block scale.
 ## Provenance and artifacts
 
 - Verification report file SHA-256:
-  `086075550378215f77cf0cdc5c7d2e6089a2fef9cbedc2b0eceea1faf93dea6d`.
+  `9503ec68de9bc342a08ad949e38cefb645576cb8667270ac81b132f8338538bf`.
 - Verification manifest file SHA-256:
   `8d72f2fea934d65b421375666abf9ecc7f831cd4d12f5a65e157b89123e7455b`.
 - Formal candidate logical artifact SHA-256:
-  `34f90a4f767c678365ad33e19206c088ea1ef359f02c2aa7787da37857f9e59c`.
+  `a6e97b72160338d3f0ce831f5b1422f86dafb419ff8e458b79741440b2433faa`.
 - Formal candidate policy file SHA-256:
-  `8a16402a39fc95af55b9d8c00d3c96f2d6a08c726aa26c4833d32091d389f396`.
+  `71b417b9011907ee02e5b3f7521e5479ca260101937dab05ee5cb91a8634c9fa`.
 - Weight-vector SHA-256:
   `c84fbf7012ee043b2f3451213ecf30cdf596eaec41c6aeff7381ff7fccc9a4f0`.
 

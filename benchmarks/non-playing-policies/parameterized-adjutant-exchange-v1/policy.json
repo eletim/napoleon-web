@@ -3,9 +3,11 @@
   "artifactVersion": 1,
   "dependencyProvenance": {
     "biddingMargin": "f3454cca5d2ef667942431296b1260da114f255ce9a03594d32720b180c9c623",
-    "evaluator": "6f04593a34d63bdf11efa512ee1a4ec16bd7fc1ffdd781ac074a44c477b11ded",
+    "evaluator": "334727470e78a15a26ba0af34a2b22a7182f6e98dd36a71665024dc81476b282",
     "playingCritic": "3055882f3e63e2a096ee7cedee341bc97e033572bcb59f36f3f68e3d89f134d9",
-    "playingPolicy": "54d7ba29222a12e99a91ab61ee7aa253fe3fab73200d78167d64bf9e7bb8887e"
+    "playingPolicy": "54d7ba29222a12e99a91ab61ee7aa253fe3fab73200d78167d64bf9e7bb8887e",
+    "sourceIssue452Evaluator": "6f04593a34d63bdf11efa512ee1a4ec16bd7fc1ffdd781ac074a44c477b11ded",
+    "verificationEvaluator": "334727470e78a15a26ba0af34a2b22a7182f6e98dd36a71665024dc81476b282"
   },
   "featureSchemaVersion": 1,
   "optimizerProvenance": {
@@ -48,7 +50,7 @@
   "parameterCount": 95,
   "parameterSha256": "d364aef0c48a1832bd6602d254d0440f6cb2e2cb50492cfb53934e0378a84d69",
   "runtimeWiringIncluded": false,
-  "sha256": "34f90a4f767c678365ad33e19206c088ea1ef359f02c2aa7787da37857f9e59c",
+  "sha256": "a6e97b72160338d3f0ce831f5b1422f86dafb419ff8e458b79741440b2433faa",
   "verificationProvenance": {
     "games": 10000,
     "pairedCi95": [
@@ -58,7 +60,7 @@
     "pairedMeanDifference": 1.218,
     "pairedStandardError": 0.17891016875753177,
     "report": "benchmarks/exchange-values/issue454-independent-verification/verification-report.json",
-    "reportFileSha256": "086075550378215f77cf0cdc5c7d2e6089a2fef9cbedc2b0eceea1faf93dea6d",
+    "reportFileSha256": "9503ec68de9bc342a08ad949e38cefb645576cb8667270ac81b132f8338538bf",
     "seedManifest": "benchmarks/exchange-values/issue454-independent-verification/seeds/independent-verification.json",
     "seedManifestFileSha256": "8d72f2fea934d65b421375666abf9ecc7f831cd4d12f5a65e157b89123e7455b",
     "seedManifestSha256": "0408442b7a3fa7dbb0521e4d15755262dd3af21aaf7478e1f5201c71312bff56",

@@ -146,6 +146,19 @@ def test_issue454_verification_seeds_are_disjoint_from_every_issue452_pool() -> 
     )
     assert_disjoint_seed_manifests([*reserved, verification])
 
+    report = json.loads(
+        (
+            repo
+            / "benchmarks/exchange-values/issue454-independent-verification"
+            / "verification-report.json"
+        ).read_text(encoding="utf-8")
+    )
+    for policy in (report["learned"], report["existingRuleBased"]):
+        assert policy["invariantCheckCount"] == 120_000
+        assert policy["invariantFailureCount"] == 0
+        assert policy["illegalCount"] == 0
+        assert policy["fallbackCount"] == 0
+
 
 def test_resume_identity_and_recorded_seed_manifests_are_enforced(tmp_path: Path) -> None:
     validation = seed_manifest("validation", [40, 50], 40)

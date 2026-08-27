@@ -10,9 +10,11 @@
   "blockSize": 1000,
   "dependencyProvenance": {
     "biddingMargin": "f3454cca5d2ef667942431296b1260da114f255ce9a03594d32720b180c9c623",
-    "evaluator": "6f04593a34d63bdf11efa512ee1a4ec16bd7fc1ffdd781ac074a44c477b11ded",
+    "evaluator": "334727470e78a15a26ba0af34a2b22a7182f6e98dd36a71665024dc81476b282",
     "playingCritic": "3055882f3e63e2a096ee7cedee341bc97e033572bcb59f36f3f68e3d89f134d9",
-    "playingPolicy": "54d7ba29222a12e99a91ab61ee7aa253fe3fab73200d78167d64bf9e7bb8887e"
+    "playingPolicy": "54d7ba29222a12e99a91ab61ee7aa253fe3fab73200d78167d64bf9e7bb8887e",
+    "sourceIssue452Evaluator": "6f04593a34d63bdf11efa512ee1a4ec16bd7fc1ffdd781ac074a44c477b11ded",
+    "verificationEvaluator": "334727470e78a15a26ba0af34a2b22a7182f6e98dd36a71665024dc81476b282"
   },
   "existingRuleBased": {
     "contractSuccessRate": 0.3082,
@@ -29,6 +31,7 @@
     "featureSchemaVersion": 1,
     "gameCount": 10000,
     "illegalCount": 0,
+    "invariantCheckCount": 120000,
     "invariantFailureCount": 0,
     "meanContractMargin": -2.5001,
     "meanNapoleonPointCards": 11.7705,
@@ -110174,6 +110177,7 @@
     "featureSchemaVersion": 1,
     "gameCount": 10000,
     "illegalCount": 0,
+    "invariantCheckCount": 120000,
     "invariantFailureCount": 0,
     "meanContractMargin": -2.0715,
     "meanNapoleonPointCards": 12.1991,

@@ -566,9 +566,19 @@ def _verification(args: argparse.Namespace) -> None:
         raise ValueError(f"no #452 seed manifests found under {manifest_root}")
     assert_disjoint_seed_manifests(reserved_manifests)
     runtime_identity = _runtime_identity(repo, evaluator)
-    bound_state = _validate_final_provenance(
-        parameter_path, parameter_payload, reserved_manifests, runtime_identity
+    source_state_path = parameter_path.parent / parameter_payload["provenance"]["runState"]
+    source_state = cast(
+        dict[str, Any], json.loads(source_state_path.read_text(encoding="utf-8"))
     )
+    source_runtime_identity = source_state["config"]["runtimeIdentity"]
+    bound_state = _validate_final_provenance(
+        parameter_path, parameter_payload, reserved_manifests, source_runtime_identity
+    )
+    policy_dependency_keys = {"biddingMargin", "playingPolicy", "playingCritic"}
+    if any(
+        runtime_identity[key] != source_runtime_identity[key] for key in policy_dependency_keys
+    ):
+        raise ValueError("verification bidding/playing dependency identity mismatch")
     verification_manifest = _discover_manifest(
         evaluator,
         repo,
@@ -584,8 +594,6 @@ def _verification(args: argparse.Namespace) -> None:
         baseline_report = server.evaluate(None, detailed=True)
     if learned_report["seedHash"] != baseline_report["seedHash"]:
         raise RuntimeError("paired policies did not use the same seed sequence")
-    learned_report["invariantFailureCount"] = 0
-    baseline_report["invariantFailureCount"] = 0
     paired = paired_comparison(learned_report, baseline_report)
     blocks = paired_block_comparisons(
         learned_report, baseline_report, block_size=args.block_size
@@ -622,7 +630,11 @@ def _verification(args: argparse.Namespace) -> None:
             "phaseOrder": ["bidding", "adjutant", "kitty", "exchange", "playing"],
             "pairedPlayingRandomStream": True,
         },
-        "dependencyProvenance": runtime_identity,
+        "dependencyProvenance": {
+            **runtime_identity,
+            "sourceIssue452Evaluator": source_runtime_identity["evaluator"],
+            "verificationEvaluator": runtime_identity["evaluator"],
+        },
         "optimizerProvenance": {
             "sourceIssue": 452,
             "sourceParameterPath": str(args.parameters),
@@ -675,7 +687,7 @@ def _verification(args: argparse.Namespace) -> None:
                 "pairedStandardError": paired["standardError"],
                 "pairedCi95": paired["ci95"],
             },
-            "dependencyProvenance": runtime_identity,
+            "dependencyProvenance": report["dependencyProvenance"],
             "runtimeWiringIncluded": False,
         }
         promoted["sha256"] = parameter_artifact_checksum(promoted)
