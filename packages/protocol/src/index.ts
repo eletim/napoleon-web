@@ -317,16 +317,27 @@ export type CreateGameAgentSelection =
   | CreateGameLegacyAgentSelection
   | CreateGamePolicyCompositionSelection;
 
-export interface CreateGameRequest {
-  aiAgents?: readonly CreateGameAgentSelection[];
-  aiPresetId?: AiPresetId;
-}
+export type CreateGameRequest =
+  | {
+      aiAgents?: readonly CreateGameAgentSelection[];
+      aiPresetId?: never;
+    }
+  | {
+      aiAgents?: never;
+      aiPresetId: AiPresetId;
+    };
 
-export interface RunAutomatedSimulationRequest {
-  seed: number;
-  policyComposition?: AiPolicyComposition;
-  aiPresetId?: AiPresetId;
-}
+export type RunAutomatedSimulationRequest =
+  | {
+      seed: number;
+      policyComposition?: AiPolicyComposition;
+      aiPresetId?: never;
+    }
+  | {
+      seed: number;
+      policyComposition?: never;
+      aiPresetId: AiPresetId;
+    };
 
 export interface PublicAiPhaseCallDiagnostics {
   composition: AiPolicyComposition;

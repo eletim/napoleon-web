@@ -201,11 +201,13 @@ export function readRunAutomatedSimulationBody(
   if (keys.includes("aiPresetId") && aiPresetId === undefined) {
     return undefined;
   }
-  return {
-    seed: value.seed,
-    ...(policyComposition === undefined ? {} : { policyComposition }),
-    ...(aiPresetId === undefined ? {} : { aiPresetId })
-  };
+  if (aiPresetId !== undefined) {
+    return { seed: value.seed, aiPresetId };
+  }
+  if (policyComposition !== undefined) {
+    return { seed: value.seed, policyComposition };
+  }
+  return { seed: value.seed };
 }
 
 function readCreateGameAgentSelection(
