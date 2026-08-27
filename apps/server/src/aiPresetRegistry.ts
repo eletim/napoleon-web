@@ -54,7 +54,7 @@ export function createAiPresetRegistry(agentRegistry: AgentRegistry): AiPresetRe
   const presets = new Map<AiPresetId, AiPreset>(
     BUILTIN_AI_PRESETS.map((preset) => [preset.id, clonePreset(preset)])
   );
-  validateAllPresets(presets.values(), agentRegistry.listPhasePolicies());
+  validateAllPresetPolicyIds(presets.values(), agentRegistry.listPhasePolicies());
 
   return {
     list: () => [...presets.values()].map(clonePreset),
@@ -89,12 +89,26 @@ export function validatePresetComposition(
   assertAvailable("nonPlaying", composition.nonPlaying, policies.nonPlaying);
 }
 
-function validateAllPresets(
+function validateAllPresetPolicyIds(
   presets: Iterable<AiPreset>,
   policies: PublicPhasePolicyRegistry
 ): void {
   for (const preset of presets) {
-    validatePresetComposition(preset.composition, policies);
+    assertKnown("playing", preset.composition.playing, policies.playing);
+    assertKnown("bidding", preset.composition.bidding, policies.bidding);
+    assertKnown("nonPlaying", preset.composition.nonPlaying, policies.nonPlaying);
+  }
+}
+
+function assertKnown(
+  phase: "playing" | "bidding" | "nonPlaying",
+  policyId: string,
+  policies: PublicPhasePolicyRegistry[typeof phase]
+): void {
+  if (!policies.some((candidate) => candidate.id === policyId)) {
+    throw new InvalidAiPresetCompositionError(
+      `Unknown ${phase} policy id in AI preset: ${policyId}.`
+    );
   }
 }
 

@@ -14,11 +14,13 @@ import {
   getRepoManagedBiddingMarginPolicyBenchmark,
   getRepoManagedPlayingPolicyBenchmark,
   loadRepoManagedBiddingMarginPolicyBenchmark,
-  loadRepoManagedPlayingPolicyBenchmark
+  loadRepoManagedPlayingActorBenchmark,
+  loadRepoManagedPlayingCriticBenchmark
 } from "@napoleon/policy-onnx";
 import type {
   LoadedBiddingMarginPolicyBenchmark,
-  LoadedPlayingPolicyBenchmark,
+  LoadedPlayingActorBenchmark,
+  LoadedPlayingCriticBenchmark,
   T1NapoleonEvBiddingDiagnostics
 } from "@napoleon/policy-onnx";
 import type {
@@ -40,11 +42,13 @@ export const RULE_BASED_POLICY_ID = "rule-based" as const;
 
 export interface PhasePolicyRegistryOptions {
   parameterizedArtifact?: LoadedParameterizedPolicyArtifact;
-  loadPlayingPolicy?: () => Promise<LoadedPlayingPolicyBenchmark>;
+  loadPlayingPolicy?: () => Promise<LoadedPlayingActorBenchmark>;
+  loadPlayingCritic?: () => Promise<LoadedPlayingCriticBenchmark>;
   loadBiddingPolicy?: () => Promise<LoadedBiddingMarginPolicyBenchmark>;
 }
 
 export interface PhasePolicyRegistry {
+  initialize(): Promise<void>;
   describe(): PublicPhasePolicyRegistry;
   createDiagnostics(composition: AiPolicyComposition): PublicAiPhaseCallDiagnostics;
   createAgent(
@@ -58,32 +62,48 @@ export function createPhasePolicyRegistry(
   options: PhasePolicyRegistryOptions = {}
 ): PhasePolicyRegistry {
   const parameterizedArtifact = options.parameterizedArtifact ?? loadParameterizedPolicyArtifact();
-  let playingPromise: Promise<LoadedPlayingPolicyBenchmark> | undefined;
-  let biddingPromise: Promise<LoadedBiddingMarginPolicyBenchmark> | undefined;
-  const loadPlaying = () => {
-    playingPromise ??= (
-      options.loadPlayingPolicy?.() ??
-      loadRepoManagedPlayingPolicyBenchmark(PPO_SEPARATED_V1000_BENCHMARK_POLICY_ID, {
-        inferenceDevice: "cpu"
-      })
-    ).catch((error) => {
-      playingPromise = undefined;
-      throw error;
-    });
-    return playingPromise;
+  let playing: LoadedPlayingActorBenchmark | undefined;
+  let critic: LoadedPlayingCriticBenchmark | undefined;
+  let bidding: LoadedBiddingMarginPolicyBenchmark | undefined;
+  let playingError: unknown;
+  let criticError: unknown;
+  let biddingError: unknown;
+  let initialization: Promise<void> | undefined;
+  const initialize = () => {
+    initialization ??= Promise.all([
+      (options.loadPlayingPolicy?.() ??
+        loadRepoManagedPlayingActorBenchmark(PPO_SEPARATED_V1000_BENCHMARK_POLICY_ID, {
+          inferenceDevice: "cpu"
+        }))
+        .then((loaded) => { playing = loaded; })
+        .catch((error: unknown) => { playingError = error; }),
+      (options.loadPlayingCritic?.() ??
+        loadRepoManagedPlayingCriticBenchmark(PPO_SEPARATED_V1000_BENCHMARK_POLICY_ID, {
+          inferenceDevice: "cpu"
+        }))
+        .then((loaded) => { critic = loaded; })
+        .catch((error: unknown) => { criticError = error; }),
+      (options.loadBiddingPolicy?.() ??
+        loadRepoManagedBiddingMarginPolicyBenchmark(FROZEN_RAISE_V1_BIDDING_MARGIN_POLICY_ID, {
+          inferenceDevice: "cpu"
+        }))
+        .then((loaded) => { bidding = loaded; })
+        .catch((error: unknown) => { biddingError = error; })
+    ]).then(() => undefined);
+    return initialization;
   };
-  const loadBidding = () => {
-    biddingPromise ??= (
-      options.loadBiddingPolicy?.() ??
-      loadRepoManagedBiddingMarginPolicyBenchmark(FROZEN_RAISE_V1_BIDDING_MARGIN_POLICY_ID, {
-        inferenceDevice: "cpu"
-      })
-    ).catch((error) => {
-      biddingPromise = undefined;
-      throw error;
-    });
-    return biddingPromise;
-  };
+  const requirePlaying = async () => playing ?? unavailable(
+    PPO_SEPARATED_V1000_BENCHMARK_POLICY_ID,
+    playingError
+  );
+  const requireCritic = async () => critic ?? unavailable(
+    FROZEN_RAISE_V1_BIDDING_MARGIN_POLICY_ID,
+    criticError
+  );
+  const requireBidding = async () => bidding ?? unavailable(
+    FROZEN_RAISE_V1_BIDDING_MARGIN_POLICY_ID,
+    biddingError
+  );
   const playingArtifact = getRepoManagedPlayingPolicyBenchmark(
     PPO_SEPARATED_V1000_BENCHMARK_POLICY_ID
   );
@@ -92,13 +112,14 @@ export function createPhasePolicyRegistry(
   );
 
   return {
+    initialize,
     describe: () => ({
       playing: [
         ruleBasedDescriptor(),
         {
           id: PPO_SEPARATED_V1000_BENCHMARK_POLICY_ID,
           displayName: playingArtifact.displayName,
-          isAvailable: true,
+          isAvailable: playing !== undefined,
           artifactProvenance: {
             onnxSha256: playingArtifact.onnxSha256,
             metadataSha256: playingArtifact.metadataSha256,
@@ -113,7 +134,7 @@ export function createPhasePolicyRegistry(
         {
           id: FROZEN_RAISE_V1_BIDDING_MARGIN_POLICY_ID,
           displayName: biddingArtifact.displayName,
-          isAvailable: true,
+          isAvailable: bidding !== undefined && critic !== undefined,
           artifactProvenance: {
             onnxSha256: biddingArtifact.onnxSha256,
             metadataSha256: biddingArtifact.metadataSha256,
@@ -168,12 +189,14 @@ export function createPhasePolicyRegistry(
       rng = Math.random
     ) => {
       validateComposition(composition);
+      assertCompositionAvailable(composition, { playing, critic, bidding, playingError, criticError, biddingError });
       return new ComposedPhasePolicyAgent({
         composition,
         diagnostics,
         parameterizedArtifact,
-        loadPlaying,
-        loadBidding,
+        loadPlaying: requirePlaying,
+        loadCritic: requireCritic,
+        loadBidding: requireBidding,
         rng
       });
     }
@@ -220,7 +243,8 @@ class ComposedPhasePolicyAgent implements Agent {
     composition: AiPolicyComposition;
     diagnostics: PublicAiPhaseCallDiagnostics;
     parameterizedArtifact: LoadedParameterizedPolicyArtifact;
-    loadPlaying: () => Promise<LoadedPlayingPolicyBenchmark>;
+    loadPlaying: () => Promise<LoadedPlayingActorBenchmark>;
+    loadCritic: () => Promise<LoadedPlayingCriticBenchmark>;
     loadBidding: () => Promise<LoadedBiddingMarginPolicyBenchmark>;
     rng: () => number;
   }) {
@@ -288,17 +312,14 @@ class ComposedPhasePolicyAgent implements Agent {
   private async getBidding(): Promise<T1NapoleonEvBiddingAgent> {
     if (this.bidding === undefined) {
       try {
-        const [playing, bidding] = await Promise.all([
-          this.options.loadPlaying(),
+        const [critic, bidding] = await Promise.all([
+          this.options.loadCritic(),
           this.options.loadBidding()
         ]);
-        if (playing.critic === undefined) {
-          throw new Error("PPO separated v1000 critic artifact is missing.");
-        }
         this.biddingDiagnostics = createT1NapoleonEvBiddingDiagnostics();
         this.bidding = new T1NapoleonEvBiddingAgent({
           marginModel: bidding.model,
-          passEvAgent: new CriticEvBiddingAgent({ critic: playing.critic }),
+          passEvAgent: new CriticEvBiddingAgent({ critic: critic.critic }),
           delegateAgent: this.ruleBased,
           diagnostics: this.biddingDiagnostics,
           fallbackOnInferenceError: false
@@ -380,6 +401,42 @@ function validatePolicyId(
   if (!allowed.includes(policyId)) {
     throw new UnknownPhasePolicyIdError(axis, policyId);
   }
+}
+
+function assertCompositionAvailable(
+  composition: AiPolicyComposition,
+  status: {
+    playing: LoadedPlayingActorBenchmark | undefined;
+    critic: LoadedPlayingCriticBenchmark | undefined;
+    bidding: LoadedBiddingMarginPolicyBenchmark | undefined;
+    playingError: unknown;
+    criticError: unknown;
+    biddingError: unknown;
+  }
+): void {
+  if (
+    composition.playing === PPO_SEPARATED_V1000_BENCHMARK_POLICY_ID &&
+    status.playing === undefined
+  ) {
+    unavailable(PPO_SEPARATED_V1000_BENCHMARK_POLICY_ID, status.playingError);
+  }
+  if (
+    composition.bidding === FROZEN_RAISE_V1_BIDDING_MARGIN_POLICY_ID &&
+    (status.bidding === undefined || status.critic === undefined)
+  ) {
+    unavailable(
+      FROZEN_RAISE_V1_BIDDING_MARGIN_POLICY_ID,
+      status.biddingError ?? status.criticError
+    );
+  }
+}
+
+function unavailable(policyId: string, error: unknown): never {
+  throw new AgentUnavailableError(
+    policyId,
+    `Phase policy ${policyId} is unavailable` +
+      (error === undefined ? ". Registry initialization has not completed." : `: ${message(error)}`)
+  );
 }
 
 function message(error: unknown): string {

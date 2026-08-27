@@ -30,6 +30,8 @@ import {
   runPlayingPolicyRosterEvaluation,
   runStandardPlayingPolicyBenchmarks,
   runPolicyVsRuleBasedEvaluation,
+  validatePlayingActorArtifactReference,
+  validatePlayingCriticArtifactReference,
   validatePlayingPolicyArtifactReference
 } from "../src/index.js";
 import type {
@@ -236,6 +238,24 @@ describe("runPlayingPolicyRosterEvaluation", () => {
     expect(ppoV1000.checkpointSha256).toBe(
       "36c543b8e3026283269fd40b382abf12aeb085296a8de52e52d3bf65b4c24376"
     );
+  });
+
+  it("validates the formal playing actor and bidding critic independently", async () => {
+    const artifact = getRepoManagedPlayingPolicyBenchmark(
+      PPO_SEPARATED_V1000_BENCHMARK_POLICY_ID
+    );
+
+    await expect(validatePlayingActorArtifactReference({
+      ...artifact,
+      criticOnnxPath: "/missing/critic.onnx",
+      criticMetadataPath: "/missing/critic.json"
+    })).resolves.toMatchObject({ modelArchitecture: "playing-separated-actor-critic-v1" });
+    await expect(validatePlayingCriticArtifactReference({
+      ...artifact,
+      onnxPath: "/missing/actor.onnx",
+      metadataPath: "/missing/actor.json",
+      checkpointPath: "/missing/checkpoint.pt"
+    })).resolves.toBeUndefined();
   });
 
   it("evaluates a candidate against frozen RL v740 in all four opponent seats", async () => {

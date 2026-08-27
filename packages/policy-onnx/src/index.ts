@@ -117,13 +117,19 @@ export {
   getRepoManagedBiddingMarginPolicyBenchmark,
   getRepoManagedPlayingPolicyBenchmark,
   loadRepoManagedBiddingMarginPolicyBenchmark,
+  loadRepoManagedPlayingActorBenchmark,
+  loadRepoManagedPlayingCriticBenchmark,
   loadRepoManagedPlayingPolicyBenchmark,
   validateBiddingMarginPolicyArtifactReference,
+  validatePlayingActorArtifactReference,
+  validatePlayingCriticArtifactReference,
   validatePlayingPolicyArtifactReference
 } from "./benchmarkArtifacts.js";
 export type {
   BiddingMarginPolicyArtifactReference,
   LoadedBiddingMarginPolicyBenchmark,
+  LoadedPlayingActorBenchmark,
+  LoadedPlayingCriticBenchmark,
   LoadedPlayingPolicyBenchmark,
   PlayingPolicyArtifactReference,
   RepoManagedBiddingMarginPolicyBenchmarkId,

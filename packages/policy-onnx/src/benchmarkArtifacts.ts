@@ -42,6 +42,16 @@ export interface LoadedPlayingPolicyBenchmark {
   critic?: PolicyCriticOnnxModel;
 }
 
+export interface LoadedPlayingActorBenchmark {
+  artifact: PlayingPolicyArtifactReference;
+  policy: PolicyOnnxModel;
+}
+
+export interface LoadedPlayingCriticBenchmark {
+  artifact: PlayingPolicyArtifactReference;
+  critic: PolicyCriticOnnxModel;
+}
+
 export interface BiddingMarginPolicyArtifactReference {
   id: string;
   displayName: string;
@@ -156,6 +166,38 @@ export async function loadRepoManagedPlayingPolicyBenchmark(
   };
 }
 
+export async function loadRepoManagedPlayingActorBenchmark(
+  id: RepoManagedPlayingPolicyBenchmarkId,
+  options: { inferenceDevice?: PolicyOnnxInferenceDevice } = {}
+): Promise<LoadedPlayingActorBenchmark> {
+  const artifact = getRepoManagedPlayingPolicyBenchmark(id);
+  await validatePlayingActorArtifactReference(artifact);
+  return {
+    artifact,
+    policy: await loadPolicyOnnxModel({
+      onnxPath: artifact.onnxPath,
+      metadataPath: artifact.metadataPath,
+      inferenceDevice: options.inferenceDevice
+    })
+  };
+}
+
+export async function loadRepoManagedPlayingCriticBenchmark(
+  id: RepoManagedPlayingPolicyBenchmarkId,
+  options: { inferenceDevice?: PolicyOnnxInferenceDevice } = {}
+): Promise<LoadedPlayingCriticBenchmark> {
+  const artifact = getRepoManagedPlayingPolicyBenchmark(id);
+  await validatePlayingCriticArtifactReference(artifact);
+  return {
+    artifact,
+    critic: await loadPolicyCriticOnnxModel({
+      onnxPath: artifact.criticOnnxPath!,
+      metadataPath: artifact.criticMetadataPath!,
+      inferenceDevice: options.inferenceDevice
+    })
+  };
+}
+
 export function getRepoManagedBiddingMarginPolicyBenchmark(
   id: RepoManagedBiddingMarginPolicyBenchmarkId
 ): BiddingMarginPolicyArtifactReference {
@@ -186,16 +228,33 @@ export async function loadRepoManagedBiddingMarginPolicyBenchmark(
 export async function validatePlayingPolicyArtifactReference(
   artifact: PlayingPolicyArtifactReference
 ): Promise<PolicyOnnxMetadata> {
-  const [onnxSha256, metadataBytes, checkpointSha256, criticOnnxSha256, criticMetadataBytes] = await Promise.all([
+  const metadata = await validatePlayingActorArtifactReference(artifact);
+  const checkpointSha256 = artifact.checkpointPath === undefined
+    ? undefined
+    : await calculateFileSha256(artifact.checkpointPath);
+  if (
+    artifact.checkpointSha256 !== undefined &&
+    checkpointSha256 !== artifact.checkpointSha256
+  ) {
+    throw new PolicyOnnxCompatibilityError(
+      `playing benchmark artifact ${artifact.id} checkpoint SHA256 mismatch: ` +
+      `expected ${artifact.checkpointSha256}, got ${checkpointSha256}.`
+    );
+  }
+  if (artifact.criticOnnxPath !== undefined || artifact.criticMetadataPath !== undefined) {
+    await validatePlayingCriticArtifactReference(artifact);
+  }
+  return metadata;
+}
+
+export async function validatePlayingActorArtifactReference(
+  artifact: PlayingPolicyArtifactReference
+): Promise<PolicyOnnxMetadata> {
+  const [onnxSha256, metadataBytes] = await Promise.all([
     calculateFileSha256(artifact.onnxPath),
-    readFile(artifact.metadataPath),
-    artifact.checkpointPath === undefined ? Promise.resolve(undefined) : calculateFileSha256(artifact.checkpointPath),
-    artifact.criticOnnxPath === undefined ? Promise.resolve(undefined) : calculateFileSha256(artifact.criticOnnxPath),
-    artifact.criticMetadataPath === undefined ? Promise.resolve(undefined) : readFile(artifact.criticMetadataPath)
+    readFile(artifact.metadataPath)
   ]);
   const metadataSha256 = sha256(metadataBytes);
-  const criticMetadataSha256 = criticMetadataBytes === undefined ? undefined : sha256(criticMetadataBytes);
-
   if (onnxSha256 !== artifact.onnxSha256) {
     throw new PolicyOnnxCompatibilityError(
       `playing benchmark artifact ${artifact.id} ONNX SHA256 mismatch: ` +
@@ -208,41 +267,43 @@ export async function validatePlayingPolicyArtifactReference(
       `expected ${artifact.metadataSha256}, got ${metadataSha256}.`
     );
   }
+  const metadata = JSON.parse(new TextDecoder().decode(metadataBytes)) as unknown;
+  validatePolicyOnnxMetadata(metadata);
+  return metadata;
+}
+
+export async function validatePlayingCriticArtifactReference(
+  artifact: PlayingPolicyArtifactReference
+): Promise<void> {
   if (
-    artifact.checkpointSha256 !== undefined &&
-    checkpointSha256 !== artifact.checkpointSha256
+    artifact.criticOnnxPath === undefined ||
+    artifact.criticMetadataPath === undefined ||
+    artifact.criticOnnxSha256 === undefined ||
+    artifact.criticMetadataSha256 === undefined
   ) {
     throw new PolicyOnnxCompatibilityError(
-      `playing benchmark artifact ${artifact.id} checkpoint SHA256 mismatch: ` +
-      `expected ${artifact.checkpointSha256}, got ${checkpointSha256}.`
+      `playing benchmark artifact ${artifact.id} critic artifact reference is incomplete.`
     );
   }
-  if (
-    artifact.criticOnnxSha256 !== undefined &&
-    criticOnnxSha256 !== artifact.criticOnnxSha256
-  ) {
+  const [criticOnnxSha256, criticMetadataBytes] = await Promise.all([
+    calculateFileSha256(artifact.criticOnnxPath),
+    readFile(artifact.criticMetadataPath)
+  ]);
+  const criticMetadataSha256 = sha256(criticMetadataBytes);
+  if (criticOnnxSha256 !== artifact.criticOnnxSha256) {
     throw new PolicyOnnxCompatibilityError(
       `playing benchmark artifact ${artifact.id} critic ONNX SHA256 mismatch: ` +
       `expected ${artifact.criticOnnxSha256}, got ${criticOnnxSha256}.`
     );
   }
-  if (
-    artifact.criticMetadataSha256 !== undefined &&
-    criticMetadataSha256 !== artifact.criticMetadataSha256
-  ) {
+  if (criticMetadataSha256 !== artifact.criticMetadataSha256) {
     throw new PolicyOnnxCompatibilityError(
       `playing benchmark artifact ${artifact.id} critic metadata SHA256 mismatch: ` +
       `expected ${artifact.criticMetadataSha256}, got ${criticMetadataSha256}.`
     );
   }
-
-  const metadata = JSON.parse(new TextDecoder().decode(metadataBytes)) as unknown;
-  validatePolicyOnnxMetadata(metadata);
-  if (criticMetadataBytes !== undefined) {
-    const criticMetadata = JSON.parse(new TextDecoder().decode(criticMetadataBytes)) as unknown;
-    validatePolicyCriticOnnxMetadata(criticMetadata);
-  }
-  return metadata;
+  const criticMetadata = JSON.parse(new TextDecoder().decode(criticMetadataBytes)) as unknown;
+  validatePolicyCriticOnnxMetadata(criticMetadata);
 }
 
 export async function validateBiddingMarginPolicyArtifactReference(

@@ -9,6 +9,8 @@ import type {
   RunAutomatedSimulationResponse
 } from "@napoleon/protocol";
 import { buildApp } from "../src/app.js";
+import { createAgentRegistry } from "../src/agentRegistry.js";
+import { createPhasePolicyRegistry } from "../src/phasePolicyRegistry.js";
 import { games } from "../src/store.js";
 
 describe.sequential("AI preset runtime integration", () => {
@@ -166,6 +168,39 @@ describe.sequential("AI preset runtime integration", () => {
     expect(invalidPolicy.json()).toMatchObject({
       error: { code: "INVALID_AI_PRESET_REQUEST" }
     });
+  });
+});
+
+describe("AI preset artifact preflight", () => {
+  it("rejects COM-AI before game creation when a selected formal policy is unavailable", async () => {
+    const phasePolicies = createPhasePolicyRegistry({
+      loadPlayingPolicy: async () => {
+        throw new Error("actor artifact missing");
+      }
+    });
+    const unavailableApp = await buildApp({
+      agentRegistry: createAgentRegistry({ phasePolicyRegistry: phasePolicies })
+    });
+    const gamesBefore = games.size;
+
+    try {
+      const response = await unavailableApp.inject({
+        method: "POST",
+        url: "/api/games",
+        payload: { aiPresetId: "com-ai" }
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({
+        error: {
+          code: "INVALID_AI_PRESET_COMPOSITION",
+          message: expect.stringContaining("Unavailable playing policy id")
+        }
+      });
+      expect(games.size).toBe(gamesBefore);
+    } finally {
+      await unavailableApp.close();
+    }
   });
 });
 

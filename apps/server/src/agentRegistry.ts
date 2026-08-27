@@ -79,6 +79,7 @@ export interface AgentRegistryOptions {
 }
 
 export interface AgentRegistry {
+  initializePhasePolicies(): Promise<void>;
   listAgents(): readonly PublicAgentDescriptor[];
   listPhasePolicies(): PublicPhasePolicyRegistry;
   createAgent(agentId: string): Agent;
@@ -172,6 +173,7 @@ export function createAgentRegistry(options: AgentRegistryOptions = {}): AgentRe
   }
 
   return {
+    initializePhasePolicies: () => phasePolicyRegistry.initialize(),
     listAgents: () => [...definitions.values()].map((definition) => definition.descriptor),
     listPhasePolicies: () => phasePolicyRegistry.describe(),
     createAgent: (agentId: string) => {

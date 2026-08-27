@@ -35,8 +35,10 @@ describe("AI preset registry", () => {
     expect(JSON.stringify(BUILTIN_AI_PRESETS)).not.toMatch(/path|onnx|artifact/i);
   });
 
-  it("saves, loads, and resolves an updated preset composition", () => {
-    const registry = createAiPresetRegistry(createAgentRegistry());
+  it("saves, loads, and resolves an updated preset composition", async () => {
+    const agents = createAgentRegistry();
+    await agents.initializePhasePolicies();
+    const registry = createAiPresetRegistry(agents);
     const mixed: AiPolicyComposition = {
       playing: "rule-based",
       bidding: "frozen-raise-v1",
@@ -48,8 +50,10 @@ describe("AI preset registry", () => {
     expect(registry.list().find(({ id }) => id === COM_AI_PRESET_ID)?.composition).toEqual(mixed);
   });
 
-  it("rejects unknown preset and policy IDs without fallback", () => {
-    const registry = createAiPresetRegistry(createAgentRegistry());
+  it("rejects unknown preset and policy IDs without fallback", async () => {
+    const agents = createAgentRegistry();
+    await agents.initializePhasePolicies();
+    const registry = createAiPresetRegistry(agents);
 
     expect(() => registry.resolve("missing-preset")).toThrow(UnknownAiPresetIdError);
     expect(() => registry.update(COM_AI_PRESET_ID, {
@@ -62,8 +66,9 @@ describe("AI preset registry", () => {
     );
   });
 
-  it("rejects a policy that becomes unavailable before save or resolution", () => {
+  it("rejects a policy that becomes unavailable before save or resolution", async () => {
     const base = createAgentRegistry();
+    await base.initializePhasePolicies();
     let learnedPlayingAvailable = true;
     const agentRegistry = {
       ...base,

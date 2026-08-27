@@ -72,6 +72,7 @@ export async function registerRoutes(
   options: RegisterRoutesOptions = {}
 ): Promise<void> {
   const agentRegistry = options.agentRegistry ?? createAgentRegistryFromEnvironment();
+  await agentRegistry.initializePhasePolicies();
   const aiPresetRegistry = options.aiPresetRegistry ?? createAiPresetRegistry(agentRegistry);
 
   app.get("/api/health", async () => ({ ok: true }));
