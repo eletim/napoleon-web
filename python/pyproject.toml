@@ -9,7 +9,7 @@ description = "Strict Python loader for the Napoleon self-play dataset (manifest
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "UNLICENSED" }
-dependencies = ["numpy>=1.26"]
+dependencies = ["cma>=4.0,<5", "numpy>=1.26"]
 
 [project.optional-dependencies]
 train = ["torch==2.13.0"]
@@ -78,6 +78,7 @@ napoleon-generate-adjutant-value-dataset = "napoleon_ml.cli.generate_adjutant_va
 napoleon-merge-adjutant-value-datasets = "napoleon_ml.cli.merge_adjutant_value_datasets:main"
 napoleon-train-adjutant-value-mlp = "napoleon_ml.cli.train_adjutant_value_mlp:main"
 napoleon-run-non-playing-rl = "napoleon_ml.cli.run_nonplaying_rl:main"
+napoleon-optimize-parameterized-policy = "napoleon_ml.cli.optimize_parameterized_policy:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

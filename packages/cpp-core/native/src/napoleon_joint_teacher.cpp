@@ -1,4 +1,5 @@
 #include "napoleon_joint_teacher.hpp"
+#include "napoleon_parameterized_policy.hpp"
 
 #include "napoleon_observation.hpp"
 #include "napoleon_onnx_policy.hpp"
@@ -17,6 +18,7 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <memory>
 #include <numeric>
 #include <optional>
@@ -848,7 +850,10 @@ double clamp01(double value) {
 #endif
 }
 
-Action select_frozen_raise_bidding_action(GameState& state, PolicyRuntimeContext& policy) {
+Action select_frozen_raise_bidding_action(
+    GameState& state,
+    PolicyRuntimeContext& policy,
+    bool force_bid = false) {
   if (state.phase != Phase::Bidding) {
     throw std::runtime_error("frozen-raise-v1 can select only bidding actions");
   }
@@ -889,7 +894,7 @@ Action select_frozen_raise_bidding_action(GameState& state, PolicyRuntimeContext
   const double pass_ev = state.bidding->highest_bid.has_value()
       ? evaluate_pass_ev_with_policy(state, policy)
       : 0.0;
-  if (best_bid.has_value() && best_bid_ev > pass_ev) {
+  if (best_bid.has_value() && (force_bid || best_bid_ev > pass_ev)) {
     return *best_bid;
   }
   if (legal_pass.has_value()) {
@@ -901,6 +906,7 @@ Action select_frozen_raise_bidding_action(GameState& state, PolicyRuntimeContext
   throw std::runtime_error("frozen-raise-v1 found no legal bidding action");
 #else
   (void)policy;
+  (void)force_bid;
   throw std::runtime_error("frozen-raise-v1 requires C++ ONNX Runtime");
 #endif
 }
@@ -2518,6 +2524,306 @@ AdjutantValueStreamReport run_adjutant_value_stream_teacher(
     std::istream& scorer_response,
     std::ostream& scorer_request) {
   return run_stream_teacher_impl(options, scorer_response, scorer_request);
+}
+
+namespace {
+
+struct ParameterizedSource {
+  std::uint32_t seed = 0;
+  GameState choosing_state;
+  std::vector<std::uint8_t> kitty_card_ids;
+};
+
+AdjutantValueStreamOptions policy_options_for_parameterized(
+    const ParameterizedPolicyEvaluationOptions& options) {
+  AdjutantValueStreamOptions converted;
+  converted.bidding_policy_id = options.bidding_policy_id;
+  converted.bidding_margin_onnx_path = options.bidding_margin_onnx_path;
+  converted.playing_policy_id = options.playing_policy_id;
+  converted.playing_policy_onnx_path = options.playing_policy_onnx_path;
+  converted.playing_critic_onnx_path = options.playing_critic_onnx_path;
+  converted.policy_device = options.policy_device;
+  converted.agent_seed = options.agent_seed;
+  return converted;
+}
+
+int parameterized_opponent_mode(std::uint32_t seed, int player_index) {
+  std::uint32_t value = seed ^ (0x9e3779b9u * static_cast<std::uint32_t>(player_index + 1));
+  value ^= value >> 16;
+  value *= 0x7feb352du;
+  value ^= value >> 15;
+  return static_cast<int>(value % 3u);
+}
+
+std::optional<GameState> create_parameterized_source(
+    std::uint32_t seed,
+    PolicyRuntimeContext& policy) {
+  constexpr int candidate_player_index = 0;
+  GameState state = create_initial_game(seed);
+  SeededRandom rule_rng(seed ^ 0x4520a11u);
+  int guard = 0;
+  while (state.phase == Phase::Bidding) {
+    if (++guard > 200) throw std::runtime_error("parameterized bidding did not terminate");
+    const int player = state.current_player_index;
+    Action action;
+    if (player == candidate_player_index) {
+      action = select_frozen_raise_bidding_action(state, policy, true);
+    } else {
+      const int mode = parameterized_opponent_mode(seed, player);
+      if (mode == 0) {
+        action = select_frozen_raise_bidding_action(state, policy);
+      } else if (mode == 1) {
+        action = select_agent_action(rule_based_agent("strong-bidding"), state, player, rule_rng);
+      } else {
+        action = select_agent_action(
+            rule_based_agent("conservative-bidding"), state, player, rule_rng);
+      }
+    }
+    apply_action(state, action);
+  }
+  if (state.phase != Phase::ChoosingAdjutant || !state.contract.has_value() ||
+      state.contract->napoleon_player_index != candidate_player_index) {
+    return std::nullopt;
+  }
+  return state;
+}
+
+std::vector<ParameterizedSource> materialize_parameterized_sources(
+    const std::vector<std::uint32_t>& seeds,
+    PolicyRuntimeContext& policy) {
+  std::vector<ParameterizedSource> sources;
+  sources.reserve(seeds.size());
+  for (std::uint32_t seed : seeds) {
+    std::optional<GameState> state = create_parameterized_source(seed, policy);
+    if (!state.has_value()) {
+      throw std::runtime_error(
+          "seed " + std::to_string(seed) + " does not produce candidate Napoleon");
+    }
+    std::vector<std::uint8_t> kitty;
+    for (Card card : state->unused_cards) kitty.push_back(card.id);
+    if (kitty.size() != 3) throw std::runtime_error("source must expose exactly three kitty cards");
+    sources.push_back(ParameterizedSource{seed, std::move(*state), std::move(kitty)});
+  }
+  return sources;
+}
+
+parameterized_policy::Parameters parse_parameter_csv(const std::string& text) {
+  parameterized_policy::Parameters parameters;
+  std::istringstream input(text);
+  std::string token;
+  while (std::getline(input, token, ',')) {
+    if (token.empty()) throw std::runtime_error("empty parameter token");
+    std::size_t consumed = 0;
+    const double value = std::stod(token, &consumed);
+    if (consumed != token.size()) throw std::runtime_error("invalid parameter token: " + token);
+    parameters.values.push_back(value);
+  }
+  parameterized_policy::validate_parameters(parameters);
+  return parameters;
+}
+
+std::string parameterized_seed_hash(const std::vector<ParameterizedSource>& sources) {
+  std::ostringstream identity;
+  for (const auto& source : sources) identity << source.seed << '\n';
+  return stable_identity_hash(identity.str());
+}
+
+std::string evaluate_parameterized_candidate(
+    const std::vector<ParameterizedSource>& sources,
+    PolicyRuntimeContext& policy,
+    const std::optional<parameterized_policy::Parameters>& parameters,
+    bool detailed) {
+  // The sampled frozen playing policy derives every random draw from request
+  // sequence/game index. Resetting the sequence makes the playing random stream
+  // a function of the deal seed batch, not of candidate evaluation order.
+  policy.sequence = 1;
+  std::vector<GameState> playing_states;
+  playing_states.reserve(sources.size());
+  std::vector<std::string> called_cards;
+  std::vector<std::string> buried_cards;
+  std::vector<double> adjutant_feature_sums(parameterized_policy::kAdjutantFeatureCount, 0.0);
+  std::vector<double> exchange_feature_sums(parameterized_policy::kExchangeFeatureCount, 0.0);
+  called_cards.reserve(sources.size());
+  buried_cards.reserve(sources.size());
+  int fallback_count = 0;
+  for (const auto& source : sources) {
+    GameState state = source.choosing_state;
+    const int napoleon = state.contract->napoleon_player_index;
+    Action adjutant;
+    Action exchange;
+    if (parameters.has_value()) {
+      const auto adj_result = parameterized_policy::select_adjutant(state, napoleon, *parameters);
+      adjutant = adj_result.action;
+      for (std::size_t index = 0; index < adj_result.features.size(); ++index) {
+        adjutant_feature_sums[index] += adj_result.features[index];
+      }
+      fallback_count += adj_result.fallback ? 1 : 0;
+      apply_action(state, adjutant);
+      const auto exchange_result = parameterized_policy::select_exchange(
+          state, napoleon, source.kitty_card_ids, *parameters);
+      exchange = exchange_result.action;
+      for (std::size_t index = 0; index < exchange_result.features.size(); ++index) {
+        exchange_feature_sums[index] += exchange_result.features[index];
+      }
+      fallback_count += exchange_result.fallback ? 1 : 0;
+    } else {
+      SeededRandom rng(source.seed ^ 0x452ba5eu);
+      adjutant = select_rule_based_action(state, napoleon, rng);
+      const auto adj_features =
+          parameterized_policy::extract_adjutant_features(state, napoleon, adjutant.card);
+      for (std::size_t index = 0; index < adj_features.size(); ++index) {
+        adjutant_feature_sums[index] += adj_features[index];
+      }
+      apply_action(state, adjutant);
+      exchange = select_rule_based_action(state, napoleon, rng);
+      const auto exchange_features = parameterized_policy::extract_exchange_features(
+          state, napoleon, exchange.cards, source.kitty_card_ids);
+      for (std::size_t index = 0; index < exchange_features.size(); ++index) {
+        exchange_feature_sums[index] += exchange_features[index];
+      }
+    }
+    called_cards.push_back(card_id(adjutant.card));
+    buried_cards.push_back(cards_identity(exchange.cards));
+    apply_action(state, exchange);
+    playing_states.push_back(std::move(state));
+  }
+  const std::vector<RolloutValue> values =
+      finish_batch_with_policy_playing(std::move(playing_states), policy);
+  if (values.size() != sources.size()) throw std::runtime_error("evaluation result size mismatch");
+  double reward_sum = 0.0;
+  double margin_sum = 0.0;
+  double points_sum = 0.0;
+  int success_count = 0;
+  std::map<int, int> target_counts;
+  for (std::size_t index = 0; index < values.size(); ++index) {
+    reward_sum += values[index].relative_reward;
+    margin_sum += values[index].margin;
+    points_sum += values[index].napoleon_points;
+    success_count += values[index].success ? 1 : 0;
+    ++target_counts[sources[index].choosing_state.contract->target_point_cards];
+  }
+  const double count = static_cast<double>(values.size());
+  const double mean_reward = reward_sum / count;
+  double squared = 0.0;
+  for (const auto& value : values) {
+    const double difference = value.relative_reward - mean_reward;
+    squared += difference * difference;
+  }
+  const double sample_variance = values.size() > 1 ? squared / (count - 1.0) : 0.0;
+  const double standard_error = std::sqrt(sample_variance / count);
+
+  std::ostringstream out;
+  out << std::setprecision(17)
+      << "{\"policy\":\"" << (parameters.has_value() ? "parameterized" : "rule-based")
+      << "\",\"featureSchemaVersion\":" << parameterized_policy::kFeatureSchemaVersion
+      << ",\"seedHash\":\"" << parameterized_seed_hash(sources)
+      << "\",\"gameCount\":" << values.size()
+      << ",\"meanRelativeReward\":" << mean_reward
+      << ",\"relativeRewardStandardError\":" << standard_error
+      << ",\"relativeRewardCi95\":[" << mean_reward - 1.96 * standard_error << ','
+      << mean_reward + 1.96 * standard_error << ']'
+      << ",\"contractSuccessRate\":" << success_count / count
+      << ",\"meanContractMargin\":" << margin_sum / count
+      << ",\"meanNapoleonPointCards\":" << points_sum / count
+      << ",\"illegalCount\":0,\"fallbackCount\":" << fallback_count
+      << ",\"declaredTargetCounts\":{";
+  bool first = true;
+  for (const auto& item : target_counts) {
+    if (!first) out << ',';
+    first = false;
+    out << '"' << item.first << "\":" << item.second;
+  }
+  out << "},\"meanSelectedFeatureValues\":{\"adjutant\":[";
+  for (std::size_t index = 0; index < adjutant_feature_sums.size(); ++index) {
+    if (index) out << ',';
+    out << adjutant_feature_sums[index] / count;
+  }
+  out << "],\"exchange\":[";
+  for (std::size_t index = 0; index < exchange_feature_sums.size(); ++index) {
+    if (index) out << ',';
+    out << exchange_feature_sums[index] / count;
+  }
+  out << "]}";
+  if (detailed) {
+    out << ",\"perSeed\":[";
+    for (std::size_t index = 0; index < values.size(); ++index) {
+      if (index) out << ',';
+      out << "{\"seed\":" << sources[index].seed
+          << ",\"relativeReward\":" << values[index].relative_reward
+          << ",\"contractMargin\":" << values[index].margin
+          << ",\"contractSuccess\":" << (values[index].success ? "true" : "false")
+          << ",\"napoleonPointCards\":" << values[index].napoleon_points
+          << ",\"declaredTarget\":"
+          << sources[index].choosing_state.contract->target_point_cards
+          << ",\"contractSuit\":";
+      json_escape(out, suit_id(sources[index].choosing_state.contract->trump_suit));
+      out
+          << ",\"calledAdjutantCard\":";
+      json_escape(out, called_cards[index]);
+      out << ",\"buriedCards\":";
+      json_escape(out, buried_cards[index]);
+      out << '}';
+    }
+    out << ']';
+  }
+  out << '}';
+  return out.str();
+}
+
+}  // namespace
+
+std::vector<std::uint32_t> discover_parameterized_policy_seeds(
+    const ParameterizedPolicyEvaluationOptions& options,
+    std::uint32_t start_seed,
+    int requested_count,
+    int max_attempts) {
+  if (requested_count <= 0 || max_attempts < requested_count) {
+    throw std::runtime_error("invalid parameterized seed discovery counts");
+  }
+  PolicyRuntimeContext policy(policy_options_for_parameterized(options));
+  std::vector<std::uint32_t> seeds;
+  seeds.reserve(static_cast<std::size_t>(requested_count));
+  for (int attempt = 0; attempt < max_attempts && static_cast<int>(seeds.size()) < requested_count;
+       ++attempt) {
+    const std::uint64_t candidate = static_cast<std::uint64_t>(start_seed) + attempt;
+    if (candidate > std::numeric_limits<std::uint32_t>::max()) {
+      throw std::runtime_error("seed discovery overflow");
+    }
+    const std::uint32_t seed = static_cast<std::uint32_t>(candidate);
+    if (create_parameterized_source(seed, policy).has_value()) seeds.push_back(seed);
+  }
+  if (static_cast<int>(seeds.size()) != requested_count) {
+    throw std::runtime_error("unable to discover requested candidate-Napoleon seeds");
+  }
+  return seeds;
+}
+
+void run_parameterized_policy_evaluation_server(
+    const ParameterizedPolicyEvaluationOptions& options,
+    const std::vector<std::uint32_t>& seeds,
+    std::istream& requests,
+    std::ostream& responses) {
+  if (seeds.empty()) throw std::runtime_error("evaluation seeds must not be empty");
+  std::unordered_set<std::uint32_t> unique(seeds.begin(), seeds.end());
+  if (unique.size() != seeds.size()) throw std::runtime_error("evaluation seeds must be unique");
+  PolicyRuntimeContext policy(policy_options_for_parameterized(options));
+  const std::vector<ParameterizedSource> sources = materialize_parameterized_sources(seeds, policy);
+  std::string line;
+  while (std::getline(requests, line)) {
+    if (line.empty()) continue;
+    const std::size_t tab = line.find('\t');
+    if (tab == std::string::npos) throw std::runtime_error("server request requires mode and payload");
+    const std::string mode = line.substr(0, tab);
+    const bool detailed = mode == "detailed";
+    if (!detailed && mode != "summary") throw std::runtime_error("unknown server request mode");
+    const std::string payload = line.substr(tab + 1);
+    const std::optional<parameterized_policy::Parameters> parameters =
+        payload == "rule-based" ? std::nullopt
+                                : std::optional<parameterized_policy::Parameters>{
+                                      parse_parameter_csv(payload)};
+    responses << evaluate_parameterized_candidate(sources, policy, parameters, detailed) << '\n';
+    responses.flush();
+  }
 }
 
 std::string compact290_audit_json() {

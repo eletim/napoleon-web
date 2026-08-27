@@ -13,6 +13,7 @@ add_library(napoleon_core
   src/napoleon_observation.cpp
   src/napoleon_joint_teacher.cpp
   src/napoleon_onnx_policy.cpp
+  src/napoleon_parameterized_policy.cpp
   src/napoleon_evaluation.cpp
   src/napoleon_roster.cpp
   src/napoleon_rule_based.cpp
@@ -96,5 +97,20 @@ add_executable(napoleon_adjutant_value_stream_cli
 target_link_libraries(napoleon_adjutant_value_stream_cli PRIVATE napoleon_core)
 target_compile_options(napoleon_adjutant_value_stream_cli PRIVATE -Wall -Wextra -Wpedantic)
 
+add_executable(napoleon_parameterized_eval_cli
+  src/napoleon_parameterized_eval_cli.cpp
+)
+
+target_link_libraries(napoleon_parameterized_eval_cli PRIVATE napoleon_core)
+target_compile_options(napoleon_parameterized_eval_cli PRIVATE -Wall -Wextra -Wpedantic)
+
 enable_testing()
 add_test(NAME napoleon_core_self_test COMMAND napoleon_core_self_test)
+
+add_executable(napoleon_parameterized_policy_test
+  src/napoleon_parameterized_policy_test.cpp
+)
+
+target_link_libraries(napoleon_parameterized_policy_test PRIVATE napoleon_core)
+target_compile_options(napoleon_parameterized_policy_test PRIVATE -Wall -Wextra -Wpedantic)
+add_test(NAME napoleon_parameterized_policy_test COMMAND napoleon_parameterized_policy_test)

@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <iosfwd>
 #include <string>
+#include <vector>
 
 namespace napoleon::joint_teacher {
 
@@ -59,6 +60,31 @@ struct AdjutantValueStreamReport {
   int terminal_rollout_count = 0;
   std::string manifest_json;
 };
+
+struct ParameterizedPolicyEvaluationOptions {
+  std::string bidding_policy_id = "frozen-raise-v1";
+  std::string bidding_margin_onnx_path =
+      "benchmarks/bidding-margin-policies/frozen-raise-v1/margin.onnx";
+  std::string playing_policy_id = "ppo-separated-v1000";
+  std::string playing_policy_onnx_path =
+      "benchmarks/playing-policies/ppo-separated-v1000/policy.onnx";
+  std::string playing_critic_onnx_path =
+      "benchmarks/playing-policies/ppo-separated-v1000/critic.onnx";
+  std::string policy_device = "cpu";
+  std::uint32_t agent_seed = 452;
+};
+
+std::vector<std::uint32_t> discover_parameterized_policy_seeds(
+    const ParameterizedPolicyEvaluationOptions& options,
+    std::uint32_t start_seed,
+    int requested_count,
+    int max_attempts);
+
+void run_parameterized_policy_evaluation_server(
+    const ParameterizedPolicyEvaluationOptions& options,
+    const std::vector<std::uint32_t>& seeds,
+    std::istream& requests,
+    std::ostream& responses);
 
 JointTeacherReport run_joint_teacher_diagnostic(const JointTeacherOptions& options);
 AdjutantValueStreamReport run_adjutant_value_stream_teacher(

@@ -1,0 +1,5 @@
+{
+  "minimumImprovement": 0.02,
+  "patience": 12,
+  "stoppedAfterGeneration": 44
+}

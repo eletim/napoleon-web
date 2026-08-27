@@ -1,0 +1,35 @@
+{
+  "allSeedPoolsDisjoint": true,
+  "batchCount": 10,
+  "commonSeedDifferenceVariance": 0.3609097222222222,
+  "commonSeedDifferences": [
+    0.012500000000000067,
+    -0.4125000000000001,
+    -1.9375,
+    -1.2125,
+    -0.5375,
+    -0.2,
+    -0.25,
+    -0.7625000000000002,
+    -0.04999999999999999,
+    -0.8499999999999999
+  ],
+  "gamesPerBatchPerParameter": 200,
+  "independentSeedDifferenceVariance": 1.0646344444444444,
+  "independentSeedDifferences": [
+    2.51,
+    -0.1775,
+    0.4950000000000001,
+    0.43750000000000006,
+    0.7987500000000001,
+    -1.2025000000000001,
+    -0.1512500000000001,
+    -0.55125,
+    1.31625,
+    0.27
+  ],
+  "parameterA": "../benchmarks/exchange-values/issue452-parameterized-policy/smoke/best-parameters.json",
+  "parameterB": "initial-rule-based-approximation",
+  "varianceRatioCommonOverIndependent": 0.3389987277844977,
+  "varianceReductionFraction": 0.6610012722155023
+}
