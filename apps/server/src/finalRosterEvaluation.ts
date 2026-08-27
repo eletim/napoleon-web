@@ -632,7 +632,7 @@ function formatSignedPercentagePoints(value: number): string {
   return `${points >= 0 ? "+" : ""}${points.toFixed(2)} percentage points`;
 }
 export function describeRosterTrend(rates: readonly number[]): string {
-  const monotonicIncrease = rates.every((value, index) => index === 0 || value >= rates[index - 1]);
+  const monotonicIncrease = rates.every((value, index) => index === 0 || value > rates[index - 1]);
   return monotonicIncrease
     ? "AI人数が増える各段階で単調に上がりました"
     : "AI人数が増える各段階での単調増加にはなりませんでした";
@@ -651,7 +651,7 @@ export function describeCompositionTrend(byKey: Record<string, { napoleonSideWin
   return "4分類の生勝率の順序は、Napoleon/AdjutantのどちらかをAIにすれば常に高くなるという一方向の関係には揃いませんでした。";
 }
 export function describeFinalAssessment(rates: readonly number[]): string {
-  const monotonicIncrease = rates.every((value, index) => index === 0 || value >= rates[index - 1]);
+  const monotonicIncrease = rates.every((value, index) => index === 0 || value > rates[index - 1]);
   return monotonicIncrease
     ? "したがって、この固定roster評価では、正式COM-AIを増やした編成ほどNapoleon-side成績が良い結果でした。"
     : "したがって、この固定roster評価では、正式COM-AIを増やすこととNapoleon-side成績の間に一貫した単調関係は確認できませんでした。";

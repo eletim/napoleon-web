@@ -45,6 +45,8 @@ describe("final fixed-roster evaluation schedule", () => {
       .toContain("単調に上がりました");
     expect(describeRosterTrend([0.30, 0.35, 0.34, 0.45, 0.52, 0.62]))
       .toContain("単調増加にはなりませんでした");
+    expect(describeRosterTrend([0.30, 0.35, 0.35, 0.45, 0.52, 0.62]))
+      .toContain("単調増加にはなりませんでした");
     expect(describeFinalAssessment([0.30, 0.35, 0.34, 0.45, 0.52, 0.62]))
       .toContain("一貫した単調関係は確認できませんでした");
   });
