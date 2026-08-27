@@ -552,7 +552,7 @@ def _verification(args: argparse.Namespace) -> None:
     parameter_path = args.parameters.resolve()
     parameter_payload = json.loads(parameter_path.read_text(encoding="utf-8"))
     learned = load_parameter_artifact(parameter_path)
-    if parameter_payload.get("sha256") != args.expected_parameter_sha256:
+    if parameter_payload.get("sha256") != ISSUE452_PARAMETER_SHA256:
         raise ValueError("verification parameter is not the frozen #452 winner")
 
     recorded_schema_path = parameter_path.parent / "feature-schema.json"
@@ -812,9 +812,6 @@ def _parser() -> argparse.ArgumentParser:
     verification.add_argument("--games", type=int, default=10_000)
     verification.add_argument("--block-size", type=int, default=1_000)
     verification.add_argument("--seed-start", type=int, default=VERIFICATION_SEED_BASE)
-    verification.add_argument(
-        "--expected-parameter-sha256", default=ISSUE452_PARAMETER_SHA256
-    )
     verification.set_defaults(run=_verification)
     return parser
 

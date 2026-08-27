@@ -259,6 +259,12 @@ def test_paired_comparison_and_variance_diagnostic() -> None:
     assert [block["meanDifference"] for block in blocks] == [1.0, 0.0, -1.0]
     with pytest.raises(ValueError, match="same ordered seed sequence"):
         paired_comparison(learned, {"perSeed": list(reversed(baseline["perSeed"]))})
+    with pytest.raises(ValueError, match="same ordered seed sequence"):
+        paired_block_comparisons(
+            learned,
+            {"perSeed": [*baseline["perSeed"], {"seed": 4, "relativeReward": 0.0}]},
+            block_size=1,
+        )
     diagnostic = variance_diagnostic([0.1, 0.2, 0.15], [-1.0, 1.0, 0.0])
     assert (
         diagnostic["commonSeedDifferenceVariance"] < diagnostic["independentSeedDifferenceVariance"]

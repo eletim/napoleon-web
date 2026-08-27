@@ -329,6 +329,8 @@ def paired_block_comparisons(
     baseline_rows = baseline_report.get("perSeed")
     if not isinstance(learned_rows, list) or not isinstance(baseline_rows, list):
         raise ValueError("detailed per-seed reports are required")
+    if len(learned_rows) != len(baseline_rows):
+        raise ValueError("paired reports must use the same ordered seed sequence")
     if len(learned_rows) % block_size != 0:
         raise ValueError("game count must be divisible by block size")
     blocks = []
