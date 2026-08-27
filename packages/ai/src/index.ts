@@ -20,6 +20,22 @@ export {
   getAiRankValue
 } from "./cardEvaluation.js";
 export {
+  extractParameterizedAdjutantFeatures,
+  extractParameterizedExchangeFeatures,
+  PARAMETERIZED_ADJUTANT_FEATURE_COUNT,
+  PARAMETERIZED_EXCHANGE_FEATURE_COUNT,
+  PARAMETERIZED_NON_PLAYING_FEATURE_SCHEMA_VERSION,
+  PARAMETERIZED_NON_PLAYING_PARAMETER_COUNT,
+  ParameterizedNonPlayingAgent,
+  selectParameterizedAdjutant,
+  selectParameterizedExchange,
+  validateParameterizedNonPlayingParameters
+} from "./parameterizedNonPlayingPolicy.js";
+export type {
+  ParameterizedNonPlayingParameters,
+  ParameterizedNonPlayingSelection
+} from "./parameterizedNonPlayingPolicy.js";
+export {
   adjustTeamWinProbability,
   calculateExpectedPointCardsInTrick,
   calculateUsedCardValue,

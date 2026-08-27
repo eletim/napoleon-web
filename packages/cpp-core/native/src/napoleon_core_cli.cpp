@@ -1,9 +1,12 @@
 #include "napoleon_core.hpp"
 #include "napoleon_observation.hpp"
+#include "napoleon_parameterized_policy.hpp"
 #include "napoleon_rule_based.hpp"
 
 #include <algorithm>
 #include <cstdint>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <sstream>
@@ -35,6 +38,8 @@ int main(int argc, char** argv) {
     std::uint32_t agent_seed = 0;
     bool select_rule_based_action = false;
     bool adjutant_location_oracle = false;
+    bool select_parameterized_action = false;
+    std::string parameter_path;
     for (int index = 1; index < argc; ++index) {
       const std::string arg = argv[index];
       if (arg == "--seed" && index + 1 < argc) {
@@ -45,23 +50,35 @@ int main(int argc, char** argv) {
         select_rule_based_action = true;
       } else if (arg == "--adjutant-location-oracle") {
         adjutant_location_oracle = true;
+      } else if (arg == "--select-parameterized-action") {
+        select_parameterized_action = true;
+      } else if (arg == "--parameters" && index + 1 < argc) {
+        parameter_path = argv[++index];
       } else if (arg == "--snapshot") {
         continue;
       } else {
         throw std::runtime_error(
             "usage: napoleon_core_cli (--snapshot | --select-rule-based-action | "
+            "--select-parameterized-action | "
             "--adjutant-location-oracle) "
             "--seed <uint32> [--agent-seed <uint32>]");
       }
     }
 
     napoleon::GameState state = napoleon::create_initial_game(seed);
+    std::vector<std::uint8_t> kitty_card_ids;
     if (!adjutant_location_oracle) {
       for (std::string line; std::getline(std::cin, line);) {
         if (line.empty() || line[0] == '#') {
           continue;
         }
-        napoleon::apply_action(state, napoleon::parse_action_line(line));
+        const napoleon::Action action = napoleon::parse_action_line(line);
+        if (state.phase == napoleon::Phase::ChoosingAdjutant &&
+            action.type == napoleon::Action::Type::ChooseAdjutant) {
+          kitty_card_ids.clear();
+          for (napoleon::Card card : state.unused_cards) kitty_card_ids.push_back(card.id);
+        }
+        napoleon::apply_action(state, action);
       }
     }
 
@@ -109,6 +126,36 @@ int main(int argc, char** argv) {
         }
         std::cout << "]}\n";
       }
+    } else if (select_parameterized_action) {
+      if (parameter_path.empty()) {
+        throw std::runtime_error("--select-parameterized-action requires --parameters <path>");
+      }
+      std::ifstream input(parameter_path);
+      if (!input) throw std::runtime_error("failed to open parameter file: " + parameter_path);
+      napoleon::parameterized_policy::Parameters parameters;
+      for (double value = 0; input >> value;) parameters.values.push_back(value);
+      napoleon::parameterized_policy::validate_parameters(parameters);
+      napoleon::parameterized_policy::SelectionResult selection;
+      if (state.phase == napoleon::Phase::ChoosingAdjutant) {
+        selection = napoleon::parameterized_policy::select_adjutant(
+            state, state.current_player_index, parameters);
+      } else if (state.phase == napoleon::Phase::Exchanging) {
+        if (kitty_card_ids.size() != 3) {
+          throw std::runtime_error("parameterized exchange fixture did not capture three kitty cards");
+        }
+        selection = napoleon::parameterized_policy::select_exchange(
+            state, state.current_player_index, kitty_card_ids, parameters);
+      } else {
+        throw std::runtime_error("parameterized fixture requires choosing-adjutant or exchanging phase");
+      }
+      std::cout << std::setprecision(17) << "{\"action\":"
+                << napoleon::action_json(selection.action) << ",\"score\":"
+                << selection.score << ",\"features\":[";
+      for (std::size_t index = 0; index < selection.features.size(); ++index) {
+        if (index != 0) std::cout << ',';
+        std::cout << selection.features[index];
+      }
+      std::cout << "]}\n";
     } else if (select_rule_based_action) {
       napoleon::SeededRandom rng(agent_seed);
       const napoleon::Action action = napoleon::select_agent_action(

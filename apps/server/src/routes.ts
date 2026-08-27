@@ -15,6 +15,7 @@ import type {
   CreateGameResponse,
   GetAgentsResponse,
   GetGameResponse,
+  GetGamePolicyDiagnosticsResponse,
   NextTrickResponse,
   PublicGameAction,
   RunAutomatedSimulationResponse,
@@ -61,7 +62,8 @@ export async function registerRoutes(
   app.get("/api/health", async () => ({ ok: true }));
 
   app.get("/api/agents", async (): Promise<GetAgentsResponse> => ({
-    agents: agentRegistry.listAgents()
+    agents: agentRegistry.listAgents(),
+    policyRegistry: agentRegistry.listPhasePolicies()
   }));
 
   app.post("/api/games", async (request, reply): Promise<CreateGameResponse | FastifyReply> => {
@@ -98,6 +100,7 @@ export async function registerRoutes(
       humanPlayerId,
       agents: agentConfiguration.agents,
       agentIds: agentConfiguration.agentIds,
+      policyDiagnostics: agentConfiguration.policyDiagnostics,
       publicActionHistory: []
     });
 
@@ -119,12 +122,31 @@ export async function registerRoutes(
         );
       }
 
+      const diagnostics = new Map();
       const record = await runAutomatedGame({
         seed: body.seed,
-        createAgent: ({ rng }) => new RuleBasedAgent(rng)
+        createAgent: ({ rng, playerId }) => {
+          if (body.policyComposition === undefined) {
+            return new RuleBasedAgent(rng);
+          }
+          const phaseDiagnostics = agentRegistry.createCompositionDiagnostics(
+            body.policyComposition
+          );
+          diagnostics.set(playerId, phaseDiagnostics);
+          return agentRegistry.createComposedAgent(
+            body.policyComposition,
+            phaseDiagnostics,
+            rng
+          );
+        }
       });
 
-      return toPublicSimulationResponse(record);
+      return {
+        ...toPublicSimulationResponse(record),
+        ...(body.policyComposition === undefined
+          ? {}
+          : { policyDiagnostics: Object.fromEntries(diagnostics) })
+      };
     }
   );
 
@@ -141,6 +163,20 @@ export async function registerRoutes(
         gameId: request.params.gameId,
         playerId: record.humanPlayerId,
         state: toPublicGameState(record.state, record.humanPlayerId)
+      };
+    }
+  );
+
+  app.get<{ Params: GameParams }>(
+    "/api/games/:gameId/diagnostics",
+    async (request, reply): Promise<GetGamePolicyDiagnosticsResponse | FastifyReply> => {
+      const record = games.get(request.params.gameId);
+      if (record === undefined) {
+        return sendError(reply, 404, "GAME_NOT_FOUND", "Game was not found.");
+      }
+      return {
+        gameId: request.params.gameId,
+        diagnostics: Object.fromEntries(record.policyDiagnostics ?? [])
       };
     }
   );

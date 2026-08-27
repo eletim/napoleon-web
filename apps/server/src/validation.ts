@@ -1,5 +1,6 @@
 import type {
   BidRequest,
+  AiPolicyComposition,
   ChooseAdjutantRequest,
   CreateGameAgentSelection,
   CreateGameRequest,
@@ -151,7 +152,11 @@ export function readRunAutomatedSimulationBody(
 
   const keys = Object.keys(value);
 
-  if (keys.length !== 1 || !keys.includes("seed")) {
+  if (
+    (keys.length !== 1 && keys.length !== 2) ||
+    !keys.includes("seed") ||
+    (keys.length === 2 && !keys.includes("policyComposition"))
+  ) {
     return undefined;
   }
 
@@ -164,8 +169,15 @@ export function readRunAutomatedSimulationBody(
     return undefined;
   }
 
+  const policyComposition = keys.includes("policyComposition")
+    ? readAiPolicyComposition(value.policyComposition)
+    : undefined;
+  if (keys.includes("policyComposition") && policyComposition === undefined) {
+    return undefined;
+  }
   return {
-    seed: value.seed
+    seed: value.seed,
+    ...(policyComposition === undefined ? {} : { policyComposition })
   };
 }
 
@@ -178,19 +190,49 @@ function readCreateGameAgentSelection(
 
   const keys = Object.keys(value);
 
+  if (keys.length !== 2 || !keys.includes("playerId") || typeof value.playerId !== "string") {
+    return undefined;
+  }
+  if (keys.includes("agentId") && typeof value.agentId === "string") {
+    return {
+      playerId: value.playerId,
+      agentId: value.agentId
+    };
+  }
+  if (keys.includes("policyComposition")) {
+    const policyComposition = readAiPolicyComposition(value.policyComposition);
+    if (policyComposition !== undefined) {
+      return { playerId: value.playerId, policyComposition };
+    }
+  }
+  return undefined;
+}
+
+export function readAiPolicyComposition(value: unknown): AiPolicyComposition | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const keys = Object.keys(value);
   if (
-    keys.length !== 2 ||
-    !keys.includes("playerId") ||
-    !keys.includes("agentId") ||
-    typeof value.playerId !== "string" ||
-    typeof value.agentId !== "string"
+    keys.length !== 3 ||
+    !keys.includes("playing") ||
+    !keys.includes("bidding") ||
+    !keys.includes("nonPlaying")
   ) {
     return undefined;
   }
-
+  if (
+    (value.playing !== "rule-based" && value.playing !== "ppo-separated-v1000") ||
+    (value.bidding !== "rule-based" && value.bidding !== "frozen-raise-v1") ||
+    (value.nonPlaying !== "rule-based" &&
+      value.nonPlaying !== "parameterized-adjutant-exchange-v1")
+  ) {
+    return undefined;
+  }
   return {
-    playerId: value.playerId,
-    agentId: value.agentId
+    playing: value.playing,
+    bidding: value.bidding,
+    nonPlaying: value.nonPlaying
   };
 }
 

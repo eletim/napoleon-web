@@ -191,9 +191,21 @@ pnpm dev
 
 ### サーバーAI Policy設定
 
-サーバーは`.env`のONNX policy設定を読み込み、`GET /api/agents`へ選択可能なAIを公開します。`NAPOLEON_POLICY_1_*`〜`NAPOLEON_POLICY_5_*`はプレイフェーズだけをONNXに差し替える既存のplaying-only設定です。`DISPLAY_NAME`が空のスロットは無効で、未設定時は従来どおり`RuleBasedAgent`だけで動作します。
+正式AIはphaseごとのpolicy registryとして`GET /api/agents`の`policyRegistry`に公開されます。server APIでは次のように3軸を独立に構成できます。`nonPlaying`は副官指定と埋札交換を常に1セットとして選択します。
 
-競り・副官指定・埋札交換も含めてONNXを使う場合は、`NAPOLEON_FULL_POLICY_1_*`〜`NAPOLEON_FULL_POLICY_5_*`を使います。full-policyスロットは`DISPLAY_NAME`を設定した時点で、playing / bidding / adjutant / exchange の各`ONNX_PATH`と`METADATA_PATH`がすべて必須です。不完全なスロットは起動時に設定エラーとして扱います。bidding / adjutant / exchange artifactはmetadataの`policyType`とartifact typeを検証し、exchangeは3-step sequential discard用の`decisionMode=sequential-card-v1`だけを受け付けます。
+```json
+{
+  "playing": "ppo-separated-v1000",
+  "bidding": "frozen-raise-v1",
+  "nonPlaying": "parameterized-adjutant-exchange-v1"
+}
+```
+
+`parameterized-adjutant-exchange-v1`はrepo-managedの`benchmarks/non-playing-policies/parameterized-adjutant-exchange-v1/policy.json`をhuman-readable source of truthとして直接読みます。schema/version、35+60 weights、SHA、optimizer/verification/dependency provenanceを起動時に検証し、欠損・不正artifactはエラーとして扱います。ONNXへの変換やsilent fallbackは行いません。`frozen-raise-v1`と`ppo-separated-v1000`は既存の正式repo-managed ONNX artifactを使用します。
+
+以下の環境変数ベースのagent設定は後方互換用です。`NAPOLEON_POLICY_1_*`〜`NAPOLEON_POLICY_5_*`はプレイフェーズだけをONNXに差し替えるlegacy playing-only設定です。`DISPLAY_NAME`が空のスロットは無効です。
+
+`NAPOLEON_FULL_POLICY_1_*`〜`NAPOLEON_FULL_POLICY_5_*`もlegacy compatibilityとして残しています。この旧full-policy設定だけがplaying / bidding / adjutant / exchangeすべてのONNXを要求します。新しい正式phase composition pathはこれらの環境変数やfull-ONNX bundleを要求しません。
 
 ```env
 NAPOLEON_FULL_POLICY_1_DISPLAY_NAME=Full policy v1
