@@ -1,6 +1,10 @@
 import { RuleBasedAgent, type Agent, type PublicActionRecord } from "@napoleon/ai";
 import type { GameState, PlayerId } from "@napoleon/game-core";
-import type { CreateGameAgentSelection } from "@napoleon/protocol";
+import type {
+  AiPolicyComposition,
+  CreateGameAgentSelection,
+  PublicAiPhaseCallDiagnostics
+} from "@napoleon/protocol";
 import { randomUUID } from "node:crypto";
 import { RULE_BASED_AGENT_ID, type AgentRegistry } from "./agentRegistry.js";
 
@@ -9,6 +13,7 @@ export interface InternalGameState {
   humanPlayerId: PlayerId;
   agents: ReadonlyMap<PlayerId, Agent>;
   agentIds?: ReadonlyMap<PlayerId, string>;
+  policyDiagnostics?: ReadonlyMap<PlayerId, PublicAiPhaseCallDiagnostics>;
   publicActionHistory?: readonly PublicActionRecord[];
 }
 
@@ -21,6 +26,7 @@ export function createGameId(): string {
 export interface AgentConfiguration {
   agents: ReadonlyMap<PlayerId, Agent>;
   agentIds: ReadonlyMap<PlayerId, string>;
+  policyDiagnostics: ReadonlyMap<PlayerId, PublicAiPhaseCallDiagnostics>;
 }
 
 export class InvalidAgentSelectionError extends Error {
@@ -40,6 +46,7 @@ export function createAgentConfiguration(
   const agentIds = new Map<PlayerId, string>(
     playerIds.map((playerId) => [playerId, RULE_BASED_AGENT_ID])
   );
+  const compositions = new Map<PlayerId, AiPolicyComposition>();
 
   for (const selection of selections) {
     if (!playerIdSet.has(selection.playerId)) {
@@ -55,18 +62,38 @@ export function createAgentConfiguration(
     }
 
     selectedPlayerIds.add(selection.playerId);
-    agentIds.set(selection.playerId, selection.agentId);
+    if ("agentId" in selection) {
+      agentIds.set(selection.playerId, selection.agentId);
+    } else {
+      compositions.set(selection.playerId, selection.policyComposition);
+      agentIds.set(selection.playerId, compositionLabel(selection.policyComposition));
+    }
   }
+
+  const policyDiagnostics = new Map<PlayerId, PublicAiPhaseCallDiagnostics>();
 
   return {
     agentIds,
+    policyDiagnostics,
     agents: new Map(
-      playerIds.map((playerId) => [
-        playerId,
-        registry.createAgent(agentIds.get(playerId) ?? RULE_BASED_AGENT_ID)
-      ])
+      playerIds.map((playerId) => {
+        const composition = compositions.get(playerId);
+        if (composition === undefined) {
+          return [
+            playerId,
+            registry.createAgent(agentIds.get(playerId) ?? RULE_BASED_AGENT_ID)
+          ];
+        }
+        const diagnostics = registry.createCompositionDiagnostics(composition);
+        policyDiagnostics.set(playerId, diagnostics);
+        return [playerId, registry.createComposedAgent(composition, diagnostics)];
+      })
     )
   };
+}
+
+function compositionLabel(composition: AiPolicyComposition): string {
+  return `composition:${composition.playing}/${composition.bidding}/${composition.nonPlaying}`;
 }
 
 export function createAgents(

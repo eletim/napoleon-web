@@ -11,13 +11,27 @@ import {
   type NonPlayingPolicyType,
   type PolicyOnnxModel
 } from "@napoleon/policy-onnx";
-import type { PublicAgentDescriptor } from "@napoleon/protocol";
+import type {
+  AiPolicyComposition,
+  PublicAgentDescriptor,
+  PublicAiPhaseCallDiagnostics,
+  PublicPhasePolicyRegistry
+} from "@napoleon/protocol";
 import {
   createLearnedPolicyEnvKey,
   createFullPolicyEnvKey,
   learnedPolicySlotNumbers,
   type LearnedPolicySlotNumber
 } from "./agentEnv.js";
+import {
+  AgentUnavailableError,
+  UnknownAgentIdError
+} from "./agentErrors.js";
+import {
+  createPhasePolicyRegistry,
+  type PhasePolicyRegistry
+} from "./phasePolicyRegistry.js";
+export { AgentUnavailableError, UnknownAgentIdError } from "./agentErrors.js";
 
 export const RULE_BASED_AGENT_ID = "rule-based";
 export const PLAYING_POLICY_ONNX_AGENT_ID = "playing-policy-onnx";
@@ -28,20 +42,6 @@ export const FULL_POLICY_ONNX_AGENT_ID = "full-policy-onnx";
 export const FULL_POLICY_ONNX_AGENT_IDS = [
   ...learnedPolicySlotNumbers.map(createFullPolicyOnnxAgentId)
 ] as const;
-
-export class UnknownAgentIdError extends Error {
-  constructor(readonly agentId: string) {
-    super(`Unknown AI agent id: ${agentId}.`);
-    this.name = "UnknownAgentIdError";
-  }
-}
-
-export class AgentUnavailableError extends Error {
-  constructor(readonly agentId: string, message: string) {
-    super(message);
-    this.name = "AgentUnavailableError";
-  }
-}
 
 export interface PlayingPolicyOnnxPaths {
   onnxPath: string;
@@ -75,11 +75,19 @@ export interface AgentRegistryOptions {
   loadNonPlayingPolicyOnnxModel?: (
     paths: NonPlayingPolicyOnnxPaths
   ) => Promise<NonPlayingPolicyOnnxModel>;
+  phasePolicyRegistry?: PhasePolicyRegistry;
 }
 
 export interface AgentRegistry {
   listAgents(): readonly PublicAgentDescriptor[];
+  listPhasePolicies(): PublicPhasePolicyRegistry;
   createAgent(agentId: string): Agent;
+  createComposedAgent(
+    composition: AiPolicyComposition,
+    diagnostics?: PublicAiPhaseCallDiagnostics,
+    rng?: () => number
+  ): Agent;
+  createCompositionDiagnostics(composition: AiPolicyComposition): PublicAiPhaseCallDiagnostics;
 }
 
 interface AgentDefinition {
@@ -88,6 +96,7 @@ interface AgentDefinition {
 }
 
 export function createAgentRegistry(options: AgentRegistryOptions = {}): AgentRegistry {
+  const phasePolicyRegistry = options.phasePolicyRegistry ?? createPhasePolicyRegistry();
   const learnedPolicyConfigs =
     options.playingPolicyOnnxAgents ??
     (options.playingPolicyOnnx === undefined
@@ -164,6 +173,7 @@ export function createAgentRegistry(options: AgentRegistryOptions = {}): AgentRe
 
   return {
     listAgents: () => [...definitions.values()].map((definition) => definition.descriptor),
+    listPhasePolicies: () => phasePolicyRegistry.describe(),
     createAgent: (agentId: string) => {
       const definition = definitions.get(agentId);
 
@@ -172,7 +182,11 @@ export function createAgentRegistry(options: AgentRegistryOptions = {}): AgentRe
       }
 
       return definition.createAgent();
-    }
+    },
+    createComposedAgent: (composition, diagnostics, rng) =>
+      phasePolicyRegistry.createAgent(composition, diagnostics, rng),
+    createCompositionDiagnostics: (composition) =>
+      phasePolicyRegistry.createDiagnostics(composition)
   };
 }
 

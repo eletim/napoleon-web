@@ -256,14 +256,49 @@ export interface PublicAgentDescriptor {
   isAvailable: boolean;
 }
 
-export interface GetAgentsResponse {
-  agents: readonly PublicAgentDescriptor[];
+export type PlayingPolicyId = "rule-based" | "ppo-separated-v1000";
+export type BiddingPolicyId = "rule-based" | "frozen-raise-v1";
+export type NonPlayingPolicyId =
+  | "rule-based"
+  | "parameterized-adjutant-exchange-v1";
+
+export interface AiPolicyComposition {
+  playing: PlayingPolicyId;
+  bidding: BiddingPolicyId;
+  nonPlaying: NonPlayingPolicyId;
 }
 
-export interface CreateGameAgentSelection {
+export interface PublicPhasePolicyDescriptor {
+  id: string;
+  displayName: string;
+  isAvailable: boolean;
+  artifactProvenance: Readonly<Record<string, string>> | null;
+}
+
+export interface PublicPhasePolicyRegistry {
+  playing: readonly PublicPhasePolicyDescriptor[];
+  bidding: readonly PublicPhasePolicyDescriptor[];
+  nonPlaying: readonly PublicPhasePolicyDescriptor[];
+}
+
+export interface GetAgentsResponse {
+  agents: readonly PublicAgentDescriptor[];
+  policyRegistry?: PublicPhasePolicyRegistry;
+}
+
+export interface CreateGameLegacyAgentSelection {
   playerId: string;
   agentId: string;
 }
+
+export interface CreateGamePolicyCompositionSelection {
+  playerId: string;
+  policyComposition: AiPolicyComposition;
+}
+
+export type CreateGameAgentSelection =
+  | CreateGameLegacyAgentSelection
+  | CreateGamePolicyCompositionSelection;
 
 export interface CreateGameRequest {
   aiAgents?: readonly CreateGameAgentSelection[];
@@ -271,6 +306,22 @@ export interface CreateGameRequest {
 
 export interface RunAutomatedSimulationRequest {
   seed: number;
+  policyComposition?: AiPolicyComposition;
+}
+
+export interface PublicAiPhaseCallDiagnostics {
+  composition: AiPolicyComposition;
+  playingCalls: number;
+  biddingCalls: number;
+  adjutantCalls: number;
+  exchangeCalls: number;
+  fallbackCount: number;
+  illegalCount: number;
+}
+
+export interface GetGamePolicyDiagnosticsResponse {
+  gameId: string;
+  diagnostics: Readonly<Record<string, PublicAiPhaseCallDiagnostics>>;
 }
 
 export interface PublicSimulationObservedPlayer {
@@ -350,6 +401,7 @@ export interface RunAutomatedSimulationResponse {
   decisions: readonly PublicSimulationDecision[];
   summary: PublicSimulationSummary;
   result: PublicGameResult;
+  policyDiagnostics?: Readonly<Record<string, PublicAiPhaseCallDiagnostics>>;
 }
 
 export interface ApiError {
