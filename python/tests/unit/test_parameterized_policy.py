@@ -174,6 +174,10 @@ def test_issue454_verification_identity_inputs_cannot_be_overridden() -> None:
         _parser().parse_args(
             ["verification", "--output", "result", "--parameters", "different.json"]
         )
+    with pytest.raises(SystemExit):
+        _parser().parse_args(
+            ["verification", "--output", "result", "--games", "5000"]
+        )
 
 
 def test_resume_identity_and_recorded_seed_manifests_are_enforced(tmp_path: Path) -> None:

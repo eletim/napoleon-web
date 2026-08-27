@@ -43,6 +43,7 @@ from napoleon_ml.parameterized_policy.optimization import (
 )
 
 ISSUE452_PARAMETER_SHA256 = "d364aef0c48a1832bd6602d254d0440f6cb2e2cb50492cfb53934e0378a84d69"
+ISSUE454_VERIFICATION_GAMES = 10_000
 
 
 def _repo_root() -> Path:
@@ -596,7 +597,7 @@ def _verification(args: argparse.Namespace) -> None:
         output,
         pool="independent-verification",
         start=VERIFICATION_SEED_BASE,
-        games=args.games,
+        games=ISSUE454_VERIFICATION_GAMES,
     )
     assert_disjoint_seed_manifests([*reserved_manifests, verification_manifest])
 
@@ -690,7 +691,7 @@ def _verification(args: argparse.Namespace) -> None:
                 ),
                 "report": str(args.output / "verification-report.json"),
                 "reportFileSha256": _file_sha256(report_path),
-                "games": args.games,
+                "games": ISSUE454_VERIFICATION_GAMES,
                 "pairedMeanDifference": paired["meanDifference"],
                 "pairedStandardError": paired["standardError"],
                 "pairedCi95": paired["ci95"],
@@ -827,7 +828,6 @@ def _parser() -> argparse.ArgumentParser:
     verification = subparsers.add_parser("verification")
     verification.add_argument("--output", type=Path, required=True)
     verification.add_argument("--artifact-output", type=Path)
-    verification.add_argument("--games", type=int, default=10_000)
     verification.add_argument("--block-size", type=int, default=1_000)
     verification.set_defaults(run=_verification)
     return parser
@@ -839,9 +839,10 @@ def _validate_cli_args(args: argparse.Namespace) -> None:
     if args.command == "optimize" and args.generations < 1:
         raise SystemExit("generations must be >= 1")
     if args.command == "verification":
-        if args.games < 5_000:
-            raise SystemExit("verification games must be >= 5000")
-        if args.block_size <= 0 or args.games % args.block_size != 0:
+        if (
+            args.block_size <= 0
+            or ISSUE454_VERIFICATION_GAMES % args.block_size != 0
+        ):
             raise SystemExit("verification games must be divisible by a positive block size")
 
 
