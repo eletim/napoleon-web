@@ -434,7 +434,7 @@ function ProjectedPointRiverCards({
   const placements = createRiverPlacements(cards.length, layout, seat);
 
   return (
-    <g className={`mock-projected-point-river mock-projected-point-river-${seat}`}>
+    <>
       {cards.slice(0, layout.riverGrid.maxColumns * layout.riverGrid.maxRows).map((card, index) => {
         const placement = placements[index] ?? { x: 0, y: 0, rotation: 0 };
         const corners = projectTableCard(
@@ -459,7 +459,7 @@ function ProjectedPointRiverCards({
           />
         );
       })}
-    </g>
+    </>
   );
 }
 
