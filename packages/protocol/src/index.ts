@@ -268,6 +268,14 @@ export interface AiPolicyComposition {
   nonPlaying: NonPlayingPolicyId;
 }
 
+export type AiPresetId = "com-rule-base" | "com-ai";
+
+export interface AiPreset {
+  id: AiPresetId;
+  displayName: string;
+  composition: AiPolicyComposition;
+}
+
 export interface PublicPhasePolicyDescriptor {
   id: string;
   displayName: string;
@@ -286,6 +294,15 @@ export interface GetAgentsResponse {
   policyRegistry?: PublicPhasePolicyRegistry;
 }
 
+export interface GetAiPresetsResponse {
+  presets: readonly AiPreset[];
+  policyRegistry: PublicPhasePolicyRegistry;
+}
+
+export interface UpdateAiPresetRequest {
+  composition: AiPolicyComposition;
+}
+
 export interface CreateGameLegacyAgentSelection {
   playerId: string;
   agentId: string;
@@ -302,11 +319,13 @@ export type CreateGameAgentSelection =
 
 export interface CreateGameRequest {
   aiAgents?: readonly CreateGameAgentSelection[];
+  aiPresetId?: AiPresetId;
 }
 
 export interface RunAutomatedSimulationRequest {
   seed: number;
   policyComposition?: AiPolicyComposition;
+  aiPresetId?: AiPresetId;
 }
 
 export interface PublicAiPhaseCallDiagnostics {
@@ -321,6 +340,7 @@ export interface PublicAiPhaseCallDiagnostics {
 
 export interface GetGamePolicyDiagnosticsResponse {
   gameId: string;
+  presetId?: AiPresetId;
   diagnostics: Readonly<Record<string, PublicAiPhaseCallDiagnostics>>;
 }
 
@@ -401,6 +421,7 @@ export interface RunAutomatedSimulationResponse {
   decisions: readonly PublicSimulationDecision[];
   summary: PublicSimulationSummary;
   result: PublicGameResult;
+  presetId?: AiPresetId;
   policyDiagnostics?: Readonly<Record<string, PublicAiPhaseCallDiagnostics>>;
 }
 

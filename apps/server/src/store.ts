@@ -2,6 +2,7 @@ import { RuleBasedAgent, type Agent, type PublicActionRecord } from "@napoleon/a
 import type { GameState, PlayerId } from "@napoleon/game-core";
 import type {
   AiPolicyComposition,
+  AiPresetId,
   CreateGameAgentSelection,
   PublicAiPhaseCallDiagnostics
 } from "@napoleon/protocol";
@@ -14,6 +15,7 @@ export interface InternalGameState {
   agents: ReadonlyMap<PlayerId, Agent>;
   agentIds?: ReadonlyMap<PlayerId, string>;
   policyDiagnostics?: ReadonlyMap<PlayerId, PublicAiPhaseCallDiagnostics>;
+  aiPresetId?: AiPresetId;
   publicActionHistory?: readonly PublicActionRecord[];
 }
 

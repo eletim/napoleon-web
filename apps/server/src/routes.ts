@@ -12,7 +12,9 @@ import {
 import type { GameAction, GameState, PlayerId } from "@napoleon/game-core";
 import type { Agent, PublicActionRecord } from "@napoleon/ai";
 import type {
+  AiPreset,
   CreateGameResponse,
+  GetAiPresetsResponse,
   GetAgentsResponse,
   GetGameResponse,
   GetGamePolicyDiagnosticsResponse,
@@ -28,6 +30,12 @@ import {
   type AgentRegistry
 } from "./agentRegistry.js";
 import {
+  InvalidAiPresetCompositionError,
+  UnknownAiPresetIdError,
+  createAiPresetRegistry,
+  type AiPresetRegistry
+} from "./aiPresetRegistry.js";
+import {
   InvalidAgentSelectionError,
   createAgentConfiguration,
   createGameId,
@@ -39,11 +47,16 @@ import { toPublicSimulationResponse } from "./simulationResponse.js";
 import {
   readActionBody,
   readCreateGameBody,
-  readRunAutomatedSimulationBody
+  readRunAutomatedSimulationBody,
+  readUpdateAiPresetBody
 } from "./validation.js";
 
 interface GameParams {
   gameId: string;
+}
+
+interface AiPresetParams {
+  presetId: string;
 }
 
 const humanPlayerId = "player-0";
@@ -51,6 +64,7 @@ const maxAutomaticAiActions = 100;
 
 export interface RegisterRoutesOptions {
   agentRegistry?: AgentRegistry;
+  aiPresetRegistry?: AiPresetRegistry;
 }
 
 export async function registerRoutes(
@@ -58,6 +72,7 @@ export async function registerRoutes(
   options: RegisterRoutesOptions = {}
 ): Promise<void> {
   const agentRegistry = options.agentRegistry ?? createAgentRegistryFromEnvironment();
+  const aiPresetRegistry = options.aiPresetRegistry ?? createAiPresetRegistry(agentRegistry);
 
   app.get("/api/health", async () => ({ ok: true }));
 
@@ -65,6 +80,31 @@ export async function registerRoutes(
     agents: agentRegistry.listAgents(),
     policyRegistry: agentRegistry.listPhasePolicies()
   }));
+
+  app.get("/api/ai-presets", async (): Promise<GetAiPresetsResponse> => ({
+    presets: aiPresetRegistry.list(),
+    policyRegistry: agentRegistry.listPhasePolicies()
+  }));
+
+  app.put<{ Params: AiPresetParams }>(
+    "/api/ai-presets/:presetId",
+    async (request, reply): Promise<AiPreset | FastifyReply> => {
+      const body = readUpdateAiPresetBody(request.body);
+      if (body === undefined) {
+        return sendError(
+          reply,
+          400,
+          "INVALID_AI_PRESET_REQUEST",
+          "A valid AI preset composition is required."
+        );
+      }
+      try {
+        return aiPresetRegistry.update(request.params.presetId, body.composition);
+      } catch (error) {
+        return handleAiPresetError(reply, error);
+      }
+    }
+  );
 
   app.post("/api/games", async (request, reply): Promise<CreateGameResponse | FastifyReply> => {
     const body = readCreateGameBody(request.body);
@@ -84,12 +124,22 @@ export async function registerRoutes(
       .filter((playerId) => playerId !== humanPlayerId);
     const gameId = createGameId();
     let agentConfiguration;
+    let selectedPreset: AiPreset | undefined;
 
     try {
+      selectedPreset = body.aiPresetId === undefined
+        ? undefined
+        : aiPresetRegistry.resolve(body.aiPresetId);
+      const selectedComposition = selectedPreset?.composition;
       agentConfiguration = createAgentConfiguration(
         aiPlayerIds,
         agentRegistry,
-        body.aiAgents ?? []
+        selectedComposition === undefined
+          ? body.aiAgents ?? []
+          : aiPlayerIds.map((playerId) => ({
+              playerId,
+              policyComposition: selectedComposition
+            }))
       );
     } catch (error) {
       return handleCreateGameError(reply, error);
@@ -101,6 +151,7 @@ export async function registerRoutes(
       agents: agentConfiguration.agents,
       agentIds: agentConfiguration.agentIds,
       policyDiagnostics: agentConfiguration.policyDiagnostics,
+      ...(selectedPreset === undefined ? {} : { aiPresetId: selectedPreset.id }),
       publicActionHistory: []
     });
 
@@ -122,19 +173,29 @@ export async function registerRoutes(
         );
       }
 
+      let simulationComposition = body.policyComposition;
+      let simulationPreset: AiPreset | undefined;
+      try {
+        simulationPreset = body.aiPresetId === undefined
+          ? undefined
+          : aiPresetRegistry.resolve(body.aiPresetId);
+        simulationComposition ??= simulationPreset?.composition;
+      } catch (error) {
+        return handleAiPresetError(reply, error);
+      }
       const diagnostics = new Map();
       const record = await runAutomatedGame({
         seed: body.seed,
         createAgent: ({ rng, playerId }) => {
-          if (body.policyComposition === undefined) {
+          if (simulationComposition === undefined) {
             return new RuleBasedAgent(rng);
           }
           const phaseDiagnostics = agentRegistry.createCompositionDiagnostics(
-            body.policyComposition
+            simulationComposition
           );
           diagnostics.set(playerId, phaseDiagnostics);
           return agentRegistry.createComposedAgent(
-            body.policyComposition,
+            simulationComposition,
             phaseDiagnostics,
             rng
           );
@@ -143,7 +204,8 @@ export async function registerRoutes(
 
       return {
         ...toPublicSimulationResponse(record),
-        ...(body.policyComposition === undefined
+        ...(simulationPreset === undefined ? {} : { presetId: simulationPreset.id }),
+        ...(simulationComposition === undefined
           ? {}
           : { policyDiagnostics: Object.fromEntries(diagnostics) })
       };
@@ -176,6 +238,7 @@ export async function registerRoutes(
       }
       return {
         gameId: request.params.gameId,
+        ...(record.aiPresetId === undefined ? {} : { presetId: record.aiPresetId }),
         diagnostics: Object.fromEntries(record.policyDiagnostics ?? [])
       };
     }
@@ -393,6 +456,12 @@ function handleActionError(reply: FastifyReply, error: unknown): FastifyReply {
 }
 
 function handleCreateGameError(reply: FastifyReply, error: unknown): FastifyReply {
+  if (
+    error instanceof UnknownAiPresetIdError ||
+    error instanceof InvalidAiPresetCompositionError
+  ) {
+    return handleAiPresetError(reply, error);
+  }
   if (error instanceof UnknownAgentIdError) {
     return sendError(reply, 400, "UNKNOWN_AGENT_ID", error.message);
   }
@@ -405,6 +474,16 @@ function handleCreateGameError(reply: FastifyReply, error: unknown): FastifyRepl
     return sendError(reply, 503, "AGENT_UNAVAILABLE", error.message);
   }
 
+  throw error;
+}
+
+function handleAiPresetError(reply: FastifyReply, error: unknown): FastifyReply {
+  if (error instanceof UnknownAiPresetIdError) {
+    return sendError(reply, 400, "UNKNOWN_AI_PRESET_ID", error.message);
+  }
+  if (error instanceof InvalidAiPresetCompositionError) {
+    return sendError(reply, 400, "INVALID_AI_PRESET_COMPOSITION", error.message);
+  }
   throw error;
 }
 
