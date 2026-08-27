@@ -1,8 +1,0 @@
-{
-  "scope": "all committed smoke, main train, validation, variance-diagnostic, and final seed manifests",
-  "manifestCount": 122,
-  "seedCount": 57100,
-  "uniqueSeedCount": 57100,
-  "overlapCount": 0,
-  "result": "pass"
-}
