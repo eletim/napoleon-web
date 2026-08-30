@@ -4,15 +4,19 @@ import {
   advanceToNextTrick,
   applyAction,
   clearLatestEvent,
-  createInitialGame,
+  completeCurrentRound,
+  createInitialMatch,
   createPlayerView,
   GameRuleError,
-  getLegalActions
+  getLegalActions,
+  MatchRuleError,
+  updateCurrentGame
 } from "@napoleon/game-core";
 import type { GameAction, GameState, PlayerId } from "@napoleon/game-core";
 import type { Agent, PublicActionRecord } from "@napoleon/ai";
 import type {
   AiPreset,
+  AdvanceMatchResponse,
   CreateGameResponse,
   GetAiPresetsResponse,
   GetAgentsResponse,
@@ -43,6 +47,7 @@ import {
   type InternalGameState
 } from "./store.js";
 import { toPublicGameState } from "./publicState.js";
+import { toPublicMatchState } from "./publicMatch.js";
 import { toPublicSimulationResponse } from "./simulationResponse.js";
 import {
   readActionBody,
@@ -119,7 +124,11 @@ export async function registerRoutes(
       );
     }
 
-    const state = createInitialGame();
+    const match = createInitialMatch();
+    const state = match.currentGame;
+    if (state === null) {
+      throw new Error("A new match did not contain an initial game.");
+    }
     const aiPlayerIds = state.players
       .map((player) => player.id)
       .filter((playerId) => playerId !== humanPlayerId);
@@ -148,6 +157,7 @@ export async function registerRoutes(
 
     games.set(gameId, {
       state,
+      match,
       humanPlayerId,
       agents: agentConfiguration.agents,
       agentIds: agentConfiguration.agentIds,
@@ -232,7 +242,8 @@ export async function registerRoutes(
       return {
         gameId: request.params.gameId,
         playerId: record.humanPlayerId,
-        state: toPublicGameState(record.state, record.humanPlayerId)
+        state: toPublicGameState(record.state, record.humanPlayerId),
+        ...publicMatchProperty(record)
       };
     }
   );
@@ -284,6 +295,7 @@ export async function registerRoutes(
           publicActionHistory
         );
         record.state = advanced.state;
+        syncMatchGame(record);
         record.publicActionHistory = advanced.publicActionHistory;
       } catch (error) {
         return handleActionError(reply, error);
@@ -292,7 +304,8 @@ export async function registerRoutes(
       return {
         gameId: request.params.gameId,
         playerId: record.humanPlayerId,
-        state: toPublicGameState(record.state, record.humanPlayerId)
+        state: toPublicGameState(record.state, record.humanPlayerId),
+        ...publicMatchProperty(record)
       };
     }
   );
@@ -315,6 +328,7 @@ export async function registerRoutes(
           record.publicActionHistory ?? []
         );
         record.state = advanced.state;
+        syncMatchGame(record);
         record.publicActionHistory = advanced.publicActionHistory;
       } catch (error) {
         return handleActionError(reply, error);
@@ -323,7 +337,41 @@ export async function registerRoutes(
       return {
         gameId: request.params.gameId,
         playerId: record.humanPlayerId,
-        state: toPublicGameState(record.state, record.humanPlayerId)
+        state: toPublicGameState(record.state, record.humanPlayerId),
+        ...publicMatchProperty(record)
+      };
+    }
+  );
+
+  app.post<{ Params: GameParams }>(
+    "/api/games/:gameId/next-round",
+    async (request, reply): Promise<AdvanceMatchResponse | FastifyReply> => {
+      const record = games.get(request.params.gameId);
+      if (record === undefined) {
+        return sendError(reply, 404, "GAME_NOT_FOUND", "Game was not found.");
+      }
+      if (record.match === undefined) {
+        return sendError(reply, 409, "MATCH_NOT_AVAILABLE", "This is a standalone game.");
+      }
+
+      try {
+        record.match = completeCurrentRound(updateCurrentGame(record.match, record.state));
+        if (record.match.currentGame !== null) {
+          record.state = record.match.currentGame;
+        }
+        record.publicActionHistory = [];
+      } catch (error) {
+        return handleActionError(reply, error);
+      }
+
+      return {
+        gameId: request.params.gameId,
+        playerId: record.humanPlayerId,
+        state: toPublicGameState(record.state, record.humanPlayerId),
+        match: toPublicMatchState(
+          record.match,
+          record.state.players.map(({ id }) => id)
+        )
       };
     }
   );
@@ -443,12 +491,32 @@ function createGameResponse(
   return {
     gameId,
     playerId: record.humanPlayerId,
-    state: toPublicGameState(record.state, record.humanPlayerId)
+    state: toPublicGameState(record.state, record.humanPlayerId),
+    ...publicMatchProperty(record)
   };
 }
 
+function syncMatchGame(record: InternalGameState): void {
+  if (record.match !== undefined) {
+    record.match = updateCurrentGame(record.match, record.state);
+  }
+}
+
+function publicMatchProperty(
+  record: InternalGameState
+): { match?: ReturnType<typeof toPublicMatchState> } {
+  return record.match === undefined
+    ? {}
+    : {
+        match: toPublicMatchState(
+          record.match,
+          record.state.players.map(({ id }) => id)
+        )
+      };
+}
+
 function handleActionError(reply: FastifyReply, error: unknown): FastifyReply {
-  if (error instanceof GameRuleError) {
+  if (error instanceof GameRuleError || error instanceof MatchRuleError) {
     return sendError(reply, 400, error.code, error.message);
   }
 

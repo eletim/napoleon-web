@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   calculateMatchScore,
+  calculateGameRoundScores,
+  calculateMatchProgressScores,
   calculateMatchUma,
   calculateRawMatchScore,
   calculateRoundScore,
@@ -130,6 +132,63 @@ describe("match scoring", () => {
 
     expect(input).toEqual(before);
     expect(second).toEqual(first);
+  });
+
+  it("derives standard and all-pass round scores for match progression", () => {
+    expect(calculateGameRoundScores({
+      resultType: "standard",
+      winner: "napoleon-team",
+      napoleonTeamPointCards: 15,
+      alliancePointCards: 5,
+      targetPointCards: 15,
+      napoleonPlayerId: "alice",
+      adjutantPlayerId: "bob"
+    }, playerIds)).toEqual([
+      { playerId: "alice", rawMatchScore: 25 },
+      { playerId: "bob", rawMatchScore: 15 },
+      { playerId: "carol", rawMatchScore: 0 },
+      { playerId: "dave", rawMatchScore: 0 },
+      { playerId: "eve", rawMatchScore: 0 }
+    ]);
+
+    expect(calculateGameRoundScores({
+      resultType: "all-pass",
+      starterPlayerId: "alice",
+      payoffs: playerIds.map((playerId) => ({
+        playerId,
+        payoff: playerId === "alice" ? 1 : -1
+      }))
+    }, playerIds).map(({ rawMatchScore }) => rawMatchScore)).toEqual([1, -1, -1, -1, -1]);
+  });
+
+  it("exposes partial round history and raw totals without premature uma", () => {
+    const results = [
+      {
+        resultType: "all-pass" as const,
+        starterPlayerId: "alice",
+        payoffs: playerIds.map((playerId) => ({
+          playerId,
+          payoff: playerId === "alice" ? 1 : -1
+        }))
+      },
+      {
+        resultType: "standard" as const,
+        winner: "alliance" as const,
+        napoleonTeamPointCards: 10,
+        alliancePointCards: 10,
+        targetPointCards: 15,
+        napoleonPlayerId: "bob",
+        adjutantPlayerId: "carol"
+      }
+    ];
+
+    expect(calculateMatchProgressScores(playerIds, results)).toEqual([
+      { playerId: "alice", roundScores: [1, 0], rawMatchScore: 1 },
+      { playerId: "bob", roundScores: [-1, -5], rawMatchScore: -6 },
+      { playerId: "carol", roundScores: [-1, 0], rawMatchScore: -1 },
+      { playerId: "dave", roundScores: [-1, 0], rawMatchScore: -1 },
+      { playerId: "eve", roundScores: [-1, 0], rawMatchScore: -1 }
+    ]);
   });
 });
 

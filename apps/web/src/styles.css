@@ -3006,6 +3006,101 @@ input:focus-visible {
   }
 }
 
+.match-progress {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  margin: 0 auto 8px;
+  max-width: 1240px;
+}
+
+.match-round-indicator {
+  align-items: baseline;
+  background: #172033;
+  border-radius: 999px;
+  color: #ffffff;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 7px;
+  padding: 6px 11px;
+}
+
+.match-round-indicator span {
+  font-size: 0.72rem;
+}
+
+.match-score-details {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  min-width: 0;
+  padding: 5px 9px;
+}
+
+.match-score-details summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.match-score-scroll {
+  margin-top: 7px;
+  max-width: min(760px, calc(100vw - 72px));
+  overflow-x: auto;
+}
+
+.match-score-details table {
+  border-collapse: collapse;
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.match-score-details th,
+.match-score-details td {
+  border-bottom: 1px solid #e2e8f0;
+  padding: 4px 8px;
+  text-align: right;
+}
+
+.match-score-details th:first-child {
+  left: 0;
+  text-align: left;
+}
+
+.match-score-note {
+  color: #64748b;
+  font-size: 0.7rem;
+  margin: 6px 0 1px;
+}
+
+.match-advance-button {
+  margin-top: 10px;
+  width: 100%;
+}
+
+@media (max-width: 720px), (max-height: 540px) {
+  .app-shell-game-active .match-progress {
+    left: 50%;
+    margin: 0;
+    position: fixed;
+    top: max(4px, env(safe-area-inset-top));
+    transform: translateX(-50%);
+    z-index: 20;
+  }
+
+  .app-shell-game-active .match-round-indicator {
+    padding: 3px 8px;
+  }
+
+  .app-shell-game-active .match-round-indicator span {
+    display: none;
+  }
+
+  .app-shell-game-active .match-score-details {
+    padding: 3px 7px;
+  }
+}
+
 .table-side-actions .bidding-panel,
 .table-side-actions .exchange-panel,
 .table-side-actions .adjutant-panel,
