@@ -17,6 +17,13 @@ export {
   yoromekiCardId
 } from "./cards.js";
 export { GameRuleError } from "./errors.js";
+export {
+  MATCH_ROUND_COUNT,
+  MatchRuleError,
+  completeCurrentRound,
+  createInitialMatch,
+  updateCurrentGame
+} from "./match.js";
 export { calculateGameResult, createAllPassGameResult } from "./scoring.js";
 export {
   biddingSuitOrder,
@@ -87,3 +94,9 @@ export type {
   WinningTeam
 } from "./types.js";
 export type { TrickCardCategory, TrickCardStrength, TrickContext } from "./trick.js";
+export type {
+  CreateNextRoundOptions,
+  MatchRoundResult,
+  MatchRuleErrorCode,
+  MatchState
+} from "./match.js";
