@@ -20,6 +20,7 @@ import { AutomatedSimulationViewer } from "./AutomatedSimulationViewer";
 import { CardDesignMock } from "./CardDesignMock";
 import { TableSurface } from "./TableSurface";
 import { TableDesignMock } from "./TableDesignMock";
+import { hasCompletedMatchResult, MatchFinalResults } from "./MatchFinalResults";
 import { getMatchAdvanceLabel, MatchProgress } from "./MatchProgress";
 import {
   createAdjutantCardId,
@@ -357,10 +358,12 @@ function GameApp() {
 
   const isStartedGame = session !== undefined && mode === "game";
   const isGameInProgress = isStartedGame && !session.state.isGameOver;
+  const completedMatch = hasCompletedMatchResult(session?.match) ? session.match : undefined;
   const appShellClassName = [
     "app-shell",
     isStartedGame ? "app-shell-game-active" : "",
     isGameInProgress ? "app-shell-game-in-progress" : "",
+    completedMatch !== undefined ? "app-shell-match-completed" : "",
     isGameInProgress ? `app-shell-phase-${session.state.phase}` : ""
   ]
     .filter(Boolean)
@@ -442,16 +445,25 @@ function GameApp() {
             />
           ) : null}
 
-          {session?.match === undefined ? null : (
+          {session?.match === undefined || completedMatch !== undefined ? null : (
             <MatchProgress match={session.match} players={tablePlayers} />
           )}
 
-          <section className="mobile-landscape-guide" aria-label="横向きプレイ案内">
-            <strong>横向きでプレイしてください</strong>
-            <span>スマートフォンを横にすると、5人卓と手札を見やすく表示します。</span>
-          </section>
+          {completedMatch !== undefined ? (
+            <MatchFinalResults
+              disabled={isInteractionLocked || hasUnavailablePresetSelection}
+              match={completedMatch}
+              onStartNewMatch={() => void handleCreateGame()}
+              players={tablePlayers}
+            />
+          ) : (
+            <>
+              <section className="mobile-landscape-guide" aria-label="横向きプレイ案内">
+                <strong>横向きでプレイしてください</strong>
+                <span>スマートフォンを横にすると、5人卓と手札を見やすく表示します。</span>
+              </section>
 
-          <section className="table" aria-label="ゲームテーブル">
+              <section className="table" aria-label="ゲームテーブル">
             <TableSurface
               actionPanel={
                 hasTableActionPanel ? (
@@ -697,7 +709,9 @@ function GameApp() {
               trickNumber={session?.state.trickNumber}
               trumpSuit={session?.state.trumpSuit}
             />
-          </section>
+              </section>
+            </>
+          )}
         </>
       ) : mode === "simulation" ? (
         <AutomatedSimulationViewer />
