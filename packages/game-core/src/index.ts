@@ -26,6 +26,14 @@ export {
 } from "./match.js";
 export { calculateGameResult, createAllPassGameResult } from "./scoring.js";
 export {
+  MATCH_SCORING_PLAYER_COUNT,
+  MATCH_UMA_BY_POSITION,
+  calculateMatchScore,
+  calculateMatchUma,
+  calculateRawMatchScore,
+  calculateRoundScore
+} from "./matchScoring.js";
+export {
   biddingSuitOrder,
   biddingSuitPriority,
   compareBids,
@@ -100,3 +108,11 @@ export type {
   MatchRuleErrorCode,
   MatchState
 } from "./match.js";
+export type {
+  MatchPlayerScore,
+  MatchScoreResult,
+  MatchUma,
+  PlayerRoundScores,
+  RawMatchScore,
+  RoundScoringRole
+} from "./matchScoring.js";
