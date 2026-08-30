@@ -7,6 +7,7 @@ import type {
   RunAutomatedSimulationResponse
 } from "@napoleon/protocol";
 import {
+  advanceMatch,
   createGame,
   getAgents,
   getAiPresets,
@@ -45,6 +46,21 @@ describe("api client", () => {
       headers: {
         "Content-Type": "application/json"
       }
+    });
+  });
+
+  it("advances a reviewed round through the match endpoint", async () => {
+    const responseBody = { gameId: "game-1", playerId: "player-0", state: {}, match: {} };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(responseBody), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(advanceMatch("game-1")).resolves.toEqual(responseBody);
+    expect(fetchMock).toHaveBeenCalledWith("/api/games/game-1/next-round", {
+      method: "POST",
+      headers: undefined
     });
   });
 

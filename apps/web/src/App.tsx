@@ -6,6 +6,7 @@ import type {
   PublicCard,
   PublicGameAction,
   PublicGameState,
+  PublicMatchState,
   PublicRank,
   PublicSuit,
   PublicPhasePolicyRegistry
@@ -19,6 +20,7 @@ import { AutomatedSimulationViewer } from "./AutomatedSimulationViewer";
 import { CardDesignMock } from "./CardDesignMock";
 import { TableSurface } from "./TableSurface";
 import { TableDesignMock } from "./TableDesignMock";
+import { getMatchAdvanceLabel, MatchProgress } from "./MatchProgress";
 import {
   createAdjutantCardId,
   createAdjutantSelectionLabel,
@@ -30,7 +32,7 @@ import {
   type AdjutantSelection,
   type AdjutantSuitOption
 } from "./adjutantSelection";
-import { createGame, getAiPresets, nextTrick, sendAction, updateAiPreset } from "./api";
+import { advanceMatch, createGame, getAiPresets, nextTrick, sendAction, updateAiPreset } from "./api";
 import { suitSymbols } from "./cardSymbols";
 import { createMessage, formatPlayerLabel, formatWinningTeam } from "./displayText";
 import { createTablePlayers } from "./tablePlayers";
@@ -41,6 +43,7 @@ interface Session {
   gameId: string;
   playerId: string;
   state: PublicGameState;
+  match?: PublicMatchState;
 }
 
 type AppMode = "game" | "simulation" | "ai-settings";
@@ -307,6 +310,24 @@ function GameApp() {
     );
   }
 
+  async function handleAdvanceMatch(): Promise<void> {
+    if (session === undefined || session.match === undefined || isInteractionLocked) {
+      return;
+    }
+
+    await runRequest(async () => {
+      const response = await advanceMatch(session.gameId);
+      setSession(response);
+      setSelectedDiscardCardIds([]);
+      setAdjutantSelection(defaultAdjutantSelection);
+      setMessage(
+        response.match.completed
+          ? "5局が終了しました。試合結果を確認してください。"
+          : `第${response.match.currentRound}局を開始します。`
+      );
+    });
+  }
+
   async function runRequest(work: () => Promise<void>): Promise<void> {
     if (requestInFlightRef.current) {
       return;
@@ -420,6 +441,10 @@ function GameApp() {
               selectedPresetId={selectedPresetId}
             />
           ) : null}
+
+          {session?.match === undefined ? null : (
+            <MatchProgress match={session.match} players={tablePlayers} />
+          )}
 
           <section className="mobile-landscape-guide" aria-label="横向きプレイ案内">
             <strong>横向きでプレイしてください</strong>
@@ -634,6 +659,16 @@ function GameApp() {
                               )}
                             </strong>
                           </div>
+                        )}
+                        {session.match === undefined || session.match.completed ? null : (
+                          <button
+                            className="primary-button match-advance-button"
+                            disabled={isInteractionLocked}
+                            onClick={() => void handleAdvanceMatch()}
+                            type="button"
+                          >
+                            {getMatchAdvanceLabel(session.match)}
+                          </button>
                         )}
                       </section>
                     ) : null}

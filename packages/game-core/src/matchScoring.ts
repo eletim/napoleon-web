@@ -1,5 +1,5 @@
 import { MATCH_ROUND_COUNT } from "./match.js";
-import type { PlayerId, PlayingSelfRole } from "./types.js";
+import type { GameResult, PlayerId, PlayingSelfRole } from "./types.js";
 
 export const MATCH_SCORING_PLAYER_COUNT = 5;
 export const MATCH_UMA_BY_POSITION = [20, 10, 0, -10, -20] as const;
@@ -31,6 +31,67 @@ export interface MatchPlayerScore extends RawMatchScore, MatchUma {
 export interface MatchScoreResult {
   players: readonly MatchPlayerScore[];
   meanScore: number;
+}
+
+export interface MatchProgressPlayerScore extends PlayerRoundScores, RawMatchScore {}
+
+/** Converts a finalized game result into each player's unadjusted round score. */
+export function calculateGameRoundScores(
+  result: GameResult,
+  playerIds: readonly PlayerId[]
+): readonly RawMatchScore[] {
+  validateFiveUniquePlayers(playerIds.map((playerId) => ({ playerId })));
+
+  if (result.resultType === "all-pass") {
+    const payoffs = new Map(result.payoffs.map(({ playerId, payoff }) => [playerId, payoff]));
+    return playerIds.map((playerId) => {
+      const payoff = payoffs.get(playerId);
+      if (payoff === undefined) {
+        throw new Error(`All-pass result is missing a payoff for ${playerId}.`);
+      }
+      requireFinite(payoff, `payoff for ${playerId}`);
+      return { playerId, rawMatchScore: payoff };
+    });
+  }
+
+  const d = result.winner === "napoleon-team" ? result.targetPointCards : 0;
+  return playerIds.map((playerId) => {
+    const role: RoundScoringRole = playerId === result.napoleonPlayerId
+      ? result.adjutantPlayerId === null || result.adjutantPlayerId === playerId
+        ? "napoleon-solo"
+        : "napoleon"
+      : playerId === result.adjutantPlayerId
+        ? "adjutant"
+        : "alliance";
+    return { playerId, rawMatchScore: calculateRoundScore(role, d) };
+  });
+}
+
+/** Builds in-progress totals without applying uma or final-value normalization. */
+export function calculateMatchProgressScores(
+  playerIds: readonly PlayerId[],
+  results: readonly GameResult[]
+): readonly MatchProgressPlayerScore[] {
+  validateFiveUniquePlayers(playerIds.map((playerId) => ({ playerId })));
+  if (results.length > MATCH_ROUND_COUNT) {
+    throw new Error(`A match cannot contain more than ${MATCH_ROUND_COUNT} results.`);
+  }
+
+  const rounds = results.map((result) => calculateGameRoundScores(result, playerIds));
+  return playerIds.map((playerId) => {
+    const roundScores = rounds.map((scores) => {
+      const score = scores.find((candidate) => candidate.playerId === playerId);
+      if (score === undefined) {
+        throw new Error(`Round score was not calculated for ${playerId}.`);
+      }
+      return score.rawMatchScore;
+    });
+    return {
+      playerId,
+      roundScores,
+      rawMatchScore: sum(roundScores)
+    };
+  });
 }
 
 /** Calculates one round's unadjusted score from the existing outcome value d. */

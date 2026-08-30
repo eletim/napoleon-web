@@ -29,6 +29,8 @@ export {
   MATCH_SCORING_PLAYER_COUNT,
   MATCH_UMA_BY_POSITION,
   calculateMatchScore,
+  calculateGameRoundScores,
+  calculateMatchProgressScores,
   calculateMatchUma,
   calculateRawMatchScore,
   calculateRoundScore
@@ -110,6 +112,7 @@ export type {
 } from "./match.js";
 export type {
   MatchPlayerScore,
+  MatchProgressPlayerScore,
   MatchScoreResult,
   MatchUma,
   PlayerRoundScores,
