@@ -425,8 +425,8 @@ function ProductionMatchRound({ match }: { match: PublicMatchState | undefined }
 
   const layout = tableDesignMockLayout;
   const center = projectTablePoint({
-    x: layout.center.x + layout.center.width / 2,
-    y: layout.center.y + layout.center.height / 2
+    x: layout.center.x,
+    y: layout.center.y
   }, layout.camera);
 
   return (

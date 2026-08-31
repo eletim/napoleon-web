@@ -10,6 +10,7 @@ import type {
   PublicSuit
 } from "@napoleon/protocol";
 import { TableSurface, productionTableTestExports } from "./TableSurface";
+import { projectTablePoint, tableDesignMockLayout } from "./TableDesignMock";
 import { fourColorSuitColors } from "./cardSuitTheme";
 import { createTablePlayers } from "./tablePlayers";
 
@@ -133,6 +134,17 @@ describe("TableSurface", () => {
     expect(countOccurrences(html, "mock-projected-role-marker-score")).toBe(5);
     expect(html).toContain('aria-label="現在 第3局 / 全5局"');
     expect(html).toContain(">第3局</text>");
+
+    const expectedCenter = projectTablePoint({
+      x: tableDesignMockLayout.center.x,
+      y: tableDesignMockLayout.center.y
+    }, tableDesignMockLayout.camera);
+    const roundPosition = html.match(
+      /<text aria-label="現在 第3局 \/ 全5局" class="production-match-round"[^>]* x="([^"]+)" y="([^"]+)"/
+    );
+
+    expect(Number(roundPosition?.[1])).toBeCloseTo(expectedCenter.x);
+    expect(Number(roundPosition?.[2])).toBeCloseTo(expectedCenter.y);
   });
 
   it("keeps match information attached to player ids when seat projection changes", () => {
