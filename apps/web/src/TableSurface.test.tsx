@@ -243,6 +243,26 @@ describe("TableSurface", () => {
     expect(html).toContain('class="mock-bidding-pass-button"');
   });
 
+  it("keeps centered match information available during the bidding phase", () => {
+    const html = renderTable(
+      createState({
+        legalActions: [{ type: "bid", suit: "spades", targetPointCards: 13 }, { type: "pass" }],
+        opponentHandCounts: [10, 10, 10, 10],
+        phase: "bidding"
+      }),
+      null,
+      undefined,
+      undefined,
+      progressMatch()
+    );
+
+    expect(html).toContain("production-bidding-overlay");
+    expect(countOccurrences(html, "mock-projected-role-marker-score")).toBe(5);
+    expect(html).toContain('aria-label="現在 第3局 / 全5局"');
+    expect(html).toContain("mock-projected-role-marker-left");
+    expect(html).toContain("mock-projected-role-marker-self");
+  });
+
   it("keeps self hand operations and card size fixed when cards are removed", () => {
     const fullHtml = renderTable(createState({ opponentHandCounts: [10, 10, 10, 10] }));
     const reducedHtml = renderTable(

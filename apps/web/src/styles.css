@@ -1281,7 +1281,7 @@ input:focus-visible {
   .production-bidding-overlay {
     border-radius: 12px;
     gap: 8px 10px;
-    grid-template-columns: minmax(150px, 1fr) minmax(240px, 1.2fr);
+    grid-template-columns: minmax(116px, 0.8fr) minmax(160px, 1.2fr);
     grid-template-rows: auto auto;
     padding: 8px 12px;
   }
@@ -1305,7 +1305,7 @@ input:focus-visible {
   }
 
   .production-bidding-overlay .mock-bidding-suit-selector {
-    gap: 8px;
+    gap: 4px;
     justify-content: center;
   }
 
@@ -1313,7 +1313,7 @@ input:focus-visible {
     border-radius: 9px;
     font-size: 28px;
     height: 40px;
-    width: 48px;
+    width: 36px;
   }
 
   .production-bidding-overlay .mock-bidding-suit-button[aria-pressed="true"] {
@@ -1322,8 +1322,8 @@ input:focus-visible {
   }
 
   .production-bidding-overlay .mock-bidding-number-selector {
-    gap: 10px;
-    grid-template-columns: 46px 58px 46px;
+    gap: 6px;
+    grid-template-columns: 32px 40px 32px;
     justify-content: center;
   }
 

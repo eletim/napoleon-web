@@ -1593,6 +1593,7 @@ export function createBiddingOverlayGeometry(
   viewport: ViewportSize = layout.page
 ): Box {
   const fit = createProjectedBoardFit(layout, viewport);
+  const roleBoardBox = createProjectedRoleBoardBoundingBox(layout, viewport);
   const selfHand = createSelfHandViewportLayout(layout, selfCards.length, viewport);
   const config = layout.bidding.overlay;
   const isCompactLandscape = viewport.height <= 520 && viewport.width > viewport.height;
@@ -1600,19 +1601,24 @@ export function createBiddingOverlayGeometry(
   const desiredHeight = isCompactLandscape
     ? Math.min(config.height, viewport.height * 0.46)
     : config.height;
-  const width = toLayoutPrecision(Math.min(
+  const requestedWidth = Math.min(
     viewport.width - config.viewportMargin * 2,
     clamp(viewport.width * config.widthRatio, config.minWidth, config.maxWidth)
+  );
+  const availableLeftWidth = roleBoardBox.left - config.viewportMargin * 2;
+  const availableRightWidth = viewport.width - roleBoardBox.right - config.viewportMargin * 2;
+  const placeOnRight = availableRightWidth >= availableLeftWidth;
+  const width = toLayoutPrecision(Math.min(
+    requestedWidth,
+    Math.max(placeOnRight ? availableRightWidth : availableLeftWidth, 0)
   ));
   const height = toLayoutPrecision(Math.min(
     desiredHeight,
     Math.max(minimumHeight, selfHand.top - config.gapFromSelfHand - config.viewportMargin * 2)
   ));
-  const x = toLayoutPrecision(clamp(
-    fit.transformedTableBox.x,
-    config.viewportMargin + width / 2,
-    viewport.width - config.viewportMargin - width / 2
-  ));
+  const x = toLayoutPrecision(placeOnRight
+    ? roleBoardBox.right + config.viewportMargin + width / 2
+    : roleBoardBox.left - config.viewportMargin - width / 2);
   const y = toLayoutPrecision(clamp(
     fit.transformedTableBox.y + config.yOffsetFromTableCenter,
     config.viewportMargin + height / 2,
@@ -1625,6 +1631,18 @@ export function createBiddingOverlayGeometry(
     x,
     y
   };
+}
+
+export function createProjectedRoleBoardBoundingBox(
+  layout: TableDesignMockLayout,
+  viewport: ViewportSize = layout.page
+): BoundingBox {
+  const fit = createProjectedBoardFit(layout, viewport);
+  const projectedRoleBoard = boundingBox(
+    projectTablePolygon(roleBoardOuterPolygon(layout.center), layout.camera)
+  );
+
+  return transformBoundingBox(projectedRoleBoard, fit.scale, fit.translate);
 }
 
 export function createBiddingBubbleLayouts(

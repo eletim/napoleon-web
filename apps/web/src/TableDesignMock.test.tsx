@@ -13,6 +13,7 @@ import {
   createOpponentHandsGeometry,
   createPlayerInfoLayouts,
   createProjectedBoardFit,
+  createProjectedRoleBoardBoundingBox,
   createProjectedTableBoundingBox,
   createRiverFaceMetrics,
   createRiverGeometry,
@@ -209,15 +210,39 @@ describe("TableDesignMock", () => {
     });
     const projectedFit = createProjectedBoardFit(tableDesignMockLayout, viewport);
 
-    expect(overlay.width).toBe(820);
+    const roleBoardBox = createProjectedRoleBoardBoundingBox(tableDesignMockLayout, viewport);
+
+    expect(overlay.width).toBeLessThanOrEqual(820);
     expect(overlay.height).toBe(430);
-    expect(overlay.x).toBeCloseTo(projectedFit.transformedTableBox.x);
+    expect(overlay.x).toBeGreaterThan(projectedFit.transformedTableBox.x);
     expect(overlay.y).toBeGreaterThan(projectedFit.transformedTableBox.y);
     expect(overlayBox.top).toBeGreaterThanOrEqual(tableDesignMockLayout.bidding.overlay.viewportMargin);
     expect(overlayBox.bottom).toBeLessThanOrEqual(
       selfHand.top - tableDesignMockLayout.bidding.overlay.gapFromSelfHand
     );
     expect(boxesOverlap(overlayBox, selfHandBox)).toBe(false);
+    expect(boxesOverlap(overlayBox, roleBoardBox)).toBe(false);
+  });
+
+  it("keeps the projected match-information pentagon visible during bidding at desktop and mobile landscape viewports", () => {
+    for (const viewport of [
+      { width: 1440, height: 900 },
+      { width: 844, height: 390 }
+    ]) {
+      const overlayBox = boxFromCenter(
+        createBiddingOverlayGeometry(tableDesignMockLayout, viewport)
+      );
+      const roleBoardBox = createProjectedRoleBoardBoundingBox(
+        tableDesignMockLayout,
+        viewport
+      );
+
+      expect(boxesOverlap(overlayBox, roleBoardBox)).toBe(false);
+      expect(overlayBox.left).toBeGreaterThanOrEqual(0);
+      expect(overlayBox.right).toBeLessThanOrEqual(viewport.width);
+      expect(overlayBox.top).toBeGreaterThanOrEqual(0);
+      expect(overlayBox.bottom).toBeLessThanOrEqual(viewport.height);
+    }
   });
 
   it("places all bidding bubbles near player info without covering hands or viewport edges", () => {
