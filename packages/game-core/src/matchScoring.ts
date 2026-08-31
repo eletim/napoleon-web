@@ -104,7 +104,7 @@ export function calculateRoundScore(role: RoundScoringRole, d: number): number {
     case "adjutant":
       return d;
     case "alliance":
-      return 0;
+      return d;
     case "napoleon-solo":
       return 3 * d - 5;
   }
