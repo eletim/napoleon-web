@@ -21,7 +21,7 @@ import { CardDesignMock } from "./CardDesignMock";
 import { TableSurface } from "./TableSurface";
 import { TableDesignMock } from "./TableDesignMock";
 import { hasCompletedMatchResult, MatchFinalResults } from "./MatchFinalResults";
-import { getMatchAdvanceLabel, MatchProgress } from "./MatchProgress";
+import { getMatchAdvanceLabel } from "./MatchProgress";
 import {
   createAdjutantCardId,
   createAdjutantSelectionLabel,
@@ -445,10 +445,6 @@ function GameApp() {
             />
           ) : null}
 
-          {session?.match === undefined || completedMatch !== undefined ? null : (
-            <MatchProgress match={session.match} players={tablePlayers} />
-          )}
-
           {completedMatch !== undefined ? (
             <MatchFinalResults
               disabled={isInteractionLocked || hasUnavailablePresetSelection}
@@ -696,6 +692,7 @@ function GameApp() {
               isResultEmphasisActive={trickAnimation.isResultEmphasisActive}
               legalBidActions={legalBidActions}
               legalCardIds={legalCardIds}
+              match={session?.match}
               onBid={(action) => void handleSendAction(action)}
               onPass={() => void handleSendAction({ type: "pass" })}
               onToggleWinningCardHighlight={() =>

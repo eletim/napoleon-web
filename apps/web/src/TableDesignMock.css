@@ -424,8 +424,23 @@ html:has(.table-design-mock-page) {
 
 .mock-projected-role-marker-text {
   fill: #303030;
-  font-size: 18px;
   font-weight: 800;
+}
+
+.mock-projected-role-marker-role {
+  font-size: 16px;
+}
+
+.mock-projected-role-marker-score {
+  fill: #172033;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.production-match-round {
+  fill: #303056;
+  font-size: 24px;
+  font-weight: 900;
 }
 
 .role-marker {

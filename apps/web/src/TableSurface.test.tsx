@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type {
   PublicBidAction,
   PublicGameState,
+  PublicMatchState,
   PublicPlayedCard,
   PublicRank,
   PublicStandardCard,
@@ -104,16 +105,53 @@ describe("TableSurface", () => {
     );
 
     expect(countOccurrences(biddingHtml, "mock-projected-role-marker-text")).toBe(5);
-    expect(biddingHtml).toContain(">?</text>");
-    expect(playingHtml).toContain(">ナポ</text>");
-    expect(playingHtml).toContain(">副</text>");
-    expect(playingHtml).toContain(">市</text>");
-    expect(productionTableTestExports.playerRoleLabel("player-1", createState({ opponentHandCounts: [9, 9, 9, 9] }))).toBe("ナポ");
+    expect(biddingHtml).toContain(">?</tspan>");
+    expect(playingHtml).toContain(">ナポレオン</tspan>");
+    expect(playingHtml).toContain(">副官</tspan>");
+    expect(playingHtml).toContain(">市民</tspan>");
+    expect(productionTableTestExports.playerRoleLabel("player-1", createState({ opponentHandCounts: [9, 9, 9, 9] }))).toBe("ナポレオン");
     expect(productionTableTestExports.playerRoleLabel("player-3", createState({ opponentHandCounts: [9, 9, 9, 9] }))).toBe("?");
     expect(productionTableTestExports.playerRoleLabel("player-1", createState({
       adjutantRevealedPlayerId: "player-1",
       opponentHandCounts: [9, 9, 9, 9]
     }))).toBe("ナ/副");
+  });
+
+  it("places domain match totals and roles in each projected seat sector with the round at center", () => {
+    const state = createState({
+      adjutantRevealedPlayerId: "player-2",
+      opponentHandCounts: [9, 9, 9, 9]
+    });
+    const match = progressMatch();
+    const html = renderTable(state, null, undefined, undefined, match);
+
+    expect(html).toContain('aria-label="左側AI: 役職 ナポレオン, 累積試合スコア +21"');
+    expect(html).toContain('aria-label="奥左AI: 役職 副官, 累積試合スコア -3"');
+    expect(html).toContain('aria-label="奥右AI: 役職 市民, 累積試合スコア +13"');
+    expect(html).toContain('aria-label="右側AI: 役職 市民, 累積試合スコア +7"');
+    expect(html).toContain('aria-label="自分: 役職 市民, 累積試合スコア 0"');
+    expect(countOccurrences(html, "mock-projected-role-marker-score")).toBe(5);
+    expect(html).toContain('aria-label="現在 第3局 / 全5局"');
+    expect(html).toContain(">第3局</text>");
+  });
+
+  it("keeps match information attached to player ids when seat projection changes", () => {
+    const state = createState({
+      adjutantRevealedPlayerId: "player-2",
+      opponentHandCounts: [9, 9, 9, 9]
+    });
+    const players = createTablePlayers(state);
+    const rotatedSeats = ["top-right", "right", "self", "left", "top-left"] as const;
+    const rotatedPlayers = players.map((player, index) => ({
+      ...player,
+      seat: rotatedSeats[index]
+    }));
+    const html = renderTable(state, null, undefined, undefined, progressMatch(), rotatedPlayers);
+    const topRightMarker = html.match(
+      /<g aria-label="左側AI: 役職 ナポレオン, 累積試合スコア \+21" class="mock-projected-role-marker mock-projected-role-marker-top-right">/
+    );
+
+    expect(topRightMarker).not.toBeNull();
   });
 
   it("preserves contract and called-card status after bidding", () => {
@@ -229,7 +267,9 @@ function renderTable(
   state: PublicGameState,
   actionPanel: React.ReactNode = null,
   legalBidActions: readonly PublicBidAction[] = state.legalActions.filter((action): action is PublicBidAction => action.type === "bid"),
-  canPass = state.legalActions.some((action) => action.type === "pass")
+  canPass = state.legalActions.some((action) => action.type === "pass"),
+  match?: PublicMatchState,
+  players = createTablePlayers(state)
 ): string {
   return renderToStaticMarkup(
     <TableSurface
@@ -241,11 +281,12 @@ function renderTable(
       isBusy={false}
       legalBidActions={legalBidActions}
       legalCardIds={new Set(state.legalActions.filter((action) => action.type === "play-card").map((action) => action.cardId))}
+      match={match}
       onBid={vi.fn()}
       onPass={vi.fn()}
       onPlay={vi.fn()}
       onToggleWinningCardHighlight={vi.fn()}
-      players={createTablePlayers(state)}
+      players={players}
       selectedDiscardCardIds={[]}
       selfPlayerId={state.self.id}
       state={state}
@@ -253,6 +294,30 @@ function renderTable(
       trumpSuit={state.trumpSuit}
     />
   );
+}
+
+function progressMatch(): PublicMatchState {
+  const scores = new Map([
+    ["player-0", 0],
+    ["player-1", 21],
+    ["player-2", -3],
+    ["player-3", 13],
+    ["player-4", 7]
+  ]);
+
+  return {
+    currentRound: 3,
+    roundCount: 5,
+    completedRoundCount: 2,
+    remainingRounds: 3,
+    completed: false,
+    players: ["player-4", "player-2", "player-0", "player-1", "player-3"].map((playerId) => ({
+      playerId,
+      roundScores: [],
+      rawMatchScore: scores.get(playerId) ?? 0
+    })),
+    finalScores: null
+  };
 }
 
 function createState({

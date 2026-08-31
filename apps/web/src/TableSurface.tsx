@@ -4,6 +4,7 @@ import type {
   PublicBiddingState,
   PublicCard,
   PublicGameState,
+  PublicMatchState,
   PublicPlayedCard,
   PublicStandardCard,
   PublicSuit
@@ -58,6 +59,7 @@ interface TableSurfaceProps {
   isResultEmphasisActive?: boolean;
   legalBidActions?: readonly PublicBidAction[];
   legalCardIds: ReadonlySet<string>;
+  match?: PublicMatchState;
   onBid?: (action: PublicBidAction) => void;
   onPass?: () => void;
   onPlay: (card: PublicCard) => void;
@@ -103,6 +105,7 @@ export function TableSurface({
   isResultEmphasisActive = false,
   legalBidActions = [],
   legalCardIds,
+  match,
   onBid,
   onPass,
   onPlay,
@@ -143,6 +146,7 @@ export function TableSurface({
         adapters={adapters}
         currentTrickByPlayerId={playedCardsByPlayerId}
         isCollecting={collectingSeat !== undefined}
+        match={match}
         viewportSize={viewportSize}
         winningPlayerId={winningPlayerId}
         state={state}
@@ -241,6 +245,7 @@ function ProjectedProductionBoard({
   adapters,
   currentTrickByPlayerId,
   isCollecting,
+  match,
   state,
   viewportSize,
   winningPlayerId
@@ -248,6 +253,7 @@ function ProjectedProductionBoard({
   adapters: readonly TablePlayerAdapter[];
   currentTrickByPlayerId: ReadonlyMap<string, PublicPlayedCard>;
   isCollecting: boolean;
+  match: PublicMatchState | undefined;
   state: PublicGameState | undefined;
   viewportSize: ViewportSize;
   winningPlayerId: string | undefined;
@@ -294,8 +300,15 @@ function ProjectedProductionBoard({
           ))}
           <polygon className="mock-projected-role-board-inner" points={svgPoints(roleInnerPoints)} />
           {seatOrder.map((seat) => (
-            <ProductionRoleMarker key={`production-role-${seat}`} seat={seat} state={state} adapters={adapters} />
+            <ProductionRoleMarker
+              adapters={adapters}
+              key={`production-role-${seat}`}
+              match={match}
+              seat={seat}
+              state={state}
+            />
           ))}
+          <ProductionMatchRound match={match} />
         </g>
       </svg>
       <div className="mock-projected-card-layer">
@@ -343,10 +356,12 @@ function ProjectedProductionBoard({
 
 function ProductionRoleMarker({
   adapters,
+  match,
   seat,
   state
 }: {
   adapters: readonly TablePlayerAdapter[];
+  match: PublicMatchState | undefined;
   seat: TableSeatId;
   state: PublicGameState | undefined;
 }) {
@@ -367,20 +382,64 @@ function ProductionRoleMarker({
   const labelCenter = polygonCenter(corners);
   const player = adapters.find((entry) => entry.seat === seat);
   const role = player === undefined ? "?" : playerRoleLabel(player.id, state);
+  const rawMatchScore = player === undefined
+    ? undefined
+    : match?.players.find((entry) => entry.playerId === player.id)?.rawMatchScore;
+  const score = rawMatchScore === undefined ? "—" : formatMatchScore(rawMatchScore);
 
   return (
-    <g className={`mock-projected-role-marker mock-projected-role-marker-${seat}`}>
+    <g
+      aria-label={`${player?.label ?? seat}: 役職 ${role}, 累積試合スコア ${score}`}
+      className={`mock-projected-role-marker mock-projected-role-marker-${seat}`}
+    >
       <polygon className="mock-projected-role-marker-fill" points={svgPoints(corners)} />
       <text
         className="mock-projected-role-marker-text"
-        dominantBaseline="central"
         textAnchor="middle"
-        x={labelCenter.x}
-        y={labelCenter.y}
       >
-        {role}
+        <tspan
+          className="mock-projected-role-marker-role"
+          dominantBaseline="central"
+          x={labelCenter.x}
+          y={labelCenter.y - 11}
+        >
+          {role}
+        </tspan>
+        <tspan
+          className="mock-projected-role-marker-score"
+          dominantBaseline="central"
+          x={labelCenter.x}
+          y={labelCenter.y + 13}
+        >
+          {score}
+        </tspan>
       </text>
     </g>
+  );
+}
+
+function ProductionMatchRound({ match }: { match: PublicMatchState | undefined }) {
+  if (match === undefined) {
+    return null;
+  }
+
+  const layout = tableDesignMockLayout;
+  const center = projectTablePoint({
+    x: layout.center.x + layout.center.width / 2,
+    y: layout.center.y + layout.center.height / 2
+  }, layout.camera);
+
+  return (
+    <text
+      aria-label={`現在 第${match.currentRound}局 / 全${match.roundCount}局`}
+      className="production-match-round"
+      dominantBaseline="central"
+      textAnchor="middle"
+      x={center.x}
+      y={center.y}
+    >
+      第{match.currentRound}局
+    </text>
   );
 }
 
@@ -1035,11 +1094,11 @@ function playerRoleLabel(playerId: string, state: PublicGameState | undefined): 
   }
 
   if (isNapoleon) {
-    return "ナポ";
+    return "ナポレオン";
   }
 
   if (isAdjutant) {
-    return "副";
+    return "副官";
   }
 
   if (
@@ -1047,10 +1106,14 @@ function playerRoleLabel(playerId: string, state: PublicGameState | undefined): 
     state.adjutant?.revealedPlayerId !== null &&
     state.adjutant?.revealedPlayerId !== undefined
   ) {
-    return "市";
+    return "市民";
   }
 
   return "?";
+}
+
+function formatMatchScore(score: number): string {
+  return `${score > 0 ? "+" : ""}${Number.isInteger(score) ? score : score.toFixed(2)}`;
 }
 
 function getCardInteractionState(
