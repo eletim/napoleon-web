@@ -1662,13 +1662,15 @@ export function createBiddingBubbleLayouts(
     createProjectedOpponentHandBoundingBox(layout, seatId, fit)
   );
   const overlayBox = boundingBoxFromCenter(createBiddingOverlayGeometry(layout, viewport));
+  const roleBoardBox = createProjectedRoleBoardBoundingBox(layout, viewport);
   const hudBox = boundingBoxFromTopLeft(layout.hud);
   const staticAvoidBoxes = [
     ...playerInfos.map((info) => boundingBoxFromCenter(info)),
     hudBox,
     selfHandBox,
     ...opponentHandBoxes,
-    overlayBox
+    overlayBox,
+    roleBoardBox
   ];
   const placedBubbleBoxes: BoundingBox[] = [];
 

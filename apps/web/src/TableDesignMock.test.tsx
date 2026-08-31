@@ -236,8 +236,12 @@ describe("TableDesignMock", () => {
         tableDesignMockLayout,
         viewport
       );
+      const bubbles = createBiddingBubbleLayouts(tableDesignMockLayout, viewport);
 
       expect(boxesOverlap(overlayBox, roleBoardBox)).toBe(false);
+      for (const bubble of bubbles) {
+        expect(boxesOverlap(boxFromCenter(bubble), roleBoardBox)).toBe(false);
+      }
       expect(overlayBox.left).toBeGreaterThanOrEqual(0);
       expect(overlayBox.right).toBeLessThanOrEqual(viewport.width);
       expect(overlayBox.top).toBeGreaterThanOrEqual(0);
