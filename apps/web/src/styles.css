@@ -1075,6 +1075,70 @@ input:focus-visible {
   z-index: 24;
 }
 
+.production-round-score-history {
+  position: relative;
+}
+
+.production-round-score-history summary {
+  align-content: center;
+  background: rgb(15 23 42 / 86%);
+  border: 1px solid rgb(255 255 255 / 24%);
+  border-radius: 8px;
+  color: #e2e8f0;
+  cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 900;
+  min-height: 32px;
+  padding: 0 10px;
+}
+
+.production-round-score-history summary::marker {
+  content: "";
+}
+
+.production-round-score-history-panel {
+  background: rgb(15 23 42 / 94%);
+  border: 1px solid rgb(255 255 255 / 24%);
+  border-radius: 8px;
+  box-shadow: 0 12px 28px rgb(0 0 0 / 32%);
+  max-width: calc(100vw - 24px);
+  overflow-x: auto;
+  padding: 10px;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+}
+
+.production-round-score-history table {
+  border-collapse: collapse;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.production-round-score-history caption {
+  font-size: 0.9rem;
+  font-weight: 900;
+  margin-bottom: 6px;
+  text-align: left;
+}
+
+.production-round-score-history th,
+.production-round-score-history td {
+  border-bottom: 1px solid rgb(255 255 255 / 16%);
+  padding: 4px 7px;
+  text-align: right;
+}
+
+.production-round-score-history th:first-child {
+  text-align: left;
+}
+
+.production-round-score-history p {
+  font-size: 0.78rem;
+  margin: 6px 0 0;
+  white-space: nowrap;
+}
+
 .production-contract-hud {
   align-items: center;
   color: #f8fafc;
