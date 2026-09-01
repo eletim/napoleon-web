@@ -482,7 +482,7 @@ describe("TableDesignMock", () => {
 
         expect(obstacles.opponentHands).toHaveLength(4);
         expect(obstacles.playerInfos).toHaveLength(5);
-        expect(obstacles.trickCards).toHaveLength(5);
+        expect(obstacles.trickCards).toHaveLength(isBidding ? 0 : 5);
         expect(obstacles.biddingOverlay).toHaveLength(isBidding ? 1 : 0);
         expect(obstacles.biddingBubbles).toHaveLength(isBidding ? 5 : 0);
 
@@ -521,7 +521,8 @@ describe("TableDesignMock", () => {
 
     for (const viewport of [
       { width: 640, height: 360 },
-      { width: 667, height: 375 }
+      { width: 667, height: 375 },
+      { width: 720, height: 360 }
     ]) {
       const fit = createProjectedBoardFit(tableDesignMockLayout, viewport);
       const centers = createProjectedRoleTextCenters(tableDesignMockLayout, viewport, context);
@@ -536,19 +537,38 @@ describe("TableDesignMock", () => {
           width: labels[index].length * 9
         });
       });
+      const renderedCenters = seats.map((seatId) => {
+        const center = centers[seatId];
+
+        return {
+          x: center.x * fit.scale + fit.translate.x,
+          y: center.y * fit.scale + fit.translate.y
+        };
+      });
 
       expect(Object.keys(centers).sort()).toEqual(["left", "right", "self", "top-left", "top-right"]);
       for (const center of Object.values(centers)) {
         expect(Number.isFinite(center.x)).toBe(true);
         expect(Number.isFinite(center.y)).toBe(true);
       }
+      for (const [index, seatId] of seats.entries()) {
+        const ownSector = createProjectedRoleTextSectorGeometry(tableDesignMockLayout, viewport, seatId);
+
+        expect(projectedSectorAlignment(renderedCenters[index], ownSector))
+          .toBeGreaterThanOrEqual(projectedRoleTextSectorMinimumAlignment);
+      }
       for (const [index, markerBox] of markerBoxes.entries()) {
         expect(markerBox.left).toBeGreaterThanOrEqual(0);
         expect(markerBox.right).toBeLessThanOrEqual(viewport.width);
         expect(markerBox.top).toBeGreaterThanOrEqual(0);
         expect(markerBox.bottom).toBeLessThanOrEqual(viewport.height);
-        for (const obstacle of Object.values(obstacles).flat()) {
-          expect(boxesOverlap(markerBox, obstacle)).toBe(false);
+        for (const [obstacleType, obstacleBoxes] of Object.entries(obstacles)) {
+          for (const obstacle of obstacleBoxes) {
+            expect(
+              boxesOverlap(markerBox, obstacle),
+              `${viewport.width}x${viewport.height} ${seats[index]} overlaps ${obstacleType}`
+            ).toBe(false);
+          }
         }
         for (const otherMarkerBox of markerBoxes.slice(index + 1)) {
           expect(boxesOverlap(markerBox, otherMarkerBox)).toBe(false);

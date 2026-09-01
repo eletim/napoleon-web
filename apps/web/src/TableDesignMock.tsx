@@ -1465,12 +1465,12 @@ export function createProjectedRoleTextCenters(
   for (
     let y = compactProjectedRoleTextCollisionSize.height / 2 + 4;
     y <= selfHandTop - compactProjectedRoleTextCollisionSize.height / 2 - 4;
-    y += 4
+    y += 2
   ) {
     for (
       let x = compactProjectedRoleTextCollisionSize.width / 2 + 4;
       x <= viewport.width - compactProjectedRoleTextCollisionSize.width / 2 - 4;
-      x += 4
+      x += 2
     ) {
       viewportCandidates.push({ x, y });
     }
@@ -1484,6 +1484,9 @@ export function createProjectedRoleTextCenters(
     const avoidBoxes = [...staticAvoidBoxes, ...placedBoxes];
     let candidate: Point | undefined;
     let candidateDistance = Number.POSITIVE_INFINITY;
+    let leastOverlapCandidate: Point | undefined;
+    let leastOverlapArea = Number.POSITIVE_INFINITY;
+    let leastOverlapDistance = Number.POSITIVE_INFINITY;
 
     for (const center of viewportCandidates) {
       if (!pointIsInProjectedRoleTextSector(center, sector)) {
@@ -1491,12 +1494,20 @@ export function createProjectedRoleTextCenters(
       }
 
       const box = boundingBoxFromCenter({ ...compactProjectedRoleTextCollisionSize, ...center });
+      const overlap = avoidBoxes.reduce((total, avoidBox) => total + overlapArea(box, avoidBox), 0);
+      const distanceFromPreferred = distance(center, preferred);
 
-      if (avoidBoxes.some((avoidBox) => boxesOverlap(box, avoidBox))) {
+      if (overlap < leastOverlapArea
+        || (overlap === leastOverlapArea && distanceFromPreferred < leastOverlapDistance)) {
+        leastOverlapCandidate = center;
+        leastOverlapArea = overlap;
+        leastOverlapDistance = distanceFromPreferred;
+      }
+
+      if (overlap > 0) {
         continue;
       }
 
-      const distanceFromPreferred = distance(center, preferred);
       if (distanceFromPreferred < candidateDistance) {
         candidate = center;
         candidateDistance = distanceFromPreferred;
@@ -1504,42 +1515,9 @@ export function createProjectedRoleTextCenters(
     }
 
     if (candidate === undefined) {
-      // When compact UI occupies the whole preferred sector, preserve as much
-      // of the seat direction as possible without giving up collision safety.
-      let fallbackAlignment = Number.NEGATIVE_INFINITY;
-
-      for (const center of viewportCandidates) {
-        const box = boundingBoxFromCenter({ ...compactProjectedRoleTextCollisionSize, ...center });
-
-        if (avoidBoxes.some((avoidBox) => boxesOverlap(box, avoidBox))) {
-          continue;
-        }
-
-        const alignment = projectedRoleTextSectorAlignment(center, sector);
-        const distanceFromPreferred = distance(center, preferred);
-        if (alignment > fallbackAlignment
-          || (alignment === fallbackAlignment && distanceFromPreferred < candidateDistance)) {
-          candidate = center;
-          candidateDistance = distanceFromPreferred;
-          fallbackAlignment = alignment;
-        }
-      }
-    }
-
-    if (candidate === undefined) {
-      // A pathological viewport must degrade placement rather than crash the
-      // entire table. Choose the point with the smallest occupied area.
-      candidate = viewportCandidates.reduce((best, center) => {
-        const box = boundingBoxFromCenter({ ...compactProjectedRoleTextCollisionSize, ...center });
-        const overlap = avoidBoxes.reduce((total, avoidBox) => total + overlapArea(box, avoidBox), 0);
-        const bestBox = boundingBoxFromCenter({ ...compactProjectedRoleTextCollisionSize, ...best });
-        const bestOverlap = avoidBoxes.reduce(
-          (total, avoidBox) => total + overlapArea(bestBox, avoidBox),
-          0
-        );
-
-        return overlap < bestOverlap ? center : best;
-      }, viewportCandidates[0] ?? preferred);
+      // A pathological viewport must degrade collision spacing rather than
+      // move a label into another player's sector or crash the entire table.
+      candidate = leastOverlapCandidate ?? preferred;
     }
 
     placedBoxes.push(boundingBoxFromCenter({ ...compactProjectedRoleTextCollisionSize, ...candidate }));
@@ -1901,13 +1879,16 @@ export function createProjectedRoleTextObstacles(
     fit.scale,
     fit.translate
   );
-  const trickCards = roleMarkerSeatOrder.map((seatId) =>
-    transformBoundingBox(
-      boundingBox(projectTableCard(createCurrentTrickCardPlane(layout, seatId), layout.camera)),
-      fit.scale,
-      fit.translate
-    )
-  );
+  const isBidding = context.isBidding === true;
+  const trickCards = isBidding
+    ? []
+    : roleMarkerSeatOrder.map((seatId) =>
+        transformBoundingBox(
+          boundingBox(projectTableCard(createCurrentTrickCardPlane(layout, seatId), layout.camera)),
+          fit.scale,
+          fit.translate
+        )
+      );
   const opponentHands = opponentSeatOrder.flatMap((seatId) => {
     const cardCount = context.opponentHandCounts?.[seatId] ?? layout.opponentHand.cardCounts[seatId];
 
@@ -1933,8 +1914,6 @@ export function createProjectedRoleTextObstacles(
       context.riverCardCounts?.[seatId]
     )
   ));
-  const isBidding = context.isBidding === true;
-
   return {
     biddingBubbles: isBidding
       ? createBiddingBubbleLayouts(layout, viewport).map((bubble) => boundingBoxFromCenter(bubble))
