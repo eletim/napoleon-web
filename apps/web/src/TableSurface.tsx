@@ -45,6 +45,7 @@ import {
   roleBoardLocalToAbsolute,
   roleBoardOuterPolygon,
   selfHandCardIndexStyle,
+  selfHandViewportStyle,
   tableDesignMockLayout
 } from "./TableDesignMock";
 import { fourColorSuitColors } from "./cardSuitTheme";
@@ -1211,29 +1212,6 @@ function biddingOverlayStyle(geometry: { height: number; width: number; x: numbe
     "--mock-bidding-secondary-column-width": `${compactContent.secondaryColumnWidth}px`,
     "--mock-x": `${geometry.x}px`,
     "--mock-y": `${geometry.y}px`
-  } as CSSProperties;
-}
-
-function selfHandViewportStyle(layout: {
-  cardSize: { height: number; width: number };
-  contentWidth: number;
-  gap: number;
-  handHeight: number;
-  handWidth: number;
-  left: number;
-  step: number;
-  top: number;
-}): CSSProperties {
-  return {
-    "--mock-self-card-gap": `${layout.gap}px`,
-    "--mock-self-card-height": `${layout.cardSize.height}px`,
-    "--mock-self-card-step": `${layout.step}px`,
-    "--mock-self-card-width": `${layout.cardSize.width}px`,
-    "--mock-self-content-left": `${(layout.handWidth - layout.contentWidth) / 2}px`,
-    "--mock-self-hand-height": `${layout.handHeight}px`,
-    "--mock-self-hand-left": `${layout.left}px`,
-    "--mock-self-hand-top": `${layout.top}px`,
-    "--mock-self-hand-width": `${layout.handWidth}px`
   } as CSSProperties;
 }
 

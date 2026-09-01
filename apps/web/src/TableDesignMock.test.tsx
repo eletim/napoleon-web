@@ -384,7 +384,7 @@ describe("TableDesignMock", () => {
     expect(metrics.cardSize.width).toBeCloseTo((0.8 * viewportWidth) / 13);
     expect(metrics.cardSize.height).toBeCloseTo(metrics.cardSize.width * 7 / 5);
     expect(metrics.gap).toBeCloseTo((0.16 * viewportWidth) / 12);
-    expect(fullHand.columnCount).toBe(10);
+    expect(fullHand.cardCount).toBe(10);
     expect(fullHand.handWidth).toBeCloseTo(selfHandWidth(13, metrics));
     expect(fullHand.handHeight).toBeCloseTo(metrics.cardSize.height);
     expect(fullHand.contentWidth).toBeCloseTo(selfHandWidth(10, metrics));
@@ -1090,6 +1090,27 @@ describe("TableDesignMock", () => {
         ]));
 
         expect(boxesOverlap(boxFromCenter(selfInfo), exchangeHandBox)).toBe(false);
+      }
+    }
+  });
+
+  it("keeps self player info below the viewport margin even on very wide, short viewports", () => {
+    // Wide-but-short viewports leave less vertical room above the hand than the panel needs
+    // (unitHeight + selfGap), so the panel's y-position must still be clamped down to the
+    // viewport margin rather than escaping above it.
+    for (const viewport of [
+      { width: 3000, height: 300 },
+      { width: 4000, height: 200 }
+    ]) {
+      const selfInfo = createPlayerInfoLayouts(tableDesignMockLayout, viewport, true, 10)
+        .find((info) => info.seatId === "self");
+
+      expect(selfInfo).toBeDefined();
+      if (selfInfo !== undefined) {
+        const selfBox = boxFromCenter(selfInfo);
+
+        expect(selfBox.top).toBeGreaterThanOrEqual(tableDesignMockLayout.playerInfo.viewportMargin - 0.01);
+        expect(selfBox.bottom).toBeLessThanOrEqual(viewport.height);
       }
     }
   });

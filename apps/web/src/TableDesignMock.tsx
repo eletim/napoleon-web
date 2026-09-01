@@ -1165,15 +1165,15 @@ interface OpponentHandGeometry {
 
 interface SelfHandViewportLayout {
   bottom: number;
+  // Number of cards actually laid out in the single row (i.e. the current hand size).
+  cardCount: number;
   cardSize: { height: number; width: number };
   center: Point;
-  // Number of cards actually laid out in the single row (i.e. the current hand size).
-  columnCount: number;
   contentWidth: number;
   gap: number;
   handHeight: number;
   // handWidth/left/top/handHeight always describe the fixed footprint sized for
-  // selfHandUi.maxCardCount cards, independent of columnCount, so that surrounding
+  // selfHandUi.maxCardCount cards, independent of cardCount, so that surrounding
   // layout never shifts as the actual hand size changes.
   handWidth: number;
   left: number;
@@ -1440,7 +1440,7 @@ export function createSelfHandViewportLayout(
       x: toLayoutPrecision(left + handWidth / 2),
       y: toLayoutPrecision(top + handHeight / 2)
     },
-    columnCount: cardCount,
+    cardCount,
     contentWidth,
     handHeight,
     handWidth,
@@ -2531,7 +2531,7 @@ function createSelfPlayerInfoLayout(
   const y = clamp(
     selfHandLayout.top - info.unitHeight - info.selfGap,
     info.viewportMargin,
-    selfHandLayout.top - info.unitHeight - info.selfGap
+    viewport.height - info.viewportMargin - info.unitHeight
   );
 
   return createPlayerInfoGeometry(layout, "self", {
@@ -2926,7 +2926,7 @@ function roleMarkerStyle(marker: RoleMarkerGeometry): CSSProperties {
   } as CSSProperties;
 }
 
-function selfHandViewportStyle(layout: SelfHandViewportLayout): CSSProperties {
+export function selfHandViewportStyle(layout: SelfHandViewportLayout): CSSProperties {
   return {
     "--mock-self-card-gap": `${layout.gap}px`,
     "--mock-self-card-height": `${layout.cardSize.height}px`,
