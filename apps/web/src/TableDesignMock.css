@@ -440,9 +440,13 @@ html:has(.table-design-mock-page) {
   font-weight: 900;
 }
 
+.mock-projected-role-marker-compact {
+  font-size: 16px;
+}
+
 .production-match-round {
   fill: #303056;
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 900;
   transform: scale(var(--mock-projected-board-counter-scale));
   transform-box: fill-box;

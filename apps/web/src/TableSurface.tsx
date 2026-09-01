@@ -15,11 +15,13 @@ import { cardDesignSuitSymbols } from "./CardDesignCard";
 import {
   createBiddingBubbleLayouts,
   createBiddingOverlayGeometry,
+  createCompactBiddingContentMetrics,
   createCurrentTrickCardPlane,
   createCurrentTrickZoneGeometry,
   createOpponentHandGeometry,
   createPlayerInfoLayouts,
   createProjectedBoardFit,
+  createProjectedRoleTextCenter,
   createRiverFaceMetrics,
   createRiverGeometry,
   createRiverPlacements,
@@ -302,11 +304,12 @@ function ProjectedProductionBoard({
           {seatOrder.map((seat) => (
             <ProductionRoleMarker
               adapters={adapters}
-              compact={viewportSize.height <= 500}
+              compact={viewportSize.height <= 500 && viewportSize.width > viewportSize.height}
               key={`production-role-${seat}`}
               match={match}
               seat={seat}
               state={state}
+              viewportSize={viewportSize}
             />
           ))}
           <ProductionMatchRound match={match} />
@@ -360,13 +363,15 @@ function ProductionRoleMarker({
   compact,
   match,
   seat,
-  state
+  state,
+  viewportSize
 }: {
   adapters: readonly TablePlayerAdapter[];
   compact: boolean;
   match: PublicMatchState | undefined;
   seat: TableSeatId;
   state: PublicGameState | undefined;
+  viewportSize: ViewportSize;
 }) {
   const layout = tableDesignMockLayout;
   const marker = createRoleMarkerGeometry(layout.center, seat);
@@ -382,7 +387,7 @@ function ProductionRoleMarker({
     },
     layout.camera
   );
-  const labelCenter = polygonCenter(corners);
+  const labelCenter = createProjectedRoleTextCenter(layout, seat, viewportSize);
   const player = adapters.find((entry) => entry.seat === seat);
   const role = player === undefined ? "?" : playerRoleLabel(player.id, state);
   const displayedRole = compact ? compactRoleLabel(role) : role;
@@ -397,27 +402,39 @@ function ProductionRoleMarker({
       className={`mock-projected-role-marker mock-projected-role-marker-${seat}`}
     >
       <polygon className="mock-projected-role-marker-fill" points={svgPoints(corners)} />
-      <text
-        className="mock-projected-role-marker-text"
-        textAnchor="middle"
-      >
-        <tspan
-          className="mock-projected-role-marker-role"
+      {compact ? (
+        <text
+          className="mock-projected-role-marker-text mock-projected-role-marker-compact"
           dominantBaseline="central"
+          textAnchor="middle"
           x={labelCenter.x}
-          y={labelCenter.y - 11}
+          y={labelCenter.y}
         >
-          {displayedRole}
-        </tspan>
-        <tspan
-          className="mock-projected-role-marker-score"
-          dominantBaseline="central"
-          x={labelCenter.x}
-          y={labelCenter.y + 13}
+          {displayedRole}/{score}
+        </text>
+      ) : (
+        <text
+          className="mock-projected-role-marker-text"
+          textAnchor="middle"
         >
-          {score}
-        </tspan>
-      </text>
+          <tspan
+            className="mock-projected-role-marker-role"
+            dominantBaseline="central"
+            x={labelCenter.x}
+            y={labelCenter.y - 11}
+          >
+            {displayedRole}
+          </tspan>
+          <tspan
+            className="mock-projected-role-marker-score"
+            dominantBaseline="central"
+            x={labelCenter.x}
+            y={labelCenter.y + 13}
+          >
+            {score}
+          </tspan>
+        </text>
+      )}
     </g>
   );
 }
@@ -1067,9 +1084,15 @@ function playerInfoStyle(info: { avatarSize: number; gap: number; height: number
 }
 
 function biddingOverlayStyle(geometry: { height: number; width: number; x: number; y: number }): CSSProperties {
+  const compactContent = createCompactBiddingContentMetrics(geometry);
+
   return {
+    "--mock-bidding-column-gap": `${compactContent.columnGap}px`,
     "--mock-bidding-overlay-height": `${geometry.height}px`,
     "--mock-bidding-overlay-width": `${geometry.width}px`,
+    "--mock-bidding-padding-inline": `${compactContent.paddingInline}px`,
+    "--mock-bidding-primary-column-width": `${compactContent.primaryColumnWidth}px`,
+    "--mock-bidding-secondary-column-width": `${compactContent.secondaryColumnWidth}px`,
     "--mock-x": `${geometry.x}px`,
     "--mock-y": `${geometry.y}px`
   } as CSSProperties;
@@ -1205,21 +1228,6 @@ function isPublicSuit(value: string | undefined): value is PublicSuit {
 
 function svgPoints(points: readonly { x: number; y: number }[]): string {
   return points.map((point) => `${toLayoutPrecision(point.x)},${toLayoutPrecision(point.y)}`).join(" ");
-}
-
-function polygonCenter(points: readonly { x: number; y: number }[]): { x: number; y: number } {
-  const total = points.reduce(
-    (sum, point) => ({
-      x: sum.x + point.x,
-      y: sum.y + point.y
-    }),
-    { x: 0, y: 0 }
-  );
-
-  return {
-    x: toLayoutPrecision(total.x / points.length),
-    y: toLayoutPrecision(total.y / points.length)
-  };
 }
 
 function useViewportSize(fallback: ViewportSize): ViewportSize {

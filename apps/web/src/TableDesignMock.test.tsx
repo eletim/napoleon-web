@@ -4,6 +4,7 @@ import {
   TableDesignMock,
   createBiddingBubbleLayouts,
   createBiddingOverlayGeometry,
+  createCompactBiddingContentMetrics,
   createCurrentTrickCardPlane,
   createCurrentTrickCardSize,
   createCurrentTrickReferenceRiverGeometry,
@@ -13,6 +14,7 @@ import {
   createOpponentHandsGeometry,
   createPlayerInfoLayouts,
   createProjectedBoardFit,
+  createProjectedRoleTextCenter,
   createProjectedRoleBoardBoundingBox,
   createProjectedTableBoundingBox,
   createRiverFaceMetrics,
@@ -250,6 +252,76 @@ describe("TableDesignMock", () => {
     }
   });
 
+  it("keeps compact bidding controls inside narrower landscape overlays", () => {
+    for (const viewport of [
+      { width: 667, height: 375 },
+      { width: 568, height: 320 }
+    ]) {
+      const overlay = createBiddingOverlayGeometry(tableDesignMockLayout, viewport);
+      const overlayBox = boxFromCenter(overlay);
+      const metrics = createCompactBiddingContentMetrics(overlay);
+      const contentLeft = overlayBox.left + metrics.borderWidth + metrics.paddingInline;
+      const primaryColumn = boxFromTopLeft({
+        height: 1,
+        width: metrics.primaryColumnWidth,
+        x: contentLeft,
+        y: overlay.y
+      });
+      const secondaryColumn = boxFromTopLeft({
+        height: 1,
+        width: metrics.secondaryColumnWidth,
+        x: primaryColumn.right + metrics.columnGap,
+        y: overlay.y
+      });
+      const suitButtonGap = 4;
+      const suitButtonWidth = (secondaryColumn.width - suitButtonGap * 3) / 4;
+      const suitButtons = Array.from({ length: 4 }, (_, index) => boxFromTopLeft({
+        height: 40,
+        width: suitButtonWidth,
+        x: secondaryColumn.left + index * (suitButtonWidth + suitButtonGap),
+        y: overlay.y
+      }));
+      const numberGap = 6;
+      const numberTrackUnit = (primaryColumn.width - numberGap * 2) / 2.6;
+      const numberWidths = [numberTrackUnit * 0.8, numberTrackUnit, numberTrackUnit * 0.8];
+      let numberControlLeft = primaryColumn.left;
+      const numberControls = numberWidths.map((width) => {
+        const control = boxFromTopLeft({
+          height: 36,
+          width,
+          x: numberControlLeft,
+          y: overlay.y
+        });
+        numberControlLeft = control.right + numberGap;
+        return control;
+      });
+      const actionGap = 8;
+      const actionWidth = (secondaryColumn.width - actionGap) / 2;
+      const actionButtons = [0, 1].map((index) => boxFromTopLeft({
+        height: 36,
+        width: actionWidth,
+        x: secondaryColumn.left + index * (actionWidth + actionGap),
+        y: overlay.y
+      }));
+
+      expect(primaryColumn.left).toBeGreaterThanOrEqual(overlayBox.left);
+      expect(secondaryColumn.right).toBeLessThanOrEqual(overlayBox.right);
+      const highestBid = boxFromCenter({
+        height: 47,
+        width: Math.min(82, primaryColumn.width),
+        x: primaryColumn.x,
+        y: overlay.y
+      });
+
+      expect(suitButtonWidth).toBeGreaterThan(0);
+      expect(actionWidth).toBeGreaterThan(0);
+      for (const control of [highestBid, ...suitButtons, ...numberControls, ...actionButtons]) {
+        expect(control.left).toBeGreaterThanOrEqual(overlayBox.left);
+        expect(control.right).toBeLessThanOrEqual(overlayBox.right);
+      }
+    }
+  });
+
   it("places all bidding bubbles near player info without covering hands or viewport edges", () => {
     const viewport = { width: 1920, height: 1080 };
     const bubbles = createBiddingBubbleLayouts(tableDesignMockLayout, viewport);
@@ -367,10 +439,50 @@ describe("TableDesignMock", () => {
     expect(mobileFit.counterScale).toBeCloseTo(projectedTextMinimumScale / mobileFit.scale);
     expect(renderedFontSize(16)).toBeCloseTo(12);
     expect(renderedFontSize(18)).toBeCloseTo(13.5);
-    expect(renderedFontSize(24)).toBeCloseTo(18);
+    expect(renderedFontSize(20)).toBeCloseTo(15);
 
     const html = renderToStaticMarkup(<TableDesignMock variant="projected" />);
     expect(html).toContain("--mock-projected-board-counter-scale:");
+  });
+
+  it("keeps realistic compact role and score labels clear of the round at 844x390", () => {
+    const viewport = { width: 844, height: 390 };
+    const fit = createProjectedBoardFit(tableDesignMockLayout, viewport);
+    const labels = ["ナ/+21", "副/-3", "市/+13", "市/+7", "市/0"];
+    const markerBoxes = (["top-left", "top-right", "right", "left", "self"] as const).map(
+      (seatId, index) => {
+        const center = createProjectedRoleTextCenter(tableDesignMockLayout, seatId, viewport);
+        const renderedCenter = {
+          x: center.x * fit.scale + fit.translate.x,
+          y: center.y * fit.scale + fit.translate.y
+        };
+
+        return boxFromCenter({
+          ...renderedCenter,
+          height: 15,
+          width: labels[index].length * 9
+        });
+      }
+    );
+    const projectedRoundCenter = projectTablePoint({
+      x: tableDesignMockLayout.center.x,
+      y: tableDesignMockLayout.center.y
+    }, tableDesignMockLayout.camera);
+    const roundBox = boxFromCenter({
+      height: 18,
+      width: 48,
+      x: projectedRoundCenter.x * fit.scale + fit.translate.x,
+      y: projectedRoundCenter.y * fit.scale + fit.translate.y
+    });
+
+    for (const markerBox of markerBoxes) {
+      expect(boxesOverlap(markerBox, roundBox)).toBe(false);
+    }
+    for (const [index, markerBox] of markerBoxes.entries()) {
+      for (const otherMarkerBox of markerBoxes.slice(index + 1)) {
+        expect(boxesOverlap(markerBox, otherMarkerBox)).toBe(false);
+      }
+    }
   });
 
   it("uses the same unprojected self-hand layout for world and projected mocks", () => {

@@ -1194,11 +1194,20 @@ interface ProjectedBoardFit {
 }
 
 export const projectedTextMinimumScale = 0.75;
+const compactProjectedRoleTextOffset = 34;
 
 interface BiddingBubbleLayout extends Box {
   action: BiddingMockAction;
   label: string;
   seatId: SeatId;
+}
+
+interface CompactBiddingContentMetrics {
+  borderWidth: number;
+  columnGap: number;
+  paddingInline: number;
+  primaryColumnWidth: number;
+  secondaryColumnWidth: number;
 }
 
 const roleBoardEdges: Record<SeatId, { end: Point; start: Point }> = {
@@ -1399,6 +1408,44 @@ export function createProjectedBoardFit(
     transformedTableBox,
     translate,
     viewport
+  };
+}
+
+export function createProjectedRoleTextCenter(
+  layout: TableDesignMockLayout,
+  seatId: SeatId,
+  viewport: ViewportSize
+): Point {
+  const marker = createRoleMarkerGeometry(layout.center, seatId);
+  const center = roleBoardLocalToAbsolute(layout.center, marker);
+  const corners = projectTableCard(
+    {
+      direction: { x: 1, y: 0 },
+      height: marker.height,
+      normal: { x: 0, y: 1 },
+      width: marker.width,
+      x: center.x,
+      y: center.y
+    },
+    layout.camera
+  );
+  const labelCenter = polygonCenter(corners);
+
+  if (viewport.height > 500 || viewport.width <= viewport.height) {
+    return labelCenter;
+  }
+
+  const fit = createProjectedBoardFit(layout, viewport);
+  const boardCenter = projectTablePoint({ x: layout.center.x, y: layout.center.y }, layout.camera);
+  const direction = normalizeVector({
+    x: labelCenter.x - boardCenter.x,
+    y: labelCenter.y - boardCenter.y
+  });
+  const offset = compactProjectedRoleTextOffset / fit.scale;
+
+  return {
+    x: toLayoutPrecision(labelCenter.x + direction.x * offset),
+    y: toLayoutPrecision(labelCenter.y + direction.y * offset)
   };
 }
 
@@ -1634,6 +1681,25 @@ export function createBiddingOverlayGeometry(
     width,
     x,
     y
+  };
+}
+
+export function createCompactBiddingContentMetrics(overlay: Box): CompactBiddingContentMetrics {
+  const borderWidth = 2;
+  const columnGap = 10;
+  const paddingInline = 12;
+  const availableWidth = Math.max(
+    overlay.width - borderWidth * 2 - paddingInline * 2 - columnGap,
+    0
+  );
+  const primaryColumnWidth = toLayoutPrecision(availableWidth * 0.4);
+
+  return {
+    borderWidth,
+    columnGap,
+    paddingInline,
+    primaryColumnWidth,
+    secondaryColumnWidth: toLayoutPrecision(availableWidth - primaryColumnWidth)
   };
 }
 
@@ -2248,9 +2314,15 @@ function playerInfoStyle(info: PlayerInfoGeometry): CSSProperties {
 }
 
 function biddingOverlayStyle(geometry: Box): CSSProperties {
+  const compactContent = createCompactBiddingContentMetrics(geometry);
+
   return {
+    "--mock-bidding-column-gap": `${compactContent.columnGap}px`,
     "--mock-bidding-overlay-height": `${geometry.height}px`,
     "--mock-bidding-overlay-width": `${geometry.width}px`,
+    "--mock-bidding-padding-inline": `${compactContent.paddingInline}px`,
+    "--mock-bidding-primary-column-width": `${compactContent.primaryColumnWidth}px`,
+    "--mock-bidding-secondary-column-width": `${compactContent.secondaryColumnWidth}px`,
     "--mock-x": `${geometry.x}px`,
     "--mock-y": `${geometry.y}px`
   } as CSSProperties;
