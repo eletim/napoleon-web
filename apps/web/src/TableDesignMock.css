@@ -284,24 +284,29 @@ html:has(.table-design-mock-page) {
 }
 
 .mock-self-hand {
-  align-content: start;
-  column-gap: var(--mock-self-card-gap);
-  display: grid;
-  grid-auto-rows: var(--mock-self-card-height);
-  grid-template-columns: repeat(var(--mock-self-hand-columns), var(--mock-self-card-width));
-  grid-template-rows: repeat(var(--mock-self-hand-rows), var(--mock-self-card-height));
   height: var(--mock-self-hand-height);
-  justify-content: center;
   left: var(--mock-self-hand-left);
-  row-gap: var(--mock-self-row-gap);
   top: var(--mock-self-hand-top);
   width: var(--mock-self-hand-width);
   z-index: 5;
 }
 
+/*
+ * Cards always sit in a single row, positioned by absolute offset (index * step) from the
+ * hand's fixed footprint rather than CSS grid cells. --mock-self-content-left centers the
+ * actual rendered cards inside the wider fixed footprint. Per-card size and step already scale
+ * with viewport width (independent of card count), so a full 13-card row never needs to shrink
+ * below its nominal size or wrap to a second row; if a future layout ever needed to fit more
+ * width than the footprint allows, step could be reduced (even negative) for horizontal
+ * overlap, and the z-index order below keeps every card's own left edge tappable in that case.
+ */
 .mock-self-hand-card {
   height: var(--mock-self-card-height);
+  left: calc(var(--mock-self-content-left) + var(--mock-self-card-step) * var(--mock-self-card-index));
+  position: absolute;
+  top: 0;
   width: var(--mock-self-card-width);
+  z-index: var(--mock-self-card-index);
 }
 
 .mock-role-board {

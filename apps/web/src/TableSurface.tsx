@@ -926,7 +926,7 @@ function SelfHandLayer({
       className="mock-self-hand production-self-hand"
       style={selfHandViewportStyle(hand)}
     >
-      {cards.map((card) => {
+      {cards.map((card, index) => {
         const interactionState = getCardInteractionState(card, state, legalCardIds, canExchange);
         const selected = selectedDiscardCardIds.includes(card.id);
 
@@ -952,6 +952,7 @@ function SelfHandLayer({
             }
             key={card.id}
             onClick={() => onPlay(card)}
+            style={selfHandCardIndexStyle(index)}
             type="button"
           >
             <CardFace card={card} />
@@ -1214,27 +1215,29 @@ function biddingOverlayStyle(geometry: { height: number; width: number; x: numbe
 
 function selfHandViewportStyle(layout: {
   cardSize: { height: number; width: number };
-  columnCount: number;
+  contentWidth: number;
   gap: number;
   handHeight: number;
   handWidth: number;
   left: number;
-  rowCount: number;
-  rowGap: number;
+  step: number;
   top: number;
 }): CSSProperties {
   return {
     "--mock-self-card-gap": `${layout.gap}px`,
     "--mock-self-card-height": `${layout.cardSize.height}px`,
+    "--mock-self-card-step": `${layout.step}px`,
     "--mock-self-card-width": `${layout.cardSize.width}px`,
-    "--mock-self-hand-columns": layout.columnCount,
+    "--mock-self-content-left": `${(layout.handWidth - layout.contentWidth) / 2}px`,
     "--mock-self-hand-height": `${layout.handHeight}px`,
     "--mock-self-hand-left": `${layout.left}px`,
-    "--mock-self-hand-rows": layout.rowCount,
     "--mock-self-hand-top": `${layout.top}px`,
-    "--mock-self-hand-width": `${layout.handWidth}px`,
-    "--mock-self-row-gap": `${layout.rowGap}px`
+    "--mock-self-hand-width": `${layout.handWidth}px`
   } as CSSProperties;
+}
+
+function selfHandCardIndexStyle(index: number): CSSProperties {
+  return { "--mock-self-card-index": index } as CSSProperties;
 }
 
 function projectedBoardFitStyle(fit: {

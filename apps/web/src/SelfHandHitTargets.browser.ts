@@ -22,7 +22,12 @@ interface BrowserHitTestResult {
 }
 
 describe("exchange hand browser hit targets", () => {
-  it("keeps every 13-card exchange target fully exposed and tappable on compact viewports", () => {
+  // The 13-card exchange hand is a single row (horizontal overlap is allowed by design when a
+  // viewport is too narrow to fit every card at its nominal size, but is never required to
+  // shrink cards or wrap to a second row). At these compact mobile-landscape viewports the
+  // per-card size already scales down with viewport width, so every card renders with no
+  // overlap and every corner stays independently exposed and tappable.
+  it("keeps every 13-card exchange target fully exposed and tappable in a single row on compact viewports", () => {
     for (const viewport of [
       { width: 568, height: 320 },
       { width: 812, height: 341 },
@@ -98,17 +103,19 @@ function runHitTest(viewport: { height: number; width: number }): BrowserHitTest
   const style = [
     `--mock-self-card-gap:${hand.gap}px`,
     `--mock-self-card-height:${hand.cardSize.height}px`,
+    `--mock-self-card-step:${hand.step}px`,
     `--mock-self-card-width:${hand.cardSize.width}px`,
-    `--mock-self-hand-columns:${hand.columnCount}`,
+    `--mock-self-content-left:${(hand.handWidth - hand.contentWidth) / 2}px`,
     `--mock-self-hand-height:${hand.handHeight}px`,
     `--mock-self-hand-left:${hand.left}px`,
-    `--mock-self-hand-rows:${hand.rowCount}`,
     `--mock-self-hand-top:${hand.top}px`,
-    `--mock-self-hand-width:${hand.handWidth}px`,
-    `--mock-self-row-gap:${hand.rowGap}px`
+    `--mock-self-hand-width:${hand.handWidth}px`
   ].join(";");
+  // Every card sits in the single row at --mock-self-card-index * --mock-self-card-step; later
+  // cards paint on top (via z-index), which keeps each card's own left edge tappable even if a
+  // narrower viewport ever needed step to shrink far enough for cards to overlap.
   const cards = Array.from({ length: 13 }, (_, index) =>
-    `<button class="mock-self-hand-card" data-card="${index}" type="button"><span class="card-face"></span></button>`
+    `<button class="mock-self-hand-card" data-card="${index}" style="--mock-self-card-index:${index}" type="button"><span class="card-face"></span></button>`
   ).join("");
   const playerStyle = [
     `--mock-player-avatar-size:${selfInfo?.avatarSize ?? 0}px`,

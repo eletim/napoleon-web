@@ -147,8 +147,6 @@ const mockPageWidth = 2200;
 const mockPageHeight = 1830;
 const maxSelfHandCardCount = 13;
 const normalSelfHandCardCount = 10;
-const selfHandColumnCount = 5;
-const selfHandReservedRowCount = 2;
 const tabletopWorldScale = 1.8;
 const tableSurfaceRadius = scaleTabletopDimension(700);
 const roleBoardRadius = scaleTabletopDimension(175);
@@ -618,7 +616,12 @@ function SelfHand({
       style={selfHandViewportStyle(selfHandLayout)}
     >
       {cards.map((card, index) => (
-        <PlayingCard card={card} className="mock-self-hand-card" key={`${card.rank}-${card.suit}-${index}`} />
+        <PlayingCard
+          card={card}
+          className="mock-self-hand-card"
+          key={`${card.rank}-${card.suit}-${index}`}
+          style={selfHandCardIndexStyle(index)}
+        />
       ))}
     </div>
   );
@@ -1164,16 +1167,19 @@ interface SelfHandViewportLayout {
   bottom: number;
   cardSize: { height: number; width: number };
   center: Point;
+  // Number of cards actually laid out in the single row (i.e. the current hand size).
   columnCount: number;
   contentWidth: number;
   gap: number;
   handHeight: number;
+  // handWidth/left/top/handHeight always describe the fixed footprint sized for
+  // selfHandUi.maxCardCount cards, independent of columnCount, so that surrounding
+  // layout never shifts as the actual hand size changes.
   handWidth: number;
   left: number;
-  reservedRowCount: number;
   rowCount: number;
-  rowGap: number;
-  rowStep: number;
+  // Horizontal distance between consecutive card left edges.
+  step: number;
   top: number;
 }
 
@@ -1416,21 +1422,14 @@ export function createSelfHandViewportLayout(
   viewport: ViewportSize = layout.page
 ): SelfHandViewportLayout {
   const metrics = createSelfHandViewportMetrics(viewport.width);
-  const columnCount = cardCount > normalSelfHandCardCount
-    ? Math.ceil(layout.selfHandUi.maxCardCount / selfHandReservedRowCount)
-    : selfHandColumnCount;
-  const rowCount = selfHandReservedRowCount;
-  const reservedRowCount = selfHandReservedRowCount;
-  const renderedRowCount = Math.max(rowCount, Math.ceil(cardCount / columnCount));
-  const cardsInWidestRow = Math.min(cardCount, columnCount);
-  const contentWidth = selfHandWidth(cardsInWidestRow, metrics);
-  const handWidth = selfHandWidth(selfHandColumnCount, metrics);
-  const rowGap = metrics.gap;
-  const handHeight = reservedRowCount * metrics.cardSize.height
-    + (reservedRowCount - 1) * rowGap;
-  const rowStep = renderedRowCount <= reservedRowCount
-    ? metrics.cardSize.height + rowGap
-    : (handHeight - metrics.cardSize.height) / (renderedRowCount - 1);
+  const maxCardCount = layout.selfHandUi.maxCardCount;
+  // The footprint is always sized for the maximum hand (13 cards during exchange), so
+  // handWidth/left/top/handHeight never change as the actual card count changes; only the
+  // rendered content (a single row, centered inside that footprint) grows or shrinks.
+  const handWidth = selfHandWidth(maxCardCount, metrics);
+  const handHeight = metrics.cardSize.height;
+  const contentWidth = selfHandWidth(cardCount, metrics);
+  const step = metrics.cardSize.width + metrics.gap;
   const left = toLayoutPrecision((viewport.width - handWidth) / 2);
   const bottom = toLayoutPrecision(viewport.height - layout.selfHandUi.bottomInset);
   const top = toLayoutPrecision(bottom - handHeight);
@@ -1442,15 +1441,13 @@ export function createSelfHandViewportLayout(
       x: toLayoutPrecision(left + handWidth / 2),
       y: toLayoutPrecision(top + handHeight / 2)
     },
-    columnCount,
+    columnCount: cardCount,
     contentWidth,
     handHeight,
     handWidth,
     left,
-    reservedRowCount,
-    rowCount,
-    rowGap,
-    rowStep,
+    rowCount: 1,
+    step,
     top
   };
 }
@@ -1466,12 +1463,8 @@ export function createSelfHandCardPlacements(
   return Array.from({ length: cardCount }, (_, index) => ({
     height: hand.cardSize.height,
     width: hand.cardSize.width,
-    x: toLayoutPrecision(
-      contentLeft + (index % hand.columnCount) * (hand.cardSize.width + hand.gap)
-    ),
-    y: toLayoutPrecision(
-      hand.top + Math.floor(index / hand.columnCount) * hand.rowStep
-    )
+    x: toLayoutPrecision(contentLeft + index * hand.step),
+    y: hand.top
   }));
 }
 
@@ -1943,12 +1936,7 @@ export function createPlayerInfoLayouts(
 ): PlayerInfoGeometry[] {
   const effectiveLayout = createViewportPlayerInfoLayout(layout, viewport);
   const selfHandLayout = createSelfHandViewportLayout(effectiveLayout, selfHandCardCount, viewport);
-  const self = createSelfPlayerInfoLayout(
-    effectiveLayout,
-    selfHandLayout,
-    viewport,
-    selfHandCardCount
-  );
+  const self = createSelfPlayerInfoLayout(effectiveLayout, selfHandLayout, viewport);
   const placedInfoBoxes: BoundingBox[] = isProjected
     ? [boundingBoxFromCenter(self)]
     : [];
@@ -2418,10 +2406,16 @@ function createProjectedOpponentPlayerInfoLayout(
     ? boundingBoxFromTopLeft({ height: 36, width: viewport.width * 0.45, x: 0, y: 0 })
     : boundingBoxFromTopLeft(layout.hud);
   const riverBox = createProjectedRiverCardsBoundingBox(layout, seatId, context.fit);
-  const selfHandCards = createSelfHandCardPlacements(layout, selfHandCardCount, viewport);
-  const selfHandAvoidBoxes = selfHandCards.length === 0
-    ? []
-    : [boundingBoxAroundBoxes(selfHandCards.map((card) => boundingBoxFromTopLeft(card)))];
+  // Avoid the fixed hand footprint (not the actual per-count content bounds) so opponent info
+  // panels never shift position as the self hand size changes; the footprint always contains
+  // the actually-rendered cards.
+  const selfHandLayout = createSelfHandViewportLayout(layout, selfHandCardCount, viewport);
+  const selfHandAvoidBoxes = [boundingBoxFromTopLeft({
+    height: selfHandLayout.handHeight,
+    width: selfHandLayout.handWidth,
+    x: selfHandLayout.left,
+    y: selfHandLayout.top
+  })];
 
   return createPlayerInfoGeometry(
     layout,
@@ -2521,39 +2515,26 @@ function createProjectedOpponentPlayerInfoBalancedCenter(
 function createSelfPlayerInfoLayout(
   layout: TableDesignMockLayout,
   selfHandLayout: SelfHandViewportLayout,
-  viewport: ViewportSize,
-  selfHandCardCount: number
+  viewport: ViewportSize
 ): PlayerInfoGeometry {
   const info = layout.playerInfo;
-  const selfHandCards = createSelfHandCardPlacements(layout, selfHandCardCount, viewport);
-  const selfHandBox = selfHandCards.length === 0
-    ? boundingBoxFromTopLeft({
-        height: selfHandLayout.handHeight,
-        width: selfHandLayout.handWidth,
-        x: selfHandLayout.left,
-        y: selfHandLayout.top
-      })
-    : boundingBoxAroundBoxes(selfHandCards.map((card) => boundingBoxFromTopLeft(card)));
-  const leftOfHand = selfHandBox.left - info.selfGap - info.unitWidth;
-  const canPlaceLeftOfHand = leftOfHand >= info.viewportMargin;
-  const x = canPlaceLeftOfHand
-    ? leftOfHand
-    : clamp(
-        selfHandBox.left,
-        info.viewportMargin,
-        viewport.width - info.viewportMargin - info.unitWidth
-      );
-  const y = canPlaceLeftOfHand
-    ? clamp(
-        selfHandBox.top,
-        info.viewportMargin,
-        viewport.height - info.viewportMargin - info.unitHeight
-      )
-    : clamp(
-        selfHandBox.top - info.unitHeight - info.selfGap,
-        info.viewportMargin,
-        selfHandBox.top - info.unitHeight - info.selfGap
-      );
+  // The single-row hand's fixed footprint (selfHandUi.maxCardCount basis) leaves almost no
+  // side margin at typical viewport widths, so the panel always sits directly above the hand,
+  // left-aligned to the footprint's left edge, rather than beside it. Anchoring to the fixed
+  // footprint (not the actual per-count content bounds) means the panel never shifts as the
+  // hand size changes; because the single row of cards is always centered inside that
+  // footprint, this also guarantees the panel never overlaps the actually-rendered cards at
+  // any card count.
+  const x = clamp(
+    selfHandLayout.left,
+    info.viewportMargin,
+    viewport.width - info.viewportMargin - info.unitWidth
+  );
+  const y = clamp(
+    selfHandLayout.top - info.unitHeight - info.selfGap,
+    info.viewportMargin,
+    selfHandLayout.top - info.unitHeight - info.selfGap
+  );
 
   return createPlayerInfoGeometry(layout, "self", {
     x: toLayoutPrecision(x + info.unitWidth / 2),
@@ -2951,15 +2932,18 @@ function selfHandViewportStyle(layout: SelfHandViewportLayout): CSSProperties {
   return {
     "--mock-self-card-gap": `${layout.gap}px`,
     "--mock-self-card-height": `${layout.cardSize.height}px`,
+    "--mock-self-card-step": `${layout.step}px`,
     "--mock-self-card-width": `${layout.cardSize.width}px`,
-    "--mock-self-hand-columns": layout.columnCount,
+    "--mock-self-content-left": `${(layout.handWidth - layout.contentWidth) / 2}px`,
     "--mock-self-hand-height": `${layout.handHeight}px`,
     "--mock-self-hand-left": `${layout.left}px`,
-    "--mock-self-hand-rows": layout.rowCount,
     "--mock-self-hand-top": `${layout.top}px`,
-    "--mock-self-hand-width": `${layout.handWidth}px`,
-    "--mock-self-row-gap": `${layout.rowGap}px`
+    "--mock-self-hand-width": `${layout.handWidth}px`
   } as CSSProperties;
+}
+
+function selfHandCardIndexStyle(index: number): CSSProperties {
+  return { "--mock-self-card-index": index } as CSSProperties;
 }
 
 function projectedBoardFitStyle(fit: ProjectedBoardFit): CSSProperties {
