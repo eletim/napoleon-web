@@ -1943,7 +1943,12 @@ export function createPlayerInfoLayouts(
 ): PlayerInfoGeometry[] {
   const effectiveLayout = createViewportPlayerInfoLayout(layout, viewport);
   const selfHandLayout = createSelfHandViewportLayout(effectiveLayout, selfHandCardCount, viewport);
-  const self = createSelfPlayerInfoLayout(effectiveLayout, selfHandLayout, viewport);
+  const self = createSelfPlayerInfoLayout(
+    effectiveLayout,
+    selfHandLayout,
+    viewport,
+    selfHandCardCount
+  );
   const placedInfoBoxes: BoundingBox[] = isProjected
     ? [boundingBoxFromCenter(self)]
     : [];
@@ -2516,28 +2521,38 @@ function createProjectedOpponentPlayerInfoBalancedCenter(
 function createSelfPlayerInfoLayout(
   layout: TableDesignMockLayout,
   selfHandLayout: SelfHandViewportLayout,
-  viewport: ViewportSize
+  viewport: ViewportSize,
+  selfHandCardCount: number
 ): PlayerInfoGeometry {
   const info = layout.playerInfo;
-  const leftOfHand = selfHandLayout.left - info.selfGap - info.unitWidth;
+  const selfHandCards = createSelfHandCardPlacements(layout, selfHandCardCount, viewport);
+  const selfHandBox = selfHandCards.length === 0
+    ? boundingBoxFromTopLeft({
+        height: selfHandLayout.handHeight,
+        width: selfHandLayout.handWidth,
+        x: selfHandLayout.left,
+        y: selfHandLayout.top
+      })
+    : boundingBoxAroundBoxes(selfHandCards.map((card) => boundingBoxFromTopLeft(card)));
+  const leftOfHand = selfHandBox.left - info.selfGap - info.unitWidth;
   const canPlaceLeftOfHand = leftOfHand >= info.viewportMargin;
   const x = canPlaceLeftOfHand
     ? leftOfHand
     : clamp(
-        selfHandLayout.left,
+        selfHandBox.left,
         info.viewportMargin,
         viewport.width - info.viewportMargin - info.unitWidth
       );
   const y = canPlaceLeftOfHand
     ? clamp(
-        selfHandLayout.top,
+        selfHandBox.top,
         info.viewportMargin,
         viewport.height - info.viewportMargin - info.unitHeight
       )
     : clamp(
-        selfHandLayout.top - info.unitHeight - info.selfGap,
+        selfHandBox.top - info.unitHeight - info.selfGap,
         info.viewportMargin,
-        selfHandLayout.top - info.unitHeight - info.selfGap
+        selfHandBox.top - info.unitHeight - info.selfGap
       );
 
   return createPlayerInfoGeometry(layout, "self", {

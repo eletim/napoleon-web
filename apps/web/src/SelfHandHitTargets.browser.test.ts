@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  createPlayerInfoLayouts,
   createSelfHandViewportLayout,
   tableDesignMockLayout
 } from "./TableDesignMock";
@@ -26,7 +27,8 @@ describe("exchange hand browser hit targets", () => {
 
     for (const viewport of [
       { width: 568, height: 320 },
-      { width: 812, height: 341 }
+      { width: 812, height: 341 },
+      { width: 844, height: 390 }
     ]) {
       const result = runHitTest(viewport);
 
@@ -41,6 +43,9 @@ describe("exchange hand browser hit targets", () => {
 
 function runHitTest(viewport: { height: number; width: number }): BrowserHitTestResult {
   const hand = createSelfHandViewportLayout(tableDesignMockLayout, 13, viewport);
+  const selfInfo = createPlayerInfoLayouts(tableDesignMockLayout, viewport, true, 13)
+    .find((info) => info.seatId === "self");
+  expect(selfInfo).toBeDefined();
   const fixtureDirectory = mkdtempSync(join(tmpdir(), "napoleon-hand-hit-targets-"));
   const fixturePath = join(fixtureDirectory, "index.html");
   const style = [
@@ -58,6 +63,14 @@ function runHitTest(viewport: { height: number; width: number }): BrowserHitTest
   const cards = Array.from({ length: 13 }, (_, index) =>
     `<button class="mock-self-hand-card" data-card="${index}" type="button"><span class="card-face"></span></button>`
   ).join("");
+  const playerStyle = [
+    `--mock-player-avatar-size:${selfInfo?.avatarSize ?? 0}px`,
+    `--mock-player-gap:${selfInfo?.gap ?? 0}px`,
+    `--mock-player-height:${selfInfo?.height ?? 0}px`,
+    `--mock-player-width:${selfInfo?.width ?? 0}px`,
+    `--mock-x:${selfInfo?.x ?? 0}px`,
+    `--mock-y:${selfInfo?.y ?? 0}px`
+  ].join(";");
   const html = `<!doctype html>
 <style>
 html, body { height: 100%; margin: 0; overflow: hidden; width: 100%; }
@@ -65,6 +78,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; width: 100%; }
 .card-face { display: block; height: 100%; width: 100%; }
 ${readFileSync(cssPath, "utf8")}
 </style>
+<div class="mock-player-info" data-self-panel style="${playerStyle}"></div>
 <div class="mock-self-hand" style="${style}">${cards}</div>
 <pre id="result"></pre>
 <script>
@@ -74,10 +88,15 @@ ${readFileSync(cssPath, "utf8")}
     errors.push('viewport@' + innerWidth + 'x' + innerHeight);
   }
   const cards = [...document.querySelectorAll('[data-card]')];
+  const panelRect = document.querySelector('[data-self-panel]').getBoundingClientRect();
   for (const card of cards) {
     const index = Number(card.dataset.card);
     card.addEventListener('pointerup', () => tapped.add(index));
     const rect = card.getBoundingClientRect();
+    if (rect.left < panelRect.right && rect.right > panelRect.left
+      && rect.top < panelRect.bottom && rect.bottom > panelRect.top) {
+      errors.push('panel-overlap@' + index);
+    }
     const points = [
       [rect.left + 1, rect.top + 1],
       [rect.right - 1, rect.top + 1],

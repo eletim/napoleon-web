@@ -482,6 +482,13 @@ describe("TableDesignMock", () => {
         x: fullHand.left,
         y: normalHandTop
       });
+      const exchangeCards = createSelfHandCardPlacements(tableDesignMockLayout, 13, viewport);
+      const exchangeHandBox = boundingTestBox(exchangeCards.flatMap((card) => [
+        { x: card.x, y: card.y },
+        { x: card.x + card.width, y: card.y },
+        { x: card.x + card.width, y: card.y + card.height },
+        { x: card.x, y: card.y + card.height }
+      ]));
       const normalProjectedTable = createProjectedBoardFit(tableDesignMockLayout, viewport, 10);
       const exchangeProjectedTable = createProjectedBoardFit(tableDesignMockLayout, viewport, 13);
       const obstacleContext = {
@@ -498,13 +505,6 @@ describe("TableDesignMock", () => {
       });
       const selfInfo = createPlayerInfoLayouts(tableDesignMockLayout, viewport, true, 13)
         .find((info) => info.seatId === "self");
-      const handBox = boxFromTopLeft({
-        height: fullHand.handHeight,
-        width: fullHand.handWidth,
-        x: fullHand.left,
-        y: fullHand.top
-      });
-
       expect(fullHand.top).toBeGreaterThanOrEqual(0);
       expect(fullHand.bottom).toBeLessThanOrEqual(
         viewport.height - tableDesignMockLayout.selfHandUi.bottomInset
@@ -526,13 +526,13 @@ describe("TableDesignMock", () => {
       expect(selfInfo).toBeDefined();
       if (selfInfo !== undefined) {
         const selfInfoBox = boxFromCenter(selfInfo);
-        expect(boxesOverlap(selfInfoBox, handBox)).toBe(false);
+        expect(boxesOverlap(selfInfoBox, exchangeHandBox)).toBe(false);
         expect(selfInfoBox.top).toBeGreaterThanOrEqual(0);
         expect(selfInfoBox.bottom).toBeLessThanOrEqual(viewport.height);
       }
       for (const [selfHandBox, obstacles] of [
         [normalHandBox, normalObstacles],
-        [handBox, exchangeObstacles]
+        [exchangeHandBox, exchangeObstacles]
       ] as const) {
         for (const gameplayBox of [
           ...obstacles.opponentHands,
