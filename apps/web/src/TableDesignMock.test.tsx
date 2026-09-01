@@ -29,6 +29,7 @@ import {
   projectVerticalCard,
   projectTablePoint,
   projectTablePolygon,
+  projectedTextMinimumScale,
   regularPentagon,
   roleBoardSelfSideLength,
   selfHandWidth,
@@ -357,6 +358,19 @@ describe("TableDesignMock", () => {
     expect(qhd.transformedTableBox.height).toBeCloseTo(1440 * tableDesignMockLayout.projectedFit.tableHeightRatio);
     expect(qhd.transformedTableBox.top).toBeCloseTo(1440 * 0.015);
     expect(qhd.transformedTableBox.x).toBeCloseTo(1280);
+  });
+
+  it("counter-scales central match text to readable rendered sizes at 844x390", () => {
+    const mobileFit = createProjectedBoardFit(tableDesignMockLayout, { width: 844, height: 390 });
+    const renderedFontSize = (fontSize: number) => fontSize * mobileFit.scale * mobileFit.counterScale;
+
+    expect(mobileFit.counterScale).toBeCloseTo(projectedTextMinimumScale / mobileFit.scale);
+    expect(renderedFontSize(16)).toBeCloseTo(12);
+    expect(renderedFontSize(18)).toBeCloseTo(13.5);
+    expect(renderedFontSize(24)).toBeCloseTo(18);
+
+    const html = renderToStaticMarkup(<TableDesignMock variant="projected" />);
+    expect(html).toContain("--mock-projected-board-counter-scale:");
   });
 
   it("uses the same unprojected self-hand layout for world and projected mocks", () => {

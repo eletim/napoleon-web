@@ -302,6 +302,7 @@ function ProjectedProductionBoard({
           {seatOrder.map((seat) => (
             <ProductionRoleMarker
               adapters={adapters}
+              compact={viewportSize.height <= 500}
               key={`production-role-${seat}`}
               match={match}
               seat={seat}
@@ -356,11 +357,13 @@ function ProjectedProductionBoard({
 
 function ProductionRoleMarker({
   adapters,
+  compact,
   match,
   seat,
   state
 }: {
   adapters: readonly TablePlayerAdapter[];
+  compact: boolean;
   match: PublicMatchState | undefined;
   seat: TableSeatId;
   state: PublicGameState | undefined;
@@ -382,6 +385,7 @@ function ProductionRoleMarker({
   const labelCenter = polygonCenter(corners);
   const player = adapters.find((entry) => entry.seat === seat);
   const role = player === undefined ? "?" : playerRoleLabel(player.id, state);
+  const displayedRole = compact ? compactRoleLabel(role) : role;
   const rawMatchScore = player === undefined
     ? undefined
     : match?.players.find((entry) => entry.playerId === player.id)?.rawMatchScore;
@@ -403,7 +407,7 @@ function ProductionRoleMarker({
           x={labelCenter.x}
           y={labelCenter.y - 11}
         >
-          {role}
+          {displayedRole}
         </tspan>
         <tspan
           className="mock-projected-role-marker-score"
@@ -416,6 +420,21 @@ function ProductionRoleMarker({
       </text>
     </g>
   );
+}
+
+function compactRoleLabel(role: string): string {
+  switch (role) {
+    case "ナポレオン":
+      return "ナ";
+    case "副官":
+      return "副";
+    case "市民":
+      return "市";
+    case "ナ/副":
+      return "ナ副";
+    default:
+      return role;
+  }
 }
 
 function ProductionMatchRound({ match }: { match: PublicMatchState | undefined }) {
@@ -1067,8 +1086,13 @@ function selfHandViewportStyle(layout: { cardSize: { height: number; width: numb
   } as CSSProperties;
 }
 
-function projectedBoardFitStyle(fit: { scale: number; translate: { x: number; y: number } }): CSSProperties {
+function projectedBoardFitStyle(fit: {
+  counterScale: number;
+  scale: number;
+  translate: { x: number; y: number };
+}): CSSProperties {
   return {
+    "--mock-projected-board-counter-scale": fit.counterScale,
     "--mock-projected-board-transform": `translate(${fit.translate.x}px, ${fit.translate.y}px) scale(${fit.scale})`
   } as CSSProperties;
 }

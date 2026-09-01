@@ -1184,6 +1184,7 @@ interface BoundingBox extends Box {
 }
 
 interface ProjectedBoardFit {
+  counterScale: number;
   projectedTableBox: BoundingBox;
   scale: number;
   tableHeightRatio: number;
@@ -1191,6 +1192,8 @@ interface ProjectedBoardFit {
   translate: Point;
   viewport: ViewportSize;
 }
+
+export const projectedTextMinimumScale = 0.75;
 
 interface BiddingBubbleLayout extends Box {
   action: BiddingMockAction;
@@ -1389,6 +1392,7 @@ export function createProjectedBoardFit(
   const transformedTableBox = transformBoundingBox(projectedTableBox, scale, translate);
 
   return {
+    counterScale: Math.max(1, projectedTextMinimumScale / scale),
     projectedTableBox,
     scale,
     tableHeightRatio: layout.projectedFit.tableHeightRatio,
@@ -2338,6 +2342,7 @@ function selfHandViewportStyle(layout: SelfHandViewportLayout): CSSProperties {
 
 function projectedBoardFitStyle(fit: ProjectedBoardFit): CSSProperties {
   return {
+    "--mock-projected-board-counter-scale": fit.counterScale,
     "--mock-projected-board-transform": `translate(${fit.translate.x}px, ${fit.translate.y}px) scale(${fit.scale})`
   } as CSSProperties;
 }

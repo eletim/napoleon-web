@@ -425,6 +425,9 @@ html:has(.table-design-mock-page) {
 .mock-projected-role-marker-text {
   fill: #303030;
   font-weight: 800;
+  transform: scale(var(--mock-projected-board-counter-scale));
+  transform-box: fill-box;
+  transform-origin: center;
 }
 
 .mock-projected-role-marker-role {
@@ -441,6 +444,9 @@ html:has(.table-design-mock-page) {
   fill: #303056;
   font-size: 24px;
   font-weight: 900;
+  transform: scale(var(--mock-projected-board-counter-scale));
+  transform-box: fill-box;
+  transform-origin: center;
 }
 
 .role-marker {
