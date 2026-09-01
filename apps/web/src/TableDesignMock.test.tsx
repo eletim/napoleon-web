@@ -560,6 +560,14 @@ describe("TableDesignMock", () => {
     expect(qhd.transformedTableBox.x).toBeCloseTo(1280);
   });
 
+  it("keeps the projected board fixed when the last self-hand card is played", () => {
+    const viewport = { width: 844, height: 390 };
+
+    expect(createProjectedBoardFit(tableDesignMockLayout, viewport, 0)).toEqual(
+      createProjectedBoardFit(tableDesignMockLayout, viewport, 1)
+    );
+  });
+
   it("counter-scales central match text to readable rendered sizes at 844x390", () => {
     const mobileFit = createProjectedBoardFit(tableDesignMockLayout, { width: 844, height: 390 });
     const renderedFontSize = (fontSize: number) => fontSize * mobileFit.scale * mobileFit.counterScale;
@@ -977,6 +985,35 @@ describe("TableDesignMock", () => {
 
       expect(boxesOverlap(boxFromCenter(info), handBox)).toBe(false);
       expect(boxesOverlap(boxFromCenter(info), riverBox)).toBe(false);
+    }
+  });
+
+  it("keeps projected player info panels pairwise separate on compact landscapes", () => {
+    for (const { cardCount, viewport } of [
+      { cardCount: 10, viewport: { width: 844, height: 390 } },
+      { cardCount: 13, viewport: { width: 812, height: 341 } }
+    ]) {
+      const boxes = createPlayerInfoLayouts(
+        tableDesignMockLayout,
+        viewport,
+        true,
+        cardCount
+      ).map((info) => boxFromCenter(info));
+
+      for (const [index, box] of boxes.entries()) {
+        expect(box.left).toBeGreaterThanOrEqual(tableDesignMockLayout.playerInfo.viewportMargin);
+        expect(box.right).toBeLessThanOrEqual(
+          viewport.width - tableDesignMockLayout.playerInfo.viewportMargin
+        );
+        expect(box.top).toBeGreaterThanOrEqual(tableDesignMockLayout.playerInfo.viewportMargin);
+        expect(box.bottom).toBeLessThanOrEqual(
+          viewport.height - tableDesignMockLayout.playerInfo.viewportMargin
+        );
+
+        for (const otherBox of boxes.slice(index + 1)) {
+          expect(boxesOverlap(box, otherBox)).toBe(false);
+        }
+      }
     }
   });
 

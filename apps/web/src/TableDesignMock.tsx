@@ -1483,13 +1483,14 @@ export function createProjectedBoardFit(
 ): ProjectedBoardFit {
   const projectedTableBox = createProjectedTableBoundingBox(layout);
   const targetTop = viewport.height * layout.projectedFit.topInsetRatio;
+  const stableHandCardCount = Math.max(selfHandCardCount, 1);
   const selfHandCards = createSelfHandCardPlacements(
     layout,
-    selfHandCardCount,
+    stableHandCardCount,
     viewport
   );
   const visibleSelfHandTop = selfHandCards[0]?.y
-    ?? createSelfHandViewportLayout(layout, selfHandCardCount, viewport).bottom;
+    ?? createSelfHandViewportLayout(layout, stableHandCardCount, viewport).bottom;
   const maximumTableBottom = visibleSelfHandTop - layout.selfHandUi.gapFromTable;
   const availableTableHeight = Math.max(maximumTableBottom - targetTop, 1);
   const targetTableHeight = Math.min(
@@ -1938,20 +1939,34 @@ export function createPlayerInfoLayouts(
 ): PlayerInfoGeometry[] {
   const effectiveLayout = createViewportPlayerInfoLayout(layout, viewport);
   const selfHandLayout = createSelfHandViewportLayout(effectiveLayout, selfHandCardCount, viewport);
-  const opponents = opponentSeatOrder.map((seatId) =>
-    isProjected
+  const self = createSelfPlayerInfoLayout(effectiveLayout, selfHandLayout, viewport);
+  const isCompactProjected = isProjected
+    && viewport.height <= 520
+    && viewport.width > viewport.height;
+  const placedInfoBoxes: BoundingBox[] = isCompactProjected
+    ? [boundingBoxFromCenter(self)]
+    : [];
+  const opponents = opponentSeatOrder.map((seatId) => {
+    const opponent = isProjected
       ? createProjectedOpponentPlayerInfoLayout(
           effectiveLayout,
           seatId,
           viewport,
-          selfHandCardCount
+          selfHandCardCount,
+          placedInfoBoxes
         )
-      : createWorldOpponentPlayerInfoLayout(effectiveLayout, seatId)
-  );
+      : createWorldOpponentPlayerInfoLayout(effectiveLayout, seatId);
+
+    if (isCompactProjected) {
+      placedInfoBoxes.push(boundingBoxFromCenter(opponent));
+    }
+
+    return opponent;
+  });
 
   return [
     ...opponents,
-    createSelfPlayerInfoLayout(effectiveLayout, selfHandLayout, viewport)
+    self
   ];
 }
 
@@ -2375,7 +2390,8 @@ function createProjectedOpponentPlayerInfoLayout(
   layout: TableDesignMockLayout,
   seatId: OpponentSeatId,
   viewport: ViewportSize,
-  selfHandCardCount = normalSelfHandCardCount
+  selfHandCardCount = normalSelfHandCardCount,
+  additionalAvoidBoxes: readonly BoundingBox[] = []
 ): PlayerInfoGeometry {
   const context = createProjectedOpponentPlayerInfoContext(
     layout,
@@ -2406,7 +2422,13 @@ function createProjectedOpponentPlayerInfoLayout(
     seatId,
     avoidPlayerInfoOverlaps(
       preferredCenter,
-      [context.handBox, hudBox, ...selfHandAvoidBoxes, ...optionalBox(riverBox)],
+      [
+        context.handBox,
+        hudBox,
+        ...selfHandAvoidBoxes,
+        ...optionalBox(riverBox),
+        ...additionalAvoidBoxes
+      ],
       context.handBox,
       context.outward,
       viewport,
