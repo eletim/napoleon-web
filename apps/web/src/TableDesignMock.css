@@ -284,19 +284,19 @@ html:has(.table-design-mock-page) {
 }
 
 .mock-self-hand {
-  align-items: end;
-  display: flex;
-  gap: var(--mock-self-card-gap);
-  height: var(--mock-self-card-height);
-  justify-content: center;
+  column-gap: var(--mock-self-card-gap);
+  display: grid;
+  grid-template-columns: repeat(var(--mock-self-hand-columns), var(--mock-self-card-width));
+  grid-template-rows: repeat(var(--mock-self-hand-rows), var(--mock-self-card-height));
+  height: var(--mock-self-hand-height);
   left: var(--mock-self-hand-left);
+  row-gap: var(--mock-self-row-gap);
   top: var(--mock-self-hand-top);
   width: var(--mock-self-hand-width);
   z-index: 5;
 }
 
 .mock-self-hand-card {
-  flex: 0 0 auto;
   height: var(--mock-self-card-height);
   width: var(--mock-self-card-width);
 }

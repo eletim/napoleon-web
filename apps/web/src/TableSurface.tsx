@@ -293,7 +293,8 @@ function ProjectedProductionBoard({
     roleTextLabels: Object.fromEntries(seatOrder.map((seat) => [
       seat,
       createProductionRoleText(adapters, match, state, seat).compact
-    ]))
+    ])),
+    selfHandCardCount: adapters.find((adapter) => adapter.isSelf)?.selfHand.length ?? 0
   }), [adapters, match, state, viewportSize]);
 
   return (
@@ -656,7 +657,13 @@ function PlayerInfoLayer({
   currentPlayerId: string | undefined;
   viewportSize: ViewportSize;
 }) {
-  const infos = createPlayerInfoLayouts(tableDesignMockLayout, viewportSize, true);
+  const selfHandCardCount = adapters.find((adapter) => adapter.isSelf)?.selfHand.length ?? 0;
+  const infos = createPlayerInfoLayouts(
+    tableDesignMockLayout,
+    viewportSize,
+    true,
+    selfHandCardCount
+  );
 
   return (
     <>
@@ -1152,14 +1159,28 @@ function biddingOverlayStyle(geometry: { height: number; width: number; x: numbe
   } as CSSProperties;
 }
 
-function selfHandViewportStyle(layout: { cardSize: { height: number; width: number }; gap: number; handWidth: number; left: number; top: number }): CSSProperties {
+function selfHandViewportStyle(layout: {
+  cardSize: { height: number; width: number };
+  columnCount: number;
+  gap: number;
+  handHeight: number;
+  handWidth: number;
+  left: number;
+  rowCount: number;
+  rowGap: number;
+  top: number;
+}): CSSProperties {
   return {
     "--mock-self-card-gap": `${layout.gap}px`,
     "--mock-self-card-height": `${layout.cardSize.height}px`,
     "--mock-self-card-width": `${layout.cardSize.width}px`,
+    "--mock-self-hand-columns": layout.columnCount,
+    "--mock-self-hand-height": `${layout.handHeight}px`,
     "--mock-self-hand-left": `${layout.left}px`,
+    "--mock-self-hand-rows": layout.rowCount,
     "--mock-self-hand-top": `${layout.top}px`,
-    "--mock-self-hand-width": `${layout.handWidth}px`
+    "--mock-self-hand-width": `${layout.handWidth}px`,
+    "--mock-self-row-gap": `${layout.rowGap}px`
   } as CSSProperties;
 }
 
