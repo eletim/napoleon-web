@@ -14,6 +14,7 @@ import {
   createOpponentHandsGeometry,
   createPlayerInfoLayouts,
   createProjectedBoardFit,
+  createProjectedRoleTextCandidates,
   createProjectedRoleTextCenters,
   createProjectedRoleTextObstacles,
   createProjectedRoleTextSectorGeometry,
@@ -579,6 +580,28 @@ describe("TableDesignMock", () => {
           expect(boxesOverlap(markerBox, otherMarkerBox)).toBe(false);
         }
       }
+    }
+  });
+
+  it("bounds compact role-label candidate work to the projected role-board region", () => {
+    const context = {
+      isBidding: true,
+      opponentHandCounts: { "top-left": 10, "top-right": 10, right: 10, left: 10 },
+      riverCardCounts: { "top-left": 0, "top-right": 0, right: 0, self: 0, left: 0 }
+    };
+
+    for (const viewport of [
+      { width: 568, height: 320 },
+      { width: 844, height: 390 },
+      { width: 960, height: 500 }
+    ]) {
+      const candidates = createProjectedRoleTextCandidates(tableDesignMockLayout, viewport);
+      const startedAt = performance.now();
+
+      createProjectedRoleTextCenters(tableDesignMockLayout, viewport, context);
+
+      expect(candidates.length).toBeLessThan(20_000);
+      expect(performance.now() - startedAt).toBeLessThan(100);
     }
   });
 

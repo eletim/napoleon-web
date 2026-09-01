@@ -1201,6 +1201,7 @@ interface ProjectedRoleTextSectorGeometry {
 
 export const projectedTextMinimumScale = 0.75;
 const compactProjectedRoleTextCollisionSize = { height: 20, width: 52 };
+const projectedRoleTextCandidateStep = 2;
 // Keep counter-scaled labels visually attached to the projected role board.
 export const projectedRoleTextBoardMaxDistance = 72;
 // Compact controls can occupy the nominal pentagon wedge. Keep candidates in
@@ -1463,21 +1464,7 @@ export function createProjectedRoleTextCenters(
   const staticAvoidBoxes = Object.values(obstacles).flat();
   const placedBoxes: BoundingBox[] = [];
   const selfHandTop = obstacles.selfHand[0]?.top ?? viewport.height;
-  const viewportCandidates: Point[] = [];
-
-  for (
-    let y = compactProjectedRoleTextCollisionSize.height / 2 + 4;
-    y <= selfHandTop - compactProjectedRoleTextCollisionSize.height / 2 - 4;
-    y += 2
-  ) {
-    for (
-      let x = compactProjectedRoleTextCollisionSize.width / 2 + 4;
-      x <= viewport.width - compactProjectedRoleTextCollisionSize.width / 2 - 4;
-      x += 2
-    ) {
-      viewportCandidates.push({ x, y });
-    }
-  }
+  const roleBoardCandidates = createProjectedRoleTextCandidates(layout, viewport, selfHandTop);
 
   const centers = {} as Record<SeatId, Point>;
 
@@ -1491,7 +1478,7 @@ export function createProjectedRoleTextCenters(
     let leastOverlapArea = Number.POSITIVE_INFINITY;
     let leastOverlapDistance = Number.POSITIVE_INFINITY;
 
-    for (const center of viewportCandidates) {
+    for (const center of roleBoardCandidates) {
       if (!pointIsInProjectedRoleTextSector(center, sector)) {
         continue;
       }
@@ -1536,6 +1523,41 @@ export function createProjectedRoleTextCenters(
   }
 
   return centers;
+}
+
+export function createProjectedRoleTextCandidates(
+  layout: TableDesignMockLayout,
+  viewport: ViewportSize,
+  selfHandTop = createSelfHandViewportLayout(layout, selfCards.length, viewport).top
+): Point[] {
+  const roleBoardBox = createProjectedRoleBoardBoundingBox(layout, viewport);
+  const horizontalMargin = compactProjectedRoleTextCollisionSize.width / 2 + 4;
+  const verticalMargin = compactProjectedRoleTextCollisionSize.height / 2 + 4;
+  const left = Math.max(horizontalMargin, roleBoardBox.left - projectedRoleTextBoardMaxDistance);
+  const right = Math.min(
+    viewport.width - horizontalMargin,
+    roleBoardBox.right + projectedRoleTextBoardMaxDistance
+  );
+  const top = Math.max(verticalMargin, roleBoardBox.top - projectedRoleTextBoardMaxDistance);
+  const bottom = Math.min(
+    selfHandTop - verticalMargin,
+    roleBoardBox.bottom + projectedRoleTextBoardMaxDistance
+  );
+  const firstX = horizontalMargin + Math.ceil(
+    (left - horizontalMargin) / projectedRoleTextCandidateStep
+  ) * projectedRoleTextCandidateStep;
+  const firstY = verticalMargin + Math.ceil(
+    (top - verticalMargin) / projectedRoleTextCandidateStep
+  ) * projectedRoleTextCandidateStep;
+  const candidates: Point[] = [];
+
+  for (let y = firstY; y <= bottom; y += projectedRoleTextCandidateStep) {
+    for (let x = firstX; x <= right; x += projectedRoleTextCandidateStep) {
+      candidates.push({ x, y });
+    }
+  }
+
+  return candidates;
 }
 
 export function createProjectedRoleTextSectorGeometry(
