@@ -690,6 +690,7 @@ function ProductionBiddingOverlay({
 }) {
   const [selection, setSelection] = useState<BidSelection | null>(() => normalizeBidSelection(legalBidActions, null));
   const geometry = createBiddingOverlayGeometry(tableDesignMockLayout, viewportSize);
+  const contentMetrics = createCompactBiddingContentMetrics(geometry);
   const isSelfTurn = selfPlayerId !== undefined && currentPlayerId === selfPlayerId;
   const canOperate = isSelfTurn && !isBusy;
   const selectedAction = useMemo(() => findBidAction(legalBidActions, selection), [legalBidActions, selection]);
@@ -702,7 +703,7 @@ function ProductionBiddingOverlay({
   return (
     <section
       aria-label="競り操作Overlay"
-      className="mock-bidding-overlay production-bidding-overlay"
+      className={`mock-bidding-overlay production-bidding-overlay${contentMetrics.isNarrow ? " production-bidding-overlay-narrow" : ""}`}
       style={biddingOverlayStyle(geometry)}
     >
       <div className="mock-bidding-highest">

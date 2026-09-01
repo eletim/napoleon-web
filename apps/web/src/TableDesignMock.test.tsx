@@ -261,30 +261,24 @@ describe("TableDesignMock", () => {
       const overlayBox = boxFromCenter(overlay);
       const metrics = createCompactBiddingContentMetrics(overlay);
       const contentLeft = overlayBox.left + metrics.borderWidth + metrics.paddingInline;
-      const primaryColumn = boxFromTopLeft({
+      const contentBox = boxFromTopLeft({
         height: 1,
-        width: metrics.primaryColumnWidth,
+        width: metrics.contentWidth,
         x: contentLeft,
         y: overlay.y
       });
-      const secondaryColumn = boxFromTopLeft({
-        height: 1,
-        width: metrics.secondaryColumnWidth,
-        x: primaryColumn.right + metrics.columnGap,
-        y: overlay.y
-      });
       const suitButtonGap = 4;
-      const suitButtonWidth = (secondaryColumn.width - suitButtonGap * 3) / 4;
+      const suitButtonWidth = (contentBox.width - suitButtonGap * 3) / 4;
       const suitButtons = Array.from({ length: 4 }, (_, index) => boxFromTopLeft({
-        height: 40,
+        height: 36,
         width: suitButtonWidth,
-        x: secondaryColumn.left + index * (suitButtonWidth + suitButtonGap),
+        x: contentBox.left + index * (suitButtonWidth + suitButtonGap),
         y: overlay.y
       }));
       const numberGap = 6;
-      const numberTrackUnit = (primaryColumn.width - numberGap * 2) / 2.6;
+      const numberTrackUnit = (contentBox.width - numberGap * 2) / 2.6;
       const numberWidths = [numberTrackUnit * 0.8, numberTrackUnit, numberTrackUnit * 0.8];
-      let numberControlLeft = primaryColumn.left;
+      let numberControlLeft = contentBox.left;
       const numberControls = numberWidths.map((width) => {
         const control = boxFromTopLeft({
           height: 36,
@@ -296,28 +290,31 @@ describe("TableDesignMock", () => {
         return control;
       });
       const actionGap = 8;
-      const actionWidth = (secondaryColumn.width - actionGap) / 2;
+      const actionWidth = (contentBox.width - actionGap) / 2;
       const actionButtons = [0, 1].map((index) => boxFromTopLeft({
         height: 36,
         width: actionWidth,
-        x: secondaryColumn.left + index * (actionWidth + actionGap),
+        x: contentBox.left + index * (actionWidth + actionGap),
         y: overlay.y
       }));
 
-      expect(primaryColumn.left).toBeGreaterThanOrEqual(overlayBox.left);
-      expect(secondaryColumn.right).toBeLessThanOrEqual(overlayBox.right);
+      expect(metrics.isNarrow).toBe(true);
+      expect(contentBox.left).toBeGreaterThanOrEqual(overlayBox.left);
+      expect(contentBox.right).toBeLessThanOrEqual(overlayBox.right);
       const highestBid = boxFromCenter({
-        height: 47,
-        width: Math.min(82, primaryColumn.width),
-        x: primaryColumn.x,
+        height: 32,
+        width: 76,
+        x: contentBox.right - 38,
         y: overlay.y
       });
 
-      expect(suitButtonWidth).toBeGreaterThan(0);
-      expect(actionWidth).toBeGreaterThan(0);
-      for (const control of [highestBid, ...suitButtons, ...numberControls, ...actionButtons]) {
+      expect(highestBid.left).toBeGreaterThanOrEqual(overlayBox.left);
+      expect(highestBid.right).toBeLessThanOrEqual(overlayBox.right);
+      for (const control of [...suitButtons, ...numberControls, ...actionButtons]) {
         expect(control.left).toBeGreaterThanOrEqual(overlayBox.left);
         expect(control.right).toBeLessThanOrEqual(overlayBox.right);
+        expect(control.width).toBeGreaterThanOrEqual(36);
+        expect(control.height).toBeGreaterThanOrEqual(36);
       }
     }
   });
@@ -445,7 +442,7 @@ describe("TableDesignMock", () => {
     expect(html).toContain("--mock-projected-board-counter-scale:");
   });
 
-  it("keeps realistic compact role and score labels clear of the round at 844x390", () => {
+  it("keeps realistic compact labels clear of the round and every trick card at 844x390", () => {
     const viewport = { width: 844, height: 390 };
     const fit = createProjectedBoardFit(tableDesignMockLayout, viewport);
     const labels = ["ナ/+21", "副/-3", "市/+13", "市/+7", "市/0"];
@@ -482,6 +479,19 @@ describe("TableDesignMock", () => {
       for (const otherMarkerBox of markerBoxes.slice(index + 1)) {
         expect(boxesOverlap(markerBox, otherMarkerBox)).toBe(false);
       }
+    }
+
+    for (const [index, seatId] of (["top-left", "top-right", "right", "left", "self"] as const).entries()) {
+      const cardBox = transformTestBox(
+        boundingTestBox(projectTableCard(
+          createCurrentTrickCardPlane(tableDesignMockLayout, seatId),
+          tableDesignMockLayout.camera
+        )),
+        fit.scale,
+        fit.translate
+      );
+
+      expect(boxesOverlap(markerBoxes[index], cardBox)).toBe(false);
     }
   });
 

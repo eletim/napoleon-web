@@ -1194,7 +1194,8 @@ interface ProjectedBoardFit {
 }
 
 export const projectedTextMinimumScale = 0.75;
-const compactProjectedRoleTextOffset = 34;
+const compactProjectedRoleTextGap = 6;
+const compactProjectedRoleTextHalfSize = { height: 8, width: 24 };
 
 interface BiddingBubbleLayout extends Box {
   action: BiddingMockAction;
@@ -1205,6 +1206,8 @@ interface BiddingBubbleLayout extends Box {
 interface CompactBiddingContentMetrics {
   borderWidth: number;
   columnGap: number;
+  contentWidth: number;
+  isNarrow: boolean;
   paddingInline: number;
   primaryColumnWidth: number;
   secondaryColumnWidth: number;
@@ -1441,11 +1444,18 @@ export function createProjectedRoleTextCenter(
     x: labelCenter.x - boardCenter.x,
     y: labelCenter.y - boardCenter.y
   });
-  const offset = compactProjectedRoleTextOffset / fit.scale;
+  const cardCorners = projectTableCard(createCurrentTrickCardPlane(layout, seatId), layout.camera);
+  const cardDistance = Math.max(...cardCorners.map((point) =>
+    (point.x - boardCenter.x) * direction.x + (point.y - boardCenter.y) * direction.y
+  ));
+  const labelSupport =
+    Math.abs(direction.x) * compactProjectedRoleTextHalfSize.width
+    + Math.abs(direction.y) * compactProjectedRoleTextHalfSize.height;
+  const labelDistance = cardDistance + (labelSupport + compactProjectedRoleTextGap) / fit.scale;
 
   return {
-    x: toLayoutPrecision(labelCenter.x + direction.x * offset),
-    y: toLayoutPrecision(labelCenter.y + direction.y * offset)
+    x: toLayoutPrecision(boardCenter.x + direction.x * labelDistance),
+    y: toLayoutPrecision(boardCenter.y + direction.y * labelDistance)
   };
 }
 
@@ -1648,9 +1658,9 @@ export function createBiddingOverlayGeometry(
   const selfHand = createSelfHandViewportLayout(layout, selfCards.length, viewport);
   const config = layout.bidding.overlay;
   const isCompactLandscape = viewport.height <= 520 && viewport.width > viewport.height;
-  const minimumHeight = isCompactLandscape ? 150 : 240;
+  const minimumHeight = isCompactLandscape ? 160 : 240;
   const desiredHeight = isCompactLandscape
-    ? Math.min(config.height, viewport.height * 0.46)
+    ? Math.min(config.height, viewport.height * 0.52)
     : config.height;
   const requestedWidth = Math.min(
     viewport.width - config.viewportMargin * 2,
@@ -1686,20 +1696,23 @@ export function createBiddingOverlayGeometry(
 
 export function createCompactBiddingContentMetrics(overlay: Box): CompactBiddingContentMetrics {
   const borderWidth = 2;
-  const columnGap = 10;
+  const isNarrow = overlay.width < 280;
+  const columnGap = isNarrow ? 0 : 10;
   const paddingInline = 12;
-  const availableWidth = Math.max(
+  const contentWidth = Math.max(
     overlay.width - borderWidth * 2 - paddingInline * 2 - columnGap,
     0
   );
-  const primaryColumnWidth = toLayoutPrecision(availableWidth * 0.4);
+  const primaryColumnWidth = toLayoutPrecision(isNarrow ? contentWidth : contentWidth * 0.4);
 
   return {
     borderWidth,
     columnGap,
+    contentWidth,
+    isNarrow,
     paddingInline,
     primaryColumnWidth,
-    secondaryColumnWidth: toLayoutPrecision(availableWidth - primaryColumnWidth)
+    secondaryColumnWidth: toLayoutPrecision(isNarrow ? contentWidth : contentWidth - primaryColumnWidth)
   };
 }
 

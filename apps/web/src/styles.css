@@ -1369,6 +1369,37 @@ input:focus-visible {
     padding-inline: 4px;
   }
 
+  .production-bidding-overlay-narrow {
+    gap: 2px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: repeat(4, auto);
+    padding-block: 4px;
+  }
+
+  .production-bidding-overlay-narrow .mock-bidding-highest {
+    flex-direction: row;
+    justify-content: space-between;
+  }
+
+  .production-bidding-overlay-narrow .mock-bidding-label {
+    font-size: 11px;
+  }
+
+  .production-bidding-overlay-narrow .mock-bidding-highest-value {
+    border-width: 2px;
+    font-size: 24px;
+    max-width: 76px;
+    padding: 1px 6px 2px;
+    width: 76px;
+  }
+
+  .production-bidding-overlay-narrow .mock-bidding-suit-button,
+  .production-bidding-overlay-narrow .mock-bidding-step-button,
+  .production-bidding-overlay-narrow .mock-bidding-declare-button,
+  .production-bidding-overlay-narrow .mock-bidding-pass-button {
+    height: 36px;
+  }
+
   .production-table-surface .mock-bidding-bubble {
     border-radius: 10px;
     border-width: 3px;
