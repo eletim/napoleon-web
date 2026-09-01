@@ -1205,7 +1205,10 @@ const compactProjectedRoleTextMaximumCollisionSize = {
   height: 15,
   width: compactProjectedRoleTextMaxLabel.length * 9
 };
-const compactProjectedRoundTextCollisionSize = { height: 20, width: 52 };
+// Reserve the widest reachable round label and leave just enough room for a
+// maximum-width role label beside compact Current Trick cards.
+const compactProjectedRoundTextCollisionSize = { height: 15, width: "第10局".length * 9 };
+const compactCurrentTrickCardScale = 0.95;
 const projectedRoleTextCandidateStep = 2;
 // Keep counter-scaled labels visually attached to the projected role board.
 export const projectedRoleTextBoardMaxDistance = 72;
@@ -1481,9 +1484,6 @@ export function createProjectedRoleTextCenters(
     const avoidBoxes = [...staticAvoidBoxes, ...placedBoxes];
     let candidate: Point | undefined;
     let candidateDistance = Number.POSITIVE_INFINITY;
-    let leastOverlapCandidate: Point | undefined;
-    let leastOverlapArea = Number.POSITIVE_INFINITY;
-    let leastOverlapDistance = Number.POSITIVE_INFINITY;
 
     for (const center of roleBoardCandidates) {
       if (!pointIsInProjectedRoleTextSector(center, sector)) {
@@ -1491,7 +1491,6 @@ export function createProjectedRoleTextCenters(
       }
 
       const box = boundingBoxFromCenter({ ...collisionSize, ...center });
-      const overlap = avoidBoxes.reduce((total, avoidBox) => total + overlapArea(box, avoidBox), 0);
       const distanceFromPreferred = distance(center, preferred);
       const distanceFromRoleBoard = distanceFromBoundingBox(center, roleBoardBox);
 
@@ -1499,14 +1498,7 @@ export function createProjectedRoleTextCenters(
         continue;
       }
 
-      if (overlap < leastOverlapArea
-        || (overlap === leastOverlapArea && distanceFromPreferred < leastOverlapDistance)) {
-        leastOverlapCandidate = center;
-        leastOverlapArea = overlap;
-        leastOverlapDistance = distanceFromPreferred;
-      }
-
-      if (overlap > 0) {
+      if (avoidBoxes.some((avoidBox) => boxesOverlap(box, avoidBox))) {
         continue;
       }
 
@@ -1517,9 +1509,14 @@ export function createProjectedRoleTextCenters(
     }
 
     if (candidate === undefined) {
-      // A pathological viewport must degrade collision spacing rather than
-      // move a label into another player's sector or crash the entire table.
-      candidate = leastOverlapCandidate ?? preferred;
+      candidate = createCollisionFreeProjectedRoleTextFallback(
+        viewport,
+        selfHandTop,
+        collisionSize,
+        avoidBoxes,
+        sector,
+        preferred
+      );
     }
 
     placedBoxes.push(boundingBoxFromCenter({ ...collisionSize, ...candidate }));
@@ -1530,6 +1527,43 @@ export function createProjectedRoleTextCenters(
   }
 
   return centers;
+}
+
+function createCollisionFreeProjectedRoleTextFallback(
+  viewport: ViewportSize,
+  selfHandTop: number,
+  collisionSize: Pick<Box, "height" | "width">,
+  avoidBoxes: readonly BoundingBox[],
+  sector: ProjectedRoleTextSectorGeometry,
+  preferred: Point
+): Point {
+  const horizontalMargin = collisionSize.width / 2 + 4;
+  const verticalMargin = collisionSize.height / 2 + 4;
+  let fallback: Point | undefined;
+  let fallbackAlignment = Number.NEGATIVE_INFINITY;
+  let fallbackDistance = Number.POSITIVE_INFINITY;
+
+  for (let y = verticalMargin; y <= selfHandTop - verticalMargin; y += 4) {
+    for (let x = horizontalMargin; x <= viewport.width - horizontalMargin; x += 4) {
+      const center = { x, y };
+      const box = boundingBoxFromCenter({ ...collisionSize, ...center });
+
+      if (avoidBoxes.some((avoidBox) => boxesOverlap(box, avoidBox))) {
+        continue;
+      }
+
+      const alignment = projectedRoleTextSectorAlignment(center, sector);
+      const preferredDistance = distance(center, preferred);
+      if (alignment > fallbackAlignment
+        || (alignment === fallbackAlignment && preferredDistance < fallbackDistance)) {
+        fallback = center;
+        fallbackAlignment = alignment;
+        fallbackDistance = preferredDistance;
+      }
+    }
+  }
+
+  return fallback ?? preferred;
 }
 
 function createCompactProjectedRoleTextCollisionSize(
@@ -1764,6 +1798,24 @@ export function createCurrentTrickCardPlane(
   };
 }
 
+export function createCurrentTrickCardPlaneForViewport(
+  layout: TableDesignMockLayout,
+  seatId: SeatId,
+  viewport: ViewportSize
+): TableCardPlane {
+  const card = createCurrentTrickCardPlane(layout, seatId);
+
+  if (viewport.height > 500 || viewport.width <= viewport.height) {
+    return card;
+  }
+
+  return {
+    ...card,
+    height: toLayoutPrecision(card.height * compactCurrentTrickCardScale),
+    width: toLayoutPrecision(card.width * compactCurrentTrickCardScale)
+  };
+}
+
 export function createCurrentTrickZoneGeometry(
   layout: TableDesignMockLayout,
   seatId: SeatId,
@@ -1932,7 +1984,10 @@ export function createProjectedRoleTextObstacles(
     ? []
     : roleMarkerSeatOrder.map((seatId) =>
         transformBoundingBox(
-          boundingBox(projectTableCard(createCurrentTrickCardPlane(layout, seatId), layout.camera)),
+          boundingBox(projectTableCard(
+            createCurrentTrickCardPlaneForViewport(layout, seatId, viewport),
+            layout.camera
+          )),
           fit.scale,
           fit.translate
         )

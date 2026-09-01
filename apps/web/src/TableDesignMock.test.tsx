@@ -588,6 +588,47 @@ describe("TableDesignMock", () => {
     }
   });
 
+  it("keeps the longest top-seat label clear of Current Trick cards during play", () => {
+    const context = {
+      isBidding: false,
+      opponentHandCounts: { "top-left": 9, "top-right": 9, right: 9, left: 9 },
+      riverCardCounts: { "top-left": 0, "top-right": 0, right: 0, self: 0, left: 0 },
+      roleTextLabels: {
+        "top-left": "ナ副/+220",
+        "top-right": "副/-3",
+        right: "市/+13",
+        left: "市/+7",
+        self: "市/0"
+      }
+    };
+
+    for (const viewport of [
+      { width: 568, height: 320 },
+      { width: 640, height: 360 },
+      { width: 720, height: 360 },
+      { width: 844, height: 390 }
+    ]) {
+      const fit = createProjectedBoardFit(tableDesignMockLayout, viewport);
+      const center = createProjectedRoleTextCenters(tableDesignMockLayout, viewport, context)["top-left"];
+      const markerBox = boxFromCenter({
+        x: center.x * fit.scale + fit.translate.x,
+        y: center.y * fit.scale + fit.translate.y,
+        height: 15,
+        width: "ナ副/+220".length * 9
+      });
+      const obstacles = createProjectedRoleTextObstacles(tableDesignMockLayout, viewport, context);
+      const trickCards = obstacles.trickCards;
+
+      expect(trickCards).toHaveLength(5);
+      for (const trickCard of trickCards) {
+        expect(
+          boxesOverlap(markerBox, trickCard),
+          `${viewport.width}x${viewport.height} top-left label overlaps Current Trick`
+        ).toBe(false);
+      }
+    }
+  });
+
   it("bounds compact role-label candidate work to the projected role-board region", () => {
     const context = {
       isBidding: true,

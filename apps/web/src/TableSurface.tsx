@@ -16,7 +16,7 @@ import {
   createBiddingBubbleLayouts,
   createBiddingOverlayGeometry,
   createCompactBiddingContentMetrics,
-  createCurrentTrickCardPlane,
+  createCurrentTrickCardPlaneForViewport,
   createCurrentTrickZoneGeometry,
   createOpponentHandGeometry,
   createPlayerInfoLayouts,
@@ -339,6 +339,7 @@ function ProjectedProductionBoard({
               key={`production-trick-card-${seat}`}
               played={played}
               seat={seat}
+              viewportSize={viewportSize}
             />
           );
         })}
@@ -519,19 +520,21 @@ function ProjectedCurrentTrickCard({
   isCollecting,
   isWinning,
   played,
-  seat
+  seat,
+  viewportSize
 }: {
   isCollecting: boolean;
   isWinning: boolean;
   played: PublicPlayedCard | undefined;
   seat: TableSeatId;
+  viewportSize: { height: number; width: number };
 }) {
   if (played === undefined) {
     return null;
   }
 
   const layout = tableDesignMockLayout;
-  const cardPlane = createCurrentTrickCardPlane(layout, seat);
+  const cardPlane = createCurrentTrickCardPlaneForViewport(layout, seat, viewportSize);
   const size = { width: cardPlane.width, height: cardPlane.height };
   const corners = projectTableCard(cardPlane, layout.camera);
 
