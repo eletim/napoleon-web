@@ -4,6 +4,7 @@ import type {
   PublicBiddingState,
   PublicCard,
   PublicGameState,
+  PublicMatchState,
   PublicPlayedCard,
   PublicStandardCard,
   PublicSuit
@@ -14,11 +15,13 @@ import { cardDesignSuitSymbols } from "./CardDesignCard";
 import {
   createBiddingBubbleLayouts,
   createBiddingOverlayGeometry,
-  createCurrentTrickCardPlane,
+  createCompactBiddingContentMetrics,
+  createCurrentTrickCardPlaneForViewport,
   createCurrentTrickZoneGeometry,
   createOpponentHandGeometry,
   createPlayerInfoLayouts,
   createProjectedBoardFit,
+  createProjectedRoleTextCenters,
   createRiverFaceMetrics,
   createRiverGeometry,
   createRiverPlacements,
@@ -58,6 +61,7 @@ interface TableSurfaceProps {
   isResultEmphasisActive?: boolean;
   legalBidActions?: readonly PublicBidAction[];
   legalCardIds: ReadonlySet<string>;
+  match?: PublicMatchState;
   onBid?: (action: PublicBidAction) => void;
   onPass?: () => void;
   onPlay: (card: PublicCard) => void;
@@ -103,6 +107,7 @@ export function TableSurface({
   isResultEmphasisActive = false,
   legalBidActions = [],
   legalCardIds,
+  match,
   onBid,
   onPass,
   onPlay,
@@ -143,6 +148,7 @@ export function TableSurface({
         adapters={adapters}
         currentTrickByPlayerId={playedCardsByPlayerId}
         isCollecting={collectingSeat !== undefined}
+        match={match}
         viewportSize={viewportSize}
         winningPlayerId={winningPlayerId}
         state={state}
@@ -241,6 +247,7 @@ function ProjectedProductionBoard({
   adapters,
   currentTrickByPlayerId,
   isCollecting,
+  match,
   state,
   viewportSize,
   winningPlayerId
@@ -248,6 +255,7 @@ function ProjectedProductionBoard({
   adapters: readonly TablePlayerAdapter[];
   currentTrickByPlayerId: ReadonlyMap<string, PublicPlayedCard>;
   isCollecting: boolean;
+  match: PublicMatchState | undefined;
   state: PublicGameState | undefined;
   viewportSize: ViewportSize;
   winningPlayerId: string | undefined;
@@ -261,6 +269,18 @@ function ProjectedProductionBoard({
     inner: projectTablePoint(roleBoardLocalToAbsolute(layout.center, line.inner), layout.camera),
     outer: projectTablePoint(roleBoardLocalToAbsolute(layout.center, line.outer), layout.camera)
   }));
+  const roleTextCenters = useMemo(() => createProjectedRoleTextCenters(layout, viewportSize, {
+    isBidding: state?.phase === "bidding",
+    opponentHandCounts: Object.fromEntries(adapters
+      .filter((adapter) => adapter.seat !== "self")
+      .map((adapter) => [adapter.seat, adapter.handCount])),
+    riverCardCounts: Object.fromEntries(adapters
+      .map((adapter) => [adapter.seat, adapter.capturedPointCards.length])),
+    roleTextLabels: Object.fromEntries(seatOrder.map((seat) => [
+      seat,
+      createProductionRoleText(adapters, match, state, seat).compact
+    ]))
+  }), [adapters, match, state, viewportSize]);
 
   return (
     <div className="mock-projected-board-fit" style={projectedBoardFitStyle(fit)}>
@@ -294,8 +314,17 @@ function ProjectedProductionBoard({
           ))}
           <polygon className="mock-projected-role-board-inner" points={svgPoints(roleInnerPoints)} />
           {seatOrder.map((seat) => (
-            <ProductionRoleMarker key={`production-role-${seat}`} seat={seat} state={state} adapters={adapters} />
+            <ProductionRoleMarker
+              adapters={adapters}
+              compact={viewportSize.height <= 500 && viewportSize.width > viewportSize.height}
+              key={`production-role-${seat}`}
+              labelCenter={roleTextCenters[seat]}
+              match={match}
+              seat={seat}
+              state={state}
+            />
           ))}
+          <ProductionMatchRound match={match} />
         </g>
       </svg>
       <div className="mock-projected-card-layer">
@@ -310,6 +339,7 @@ function ProjectedProductionBoard({
               key={`production-trick-card-${seat}`}
               played={played}
               seat={seat}
+              viewportSize={viewportSize}
             />
           );
         })}
@@ -343,10 +373,16 @@ function ProjectedProductionBoard({
 
 function ProductionRoleMarker({
   adapters,
+  compact,
+  labelCenter,
+  match,
   seat,
   state
 }: {
   adapters: readonly TablePlayerAdapter[];
+  compact: boolean;
+  labelCenter: { x: number; y: number };
+  match: PublicMatchState | undefined;
   seat: TableSeatId;
   state: PublicGameState | undefined;
 }) {
@@ -364,23 +400,119 @@ function ProductionRoleMarker({
     },
     layout.camera
   );
-  const labelCenter = polygonCenter(corners);
-  const player = adapters.find((entry) => entry.seat === seat);
-  const role = player === undefined ? "?" : playerRoleLabel(player.id, state);
+  const roleText = createProductionRoleText(adapters, match, state, seat);
+  const displayedRole = compact ? roleText.compactRole : roleText.role;
 
   return (
-    <g className={`mock-projected-role-marker mock-projected-role-marker-${seat}`}>
+    <g
+      aria-label={`${roleText.player?.label ?? seat}: 役職 ${roleText.role}, 累積試合スコア ${roleText.score}`}
+      className={`mock-projected-role-marker mock-projected-role-marker-${seat}`}
+    >
       <polygon className="mock-projected-role-marker-fill" points={svgPoints(corners)} />
-      <text
-        className="mock-projected-role-marker-text"
-        dominantBaseline="central"
-        textAnchor="middle"
-        x={labelCenter.x}
-        y={labelCenter.y}
-      >
-        {role}
-      </text>
+      {compact ? (
+        <text
+          className="mock-projected-role-marker-text mock-projected-role-marker-compact"
+          dominantBaseline="central"
+          textAnchor="middle"
+          x={labelCenter.x}
+          y={labelCenter.y}
+        >
+          {roleText.compact}
+        </text>
+      ) : (
+        <text
+          className="mock-projected-role-marker-text"
+          textAnchor="middle"
+        >
+          <tspan
+            className="mock-projected-role-marker-role"
+            dominantBaseline="central"
+            x={labelCenter.x}
+            y={labelCenter.y - 11}
+          >
+            {displayedRole}
+          </tspan>
+          <tspan
+            className="mock-projected-role-marker-score"
+            dominantBaseline="central"
+            x={labelCenter.x}
+            y={labelCenter.y + 13}
+          >
+            {roleText.score}
+          </tspan>
+        </text>
+      )}
     </g>
+  );
+}
+
+function compactRoleLabel(role: string): string {
+  switch (role) {
+    case "ナポレオン":
+      return "ナ";
+    case "副官":
+      return "副";
+    case "市民":
+      return "市";
+    case "ナ/副":
+      return "ナ副";
+    default:
+      return role;
+  }
+}
+
+function createProductionRoleText(
+  adapters: readonly TablePlayerAdapter[],
+  match: PublicMatchState | undefined,
+  state: PublicGameState | undefined,
+  seat: TableSeatId
+): {
+  compact: string;
+  compactRole: string;
+  player: TablePlayerAdapter | undefined;
+  role: string;
+  score: string;
+} {
+  const player = adapters.find((entry) => entry.seat === seat);
+  const role = player === undefined ? "?" : playerRoleLabel(player.id, state);
+  const rawMatchScore = player === undefined
+    ? undefined
+    : match?.players.find((entry) => entry.playerId === player.id)?.rawMatchScore;
+  const score = rawMatchScore === undefined ? "—" : formatMatchScore(rawMatchScore);
+
+  const compactRole = compactRoleLabel(role);
+
+  return {
+    compact: `${compactRole}/${score}`,
+    compactRole,
+    player,
+    role,
+    score
+  };
+}
+
+function ProductionMatchRound({ match }: { match: PublicMatchState | undefined }) {
+  if (match === undefined) {
+    return null;
+  }
+
+  const layout = tableDesignMockLayout;
+  const center = projectTablePoint({
+    x: layout.center.x,
+    y: layout.center.y
+  }, layout.camera);
+
+  return (
+    <text
+      aria-label={`現在 第${match.currentRound}局 / 全${match.roundCount}局`}
+      className="production-match-round"
+      dominantBaseline="central"
+      textAnchor="middle"
+      x={center.x}
+      y={center.y}
+    >
+      第{match.currentRound}局
+    </text>
   );
 }
 
@@ -388,19 +520,21 @@ function ProjectedCurrentTrickCard({
   isCollecting,
   isWinning,
   played,
-  seat
+  seat,
+  viewportSize
 }: {
   isCollecting: boolean;
   isWinning: boolean;
   played: PublicPlayedCard | undefined;
   seat: TableSeatId;
+  viewportSize: { height: number; width: number };
 }) {
   if (played === undefined) {
     return null;
   }
 
   const layout = tableDesignMockLayout;
-  const cardPlane = createCurrentTrickCardPlane(layout, seat);
+  const cardPlane = createCurrentTrickCardPlaneForViewport(layout, seat, viewportSize);
   const size = { width: cardPlane.width, height: cardPlane.height };
   const corners = projectTableCard(cardPlane, layout.camera);
 
@@ -595,6 +729,7 @@ function ProductionBiddingOverlay({
 }) {
   const [selection, setSelection] = useState<BidSelection | null>(() => normalizeBidSelection(legalBidActions, null));
   const geometry = createBiddingOverlayGeometry(tableDesignMockLayout, viewportSize);
+  const contentMetrics = createCompactBiddingContentMetrics(geometry);
   const isSelfTurn = selfPlayerId !== undefined && currentPlayerId === selfPlayerId;
   const canOperate = isSelfTurn && !isBusy;
   const selectedAction = useMemo(() => findBidAction(legalBidActions, selection), [legalBidActions, selection]);
@@ -607,7 +742,7 @@ function ProductionBiddingOverlay({
   return (
     <section
       aria-label="競り操作Overlay"
-      className="mock-bidding-overlay production-bidding-overlay"
+      className={`mock-bidding-overlay production-bidding-overlay${contentMetrics.isNarrow ? " production-bidding-overlay-narrow" : ""}`}
       style={biddingOverlayStyle(geometry)}
     >
       <div className="mock-bidding-highest">
@@ -989,9 +1124,15 @@ function playerInfoStyle(info: { avatarSize: number; gap: number; height: number
 }
 
 function biddingOverlayStyle(geometry: { height: number; width: number; x: number; y: number }): CSSProperties {
+  const compactContent = createCompactBiddingContentMetrics(geometry);
+
   return {
+    "--mock-bidding-column-gap": `${compactContent.columnGap}px`,
     "--mock-bidding-overlay-height": `${geometry.height}px`,
     "--mock-bidding-overlay-width": `${geometry.width}px`,
+    "--mock-bidding-padding-inline": `${compactContent.paddingInline}px`,
+    "--mock-bidding-primary-column-width": `${compactContent.primaryColumnWidth}px`,
+    "--mock-bidding-secondary-column-width": `${compactContent.secondaryColumnWidth}px`,
     "--mock-x": `${geometry.x}px`,
     "--mock-y": `${geometry.y}px`
   } as CSSProperties;
@@ -1008,8 +1149,13 @@ function selfHandViewportStyle(layout: { cardSize: { height: number; width: numb
   } as CSSProperties;
 }
 
-function projectedBoardFitStyle(fit: { scale: number; translate: { x: number; y: number } }): CSSProperties {
+function projectedBoardFitStyle(fit: {
+  counterScale: number;
+  scale: number;
+  translate: { x: number; y: number };
+}): CSSProperties {
   return {
+    "--mock-projected-board-counter-scale": fit.counterScale,
     "--mock-projected-board-transform": `translate(${fit.translate.x}px, ${fit.translate.y}px) scale(${fit.scale})`
   } as CSSProperties;
 }
@@ -1035,11 +1181,11 @@ function playerRoleLabel(playerId: string, state: PublicGameState | undefined): 
   }
 
   if (isNapoleon) {
-    return "ナポ";
+    return "ナポレオン";
   }
 
   if (isAdjutant) {
-    return "副";
+    return "副官";
   }
 
   if (
@@ -1047,10 +1193,14 @@ function playerRoleLabel(playerId: string, state: PublicGameState | undefined): 
     state.adjutant?.revealedPlayerId !== null &&
     state.adjutant?.revealedPlayerId !== undefined
   ) {
-    return "市";
+    return "市民";
   }
 
   return "?";
+}
+
+function formatMatchScore(score: number): string {
+  return `${score > 0 ? "+" : ""}${Number.isInteger(score) ? score : score.toFixed(2)}`;
 }
 
 function getCardInteractionState(
@@ -1118,21 +1268,6 @@ function isPublicSuit(value: string | undefined): value is PublicSuit {
 
 function svgPoints(points: readonly { x: number; y: number }[]): string {
   return points.map((point) => `${toLayoutPrecision(point.x)},${toLayoutPrecision(point.y)}`).join(" ");
-}
-
-function polygonCenter(points: readonly { x: number; y: number }[]): { x: number; y: number } {
-  const total = points.reduce(
-    (sum, point) => ({
-      x: sum.x + point.x,
-      y: sum.y + point.y
-    }),
-    { x: 0, y: 0 }
-  );
-
-  return {
-    x: toLayoutPrecision(total.x / points.length),
-    y: toLayoutPrecision(total.y / points.length)
-  };
 }
 
 function useViewportSize(fallback: ViewportSize): ViewportSize {

@@ -424,8 +424,33 @@ html:has(.table-design-mock-page) {
 
 .mock-projected-role-marker-text {
   fill: #303030;
-  font-size: 18px;
   font-weight: 800;
+  transform: scale(var(--mock-projected-board-counter-scale));
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.mock-projected-role-marker-role {
+  font-size: 16px;
+}
+
+.mock-projected-role-marker-score {
+  fill: #172033;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.mock-projected-role-marker-compact {
+  font-size: 16px;
+}
+
+.production-match-round {
+  fill: #303056;
+  font-size: 20px;
+  font-weight: 900;
+  transform: scale(var(--mock-projected-board-counter-scale));
+  transform-box: fill-box;
+  transform-origin: center;
 }
 
 .role-marker {

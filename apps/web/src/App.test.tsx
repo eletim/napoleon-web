@@ -26,7 +26,13 @@ vi.mock("./api", () => ({
 }));
 
 vi.mock("./TableSurface", () => ({
-  TableSurface: () => null
+  TableSurface: ({ match }: { match?: PublicMatchState }) => (
+    <section aria-label="ゲームテーブル">
+      {match === undefined ? null : (
+        <span className="production-match-round">第{match.currentRound}局</span>
+      )}
+    </section>
+  )
 }));
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -63,7 +69,9 @@ describe("App match final result flow", () => {
     expect(container.querySelector(".match-final-results")).toBeNull();
     expect(container.textContent).not.toContain("全5局 終了");
     expect(container.querySelector(".app-shell-match-completed")).toBeNull();
-    expect(container.querySelector(".match-round-indicator")?.textContent).toContain("1/5");
+    expect(container.querySelector(".match-round-indicator")).toBeNull();
+    expect(container.querySelector(".match-score-details")).toBeNull();
+    expect(container.querySelector(".production-match-round")?.textContent).toBe("第1局");
     expect(container.querySelector('[aria-label="ゲームテーブル"]')).not.toBeNull();
 
     await act(async () => root.unmount());

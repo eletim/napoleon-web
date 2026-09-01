@@ -1280,40 +1280,53 @@ input:focus-visible {
 
   .production-bidding-overlay {
     border-radius: 12px;
-    gap: 8px 10px;
-    grid-template-columns: minmax(150px, 1fr) minmax(240px, 1.2fr);
+    gap: 8px var(--mock-bidding-column-gap);
+    grid-template-columns:
+      minmax(0, var(--mock-bidding-primary-column-width))
+      minmax(0, var(--mock-bidding-secondary-column-width));
     grid-template-rows: auto auto;
-    padding: 8px 12px;
+    padding: 8px var(--mock-bidding-padding-inline);
   }
 
   .production-bidding-overlay .mock-bidding-highest {
     align-items: center;
     flex-direction: column;
     gap: 4px;
+    min-width: 0;
+    width: 100%;
   }
 
   .production-bidding-overlay .mock-bidding-label {
-    font-size: 14px;
+    font-size: clamp(9px, calc(var(--mock-bidding-primary-column-width) / 7), 14px);
+    white-space: nowrap;
   }
 
   .production-bidding-overlay .mock-bidding-highest-value {
     border-width: 3px;
     border-radius: 9px;
-    font-size: 35px;
-    min-width: 82px;
+    font-size: clamp(20px, calc(var(--mock-bidding-primary-column-width) / 3), 35px);
+    max-width: 82px;
+    min-width: 0;
     padding: 3px 8px 5px;
+    width: 100%;
   }
 
   .production-bidding-overlay .mock-bidding-suit-selector {
-    gap: 8px;
+    display: grid;
+    gap: 4px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     justify-content: center;
+    min-width: 0;
+    width: 100%;
   }
 
   .production-bidding-overlay .mock-bidding-suit-button {
     border-radius: 9px;
-    font-size: 28px;
+    font-size: clamp(15px, calc(var(--mock-bidding-secondary-column-width) / 6), 28px);
     height: 40px;
-    width: 48px;
+    min-width: 0;
+    padding: 0;
+    width: 100%;
   }
 
   .production-bidding-overlay .mock-bidding-suit-button[aria-pressed="true"] {
@@ -1322,29 +1335,68 @@ input:focus-visible {
   }
 
   .production-bidding-overlay .mock-bidding-number-selector {
-    gap: 10px;
-    grid-template-columns: 46px 58px 46px;
+    gap: 6px;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 0.8fr);
     justify-content: center;
+    min-width: 0;
+    width: 100%;
   }
 
   .production-bidding-overlay .mock-bidding-step-button {
-    font-size: 27px;
+    font-size: clamp(14px, calc(var(--mock-bidding-primary-column-width) / 5), 27px);
     height: 36px;
+    min-width: 0;
+    padding: 0;
   }
 
   .production-bidding-overlay .mock-bidding-number-value {
-    font-size: 36px;
+    font-size: clamp(14px, calc(var(--mock-bidding-primary-column-width) / 5), 36px);
   }
 
   .production-bidding-overlay .mock-bidding-actions {
     gap: 8px;
-    width: min(230px, 100%);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
+    width: 100%;
   }
 
   .production-bidding-overlay .mock-bidding-declare-button,
   .production-bidding-overlay .mock-bidding-pass-button {
     border-radius: 9px;
-    font-size: 17px;
+    font-size: clamp(12px, calc(var(--mock-bidding-secondary-column-width) / 8), 17px);
+    height: 36px;
+    min-width: 0;
+    padding-inline: 4px;
+  }
+
+  .production-bidding-overlay-narrow {
+    gap: 2px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: repeat(4, auto);
+    padding-block: 4px;
+  }
+
+  .production-bidding-overlay-narrow .mock-bidding-highest {
+    flex-direction: row;
+    justify-content: space-between;
+  }
+
+  .production-bidding-overlay-narrow .mock-bidding-label {
+    font-size: 11px;
+  }
+
+  .production-bidding-overlay-narrow .mock-bidding-highest-value {
+    border-width: 2px;
+    font-size: 24px;
+    max-width: 76px;
+    padding: 1px 6px 2px;
+    width: 76px;
+  }
+
+  .production-bidding-overlay-narrow .mock-bidding-suit-button,
+  .production-bidding-overlay-narrow .mock-bidding-step-button,
+  .production-bidding-overlay-narrow .mock-bidding-declare-button,
+  .production-bidding-overlay-narrow .mock-bidding-pass-button {
     height: 36px;
   }
 
@@ -3006,73 +3058,6 @@ input:focus-visible {
   }
 }
 
-.match-progress {
-  align-items: center;
-  display: flex;
-  gap: 10px;
-  margin: 0 auto 8px;
-  max-width: 1240px;
-}
-
-.match-round-indicator {
-  align-items: baseline;
-  background: #172033;
-  border-radius: 999px;
-  color: #ffffff;
-  display: flex;
-  flex: 0 0 auto;
-  gap: 7px;
-  padding: 6px 11px;
-}
-
-.match-round-indicator span {
-  font-size: 0.72rem;
-}
-
-.match-score-details {
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  min-width: 0;
-  padding: 5px 9px;
-}
-
-.match-score-details summary {
-  cursor: pointer;
-  font-size: 0.8rem;
-  font-weight: 700;
-}
-
-.match-score-scroll {
-  margin-top: 7px;
-  max-width: min(760px, calc(100vw - 72px));
-  overflow-x: auto;
-}
-
-.match-score-details table {
-  border-collapse: collapse;
-  font-size: 0.76rem;
-  white-space: nowrap;
-}
-
-.match-score-details th,
-.match-score-details td {
-  border-bottom: 1px solid #e2e8f0;
-  padding: 4px 8px;
-  text-align: right;
-}
-
-.match-score-details th:first-child {
-  left: 0;
-  text-align: left;
-}
-
-.match-score-note {
-  color: #64748b;
-  font-size: 0.7rem;
-  margin: 6px 0 1px;
-}
-
 .match-advance-button {
   margin-top: 10px;
   width: 100%;
@@ -3246,29 +3231,6 @@ input:focus-visible {
   .match-new-game-button {
     min-width: 0;
     width: 100%;
-  }
-}
-
-@media (max-width: 720px), (max-height: 540px) {
-  .app-shell-game-active .match-progress {
-    left: 50%;
-    margin: 0;
-    position: fixed;
-    top: max(4px, env(safe-area-inset-top));
-    transform: translateX(-50%);
-    z-index: 20;
-  }
-
-  .app-shell-game-active .match-round-indicator {
-    padding: 3px 8px;
-  }
-
-  .app-shell-game-active .match-round-indicator span {
-    display: none;
-  }
-
-  .app-shell-game-active .match-score-details {
-    padding: 3px 7px;
   }
 }
 

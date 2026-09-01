@@ -4,6 +4,7 @@ import {
   TableDesignMock,
   createBiddingBubbleLayouts,
   createBiddingOverlayGeometry,
+  createCompactBiddingContentMetrics,
   createCurrentTrickCardPlane,
   createCurrentTrickCardSize,
   createCurrentTrickReferenceRiverGeometry,
@@ -13,6 +14,11 @@ import {
   createOpponentHandsGeometry,
   createPlayerInfoLayouts,
   createProjectedBoardFit,
+  createProjectedRoleTextCandidates,
+  createProjectedRoleTextCenters,
+  createProjectedRoleTextObstacles,
+  createProjectedRoleTextSectorGeometry,
+  createProjectedRoleBoardBoundingBox,
   createProjectedTableBoundingBox,
   createRiverFaceMetrics,
   createRiverGeometry,
@@ -28,6 +34,9 @@ import {
   projectVerticalCard,
   projectTablePoint,
   projectTablePolygon,
+  projectedRoleTextBoardMaxDistance,
+  projectedRoleTextSectorMinimumAlignment,
+  projectedTextMinimumScale,
   regularPentagon,
   roleBoardSelfSideLength,
   selfHandWidth,
@@ -209,15 +218,110 @@ describe("TableDesignMock", () => {
     });
     const projectedFit = createProjectedBoardFit(tableDesignMockLayout, viewport);
 
-    expect(overlay.width).toBe(820);
+    const roleBoardBox = createProjectedRoleBoardBoundingBox(tableDesignMockLayout, viewport);
+
+    expect(overlay.width).toBeLessThanOrEqual(820);
     expect(overlay.height).toBe(430);
-    expect(overlay.x).toBeCloseTo(projectedFit.transformedTableBox.x);
+    expect(overlay.x).toBeGreaterThan(projectedFit.transformedTableBox.x);
     expect(overlay.y).toBeGreaterThan(projectedFit.transformedTableBox.y);
     expect(overlayBox.top).toBeGreaterThanOrEqual(tableDesignMockLayout.bidding.overlay.viewportMargin);
     expect(overlayBox.bottom).toBeLessThanOrEqual(
       selfHand.top - tableDesignMockLayout.bidding.overlay.gapFromSelfHand
     );
     expect(boxesOverlap(overlayBox, selfHandBox)).toBe(false);
+    expect(boxesOverlap(overlayBox, roleBoardBox)).toBe(false);
+  });
+
+  it("keeps the projected match-information pentagon visible during bidding at desktop and mobile landscape viewports", () => {
+    for (const viewport of [
+      { width: 1440, height: 900 },
+      { width: 844, height: 390 }
+    ]) {
+      const overlayBox = boxFromCenter(
+        createBiddingOverlayGeometry(tableDesignMockLayout, viewport)
+      );
+      const roleBoardBox = createProjectedRoleBoardBoundingBox(
+        tableDesignMockLayout,
+        viewport
+      );
+      const bubbles = createBiddingBubbleLayouts(tableDesignMockLayout, viewport);
+
+      expect(boxesOverlap(overlayBox, roleBoardBox)).toBe(false);
+      for (const bubble of bubbles) {
+        expect(boxesOverlap(boxFromCenter(bubble), roleBoardBox)).toBe(false);
+      }
+      expect(overlayBox.left).toBeGreaterThanOrEqual(0);
+      expect(overlayBox.right).toBeLessThanOrEqual(viewport.width);
+      expect(overlayBox.top).toBeGreaterThanOrEqual(0);
+      expect(overlayBox.bottom).toBeLessThanOrEqual(viewport.height);
+    }
+  });
+
+  it("keeps compact bidding controls inside narrower landscape overlays", () => {
+    for (const viewport of [
+      { width: 667, height: 375 },
+      { width: 568, height: 320 }
+    ]) {
+      const overlay = createBiddingOverlayGeometry(tableDesignMockLayout, viewport);
+      const overlayBox = boxFromCenter(overlay);
+      const metrics = createCompactBiddingContentMetrics(overlay);
+      const contentLeft = overlayBox.left + metrics.borderWidth + metrics.paddingInline;
+      const contentBox = boxFromTopLeft({
+        height: 1,
+        width: metrics.contentWidth,
+        x: contentLeft,
+        y: overlay.y
+      });
+      const suitButtonGap = 4;
+      const suitButtonWidth = (contentBox.width - suitButtonGap * 3) / 4;
+      const suitButtons = Array.from({ length: 4 }, (_, index) => boxFromTopLeft({
+        height: 36,
+        width: suitButtonWidth,
+        x: contentBox.left + index * (suitButtonWidth + suitButtonGap),
+        y: overlay.y
+      }));
+      const numberGap = 6;
+      const numberTrackUnit = (contentBox.width - numberGap * 2) / 2.6;
+      const numberWidths = [numberTrackUnit * 0.8, numberTrackUnit, numberTrackUnit * 0.8];
+      let numberControlLeft = contentBox.left;
+      const numberControls = numberWidths.map((width) => {
+        const control = boxFromTopLeft({
+          height: 36,
+          width,
+          x: numberControlLeft,
+          y: overlay.y
+        });
+        numberControlLeft = control.right + numberGap;
+        return control;
+      });
+      const actionGap = 8;
+      const actionWidth = (contentBox.width - actionGap) / 2;
+      const actionButtons = [0, 1].map((index) => boxFromTopLeft({
+        height: 36,
+        width: actionWidth,
+        x: contentBox.left + index * (actionWidth + actionGap),
+        y: overlay.y
+      }));
+
+      expect(metrics.isNarrow).toBe(true);
+      expect(contentBox.left).toBeGreaterThanOrEqual(overlayBox.left);
+      expect(contentBox.right).toBeLessThanOrEqual(overlayBox.right);
+      const highestBid = boxFromCenter({
+        height: 32,
+        width: 76,
+        x: contentBox.right - 38,
+        y: overlay.y
+      });
+
+      expect(highestBid.left).toBeGreaterThanOrEqual(overlayBox.left);
+      expect(highestBid.right).toBeLessThanOrEqual(overlayBox.right);
+      for (const control of [...suitButtons, ...numberControls, ...actionButtons]) {
+        expect(control.left).toBeGreaterThanOrEqual(overlayBox.left);
+        expect(control.right).toBeLessThanOrEqual(overlayBox.right);
+        expect(control.width).toBeGreaterThanOrEqual(36);
+        expect(control.height).toBeGreaterThanOrEqual(36);
+      }
+    }
   });
 
   it("places all bidding bubbles near player info without covering hands or viewport edges", () => {
@@ -328,6 +432,223 @@ describe("TableDesignMock", () => {
     expect(qhd.transformedTableBox.height).toBeCloseTo(1440 * tableDesignMockLayout.projectedFit.tableHeightRatio);
     expect(qhd.transformedTableBox.top).toBeCloseTo(1440 * 0.015);
     expect(qhd.transformedTableBox.x).toBeCloseTo(1280);
+  });
+
+  it("counter-scales central match text to readable rendered sizes at 844x390", () => {
+    const mobileFit = createProjectedBoardFit(tableDesignMockLayout, { width: 844, height: 390 });
+    const renderedFontSize = (fontSize: number) => fontSize * mobileFit.scale * mobileFit.counterScale;
+
+    expect(mobileFit.counterScale).toBeCloseTo(projectedTextMinimumScale / mobileFit.scale);
+    expect(renderedFontSize(16)).toBeCloseTo(12);
+    expect(renderedFontSize(18)).toBeCloseTo(13.5);
+    expect(renderedFontSize(20)).toBeCloseTo(15);
+
+    const html = renderToStaticMarkup(<TableDesignMock variant="projected" />);
+    expect(html).toContain("--mock-projected-board-counter-scale:");
+  });
+
+  it("keeps every compact label visible around occupied table UI during bidding and play", () => {
+    const labels = ["ナ/+21", "副/-3", "市/+13", "市/+7", "市/0"];
+    const seats = ["top-left", "top-right", "right", "left", "self"] as const;
+
+    for (const viewport of [
+      { width: 568, height: 320 },
+      { width: 844, height: 390 }
+    ]) {
+      for (const isBidding of [false, true]) {
+        const fit = createProjectedBoardFit(tableDesignMockLayout, viewport);
+        const context = {
+          isBidding,
+          roleTextLabels: Object.fromEntries(seats.map((seatId, index) => [seatId, labels[index]]))
+        };
+        const centers = createProjectedRoleTextCenters(tableDesignMockLayout, viewport, context);
+        const obstacles = createProjectedRoleTextObstacles(tableDesignMockLayout, viewport, context);
+        const markerBoxes = seats.map((seatId, index) => {
+          const center = centers[seatId];
+          const renderedCenter = {
+            x: center.x * fit.scale + fit.translate.x,
+            y: center.y * fit.scale + fit.translate.y
+          };
+
+          return boxFromCenter({
+            ...renderedCenter,
+            height: 15,
+            width: labels[index].length * 9
+          });
+        });
+        const renderedCenters = seats.map((seatId) => {
+          const center = centers[seatId];
+
+          return {
+            x: center.x * fit.scale + fit.translate.x,
+            y: center.y * fit.scale + fit.translate.y
+          };
+        });
+
+        expect(obstacles.opponentHands).toHaveLength(4);
+        expect(obstacles.playerInfos).toHaveLength(5);
+        expect(obstacles.trickCards).toHaveLength(isBidding ? 0 : 5);
+        expect(obstacles.biddingOverlay).toHaveLength(isBidding ? 1 : 0);
+        expect(obstacles.biddingBubbles).toHaveLength(isBidding ? 5 : 0);
+
+        for (const [index, seatId] of seats.entries()) {
+          const ownSector = createProjectedRoleTextSectorGeometry(tableDesignMockLayout, viewport, seatId);
+
+          expect(projectedSectorAlignment(renderedCenters[index], ownSector))
+            .toBeGreaterThanOrEqual(projectedRoleTextSectorMinimumAlignment);
+        }
+
+        for (const [index, markerBox] of markerBoxes.entries()) {
+          expect(markerBox.left).toBeGreaterThanOrEqual(0);
+          expect(markerBox.right).toBeLessThanOrEqual(viewport.width);
+          expect(markerBox.top).toBeGreaterThanOrEqual(0);
+          expect(markerBox.bottom).toBeLessThanOrEqual(viewport.height);
+
+          for (const obstacle of Object.values(obstacles).flat()) {
+            expect(boxesOverlap(markerBox, obstacle)).toBe(false);
+          }
+          for (const otherMarkerBox of markerBoxes.slice(index + 1)) {
+            expect(boxesOverlap(markerBox, otherMarkerBox)).toBe(false);
+          }
+        }
+      }
+    }
+  });
+
+  it("keeps initial production bidding labels renderable on common mobile landscape viewports", () => {
+    const labels = ["ナ副/+220", "副/-3", "市/+13", "市/+7", "市/0"];
+    const seats = ["top-left", "top-right", "right", "left", "self"] as const;
+    const context = {
+      isBidding: true,
+      opponentHandCounts: { "top-left": 10, "top-right": 10, right: 10, left: 10 },
+      riverCardCounts: { "top-left": 0, "top-right": 0, right: 0, self: 0, left: 0 },
+      roleTextLabels: Object.fromEntries(seats.map((seatId, index) => [seatId, labels[index]]))
+    };
+
+    for (const viewport of [
+      { width: 568, height: 320 },
+      { width: 640, height: 360 },
+      { width: 667, height: 375 },
+      { width: 720, height: 360 },
+      { width: 960, height: 500 }
+    ]) {
+      const fit = createProjectedBoardFit(tableDesignMockLayout, viewport);
+      const roleBoardBox = createProjectedRoleBoardBoundingBox(tableDesignMockLayout, viewport);
+      const centers = createProjectedRoleTextCenters(tableDesignMockLayout, viewport, context);
+      const obstacles = createProjectedRoleTextObstacles(tableDesignMockLayout, viewport, context);
+      const markerBoxes = seats.map((seatId, index) => {
+        const center = centers[seatId];
+
+        return boxFromCenter({
+          x: center.x * fit.scale + fit.translate.x,
+          y: center.y * fit.scale + fit.translate.y,
+          height: 15,
+          width: labels[index].length * 9
+        });
+      });
+      const renderedCenters = seats.map((seatId) => {
+        const center = centers[seatId];
+
+        return {
+          x: center.x * fit.scale + fit.translate.x,
+          y: center.y * fit.scale + fit.translate.y
+        };
+      });
+
+      expect(Object.keys(centers).sort()).toEqual(["left", "right", "self", "top-left", "top-right"]);
+      for (const center of Object.values(centers)) {
+        expect(Number.isFinite(center.x)).toBe(true);
+        expect(Number.isFinite(center.y)).toBe(true);
+      }
+      for (const [index, seatId] of seats.entries()) {
+        const ownSector = createProjectedRoleTextSectorGeometry(tableDesignMockLayout, viewport, seatId);
+
+        expect(projectedSectorAlignment(renderedCenters[index], ownSector))
+          .toBeGreaterThanOrEqual(projectedRoleTextSectorMinimumAlignment);
+        expect(distanceFromTestBox(renderedCenters[index], roleBoardBox))
+          .toBeLessThanOrEqual(projectedRoleTextBoardMaxDistance);
+      }
+      for (const [index, markerBox] of markerBoxes.entries()) {
+        expect(markerBox.left).toBeGreaterThanOrEqual(0);
+        expect(markerBox.right).toBeLessThanOrEqual(viewport.width);
+        expect(markerBox.top).toBeGreaterThanOrEqual(0);
+        expect(markerBox.bottom).toBeLessThanOrEqual(viewport.height);
+        for (const [obstacleType, obstacleBoxes] of Object.entries(obstacles)) {
+          for (const obstacle of obstacleBoxes) {
+            expect(
+              boxesOverlap(markerBox, obstacle),
+              `${viewport.width}x${viewport.height} ${seats[index]} overlaps ${obstacleType}`
+            ).toBe(false);
+          }
+        }
+        for (const otherMarkerBox of markerBoxes.slice(index + 1)) {
+          expect(boxesOverlap(markerBox, otherMarkerBox)).toBe(false);
+        }
+      }
+    }
+  });
+
+  it("keeps the longest top-seat label clear of Current Trick cards during play", () => {
+    const context = {
+      isBidding: false,
+      opponentHandCounts: { "top-left": 9, "top-right": 9, right: 9, left: 9 },
+      riverCardCounts: { "top-left": 0, "top-right": 0, right: 0, self: 0, left: 0 },
+      roleTextLabels: {
+        "top-left": "ナ副/+220",
+        "top-right": "副/-3",
+        right: "市/+13",
+        left: "市/+7",
+        self: "市/0"
+      }
+    };
+
+    for (const viewport of [
+      { width: 568, height: 320 },
+      { width: 640, height: 360 },
+      { width: 720, height: 360 },
+      { width: 844, height: 390 }
+    ]) {
+      const fit = createProjectedBoardFit(tableDesignMockLayout, viewport);
+      const center = createProjectedRoleTextCenters(tableDesignMockLayout, viewport, context)["top-left"];
+      const markerBox = boxFromCenter({
+        x: center.x * fit.scale + fit.translate.x,
+        y: center.y * fit.scale + fit.translate.y,
+        height: 15,
+        width: "ナ副/+220".length * 9
+      });
+      const obstacles = createProjectedRoleTextObstacles(tableDesignMockLayout, viewport, context);
+      const trickCards = obstacles.trickCards;
+
+      expect(trickCards).toHaveLength(5);
+      for (const trickCard of trickCards) {
+        expect(
+          boxesOverlap(markerBox, trickCard),
+          `${viewport.width}x${viewport.height} top-left label overlaps Current Trick`
+        ).toBe(false);
+      }
+    }
+  });
+
+  it("bounds compact role-label candidate work to the projected role-board region", () => {
+    const context = {
+      isBidding: true,
+      opponentHandCounts: { "top-left": 10, "top-right": 10, right: 10, left: 10 },
+      riverCardCounts: { "top-left": 0, "top-right": 0, right: 0, self: 0, left: 0 }
+    };
+
+    for (const viewport of [
+      { width: 568, height: 320 },
+      { width: 844, height: 390 },
+      { width: 960, height: 500 }
+    ]) {
+      const candidates = createProjectedRoleTextCandidates(tableDesignMockLayout, viewport);
+      const startedAt = performance.now();
+
+      createProjectedRoleTextCenters(tableDesignMockLayout, viewport, context);
+
+      expect(candidates.length).toBeLessThan(20_000);
+      expect(performance.now() - startedAt).toBeLessThan(100);
+    }
   });
 
   it("uses the same unprojected self-hand layout for world and projected mocks", () => {
@@ -984,6 +1305,39 @@ function midpointBetween(a: { x: number; y: number }, b: { x: number; y: number 
   };
 }
 
+function projectedSectorAlignment(
+  point: { x: number; y: number },
+  sector: {
+    center: { x: number; y: number };
+    end: { x: number; y: number };
+    start: { x: number; y: number };
+  }
+): number {
+  const start = subtractPoints(sector.start, sector.center);
+  const end = subtractPoints(sector.end, sector.center);
+  const candidate = subtractPoints(point, sector.center);
+  const direction = normalizeSectorVector({
+    x: (start.x + end.x) / 2,
+    y: (start.y + end.y) / 2
+  });
+  const candidateDirection = normalizeSectorVector(candidate);
+
+  return direction.x * candidateDirection.x + direction.y * candidateDirection.y;
+}
+
+function subtractPoints(
+  a: { x: number; y: number },
+  b: { x: number; y: number }
+): { x: number; y: number } {
+  return { x: a.x - b.x, y: a.y - b.y };
+}
+
+function normalizeSectorVector(vector: { x: number; y: number }): { x: number; y: number } {
+  const length = Math.hypot(vector.x, vector.y);
+
+  return { x: vector.x / length, y: vector.y / length };
+}
+
 function boxFromCenter(box: {
   height: number;
   width: number;
@@ -1025,6 +1379,16 @@ function boxesOverlap(
   b: { bottom: number; left: number; right: number; top: number }
 ): boolean {
   return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+
+function distanceFromTestBox(
+  point: { x: number; y: number },
+  box: { bottom: number; left: number; right: number; top: number }
+): number {
+  const dx = Math.max(box.left - point.x, 0, point.x - box.right);
+  const dy = Math.max(box.top - point.y, 0, point.y - box.bottom);
+
+  return Math.hypot(dx, dy);
 }
 
 function boundingTestBox(points: readonly { x: number; y: number }[]): {

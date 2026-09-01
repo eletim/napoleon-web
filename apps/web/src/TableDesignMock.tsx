@@ -1184,6 +1184,7 @@ interface BoundingBox extends Box {
 }
 
 interface ProjectedBoardFit {
+  counterScale: number;
   projectedTableBox: BoundingBox;
   scale: number;
   tableHeightRatio: number;
@@ -1192,10 +1193,63 @@ interface ProjectedBoardFit {
   viewport: ViewportSize;
 }
 
+interface ProjectedRoleTextSectorGeometry {
+  center: Point;
+  end: Point;
+  start: Point;
+}
+
+export const projectedTextMinimumScale = 0.75;
+const compactProjectedRoleTextMaxLabel = "ナ副/+220";
+const compactProjectedRoleTextMaximumCollisionSize = {
+  height: 15,
+  width: compactProjectedRoleTextMaxLabel.length * 9
+};
+// Reserve the widest reachable round label and leave just enough room for a
+// maximum-width role label beside compact Current Trick cards.
+const compactProjectedRoundTextCollisionSize = { height: 15, width: "第10局".length * 9 };
+const compactCurrentTrickCardScale = 0.95;
+const projectedRoleTextCandidateStep = 2;
+// Keep counter-scaled labels visually attached to the projected role board.
+export const projectedRoleTextBoardMaxDistance = 72;
+// Compact controls can occupy the nominal pentagon wedge. Keep candidates in
+// the seat-facing projected direction while leaving the collision solver room
+// to route around those controls.
+export const projectedRoleTextSectorMinimumAlignment = Math.cos((75 * Math.PI) / 180);
+
 interface BiddingBubbleLayout extends Box {
   action: BiddingMockAction;
   label: string;
   seatId: SeatId;
+}
+
+interface CompactBiddingContentMetrics {
+  borderWidth: number;
+  columnGap: number;
+  contentWidth: number;
+  isNarrow: boolean;
+  paddingInline: number;
+  primaryColumnWidth: number;
+  secondaryColumnWidth: number;
+}
+
+interface ProjectedRoleTextContext {
+  isBidding?: boolean;
+  opponentHandCounts?: Partial<Record<OpponentSeatId, number>>;
+  riverCardCounts?: Partial<Record<SeatId, number>>;
+  roleTextLabels?: Partial<Record<SeatId, string>>;
+}
+
+interface ProjectedRoleTextObstacles {
+  biddingBubbles: BoundingBox[];
+  biddingOverlay: BoundingBox[];
+  fixedUi: BoundingBox[];
+  opponentHands: BoundingBox[];
+  playerInfos: BoundingBox[];
+  rivers: BoundingBox[];
+  round: BoundingBox[];
+  selfHand: BoundingBox[];
+  trickCards: BoundingBox[];
 }
 
 const roleBoardEdges: Record<SeatId, { end: Point; start: Point }> = {
@@ -1389,6 +1443,7 @@ export function createProjectedBoardFit(
   const transformedTableBox = transformBoundingBox(projectedTableBox, scale, translate);
 
   return {
+    counterScale: Math.max(1, projectedTextMinimumScale / scale),
     projectedTableBox,
     scale,
     tableHeightRatio: layout.projectedFit.tableHeightRatio,
@@ -1396,6 +1451,233 @@ export function createProjectedBoardFit(
     translate,
     viewport
   };
+}
+
+export function createProjectedRoleTextCenters(
+  layout: TableDesignMockLayout,
+  viewport: ViewportSize,
+  context: ProjectedRoleTextContext = {}
+): Record<SeatId, Point> {
+  const preferredCenters = Object.fromEntries(roleMarkerSeatOrder.map((seatId) => [
+    seatId,
+    createProjectedRoleMarkerLabelCenter(layout, seatId)
+  ])) as Record<SeatId, Point>;
+
+  if (viewport.height > 500 || viewport.width <= viewport.height) {
+    return preferredCenters;
+  }
+
+  const fit = createProjectedBoardFit(layout, viewport);
+  const roleBoardBox = createProjectedRoleBoardBoundingBox(layout, viewport);
+  const obstacles = createProjectedRoleTextObstacles(layout, viewport, context);
+  const staticAvoidBoxes = Object.values(obstacles).flat();
+  const placedBoxes: BoundingBox[] = [];
+  const selfHandTop = obstacles.selfHand[0]?.top ?? viewport.height;
+  const roleBoardCandidates = createProjectedRoleTextCandidates(layout, viewport, selfHandTop);
+
+  const centers = {} as Record<SeatId, Point>;
+
+  for (const seatId of roleMarkerSeatOrder) {
+    const preferred = transformPoint(preferredCenters[seatId], fit.scale, fit.translate);
+    const sector = createProjectedRoleTextSectorGeometry(layout, viewport, seatId);
+    const collisionSize = createCompactProjectedRoleTextCollisionSize(context.roleTextLabels?.[seatId]);
+    const avoidBoxes = [...staticAvoidBoxes, ...placedBoxes];
+    let candidate: Point | undefined;
+    let candidateDistance = Number.POSITIVE_INFINITY;
+
+    for (const center of roleBoardCandidates) {
+      if (!pointIsInProjectedRoleTextSector(center, sector)) {
+        continue;
+      }
+
+      const box = boundingBoxFromCenter({ ...collisionSize, ...center });
+      const distanceFromPreferred = distance(center, preferred);
+      const distanceFromRoleBoard = distanceFromBoundingBox(center, roleBoardBox);
+
+      if (distanceFromRoleBoard > projectedRoleTextBoardMaxDistance) {
+        continue;
+      }
+
+      if (avoidBoxes.some((avoidBox) => boxesOverlap(box, avoidBox))) {
+        continue;
+      }
+
+      if (distanceFromPreferred < candidateDistance) {
+        candidate = center;
+        candidateDistance = distanceFromPreferred;
+      }
+    }
+
+    if (candidate === undefined) {
+      candidate = createCollisionFreeProjectedRoleTextFallback(
+        viewport,
+        selfHandTop,
+        collisionSize,
+        avoidBoxes,
+        sector,
+        preferred
+      );
+    }
+
+    placedBoxes.push(boundingBoxFromCenter({ ...collisionSize, ...candidate }));
+    centers[seatId] = {
+      x: toLayoutPrecision((candidate.x - fit.translate.x) / fit.scale),
+      y: toLayoutPrecision((candidate.y - fit.translate.y) / fit.scale)
+    };
+  }
+
+  return centers;
+}
+
+function createCollisionFreeProjectedRoleTextFallback(
+  viewport: ViewportSize,
+  selfHandTop: number,
+  collisionSize: Pick<Box, "height" | "width">,
+  avoidBoxes: readonly BoundingBox[],
+  sector: ProjectedRoleTextSectorGeometry,
+  preferred: Point
+): Point {
+  const horizontalMargin = collisionSize.width / 2 + 4;
+  const verticalMargin = collisionSize.height / 2 + 4;
+  let fallback: Point | undefined;
+  let fallbackAlignment = Number.NEGATIVE_INFINITY;
+  let fallbackDistance = Number.POSITIVE_INFINITY;
+
+  for (let y = verticalMargin; y <= selfHandTop - verticalMargin; y += 4) {
+    for (let x = horizontalMargin; x <= viewport.width - horizontalMargin; x += 4) {
+      const center = { x, y };
+      const box = boundingBoxFromCenter({ ...collisionSize, ...center });
+
+      if (avoidBoxes.some((avoidBox) => boxesOverlap(box, avoidBox))) {
+        continue;
+      }
+
+      const alignment = projectedRoleTextSectorAlignment(center, sector);
+      const preferredDistance = distance(center, preferred);
+      if (alignment > fallbackAlignment
+        || (alignment === fallbackAlignment && preferredDistance < fallbackDistance)) {
+        fallback = center;
+        fallbackAlignment = alignment;
+        fallbackDistance = preferredDistance;
+      }
+    }
+  }
+
+  return fallback ?? preferred;
+}
+
+function createCompactProjectedRoleTextCollisionSize(
+  label: string | undefined
+): Pick<Box, "height" | "width"> {
+  return {
+    height: compactProjectedRoleTextMaximumCollisionSize.height,
+    width: label === undefined
+      ? compactProjectedRoleTextMaximumCollisionSize.width
+      : label.length * 9
+  };
+}
+
+export function createProjectedRoleTextCandidates(
+  layout: TableDesignMockLayout,
+  viewport: ViewportSize,
+  selfHandTop = createSelfHandViewportLayout(layout, selfCards.length, viewport).top
+): Point[] {
+  const roleBoardBox = createProjectedRoleBoardBoundingBox(layout, viewport);
+  const horizontalMargin = compactProjectedRoleTextMaximumCollisionSize.width / 2 + 4;
+  const verticalMargin = compactProjectedRoleTextMaximumCollisionSize.height / 2 + 4;
+  const left = Math.max(horizontalMargin, roleBoardBox.left - projectedRoleTextBoardMaxDistance);
+  const right = Math.min(
+    viewport.width - horizontalMargin,
+    roleBoardBox.right + projectedRoleTextBoardMaxDistance
+  );
+  const top = Math.max(verticalMargin, roleBoardBox.top - projectedRoleTextBoardMaxDistance);
+  const bottom = Math.min(
+    selfHandTop - verticalMargin,
+    roleBoardBox.bottom + projectedRoleTextBoardMaxDistance
+  );
+  const firstX = horizontalMargin + Math.ceil(
+    (left - horizontalMargin) / projectedRoleTextCandidateStep
+  ) * projectedRoleTextCandidateStep;
+  const firstY = verticalMargin + Math.ceil(
+    (top - verticalMargin) / projectedRoleTextCandidateStep
+  ) * projectedRoleTextCandidateStep;
+  const candidates: Point[] = [];
+
+  for (let y = firstY; y <= bottom; y += projectedRoleTextCandidateStep) {
+    for (let x = firstX; x <= right; x += projectedRoleTextCandidateStep) {
+      candidates.push({ x, y });
+    }
+  }
+
+  return candidates;
+}
+
+export function createProjectedRoleTextSectorGeometry(
+  layout: TableDesignMockLayout,
+  viewport: ViewportSize,
+  seatId: SeatId
+): ProjectedRoleTextSectorGeometry {
+  const fit = createProjectedBoardFit(layout, viewport);
+  const sector = createRoleSectorGeometry(layout.center, seatId);
+
+  return {
+    center: transformPoint(
+      projectTablePoint({ x: layout.center.x, y: layout.center.y }, layout.camera),
+      fit.scale,
+      fit.translate
+    ),
+    start: transformPoint(
+      projectTablePoint(roleBoardLocalToAbsolute(layout.center, sector.outerStart), layout.camera),
+      fit.scale,
+      fit.translate
+    ),
+    end: transformPoint(
+      projectTablePoint(roleBoardLocalToAbsolute(layout.center, sector.outerEnd), layout.camera),
+      fit.scale,
+      fit.translate
+    )
+  };
+}
+
+function pointIsInProjectedRoleTextSector(
+  point: Point,
+  sector: ProjectedRoleTextSectorGeometry
+): boolean {
+  return projectedRoleTextSectorAlignment(point, sector)
+    >= projectedRoleTextSectorMinimumAlignment;
+}
+
+function projectedRoleTextSectorAlignment(
+  point: Point,
+  sector: ProjectedRoleTextSectorGeometry
+): number {
+  const start = { x: sector.start.x - sector.center.x, y: sector.start.y - sector.center.y };
+  const end = { x: sector.end.x - sector.center.x, y: sector.end.y - sector.center.y };
+  const candidate = { x: point.x - sector.center.x, y: point.y - sector.center.y };
+  const direction = normalizeVector({
+    x: (start.x + end.x) / 2,
+    y: (start.y + end.y) / 2
+  });
+  const candidateDirection = normalizeVector(candidate);
+
+  return direction.x * candidateDirection.x + direction.y * candidateDirection.y;
+}
+
+function createProjectedRoleMarkerLabelCenter(layout: TableDesignMockLayout, seatId: SeatId): Point {
+  const marker = createRoleMarkerGeometry(layout.center, seatId);
+  const center = roleBoardLocalToAbsolute(layout.center, marker);
+  const corners = projectTableCard(
+    {
+      direction: { x: 1, y: 0 },
+      height: marker.height,
+      normal: { x: 0, y: 1 },
+      width: marker.width,
+      x: center.x,
+      y: center.y
+    },
+    layout.camera
+  );
+  return polygonCenter(corners);
 }
 
 export function createVerticalCardGeometry({
@@ -1516,6 +1798,24 @@ export function createCurrentTrickCardPlane(
   };
 }
 
+export function createCurrentTrickCardPlaneForViewport(
+  layout: TableDesignMockLayout,
+  seatId: SeatId,
+  viewport: ViewportSize
+): TableCardPlane {
+  const card = createCurrentTrickCardPlane(layout, seatId);
+
+  if (viewport.height > 500 || viewport.width <= viewport.height) {
+    return card;
+  }
+
+  return {
+    ...card,
+    height: toLayoutPrecision(card.height * compactCurrentTrickCardScale),
+    width: toLayoutPrecision(card.width * compactCurrentTrickCardScale)
+  };
+}
+
 export function createCurrentTrickZoneGeometry(
   layout: TableDesignMockLayout,
   seatId: SeatId,
@@ -1593,26 +1893,32 @@ export function createBiddingOverlayGeometry(
   viewport: ViewportSize = layout.page
 ): Box {
   const fit = createProjectedBoardFit(layout, viewport);
+  const roleBoardBox = createProjectedRoleBoardBoundingBox(layout, viewport);
   const selfHand = createSelfHandViewportLayout(layout, selfCards.length, viewport);
   const config = layout.bidding.overlay;
   const isCompactLandscape = viewport.height <= 520 && viewport.width > viewport.height;
-  const minimumHeight = isCompactLandscape ? 150 : 240;
+  const minimumHeight = isCompactLandscape ? 160 : 240;
   const desiredHeight = isCompactLandscape
-    ? Math.min(config.height, viewport.height * 0.46)
+    ? Math.min(config.height, viewport.height * 0.52)
     : config.height;
-  const width = toLayoutPrecision(Math.min(
+  const requestedWidth = Math.min(
     viewport.width - config.viewportMargin * 2,
     clamp(viewport.width * config.widthRatio, config.minWidth, config.maxWidth)
+  );
+  const availableLeftWidth = roleBoardBox.left - config.viewportMargin * 2;
+  const availableRightWidth = viewport.width - roleBoardBox.right - config.viewportMargin * 2;
+  const placeOnRight = availableRightWidth >= availableLeftWidth;
+  const width = toLayoutPrecision(Math.min(
+    requestedWidth,
+    Math.max(placeOnRight ? availableRightWidth : availableLeftWidth, 0)
   ));
   const height = toLayoutPrecision(Math.min(
     desiredHeight,
     Math.max(minimumHeight, selfHand.top - config.gapFromSelfHand - config.viewportMargin * 2)
   ));
-  const x = toLayoutPrecision(clamp(
-    fit.transformedTableBox.x,
-    config.viewportMargin + width / 2,
-    viewport.width - config.viewportMargin - width / 2
-  ));
+  const x = toLayoutPrecision(placeOnRight
+    ? roleBoardBox.right + config.viewportMargin + width / 2
+    : roleBoardBox.left - config.viewportMargin - width / 2);
   const y = toLayoutPrecision(clamp(
     fit.transformedTableBox.y + config.yOffsetFromTableCenter,
     config.viewportMargin + height / 2,
@@ -1624,6 +1930,119 @@ export function createBiddingOverlayGeometry(
     width,
     x,
     y
+  };
+}
+
+export function createCompactBiddingContentMetrics(overlay: Box): CompactBiddingContentMetrics {
+  const borderWidth = 2;
+  const isNarrow = overlay.width < 280;
+  const columnGap = isNarrow ? 0 : 10;
+  const paddingInline = 12;
+  const contentWidth = Math.max(
+    overlay.width - borderWidth * 2 - paddingInline * 2 - columnGap,
+    0
+  );
+  const primaryColumnWidth = toLayoutPrecision(isNarrow ? contentWidth : contentWidth * 0.4);
+
+  return {
+    borderWidth,
+    columnGap,
+    contentWidth,
+    isNarrow,
+    paddingInline,
+    primaryColumnWidth,
+    secondaryColumnWidth: toLayoutPrecision(isNarrow ? contentWidth : contentWidth - primaryColumnWidth)
+  };
+}
+
+export function createProjectedRoleBoardBoundingBox(
+  layout: TableDesignMockLayout,
+  viewport: ViewportSize = layout.page
+): BoundingBox {
+  const fit = createProjectedBoardFit(layout, viewport);
+  const projectedRoleBoard = boundingBox(
+    projectTablePolygon(roleBoardOuterPolygon(layout.center), layout.camera)
+  );
+
+  return transformBoundingBox(projectedRoleBoard, fit.scale, fit.translate);
+}
+
+export function createProjectedRoleTextObstacles(
+  layout: TableDesignMockLayout,
+  viewport: ViewportSize,
+  context: ProjectedRoleTextContext = {}
+): ProjectedRoleTextObstacles {
+  const fit = createProjectedBoardFit(layout, viewport);
+  const selfHand = createSelfHandViewportLayout(layout, selfCards.length, viewport);
+  const roundCenter = transformPoint(
+    projectTablePoint({ x: layout.center.x, y: layout.center.y }, layout.camera),
+    fit.scale,
+    fit.translate
+  );
+  const isBidding = context.isBidding === true;
+  const trickCards = isBidding
+    ? []
+    : roleMarkerSeatOrder.map((seatId) =>
+        transformBoundingBox(
+          boundingBox(projectTableCard(
+            createCurrentTrickCardPlaneForViewport(layout, seatId, viewport),
+            layout.camera
+          )),
+          fit.scale,
+          fit.translate
+        )
+      );
+  const opponentHands = opponentSeatOrder.flatMap((seatId) => {
+    const cardCount = context.opponentHandCounts?.[seatId] ?? layout.opponentHand.cardCounts[seatId];
+
+    if (cardCount <= 0) {
+      return [];
+    }
+
+    const effectiveLayout = {
+      ...layout,
+      opponentHand: {
+        ...layout.opponentHand,
+        cardCounts: { ...layout.opponentHand.cardCounts, [seatId]: cardCount }
+      }
+    };
+
+    return [createProjectedOpponentHandBoundingBox(effectiveLayout, seatId, fit)];
+  });
+  const rivers = roleMarkerSeatOrder.flatMap((seatId) => optionalBox(
+    createProjectedRiverCardsBoundingBox(
+      layout,
+      seatId,
+      fit,
+      context.riverCardCounts?.[seatId]
+    )
+  ));
+  return {
+    biddingBubbles: isBidding
+      ? createBiddingBubbleLayouts(layout, viewport).map((bubble) => boundingBoxFromCenter(bubble))
+      : [],
+    biddingOverlay: isBidding
+      ? [boundingBoxFromCenter(createBiddingOverlayGeometry(layout, viewport))]
+      : [],
+    fixedUi: [
+      boundingBoxFromTopLeft({ height: 36, width: viewport.width * 0.45, x: 0, y: 0 }),
+      boundingBoxFromTopLeft({ height: 40, width: 100, x: viewport.width - 112, y: 42 }),
+      boundingBoxFromTopLeft({ height: 54, width: 40, x: 0, y: viewport.height - 246 }),
+      ...(isBidding
+        ? []
+        : [boundingBoxFromTopLeft({ height: 38, width: 220, x: 8, y: 42 })])
+    ],
+    opponentHands,
+    playerInfos: createPlayerInfoLayouts(layout, viewport, true).map((info) => boundingBoxFromCenter(info)),
+    rivers,
+    round: [boundingBoxFromCenter({ ...compactProjectedRoundTextCollisionSize, ...roundCenter })],
+    selfHand: [boundingBoxFromTopLeft({
+      height: selfHand.cardSize.height,
+      width: selfHand.handWidth,
+      x: selfHand.left,
+      y: selfHand.top
+    })],
+    trickCards
   };
 }
 
@@ -1644,13 +2063,15 @@ export function createBiddingBubbleLayouts(
     createProjectedOpponentHandBoundingBox(layout, seatId, fit)
   );
   const overlayBox = boundingBoxFromCenter(createBiddingOverlayGeometry(layout, viewport));
+  const roleBoardBox = createProjectedRoleBoardBoundingBox(layout, viewport);
   const hudBox = boundingBoxFromTopLeft(layout.hud);
   const staticAvoidBoxes = [
     ...playerInfos.map((info) => boundingBoxFromCenter(info)),
     hudBox,
     selfHandBox,
     ...opponentHandBoxes,
-    overlayBox
+    overlayBox,
+    roleBoardBox
   ];
   const placedBubbleBoxes: BoundingBox[] = [];
 
@@ -1977,19 +2398,23 @@ function createWorldRiverCardsBoundingBox(layout: TableDesignMockLayout, seatId:
 function createProjectedRiverCardsBoundingBox(
   layout: TableDesignMockLayout,
   seatId: SeatId,
-  fit: ProjectedBoardFit
+  fit: ProjectedBoardFit,
+  cardCount?: number
 ): BoundingBox | undefined {
-  const cardBoxes = createRiverCardPlanes(layout, seatId).map((card) =>
+  const cardBoxes = createRiverCardPlanes(layout, seatId, cardCount).map((card) =>
     transformBoundingBox(boundingBox(projectTableCard(card, layout.camera, "top-left")), fit.scale, fit.translate)
   );
 
   return cardBoxes.length === 0 ? undefined : boundingBoxAroundBoxes(cardBoxes);
 }
 
-function createRiverCardPlanes(layout: TableDesignMockLayout, seatId: SeatId): TableCardPlane[] {
-  const cards = riverCards[seatId] ?? [];
+function createRiverCardPlanes(
+  layout: TableDesignMockLayout,
+  seatId: SeatId,
+  cardCount = (riverCards[seatId] ?? []).length
+): TableCardPlane[] {
   const river = createRiverGeometry(layout, seatId);
-  const placements = createRiverPlacements(cards.length, layout, seatId);
+  const placements = createRiverPlacements(cardCount, layout, seatId);
 
   return placements.map((placement) => ({
     direction: river.direction,
@@ -2224,9 +2649,15 @@ function playerInfoStyle(info: PlayerInfoGeometry): CSSProperties {
 }
 
 function biddingOverlayStyle(geometry: Box): CSSProperties {
+  const compactContent = createCompactBiddingContentMetrics(geometry);
+
   return {
+    "--mock-bidding-column-gap": `${compactContent.columnGap}px`,
     "--mock-bidding-overlay-height": `${geometry.height}px`,
     "--mock-bidding-overlay-width": `${geometry.width}px`,
+    "--mock-bidding-padding-inline": `${compactContent.paddingInline}px`,
+    "--mock-bidding-primary-column-width": `${compactContent.primaryColumnWidth}px`,
+    "--mock-bidding-secondary-column-width": `${compactContent.secondaryColumnWidth}px`,
     "--mock-x": `${geometry.x}px`,
     "--mock-y": `${geometry.y}px`
   } as CSSProperties;
@@ -2318,6 +2749,7 @@ function selfHandViewportStyle(layout: SelfHandViewportLayout): CSSProperties {
 
 function projectedBoardFitStyle(fit: ProjectedBoardFit): CSSProperties {
   return {
+    "--mock-projected-board-counter-scale": fit.counterScale,
     "--mock-projected-board-transform": `translate(${fit.translate.x}px, ${fit.translate.y}px) scale(${fit.scale})`
   } as CSSProperties;
 }
@@ -2559,6 +2991,13 @@ function transformBoundingBox(box: BoundingBox, scale: number, translate: Point)
   };
 }
 
+function transformPoint(point: Point, scale: number, translate: Point): Point {
+  return {
+    x: toLayoutPrecision(point.x * scale + translate.x),
+    y: toLayoutPrecision(point.y * scale + translate.y)
+  };
+}
+
 function distance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
@@ -2760,6 +3199,13 @@ function overlapArea(a: BoundingBox, b: BoundingBox): number {
   const height = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
 
   return width * height;
+}
+
+function distanceFromBoundingBox(point: Point, box: BoundingBox): number {
+  const dx = Math.max(box.left - point.x, 0, point.x - box.right);
+  const dy = Math.max(box.top - point.y, 0, point.y - box.bottom);
+
+  return Math.hypot(dx, dy);
 }
 
 function clamp(value: number, min: number, max: number): number {
