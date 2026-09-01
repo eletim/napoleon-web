@@ -281,9 +281,40 @@ describe("TableSurface", () => {
     expect(fullHtml).toContain('cid="Kh"');
   });
 
+  it("renders ten production cards in a stable five-column by two-row hand region", () => {
+    const tenCards = (["A", "K", "Q", "J", "10", "9", "8", "7", "6", "5"] as const)
+      .map((rank) => standardCard("spades", rank));
+    const fullHtml = renderTable(createState({
+      opponentHandCounts: [10, 10, 10, 10],
+      selfHand: tenCards
+    }));
+    const reducedHtml = renderTable(createState({
+      opponentHandCounts: [8, 8, 8, 8],
+      selfHand: tenCards.slice(0, 2)
+    }));
+    const stylePattern = /aria-label="自分の手札" class="mock-self-hand production-self-hand" style="([^"]+)"/;
+    const fullStyle = fullHtml.match(stylePattern)?.[1] ?? "";
+    const reducedStyle = reducedHtml.match(stylePattern)?.[1] ?? "";
+    const fixedBounds = (style: string) => style.match(
+      /--mock-self-hand-columns:[^;]+;--mock-self-hand-height:[^;]+;--mock-self-hand-left:[^;]+;--mock-self-hand-rows:[^;]+;--mock-self-hand-top:[^;]+;--mock-self-hand-width:[^;]+/
+    )?.[0];
+
+    expect(countOccurrences(fullHtml, "mock-self-hand-card")).toBe(10);
+    expect(fullStyle).toContain("--mock-self-hand-columns:5");
+    expect(fullStyle).toContain("--mock-self-hand-rows:2");
+    expect(fixedBounds(fullStyle)).toBe(fixedBounds(reducedStyle));
+  });
+
   it("keeps exchange/adjutant/result action panels available outside bidding", () => {
+    const exchangeHand = (
+      ["A", "K", "Q", "J", "10", "9", "8", "7", "6", "5", "4", "3", "2"] as const
+    ).map((rank) => standardCard("spades", rank));
     const html = renderTable(
-      createState({ opponentHandCounts: [9, 9, 9, 9], phase: "exchanging" }),
+      createState({
+        opponentHandCounts: [9, 9, 9, 9],
+        phase: "exchanging",
+        selfHand: exchangeHand
+      }),
       <section className="exchange-panel" aria-label="埋札交換">
         <button className="secondary-button" type="button">捨てる</button>
       </section>
@@ -292,6 +323,10 @@ describe("TableSurface", () => {
     expect(html).toContain("production-action-overlay");
     expect(html).toContain("埋札交換");
     expect(html).toContain("捨てる");
+    expect(countOccurrences(html, "mock-self-hand-card")).toBe(13);
+    expect(html).toContain("--mock-self-hand-columns:7");
+    expect(html).toContain("--mock-self-hand-rows:2");
+    expect(countOccurrences(html, "production-card-selectable")).toBe(13);
   });
 });
 

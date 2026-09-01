@@ -7,6 +7,7 @@
     "dev": "vite --host 127.0.0.1 --port 5173",
     "build": "tsc -b && vite build",
     "test": "vitest run --passWithNoTests",
+    "test:browser": "vitest run --config vitest.browser.config.ts",
     "typecheck": "tsc -b --noEmit"
   },
   "dependencies": {

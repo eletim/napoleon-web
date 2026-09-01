@@ -1227,7 +1227,7 @@ input:focus-visible {
   }
 
   .production-riipai-sidebar {
-    bottom: 192px;
+    bottom: max(16px, env(safe-area-inset-bottom, 0px));
     gap: 1px;
     height: 54px;
     padding: 6px 4px;
@@ -4934,6 +4934,7 @@ input:focus-visible {
 
 .app-shell-game-in-progress .table {
   border-radius: 8px;
+  height: auto;
   margin: 0;
   max-width: none;
   padding: 10px;
