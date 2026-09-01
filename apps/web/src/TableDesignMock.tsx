@@ -1169,6 +1169,10 @@ interface SelfHandViewportLayout {
   cardCount: number;
   cardSize: { height: number; width: number };
   center: Point;
+  // Horizontal offset from the footprint's left edge to the actual (centered) card row's left
+  // edge: (handWidth - contentWidth) / 2. Precomputed here so the JS card placements and the
+  // CSS --mock-self-content-left variable can never drift out of sync with each other.
+  contentLeftInset: number;
   contentWidth: number;
   gap: number;
   handHeight: number;
@@ -1432,15 +1436,17 @@ export function createSelfHandViewportLayout(
   const left = toLayoutPrecision((viewport.width - handWidth) / 2);
   const bottom = toLayoutPrecision(viewport.height - layout.selfHandUi.bottomInset);
   const top = toLayoutPrecision(bottom - handHeight);
+  const contentLeftInset = (handWidth - contentWidth) / 2;
 
   return {
     ...metrics,
     bottom,
+    cardCount,
     center: {
       x: toLayoutPrecision(left + handWidth / 2),
       y: toLayoutPrecision(top + handHeight / 2)
     },
-    cardCount,
+    contentLeftInset,
     contentWidth,
     handHeight,
     handWidth,
@@ -1456,7 +1462,7 @@ export function createSelfHandCardPlacements(
   viewport: ViewportSize = layout.page
 ): Box[] {
   const hand = createSelfHandViewportLayout(layout, cardCount, viewport);
-  const contentLeft = hand.left + (hand.handWidth - hand.contentWidth) / 2;
+  const contentLeft = hand.left + hand.contentLeftInset;
 
   return Array.from({ length: cardCount }, (_, index) => ({
     height: hand.cardSize.height,
@@ -2522,17 +2528,21 @@ function createSelfPlayerInfoLayout(
   // footprint (not the actual per-count content bounds) means the panel never shifts as the
   // hand size changes; because the single row of cards is always centered inside that
   // footprint, this also guarantees the panel never overlaps the actually-rendered cards at
-  // any card count.
+  // any card count, as long as there is enough vertical room above the hand for the panel.
   const x = clamp(
     selfHandLayout.left,
     info.viewportMargin,
     viewport.width - info.viewportMargin - info.unitWidth
   );
-  const y = clamp(
-    selfHandLayout.top - info.unitHeight - info.selfGap,
-    info.viewportMargin,
-    viewport.height - info.viewportMargin - info.unitHeight
-  );
+  // The ideal position keeps the panel exactly selfGap above the hand. When there is enough
+  // room, also keep it within the viewport margin. An extreme viewport shape (very wide and
+  // very short) can leave less vertical room above the hand than the panel needs; in that case
+  // keep the panel clear of the hand rather than force it down to the margin, which would push
+  // it into the hand's own cards instead.
+  const idealY = selfHandLayout.top - info.unitHeight - info.selfGap;
+  const y = idealY >= info.viewportMargin
+    ? Math.min(idealY, viewport.height - info.viewportMargin - info.unitHeight)
+    : idealY;
 
   return createPlayerInfoGeometry(layout, "self", {
     x: toLayoutPrecision(x + info.unitWidth / 2),
@@ -2932,7 +2942,7 @@ export function selfHandViewportStyle(layout: SelfHandViewportLayout): CSSProper
     "--mock-self-card-height": `${layout.cardSize.height}px`,
     "--mock-self-card-step": `${layout.step}px`,
     "--mock-self-card-width": `${layout.cardSize.width}px`,
-    "--mock-self-content-left": `${(layout.handWidth - layout.contentWidth) / 2}px`,
+    "--mock-self-content-left": `${layout.contentLeftInset}px`,
     "--mock-self-hand-height": `${layout.handHeight}px`,
     "--mock-self-hand-left": `${layout.left}px`,
     "--mock-self-hand-top": `${layout.top}px`,

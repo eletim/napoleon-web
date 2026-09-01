@@ -1094,23 +1094,54 @@ describe("TableDesignMock", () => {
     }
   });
 
-  it("keeps self player info below the viewport margin even on very wide, short viewports", () => {
-    // Wide-but-short viewports leave less vertical room above the hand than the panel needs
-    // (unitHeight + selfGap), so the panel's y-position must still be clamped down to the
-    // viewport margin rather than escaping above it.
+  it("keeps self player info within the viewport margin on a wide, short viewport with enough vertical room", () => {
+    // A wide-but-short viewport still leaves enough vertical room above the hand for the panel
+    // (unitHeight + selfGap) here, so the panel's y-position stays within the viewport margin
+    // as usual.
+    const viewport = { width: 1200, height: 250 };
+    const selfInfo = createPlayerInfoLayouts(tableDesignMockLayout, viewport, true, 13)
+      .find((info) => info.seatId === "self");
+
+    expect(selfInfo).toBeDefined();
+    if (selfInfo !== undefined) {
+      const selfBox = boxFromCenter(selfInfo);
+      const exchangeCards = createSelfHandCardPlacements(tableDesignMockLayout, 13, viewport);
+      const exchangeHandBox = boundingTestBox(exchangeCards.flatMap((card) => [
+        { x: card.x, y: card.y },
+        { x: card.x + card.width, y: card.y },
+        { x: card.x + card.width, y: card.y + card.height },
+        { x: card.x, y: card.y + card.height }
+      ]));
+
+      expect(selfBox.top).toBeGreaterThanOrEqual(tableDesignMockLayout.playerInfo.viewportMargin - 0.01);
+      expect(selfBox.bottom).toBeLessThanOrEqual(viewport.height);
+      expect(boxesOverlap(selfBox, exchangeHandBox)).toBe(false);
+    }
+  });
+
+  it("keeps self player info clear of the 13-card hand even on an extreme viewport with no room to also honor the margin", () => {
+    // At this aspect ratio, the fixed-width-scaled cards leave less vertical room above the
+    // hand than the panel needs, so the viewport-margin invariant cannot be honored too;
+    // staying clear of the actually-rendered hand takes priority.
     for (const viewport of [
       { width: 3000, height: 300 },
       { width: 4000, height: 200 }
     ]) {
-      const selfInfo = createPlayerInfoLayouts(tableDesignMockLayout, viewport, true, 10)
+      const selfInfo = createPlayerInfoLayouts(tableDesignMockLayout, viewport, true, 13)
         .find((info) => info.seatId === "self");
 
       expect(selfInfo).toBeDefined();
       if (selfInfo !== undefined) {
         const selfBox = boxFromCenter(selfInfo);
+        const exchangeCards = createSelfHandCardPlacements(tableDesignMockLayout, 13, viewport);
+        const exchangeHandBox = boundingTestBox(exchangeCards.flatMap((card) => [
+          { x: card.x, y: card.y },
+          { x: card.x + card.width, y: card.y },
+          { x: card.x + card.width, y: card.y + card.height },
+          { x: card.x, y: card.y + card.height }
+        ]));
 
-        expect(selfBox.top).toBeGreaterThanOrEqual(tableDesignMockLayout.playerInfo.viewportMargin - 0.01);
-        expect(selfBox.bottom).toBeLessThanOrEqual(viewport.height);
+        expect(boxesOverlap(selfBox, exchangeHandBox)).toBe(false);
       }
     }
   });

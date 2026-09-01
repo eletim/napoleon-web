@@ -105,7 +105,7 @@ function runHitTest(viewport: { height: number; width: number }): BrowserHitTest
     `--mock-self-card-height:${hand.cardSize.height}px`,
     `--mock-self-card-step:${hand.step}px`,
     `--mock-self-card-width:${hand.cardSize.width}px`,
-    `--mock-self-content-left:${(hand.handWidth - hand.contentWidth) / 2}px`,
+    `--mock-self-content-left:${hand.contentLeftInset}px`,
     `--mock-self-hand-height:${hand.handHeight}px`,
     `--mock-self-hand-left:${hand.left}px`,
     `--mock-self-hand-top:${hand.top}px`,
