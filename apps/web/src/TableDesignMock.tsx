@@ -1416,13 +1416,15 @@ export function createSelfHandViewportLayout(
   viewport: ViewportSize = layout.page
 ): SelfHandViewportLayout {
   const metrics = createSelfHandViewportMetrics(viewport.width);
-  const columnCount = selfHandColumnCount;
+  const columnCount = cardCount > normalSelfHandCardCount
+    ? Math.ceil(layout.selfHandUi.maxCardCount / selfHandReservedRowCount)
+    : selfHandColumnCount;
   const rowCount = selfHandReservedRowCount;
   const reservedRowCount = selfHandReservedRowCount;
   const renderedRowCount = Math.max(rowCount, Math.ceil(cardCount / columnCount));
   const cardsInWidestRow = Math.min(cardCount, columnCount);
   const contentWidth = selfHandWidth(cardsInWidestRow, metrics);
-  const handWidth = selfHandWidth(columnCount, metrics);
+  const handWidth = selfHandWidth(selfHandColumnCount, metrics);
   const rowGap = metrics.gap;
   const handHeight = reservedRowCount * metrics.cardSize.height
     + (reservedRowCount - 1) * rowGap;
@@ -1459,12 +1461,13 @@ export function createSelfHandCardPlacements(
   viewport: ViewportSize = layout.page
 ): Box[] {
   const hand = createSelfHandViewportLayout(layout, cardCount, viewport);
+  const contentLeft = hand.left + (hand.handWidth - hand.contentWidth) / 2;
 
   return Array.from({ length: cardCount }, (_, index) => ({
     height: hand.cardSize.height,
     width: hand.cardSize.width,
     x: toLayoutPrecision(
-      hand.left + (index % hand.columnCount) * (hand.cardSize.width + hand.gap)
+      contentLeft + (index % hand.columnCount) * (hand.cardSize.width + hand.gap)
     ),
     y: toLayoutPrecision(
       hand.top + Math.floor(index / hand.columnCount) * hand.rowStep
@@ -2930,8 +2933,6 @@ function roleMarkerStyle(marker: RoleMarkerGeometry): CSSProperties {
 }
 
 function selfHandViewportStyle(layout: SelfHandViewportLayout): CSSProperties {
-  const rowOffset = layout.rowStep - layout.cardSize.height;
-
   return {
     "--mock-self-card-gap": `${layout.gap}px`,
     "--mock-self-card-height": `${layout.cardSize.height}px`,
@@ -2942,8 +2943,7 @@ function selfHandViewportStyle(layout: SelfHandViewportLayout): CSSProperties {
     "--mock-self-hand-rows": layout.rowCount,
     "--mock-self-hand-top": `${layout.top}px`,
     "--mock-self-hand-width": `${layout.handWidth}px`,
-    "--mock-self-row-three-offset": `${rowOffset * 2}px`,
-    "--mock-self-row-two-offset": `${rowOffset}px`
+    "--mock-self-row-gap": `${layout.rowGap}px`
   } as CSSProperties;
 }
 

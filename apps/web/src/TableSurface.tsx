@@ -1170,11 +1170,8 @@ function selfHandViewportStyle(layout: {
   left: number;
   rowCount: number;
   rowGap: number;
-  rowStep: number;
   top: number;
 }): CSSProperties {
-  const rowOffset = layout.rowStep - layout.cardSize.height;
-
   return {
     "--mock-self-card-gap": `${layout.gap}px`,
     "--mock-self-card-height": `${layout.cardSize.height}px`,
@@ -1185,8 +1182,7 @@ function selfHandViewportStyle(layout: {
     "--mock-self-hand-rows": layout.rowCount,
     "--mock-self-hand-top": `${layout.top}px`,
     "--mock-self-hand-width": `${layout.handWidth}px`,
-    "--mock-self-row-three-offset": `${rowOffset * 2}px`,
-    "--mock-self-row-two-offset": `${rowOffset}px`
+    "--mock-self-row-gap": `${layout.rowGap}px`
   } as CSSProperties;
 }
 

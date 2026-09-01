@@ -432,12 +432,17 @@ describe("TableDesignMock", () => {
 
       const exchangeHand = createSelfHandViewportLayout(tableDesignMockLayout, 13, viewport);
       const exchangeCards = createSelfHandCardPlacements(tableDesignMockLayout, 13, viewport);
-      expect(new Set(exchangeCards.map((card) => card.y)).size).toBe(3);
-      expect(exchangeHand.rowStep).toBeLessThan(exchangeHand.cardSize.height);
+      expect(new Set(exchangeCards.map((card) => card.x)).size).toBe(7);
+      expect(new Set(exchangeCards.map((card) => card.y)).size).toBe(2);
       expect(Math.min(...exchangeCards.map((card) => card.y))).toBeCloseTo(exchangeHand.top);
       expect(Math.max(...exchangeCards.map((card) => card.y + card.height))).toBeCloseTo(
         exchangeHand.bottom
       );
+      for (const [index, card] of exchangeCards.entries()) {
+        for (const otherCard of exchangeCards.slice(index + 1)) {
+          expect(boxesOverlap(boxFromTopLeft(card), boxFromTopLeft(otherCard))).toBe(false);
+        }
+      }
     }
   });
 
