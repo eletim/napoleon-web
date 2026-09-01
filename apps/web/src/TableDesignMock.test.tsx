@@ -510,6 +510,53 @@ describe("TableDesignMock", () => {
     }
   });
 
+  it("keeps initial production bidding labels renderable on common mobile landscape viewports", () => {
+    const labels = ["ナ/+21", "副/-3", "市/+13", "市/+7", "市/0"];
+    const seats = ["top-left", "top-right", "right", "left", "self"] as const;
+    const context = {
+      isBidding: true,
+      opponentHandCounts: { "top-left": 10, "top-right": 10, right: 10, left: 10 },
+      riverCardCounts: { "top-left": 0, "top-right": 0, right: 0, self: 0, left: 0 }
+    };
+
+    for (const viewport of [
+      { width: 640, height: 360 },
+      { width: 667, height: 375 }
+    ]) {
+      const fit = createProjectedBoardFit(tableDesignMockLayout, viewport);
+      const centers = createProjectedRoleTextCenters(tableDesignMockLayout, viewport, context);
+      const obstacles = createProjectedRoleTextObstacles(tableDesignMockLayout, viewport, context);
+      const markerBoxes = seats.map((seatId, index) => {
+        const center = centers[seatId];
+
+        return boxFromCenter({
+          x: center.x * fit.scale + fit.translate.x,
+          y: center.y * fit.scale + fit.translate.y,
+          height: 15,
+          width: labels[index].length * 9
+        });
+      });
+
+      expect(Object.keys(centers).sort()).toEqual(["left", "right", "self", "top-left", "top-right"]);
+      for (const center of Object.values(centers)) {
+        expect(Number.isFinite(center.x)).toBe(true);
+        expect(Number.isFinite(center.y)).toBe(true);
+      }
+      for (const [index, markerBox] of markerBoxes.entries()) {
+        expect(markerBox.left).toBeGreaterThanOrEqual(0);
+        expect(markerBox.right).toBeLessThanOrEqual(viewport.width);
+        expect(markerBox.top).toBeGreaterThanOrEqual(0);
+        expect(markerBox.bottom).toBeLessThanOrEqual(viewport.height);
+        for (const obstacle of Object.values(obstacles).flat()) {
+          expect(boxesOverlap(markerBox, obstacle)).toBe(false);
+        }
+        for (const otherMarkerBox of markerBoxes.slice(index + 1)) {
+          expect(boxesOverlap(markerBox, otherMarkerBox)).toBe(false);
+        }
+      }
+    }
+  });
+
   it("uses the same unprojected self-hand layout for world and projected mocks", () => {
     const world = renderToStaticMarkup(<TableDesignMock variant="world" />);
     const projected = renderToStaticMarkup(<TableDesignMock variant="projected" />);

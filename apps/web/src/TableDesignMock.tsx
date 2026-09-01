@@ -1504,9 +1504,42 @@ export function createProjectedRoleTextCenters(
     }
 
     if (candidate === undefined) {
-      throw new Error(
-        `Unable to place compact role text for ${seatId} at ${viewport.width}x${viewport.height} (bidding: ${context.isBidding === true})`
-      );
+      // When compact UI occupies the whole preferred sector, preserve as much
+      // of the seat direction as possible without giving up collision safety.
+      let fallbackAlignment = Number.NEGATIVE_INFINITY;
+
+      for (const center of viewportCandidates) {
+        const box = boundingBoxFromCenter({ ...compactProjectedRoleTextCollisionSize, ...center });
+
+        if (avoidBoxes.some((avoidBox) => boxesOverlap(box, avoidBox))) {
+          continue;
+        }
+
+        const alignment = projectedRoleTextSectorAlignment(center, sector);
+        const distanceFromPreferred = distance(center, preferred);
+        if (alignment > fallbackAlignment
+          || (alignment === fallbackAlignment && distanceFromPreferred < candidateDistance)) {
+          candidate = center;
+          candidateDistance = distanceFromPreferred;
+          fallbackAlignment = alignment;
+        }
+      }
+    }
+
+    if (candidate === undefined) {
+      // A pathological viewport must degrade placement rather than crash the
+      // entire table. Choose the point with the smallest occupied area.
+      candidate = viewportCandidates.reduce((best, center) => {
+        const box = boundingBoxFromCenter({ ...compactProjectedRoleTextCollisionSize, ...center });
+        const overlap = avoidBoxes.reduce((total, avoidBox) => total + overlapArea(box, avoidBox), 0);
+        const bestBox = boundingBoxFromCenter({ ...compactProjectedRoleTextCollisionSize, ...best });
+        const bestOverlap = avoidBoxes.reduce(
+          (total, avoidBox) => total + overlapArea(bestBox, avoidBox),
+          0
+        );
+
+        return overlap < bestOverlap ? center : best;
+      }, viewportCandidates[0] ?? preferred);
     }
 
     placedBoxes.push(boundingBoxFromCenter({ ...compactProjectedRoleTextCollisionSize, ...candidate }));
