@@ -306,8 +306,15 @@ describe("TableSurface", () => {
   });
 
   it("keeps exchange/adjutant/result action panels available outside bidding", () => {
+    const exchangeHand = (
+      ["A", "K", "Q", "J", "10", "9", "8", "7", "6", "5", "4", "3", "2"] as const
+    ).map((rank) => standardCard("spades", rank));
     const html = renderTable(
-      createState({ opponentHandCounts: [9, 9, 9, 9], phase: "exchanging" }),
+      createState({
+        opponentHandCounts: [9, 9, 9, 9],
+        phase: "exchanging",
+        selfHand: exchangeHand
+      }),
       <section className="exchange-panel" aria-label="埋札交換">
         <button className="secondary-button" type="button">捨てる</button>
       </section>
@@ -316,6 +323,10 @@ describe("TableSurface", () => {
     expect(html).toContain("production-action-overlay");
     expect(html).toContain("埋札交換");
     expect(html).toContain("捨てる");
+    expect(countOccurrences(html, "mock-self-hand-card")).toBe(13);
+    expect(html).toContain("--mock-self-hand-columns:5");
+    expect(html).toContain("--mock-self-hand-rows:2");
+    expect(countOccurrences(html, "production-card-selectable")).toBe(13);
   });
 });
 

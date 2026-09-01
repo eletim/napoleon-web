@@ -275,7 +275,9 @@ function ProjectedProductionBoard({
   winningPlayerId: string | undefined;
 }) {
   const layout = tableDesignMockLayout;
-  const fit = createProjectedBoardFit(layout, viewportSize);
+  const selfHandCardCount = adapters.find((adapter) => adapter.isSelf)?.selfHand.length
+    ?? 10;
+  const fit = createProjectedBoardFit(layout, viewportSize, selfHandCardCount);
   const tablePoints = projectTablePolygon(layout.tableSurface, layout.camera);
   const roleOuterPoints = projectTablePolygon(roleBoardOuterPolygon(layout.center), layout.camera);
   const roleInnerPoints = projectTablePolygon(roleBoardInnerPolygon(layout.center), layout.camera);

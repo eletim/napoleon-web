@@ -284,8 +284,10 @@ html:has(.table-design-mock-page) {
 }
 
 .mock-self-hand {
+  align-content: end;
   column-gap: var(--mock-self-card-gap);
   display: grid;
+  grid-auto-rows: var(--mock-self-card-height);
   grid-template-columns: repeat(var(--mock-self-hand-columns), var(--mock-self-card-width));
   grid-template-rows: repeat(var(--mock-self-hand-rows), var(--mock-self-card-height));
   height: var(--mock-self-hand-height);
