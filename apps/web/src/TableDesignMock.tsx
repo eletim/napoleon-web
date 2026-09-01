@@ -1194,8 +1194,7 @@ interface ProjectedBoardFit {
 }
 
 export const projectedTextMinimumScale = 0.75;
-const compactProjectedRoleTextGap = 6;
-const compactProjectedRoleTextHalfSize = { height: 8, width: 24 };
+const compactProjectedRoleTextCollisionSize = { height: 20, width: 52 };
 
 interface BiddingBubbleLayout extends Box {
   action: BiddingMockAction;
@@ -1211,6 +1210,24 @@ interface CompactBiddingContentMetrics {
   paddingInline: number;
   primaryColumnWidth: number;
   secondaryColumnWidth: number;
+}
+
+interface ProjectedRoleTextContext {
+  isBidding?: boolean;
+  opponentHandCounts?: Partial<Record<OpponentSeatId, number>>;
+  riverCardCounts?: Partial<Record<SeatId, number>>;
+}
+
+interface ProjectedRoleTextObstacles {
+  biddingBubbles: BoundingBox[];
+  biddingOverlay: BoundingBox[];
+  fixedUi: BoundingBox[];
+  opponentHands: BoundingBox[];
+  playerInfos: BoundingBox[];
+  rivers: BoundingBox[];
+  round: BoundingBox[];
+  selfHand: BoundingBox[];
+  trickCards: BoundingBox[];
 }
 
 const roleBoardEdges: Record<SeatId, { end: Point; start: Point }> = {
@@ -1414,11 +1431,78 @@ export function createProjectedBoardFit(
   };
 }
 
-export function createProjectedRoleTextCenter(
+export function createProjectedRoleTextCenters(
   layout: TableDesignMockLayout,
-  seatId: SeatId,
-  viewport: ViewportSize
-): Point {
+  viewport: ViewportSize,
+  context: ProjectedRoleTextContext = {}
+): Record<SeatId, Point> {
+  const preferredCenters = Object.fromEntries(roleMarkerSeatOrder.map((seatId) => [
+    seatId,
+    createProjectedRoleMarkerLabelCenter(layout, seatId)
+  ])) as Record<SeatId, Point>;
+
+  if (viewport.height > 500 || viewport.width <= viewport.height) {
+    return preferredCenters;
+  }
+
+  const fit = createProjectedBoardFit(layout, viewport);
+  const obstacles = createProjectedRoleTextObstacles(layout, viewport, context);
+  const staticAvoidBoxes = Object.values(obstacles).flat();
+  const placedBoxes: BoundingBox[] = [];
+  const selfHandTop = obstacles.selfHand[0]?.top ?? viewport.height;
+  const viewportCandidates: Point[] = [];
+
+  for (
+    let y = compactProjectedRoleTextCollisionSize.height / 2 + 4;
+    y <= selfHandTop - compactProjectedRoleTextCollisionSize.height / 2 - 4;
+    y += 4
+  ) {
+    for (
+      let x = compactProjectedRoleTextCollisionSize.width / 2 + 4;
+      x <= viewport.width - compactProjectedRoleTextCollisionSize.width / 2 - 4;
+      x += 4
+    ) {
+      viewportCandidates.push({ x, y });
+    }
+  }
+
+  const centers = {} as Record<SeatId, Point>;
+
+  for (const seatId of roleMarkerSeatOrder) {
+    const preferred = transformPoint(preferredCenters[seatId], fit.scale, fit.translate);
+    const avoidBoxes = [...staticAvoidBoxes, ...placedBoxes];
+    let candidate: Point | undefined;
+    let candidateDistance = Number.POSITIVE_INFINITY;
+
+    for (const center of viewportCandidates) {
+      const box = boundingBoxFromCenter({ ...compactProjectedRoleTextCollisionSize, ...center });
+
+      if (avoidBoxes.some((avoidBox) => boxesOverlap(box, avoidBox))) {
+        continue;
+      }
+
+      const distanceFromPreferred = distance(center, preferred);
+      if (distanceFromPreferred < candidateDistance) {
+        candidate = center;
+        candidateDistance = distanceFromPreferred;
+      }
+    }
+
+    if (candidate === undefined) {
+      throw new Error(`Unable to place compact role text for ${seatId}`);
+    }
+
+    placedBoxes.push(boundingBoxFromCenter({ ...compactProjectedRoleTextCollisionSize, ...candidate }));
+    centers[seatId] = {
+      x: toLayoutPrecision((candidate.x - fit.translate.x) / fit.scale),
+      y: toLayoutPrecision((candidate.y - fit.translate.y) / fit.scale)
+    };
+  }
+
+  return centers;
+}
+
+function createProjectedRoleMarkerLabelCenter(layout: TableDesignMockLayout, seatId: SeatId): Point {
   const marker = createRoleMarkerGeometry(layout.center, seatId);
   const center = roleBoardLocalToAbsolute(layout.center, marker);
   const corners = projectTableCard(
@@ -1432,31 +1516,7 @@ export function createProjectedRoleTextCenter(
     },
     layout.camera
   );
-  const labelCenter = polygonCenter(corners);
-
-  if (viewport.height > 500 || viewport.width <= viewport.height) {
-    return labelCenter;
-  }
-
-  const fit = createProjectedBoardFit(layout, viewport);
-  const boardCenter = projectTablePoint({ x: layout.center.x, y: layout.center.y }, layout.camera);
-  const direction = normalizeVector({
-    x: labelCenter.x - boardCenter.x,
-    y: labelCenter.y - boardCenter.y
-  });
-  const cardCorners = projectTableCard(createCurrentTrickCardPlane(layout, seatId), layout.camera);
-  const cardDistance = Math.max(...cardCorners.map((point) =>
-    (point.x - boardCenter.x) * direction.x + (point.y - boardCenter.y) * direction.y
-  ));
-  const labelSupport =
-    Math.abs(direction.x) * compactProjectedRoleTextHalfSize.width
-    + Math.abs(direction.y) * compactProjectedRoleTextHalfSize.height;
-  const labelDistance = cardDistance + (labelSupport + compactProjectedRoleTextGap) / fit.scale;
-
-  return {
-    x: toLayoutPrecision(boardCenter.x + direction.x * labelDistance),
-    y: toLayoutPrecision(boardCenter.y + direction.y * labelDistance)
-  };
+  return polygonCenter(corners);
 }
 
 export function createVerticalCardGeometry({
@@ -1726,6 +1786,81 @@ export function createProjectedRoleBoardBoundingBox(
   );
 
   return transformBoundingBox(projectedRoleBoard, fit.scale, fit.translate);
+}
+
+export function createProjectedRoleTextObstacles(
+  layout: TableDesignMockLayout,
+  viewport: ViewportSize,
+  context: ProjectedRoleTextContext = {}
+): ProjectedRoleTextObstacles {
+  const fit = createProjectedBoardFit(layout, viewport);
+  const selfHand = createSelfHandViewportLayout(layout, selfCards.length, viewport);
+  const roundCenter = transformPoint(
+    projectTablePoint({ x: layout.center.x, y: layout.center.y }, layout.camera),
+    fit.scale,
+    fit.translate
+  );
+  const trickCards = roleMarkerSeatOrder.map((seatId) =>
+    transformBoundingBox(
+      boundingBox(projectTableCard(createCurrentTrickCardPlane(layout, seatId), layout.camera)),
+      fit.scale,
+      fit.translate
+    )
+  );
+  const opponentHands = opponentSeatOrder.flatMap((seatId) => {
+    const cardCount = context.opponentHandCounts?.[seatId] ?? layout.opponentHand.cardCounts[seatId];
+
+    if (cardCount <= 0) {
+      return [];
+    }
+
+    const effectiveLayout = {
+      ...layout,
+      opponentHand: {
+        ...layout.opponentHand,
+        cardCounts: { ...layout.opponentHand.cardCounts, [seatId]: cardCount }
+      }
+    };
+
+    return [createProjectedOpponentHandBoundingBox(effectiveLayout, seatId, fit)];
+  });
+  const rivers = roleMarkerSeatOrder.flatMap((seatId) => optionalBox(
+    createProjectedRiverCardsBoundingBox(
+      layout,
+      seatId,
+      fit,
+      context.riverCardCounts?.[seatId]
+    )
+  ));
+  const isBidding = context.isBidding === true;
+
+  return {
+    biddingBubbles: isBidding
+      ? createBiddingBubbleLayouts(layout, viewport).map((bubble) => boundingBoxFromCenter(bubble))
+      : [],
+    biddingOverlay: isBidding
+      ? [boundingBoxFromCenter(createBiddingOverlayGeometry(layout, viewport))]
+      : [],
+    fixedUi: [
+      boundingBoxFromTopLeft({ height: 36, width: viewport.width * 0.45, x: 0, y: 0 }),
+      boundingBoxFromTopLeft({ height: 40, width: 100, x: viewport.width - 112, y: 42 }),
+      boundingBoxFromTopLeft({ height: 54, width: 40, x: 0, y: viewport.height - 246 }),
+      ...(isBidding
+        ? []
+        : [boundingBoxFromTopLeft({ height: 38, width: 220, x: 8, y: 42 })])
+    ],
+    opponentHands,
+    playerInfos: createPlayerInfoLayouts(layout, viewport, true).map((info) => boundingBoxFromCenter(info)),
+    rivers,
+    round: [boundingBoxFromCenter({ ...compactProjectedRoleTextCollisionSize, ...roundCenter })],
+    selfHand: [boundingBoxFromTopLeft({
+      height: selfHand.cardSize.height,
+      width: selfHand.handWidth,
+      x: selfHand.left,
+      y: selfHand.top
+    })],
+    trickCards
+  };
 }
 
 export function createBiddingBubbleLayouts(
@@ -2080,19 +2215,23 @@ function createWorldRiverCardsBoundingBox(layout: TableDesignMockLayout, seatId:
 function createProjectedRiverCardsBoundingBox(
   layout: TableDesignMockLayout,
   seatId: SeatId,
-  fit: ProjectedBoardFit
+  fit: ProjectedBoardFit,
+  cardCount?: number
 ): BoundingBox | undefined {
-  const cardBoxes = createRiverCardPlanes(layout, seatId).map((card) =>
+  const cardBoxes = createRiverCardPlanes(layout, seatId, cardCount).map((card) =>
     transformBoundingBox(boundingBox(projectTableCard(card, layout.camera, "top-left")), fit.scale, fit.translate)
   );
 
   return cardBoxes.length === 0 ? undefined : boundingBoxAroundBoxes(cardBoxes);
 }
 
-function createRiverCardPlanes(layout: TableDesignMockLayout, seatId: SeatId): TableCardPlane[] {
-  const cards = riverCards[seatId] ?? [];
+function createRiverCardPlanes(
+  layout: TableDesignMockLayout,
+  seatId: SeatId,
+  cardCount = (riverCards[seatId] ?? []).length
+): TableCardPlane[] {
   const river = createRiverGeometry(layout, seatId);
-  const placements = createRiverPlacements(cards.length, layout, seatId);
+  const placements = createRiverPlacements(cardCount, layout, seatId);
 
   return placements.map((placement) => ({
     direction: river.direction,
@@ -2666,6 +2805,13 @@ function transformBoundingBox(box: BoundingBox, scale: number, translate: Point)
     width: toLayoutPrecision(width),
     x: toLayoutPrecision(left + width / 2),
     y: toLayoutPrecision(top + height / 2)
+  };
+}
+
+function transformPoint(point: Point, scale: number, translate: Point): Point {
+  return {
+    x: toLayoutPrecision(point.x * scale + translate.x),
+    y: toLayoutPrecision(point.y * scale + translate.y)
   };
 }
 

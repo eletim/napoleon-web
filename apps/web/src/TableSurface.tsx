@@ -21,7 +21,7 @@ import {
   createOpponentHandGeometry,
   createPlayerInfoLayouts,
   createProjectedBoardFit,
-  createProjectedRoleTextCenter,
+  createProjectedRoleTextCenters,
   createRiverFaceMetrics,
   createRiverGeometry,
   createRiverPlacements,
@@ -269,6 +269,14 @@ function ProjectedProductionBoard({
     inner: projectTablePoint(roleBoardLocalToAbsolute(layout.center, line.inner), layout.camera),
     outer: projectTablePoint(roleBoardLocalToAbsolute(layout.center, line.outer), layout.camera)
   }));
+  const roleTextCenters = useMemo(() => createProjectedRoleTextCenters(layout, viewportSize, {
+    isBidding: state?.phase === "bidding",
+    opponentHandCounts: Object.fromEntries(adapters
+      .filter((adapter) => adapter.seat !== "self")
+      .map((adapter) => [adapter.seat, adapter.handCount])),
+    riverCardCounts: Object.fromEntries(adapters
+      .map((adapter) => [adapter.seat, adapter.capturedPointCards.length]))
+  }), [adapters, state?.phase, viewportSize]);
 
   return (
     <div className="mock-projected-board-fit" style={projectedBoardFitStyle(fit)}>
@@ -306,10 +314,10 @@ function ProjectedProductionBoard({
               adapters={adapters}
               compact={viewportSize.height <= 500 && viewportSize.width > viewportSize.height}
               key={`production-role-${seat}`}
+              labelCenter={roleTextCenters[seat]}
               match={match}
               seat={seat}
               state={state}
-              viewportSize={viewportSize}
             />
           ))}
           <ProductionMatchRound match={match} />
@@ -361,17 +369,17 @@ function ProjectedProductionBoard({
 function ProductionRoleMarker({
   adapters,
   compact,
+  labelCenter,
   match,
   seat,
-  state,
-  viewportSize
+  state
 }: {
   adapters: readonly TablePlayerAdapter[];
   compact: boolean;
+  labelCenter: { x: number; y: number };
   match: PublicMatchState | undefined;
   seat: TableSeatId;
   state: PublicGameState | undefined;
-  viewportSize: ViewportSize;
 }) {
   const layout = tableDesignMockLayout;
   const marker = createRoleMarkerGeometry(layout.center, seat);
@@ -387,7 +395,6 @@ function ProductionRoleMarker({
     },
     layout.camera
   );
-  const labelCenter = createProjectedRoleTextCenter(layout, seat, viewportSize);
   const player = adapters.find((entry) => entry.seat === seat);
   const role = player === undefined ? "?" : playerRoleLabel(player.id, state);
   const displayedRole = compact ? compactRoleLabel(role) : role;

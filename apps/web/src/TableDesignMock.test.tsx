@@ -14,7 +14,8 @@ import {
   createOpponentHandsGeometry,
   createPlayerInfoLayouts,
   createProjectedBoardFit,
-  createProjectedRoleTextCenter,
+  createProjectedRoleTextCenters,
+  createProjectedRoleTextObstacles,
   createProjectedRoleBoardBoundingBox,
   createProjectedTableBoundingBox,
   createRiverFaceMetrics,
@@ -442,56 +443,53 @@ describe("TableDesignMock", () => {
     expect(html).toContain("--mock-projected-board-counter-scale:");
   });
 
-  it("keeps realistic compact labels clear of the round and every trick card at 844x390", () => {
-    const viewport = { width: 844, height: 390 };
-    const fit = createProjectedBoardFit(tableDesignMockLayout, viewport);
+  it("keeps every compact label visible around occupied table UI during bidding and play", () => {
     const labels = ["ナ/+21", "副/-3", "市/+13", "市/+7", "市/0"];
-    const markerBoxes = (["top-left", "top-right", "right", "left", "self"] as const).map(
-      (seatId, index) => {
-        const center = createProjectedRoleTextCenter(tableDesignMockLayout, seatId, viewport);
-        const renderedCenter = {
-          x: center.x * fit.scale + fit.translate.x,
-          y: center.y * fit.scale + fit.translate.y
-        };
+    const seats = ["top-left", "top-right", "right", "left", "self"] as const;
 
-        return boxFromCenter({
-          ...renderedCenter,
-          height: 15,
-          width: labels[index].length * 9
+    for (const viewport of [
+      { width: 568, height: 320 },
+      { width: 844, height: 390 }
+    ]) {
+      for (const isBidding of [false, true]) {
+        const fit = createProjectedBoardFit(tableDesignMockLayout, viewport);
+        const context = { isBidding };
+        const centers = createProjectedRoleTextCenters(tableDesignMockLayout, viewport, context);
+        const obstacles = createProjectedRoleTextObstacles(tableDesignMockLayout, viewport, context);
+        const markerBoxes = seats.map((seatId, index) => {
+          const center = centers[seatId];
+          const renderedCenter = {
+            x: center.x * fit.scale + fit.translate.x,
+            y: center.y * fit.scale + fit.translate.y
+          };
+
+          return boxFromCenter({
+            ...renderedCenter,
+            height: 15,
+            width: labels[index].length * 9
+          });
         });
+
+        expect(obstacles.opponentHands).toHaveLength(4);
+        expect(obstacles.playerInfos).toHaveLength(5);
+        expect(obstacles.trickCards).toHaveLength(5);
+        expect(obstacles.biddingOverlay).toHaveLength(isBidding ? 1 : 0);
+        expect(obstacles.biddingBubbles).toHaveLength(isBidding ? 5 : 0);
+
+        for (const [index, markerBox] of markerBoxes.entries()) {
+          expect(markerBox.left).toBeGreaterThanOrEqual(0);
+          expect(markerBox.right).toBeLessThanOrEqual(viewport.width);
+          expect(markerBox.top).toBeGreaterThanOrEqual(0);
+          expect(markerBox.bottom).toBeLessThanOrEqual(viewport.height);
+
+          for (const obstacle of Object.values(obstacles).flat()) {
+            expect(boxesOverlap(markerBox, obstacle)).toBe(false);
+          }
+          for (const otherMarkerBox of markerBoxes.slice(index + 1)) {
+            expect(boxesOverlap(markerBox, otherMarkerBox)).toBe(false);
+          }
+        }
       }
-    );
-    const projectedRoundCenter = projectTablePoint({
-      x: tableDesignMockLayout.center.x,
-      y: tableDesignMockLayout.center.y
-    }, tableDesignMockLayout.camera);
-    const roundBox = boxFromCenter({
-      height: 18,
-      width: 48,
-      x: projectedRoundCenter.x * fit.scale + fit.translate.x,
-      y: projectedRoundCenter.y * fit.scale + fit.translate.y
-    });
-
-    for (const markerBox of markerBoxes) {
-      expect(boxesOverlap(markerBox, roundBox)).toBe(false);
-    }
-    for (const [index, markerBox] of markerBoxes.entries()) {
-      for (const otherMarkerBox of markerBoxes.slice(index + 1)) {
-        expect(boxesOverlap(markerBox, otherMarkerBox)).toBe(false);
-      }
-    }
-
-    for (const [index, seatId] of (["top-left", "top-right", "right", "left", "self"] as const).entries()) {
-      const cardBox = transformTestBox(
-        boundingTestBox(projectTableCard(
-          createCurrentTrickCardPlane(tableDesignMockLayout, seatId),
-          tableDesignMockLayout.camera
-        )),
-        fit.scale,
-        fit.translate
-      );
-
-      expect(boxesOverlap(markerBoxes[index], cardBox)).toBe(false);
     }
   });
 
