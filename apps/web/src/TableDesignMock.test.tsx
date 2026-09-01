@@ -384,7 +384,6 @@ describe("TableDesignMock", () => {
     expect(metrics.cardSize.width).toBeCloseTo((0.8 * viewportWidth) / 13);
     expect(metrics.cardSize.height).toBeCloseTo(metrics.cardSize.width * 7 / 5);
     expect(metrics.gap).toBeCloseTo((0.16 * viewportWidth) / 12);
-    expect(fullHand.rowCount).toBe(1);
     expect(fullHand.columnCount).toBe(10);
     expect(fullHand.handWidth).toBeCloseTo(selfHandWidth(13, metrics));
     expect(fullHand.handHeight).toBeCloseTo(metrics.cardSize.height);

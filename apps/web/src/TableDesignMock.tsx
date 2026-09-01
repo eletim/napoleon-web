@@ -1177,7 +1177,6 @@ interface SelfHandViewportLayout {
   // layout never shifts as the actual hand size changes.
   handWidth: number;
   left: number;
-  rowCount: number;
   // Horizontal distance between consecutive card left edges.
   step: number;
   top: number;
@@ -1446,7 +1445,6 @@ export function createSelfHandViewportLayout(
     handHeight,
     handWidth,
     left,
-    rowCount: 1,
     step,
     top
   };
@@ -2942,7 +2940,7 @@ function selfHandViewportStyle(layout: SelfHandViewportLayout): CSSProperties {
   } as CSSProperties;
 }
 
-function selfHandCardIndexStyle(index: number): CSSProperties {
+export function selfHandCardIndexStyle(index: number): CSSProperties {
   return { "--mock-self-card-index": index } as CSSProperties;
 }
 

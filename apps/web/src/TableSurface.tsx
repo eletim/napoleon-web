@@ -44,6 +44,7 @@ import {
   roleBoardInnerPolygon,
   roleBoardLocalToAbsolute,
   roleBoardOuterPolygon,
+  selfHandCardIndexStyle,
   tableDesignMockLayout
 } from "./TableDesignMock";
 import { fourColorSuitColors } from "./cardSuitTheme";
@@ -1234,10 +1235,6 @@ function selfHandViewportStyle(layout: {
     "--mock-self-hand-top": `${layout.top}px`,
     "--mock-self-hand-width": `${layout.handWidth}px`
   } as CSSProperties;
-}
-
-function selfHandCardIndexStyle(index: number): CSSProperties {
-  return { "--mock-self-card-index": index } as CSSProperties;
 }
 
 function projectedBoardFitStyle(fit: {
