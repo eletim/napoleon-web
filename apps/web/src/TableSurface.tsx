@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type RefObject
+} from "react";
 import type {
   PublicBidAction,
   PublicBiddingState,
@@ -120,7 +128,8 @@ export function TableSurface({
   trumpSuit
 }: TableSurfaceProps) {
   const [handOrderMode, setHandOrderMode] = useState<HandOrderMode>("riipai");
-  const viewportSize = useViewportSize(tableDesignMockLayout.page);
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const viewportSize = useViewportSize(tableDesignMockLayout.page, surfaceRef);
   const adapters = useMemo(() => createProductionTablePlayers(players, state, handOrderMode), [handOrderMode, players, state]);
   const playedCardsByPlayerId = useMemo(
     () => new Map(currentTrick.map((played) => [played.playerId, played] as const)),
@@ -143,7 +152,12 @@ export function TableSurface({
   useCardmeisterScript();
 
   return (
-    <div className={className} aria-label="ゲームテーブル" style={tableSurfaceStyle(tableDesignMockLayout)}>
+    <div
+      className={className}
+      aria-label="ゲームテーブル"
+      ref={surfaceRef}
+      style={tableSurfaceStyle(tableDesignMockLayout)}
+    >
       <ProjectedProductionBoard
         adapters={adapters}
         currentTrickByPlayerId={playedCardsByPlayerId}
@@ -1270,22 +1284,50 @@ function svgPoints(points: readonly { x: number; y: number }[]): string {
   return points.map((point) => `${toLayoutPrecision(point.x)},${toLayoutPrecision(point.y)}`).join(" ");
 }
 
-function useViewportSize(fallback: ViewportSize): ViewportSize {
+function useViewportSize(
+  fallback: ViewportSize,
+  elementRef: RefObject<HTMLElement | null>
+): ViewportSize {
   const [viewportSize, setViewportSize] = useState<ViewportSize>(fallback);
 
   useEffect(() => {
-    const readViewportSize = () => ({
-      width: window.innerWidth,
-      height: window.innerHeight
-    });
+    const element = elementRef.current;
+    if (element === null) {
+      return;
+    }
 
-    const updateViewportSize = () => setViewportSize(readViewportSize());
+    const readViewportSize = (): ViewportSize | undefined => {
+      const bounds = element.getBoundingClientRect();
+      const width = element.clientWidth || bounds.width;
+      const height = element.clientHeight || bounds.height;
+
+      return width > 0 && height > 0 ? { width, height } : undefined;
+    };
+
+    const updateViewportSize = () => {
+      const nextViewportSize = readViewportSize();
+      if (nextViewportSize !== undefined) {
+        setViewportSize((current) =>
+          current.width === nextViewportSize.width && current.height === nextViewportSize.height
+            ? current
+            : nextViewportSize
+        );
+      }
+    };
+
+    const resizeObserver = typeof ResizeObserver === "undefined"
+      ? undefined
+      : new ResizeObserver(updateViewportSize);
 
     updateViewportSize();
+    resizeObserver?.observe(element);
     window.addEventListener("resize", updateViewportSize);
 
-    return () => window.removeEventListener("resize", updateViewportSize);
-  }, []);
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", updateViewportSize);
+    };
+  }, [elementRef]);
 
   return viewportSize;
 }

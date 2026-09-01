@@ -370,7 +370,7 @@ describe("TableDesignMock", () => {
     }
   });
 
-  it("lays out the self hand as viewport-width 2D UI for up to thirteen cards", () => {
+  it("keeps a fixed self-hand footprint as cards are removed", () => {
     const viewportWidth = tableDesignMockLayout.page.width;
     const metrics = createSelfHandViewportMetrics(viewportWidth);
     const fullHand = createSelfHandViewportLayout(tableDesignMockLayout, 13);
@@ -382,14 +382,17 @@ describe("TableDesignMock", () => {
     expect(selfHandWidth(13, metrics)).toBeCloseTo(0.96 * viewportWidth);
     expect(fullHand.handWidth).toBeCloseTo(0.96 * viewportWidth);
     expect(fullHand.left).toBeCloseTo(0.02 * viewportWidth);
-    expect(tableDesignMockLayout.page.height - fullHand.bottom).toBe(tableDesignMockLayout.selfHandUi.bottomInset);
+    expect(fullHand.contentWidth).toBeCloseTo(0.96 * viewportWidth);
     expect(fullHand.top).toBeGreaterThan(0);
     expect(fullHand.bottom).toBeLessThanOrEqual(tableDesignMockLayout.page.height);
 
     expect(reducedHand.cardSize.width).toBe(fullHand.cardSize.width);
     expect(reducedHand.cardSize.height).toBe(fullHand.cardSize.height);
     expect(reducedHand.gap).toBe(fullHand.gap);
-    expect(reducedHand.handWidth).toBeLessThan(fullHand.handWidth);
+    expect(reducedHand.contentWidth).toBeLessThan(fullHand.contentWidth);
+    expect(reducedHand.handWidth).toBe(fullHand.handWidth);
+    expect(reducedHand.left).toBe(fullHand.left);
+    expect(reducedHand.top).toBe(fullHand.top);
     expect(reducedHand.center.x).toBeCloseTo(viewportWidth / 2);
   });
 
@@ -402,12 +405,61 @@ describe("TableDesignMock", () => {
     expect(fullHdHand.gap).toBeCloseTo((0.16 * 1920) / 12);
     expect(fullHdHand.handWidth).toBeCloseTo(0.96 * 1920);
     expect(fullHdHand.center.x).toBeCloseTo(960);
-    expect(fullHdHand.bottom).toBe(1064);
+    expect(fullHdHand.top - createProjectedBoardFit(tableDesignMockLayout, {
+      width: 1920,
+      height: 1080
+    }).transformedTableBox.bottom).toBeCloseTo(tableDesignMockLayout.selfHandUi.gapFromTable);
 
     expect(qhdHand.cardSize.width).toBeCloseTo((0.8 * 2560) / 13);
     expect(qhdHand.handWidth).toBeCloseTo(0.96 * 2560);
     expect(qhdHand.center.x).toBeCloseTo(1280);
     expect(qhdHand.cardSize.width).toBeGreaterThan(fullHdHand.cardSize.width);
+  });
+
+  it("keeps the full hand inside desktop, mobile, and safe-area-reduced table surfaces", () => {
+    for (const viewport of [
+      { width: 1920, height: 1080 },
+      { width: 1440, height: 900 },
+      { width: 960, height: 500 },
+      { width: 844, height: 390 },
+      { width: 568, height: 320 },
+      { width: 812, height: 341 }
+    ]) {
+      const fullHand = createSelfHandViewportLayout(tableDesignMockLayout, 10, viewport);
+      const reducedHand = createSelfHandViewportLayout(tableDesignMockLayout, 3, viewport);
+      const projectedTable = createProjectedBoardFit(tableDesignMockLayout, viewport);
+      const selfInfo = createPlayerInfoLayouts(tableDesignMockLayout, viewport, true)
+        .find((info) => info.seatId === "self");
+      const handBox = boxFromTopLeft({
+        height: fullHand.cardSize.height,
+        width: fullHand.handWidth,
+        x: fullHand.left,
+        y: fullHand.top
+      });
+
+      expect(fullHand.top).toBeGreaterThanOrEqual(0);
+      expect(fullHand.bottom).toBeLessThanOrEqual(
+        viewport.height - tableDesignMockLayout.selfHandUi.bottomInset
+      );
+      expect(fullHand.left).toBeGreaterThanOrEqual(0);
+      expect(fullHand.left + fullHand.handWidth).toBeLessThanOrEqual(viewport.width);
+      expect(fullHand.top - projectedTable.transformedTableBox.bottom).toBeLessThanOrEqual(
+        tableDesignMockLayout.selfHandUi.gapFromTable
+      );
+      expect(reducedHand).toMatchObject({
+        bottom: fullHand.bottom,
+        handWidth: fullHand.handWidth,
+        left: fullHand.left,
+        top: fullHand.top
+      });
+      expect(selfInfo).toBeDefined();
+      if (selfInfo !== undefined) {
+        const selfInfoBox = boxFromCenter(selfInfo);
+        expect(boxesOverlap(selfInfoBox, handBox)).toBe(false);
+        expect(selfInfoBox.top).toBeGreaterThanOrEqual(0);
+        expect(selfInfoBox.bottom).toBeLessThanOrEqual(viewport.height);
+      }
+    }
   });
 
   it("fits projected table scale from viewport height and keeps width growth from enlarging it", () => {
@@ -749,8 +801,15 @@ describe("TableDesignMock", () => {
 
     expect(selfBox.left).toBeGreaterThanOrEqual(tableDesignMockLayout.playerInfo.viewportMargin);
     expect(selfBox.left).toBeLessThan(selfHand.left + selfHand.cardSize.width);
-    expect(selfBox.bottom).toBeLessThanOrEqual(selfHand.top - tableDesignMockLayout.playerInfo.selfGap);
-    expect(selfBox.bottom).toBeLessThan(selfHand.top);
+    expect(boxesOverlap(selfBox, boxFromTopLeft({
+      height: selfHand.cardSize.height,
+      width: selfHand.handWidth,
+      x: selfHand.left,
+      y: selfHand.top
+    }))).toBe(false);
+    expect(selfBox.top).toBeGreaterThanOrEqual(
+      selfHand.bottom + tableDesignMockLayout.playerInfo.selfGap
+    );
     expect(selfBox.top).toBeGreaterThan(projectedFit.transformedTableBox.bottom);
 
     const topLeftInfo = projectedInfos.find((entry) => entry.seatId === "top-left");

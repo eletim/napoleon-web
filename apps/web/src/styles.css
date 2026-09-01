@@ -4934,6 +4934,7 @@ input:focus-visible {
 
 .app-shell-game-in-progress .table {
   border-radius: 8px;
+  height: auto;
   margin: 0;
   max-width: none;
   padding: 10px;

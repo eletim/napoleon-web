@@ -118,6 +118,7 @@ interface TableDesignMockLayout {
   };
   selfHandUi: {
     bottomInset: number;
+    gapFromTable: number;
     maxCardCount: number;
   };
   projectedFit: {
@@ -247,6 +248,7 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
   },
   selfHandUi: {
     bottomInset: 16,
+    gapFromTable: 8,
     maxCardCount: maxSelfHandCardCount
   },
   projectedFit: {
@@ -1162,6 +1164,7 @@ interface SelfHandViewportLayout {
   bottom: number;
   cardSize: { height: number; width: number };
   center: Point;
+  contentWidth: number;
   gap: number;
   handWidth: number;
   left: number;
@@ -1406,9 +1409,14 @@ export function createSelfHandViewportLayout(
   viewport: ViewportSize = layout.page
 ): SelfHandViewportLayout {
   const metrics = createSelfHandViewportMetrics(viewport.width);
-  const handWidth = selfHandWidth(cardCount, metrics);
+  const contentWidth = selfHandWidth(cardCount, metrics);
+  const handWidth = selfHandWidth(layout.selfHandUi.maxCardCount, metrics);
   const left = toLayoutPrecision((viewport.width - handWidth) / 2);
-  const bottom = toLayoutPrecision(viewport.height - layout.selfHandUi.bottomInset);
+  const tableBottom = createProjectedBoardFit(layout, viewport).transformedTableBox.bottom;
+  const bottom = toLayoutPrecision(Math.min(
+    viewport.height - layout.selfHandUi.bottomInset,
+    tableBottom + layout.selfHandUi.gapFromTable + metrics.cardSize.height
+  ));
   const top = toLayoutPrecision(bottom - metrics.cardSize.height);
 
   return {
@@ -1418,6 +1426,7 @@ export function createSelfHandViewportLayout(
       x: toLayoutPrecision(left + handWidth / 2),
       y: toLayoutPrecision(top + metrics.cardSize.height / 2)
     },
+    contentWidth,
     handWidth,
     left,
     top
@@ -2137,17 +2146,18 @@ function chooseBiddingBubbleBox(
     { x: -1, y: 0 }
   ];
   const directions = info.seatId === "self" ? selfDirections : opponentDirections;
+  const distanceMultipliers = info.seatId === "self" ? [1, 2, 3] : [1];
   const candidates = uniquePoints(
-    directions.map((direction) => {
+    directions.flatMap((direction) => {
       const offset =
         rectHalfExtentAlong(info, direction) +
         rectHalfExtentAlong(size, direction) +
         config.gap;
 
-      return clampBiddingBubbleCenter({
-        x: toLayoutPrecision(info.x + direction.x * offset),
-        y: toLayoutPrecision(info.y + direction.y * offset)
-      }, size, viewport, config.viewportMargin);
+      return distanceMultipliers.map((distanceMultiplier) => clampBiddingBubbleCenter({
+        x: toLayoutPrecision(info.x + direction.x * offset * distanceMultiplier),
+        y: toLayoutPrecision(info.y + direction.y * offset * distanceMultiplier)
+      }, size, viewport, config.viewportMargin));
     })
   ).map((center) => ({ ...center, ...size }));
   const nonOverlapping = candidates.filter((candidate) =>
@@ -2333,16 +2343,20 @@ function createSelfPlayerInfoLayout(
   viewport: ViewportSize
 ): PlayerInfoGeometry {
   const info = layout.playerInfo;
+  const canPlaceBelowHand =
+    viewport.height - selfHandLayout.bottom >= info.unitHeight + info.selfGap;
   const x = clamp(
     selfHandLayout.left,
     info.viewportMargin,
     viewport.width - info.viewportMargin - info.unitWidth
   );
-  const y = clamp(
-    selfHandLayout.top - info.unitHeight - info.selfGap,
-    info.viewportMargin,
-    selfHandLayout.top - info.unitHeight - info.selfGap
-  );
+  const y = canPlaceBelowHand
+    ? selfHandLayout.bottom + info.selfGap
+    : clamp(
+        selfHandLayout.top - info.unitHeight - info.selfGap,
+        info.viewportMargin,
+        selfHandLayout.top - info.unitHeight - info.selfGap
+      );
 
   return createPlayerInfoGeometry(layout, "self", {
     x: toLayoutPrecision(x + info.unitWidth / 2),
