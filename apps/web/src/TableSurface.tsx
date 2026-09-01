@@ -30,6 +30,7 @@ import {
   createPlayerInfoLayouts,
   createProjectedBoardFit,
   createProjectedRoleTextCenters,
+  createProjectedRoundTextCenter,
   createRiverFaceMetrics,
   createRiverGeometry,
   createRiverPlacements,
@@ -341,7 +342,11 @@ function ProjectedProductionBoard({
               state={state}
             />
           ))}
-          <ProductionMatchRound match={match} />
+          <ProductionMatchRound
+            match={match}
+            selfHandCardCount={selfHandCardCount}
+            viewportSize={viewportSize}
+          />
         </g>
       </svg>
       <div className="mock-projected-card-layer">
@@ -508,16 +513,21 @@ function createProductionRoleText(
   };
 }
 
-function ProductionMatchRound({ match }: { match: PublicMatchState | undefined }) {
+function ProductionMatchRound({
+  match,
+  selfHandCardCount,
+  viewportSize
+}: {
+  match: PublicMatchState | undefined;
+  selfHandCardCount: number;
+  viewportSize: ViewportSize;
+}) {
   if (match === undefined) {
     return null;
   }
 
   const layout = tableDesignMockLayout;
-  const center = projectTablePoint({
-    x: layout.center.x,
-    y: layout.center.y
-  }, layout.camera);
+  const center = createProjectedRoundTextCenter(layout, viewportSize, selfHandCardCount);
 
   return (
     <text

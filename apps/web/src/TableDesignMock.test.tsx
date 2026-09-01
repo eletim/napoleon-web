@@ -568,6 +568,14 @@ describe("TableDesignMock", () => {
     );
   });
 
+  it("keeps the projected board fixed through the 13-to-10 card exchange transition", () => {
+    const viewport = { width: 812, height: 341 };
+
+    expect(createProjectedBoardFit(tableDesignMockLayout, viewport, 10)).toEqual(
+      createProjectedBoardFit(tableDesignMockLayout, viewport, 13)
+    );
+  });
+
   it("counter-scales central match text to readable rendered sizes at 844x390", () => {
     const mobileFit = createProjectedBoardFit(tableDesignMockLayout, { width: 844, height: 390 });
     const renderedFontSize = (fontSize: number) => fontSize * mobileFit.scale * mobileFit.counterScale;
@@ -988,10 +996,12 @@ describe("TableDesignMock", () => {
     }
   });
 
-  it("keeps projected player info panels pairwise separate on compact landscapes", () => {
+  it("keeps projected player info panels separate in normal, exchange, and zero-card result layouts", () => {
     for (const { cardCount, viewport } of [
       { cardCount: 10, viewport: { width: 844, height: 390 } },
-      { cardCount: 13, viewport: { width: 812, height: 341 } }
+      { cardCount: 13, viewport: { width: 812, height: 341 } },
+      { cardCount: 0, viewport: { width: 1280, height: 720 } },
+      { cardCount: 0, viewport: { width: 1024, height: 768 } }
     ]) {
       const boxes = createPlayerInfoLayouts(
         tableDesignMockLayout,
