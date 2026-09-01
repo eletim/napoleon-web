@@ -326,6 +326,7 @@ describe("TableSurface", () => {
     expect(countOccurrences(html, "mock-self-hand-card")).toBe(13);
     expect(html).toContain("--mock-self-hand-columns:5");
     expect(html).toContain("--mock-self-hand-rows:2");
+    expect(html).toContain("--mock-self-row-three-offset:-");
     expect(countOccurrences(html, "production-card-selectable")).toBe(13);
   });
 });

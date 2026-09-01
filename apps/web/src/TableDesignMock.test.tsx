@@ -419,21 +419,24 @@ describe("TableDesignMock", () => {
 
       expect(new Set(cards.map((card) => card.x)).size).toBe(5);
       expect(new Set(cards.map((card) => card.y)).size).toBe(2);
-      const firstVisibleRowTop = hand.top + hand.cardSize.height + hand.rowGap;
+      const firstVisibleRowTop = hand.top;
       for (const card of cards.slice(0, 5)) {
         expect(card.y).toBeCloseTo(firstVisibleRowTop);
       }
       for (const card of cards.slice(5)) {
-        expect(card.y).toBeCloseTo(firstVisibleRowTop + hand.cardSize.height + hand.rowGap);
+        expect(card.y).toBeCloseTo(firstVisibleRowTop + hand.rowStep);
       }
       expect(cards[0]?.x).toBe(hand.left);
       expect(cards[5]?.x).toBe(hand.left);
       expect(Math.max(...cards.map((card) => card.y + card.height))).toBeCloseTo(hand.bottom);
 
+      const exchangeHand = createSelfHandViewportLayout(tableDesignMockLayout, 13, viewport);
       const exchangeCards = createSelfHandCardPlacements(tableDesignMockLayout, 13, viewport);
       expect(new Set(exchangeCards.map((card) => card.y)).size).toBe(3);
+      expect(exchangeHand.rowStep).toBeLessThan(exchangeHand.cardSize.height);
+      expect(Math.min(...exchangeCards.map((card) => card.y))).toBeCloseTo(exchangeHand.top);
       expect(Math.max(...exchangeCards.map((card) => card.y + card.height))).toBeCloseTo(
-        hand.bottom
+        exchangeHand.bottom
       );
     }
   });
@@ -503,9 +506,9 @@ describe("TableDesignMock", () => {
       );
       expect(fullHand.left).toBeGreaterThanOrEqual(0);
       expect(fullHand.left + fullHand.handWidth).toBeLessThanOrEqual(viewport.width);
-      expect(normalProjectedTable.transformedTableBox.bottom).toBeLessThanOrEqual(
-        normalHandBox.top - tableDesignMockLayout.selfHandUi.gapFromTable
-      );
+      expect(
+        normalHandBox.top - normalProjectedTable.transformedTableBox.bottom
+      ).toBeCloseTo(tableDesignMockLayout.selfHandUi.gapFromTable);
       expect(exchangeProjectedTable.transformedTableBox.bottom).toBeLessThanOrEqual(
         fullHand.top - tableDesignMockLayout.selfHandUi.gapFromTable
       );

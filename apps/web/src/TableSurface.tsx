@@ -30,7 +30,6 @@ import {
   createPlayerInfoLayouts,
   createProjectedBoardFit,
   createProjectedRoleTextCenters,
-  createProjectedRoundTextCenter,
   createRiverFaceMetrics,
   createRiverGeometry,
   createRiverPlacements,
@@ -342,11 +341,7 @@ function ProjectedProductionBoard({
               state={state}
             />
           ))}
-          <ProductionMatchRound
-            match={match}
-            selfHandCardCount={selfHandCardCount}
-            viewportSize={viewportSize}
-          />
+          <ProductionMatchRound match={match} />
         </g>
       </svg>
       <div className="mock-projected-card-layer">
@@ -513,21 +508,16 @@ function createProductionRoleText(
   };
 }
 
-function ProductionMatchRound({
-  match,
-  selfHandCardCount,
-  viewportSize
-}: {
-  match: PublicMatchState | undefined;
-  selfHandCardCount: number;
-  viewportSize: ViewportSize;
-}) {
+function ProductionMatchRound({ match }: { match: PublicMatchState | undefined }) {
   if (match === undefined) {
     return null;
   }
 
   const layout = tableDesignMockLayout;
-  const center = createProjectedRoundTextCenter(layout, viewportSize, selfHandCardCount);
+  const center = projectTablePoint({
+    x: layout.center.x,
+    y: layout.center.y
+  }, layout.camera);
 
   return (
     <text
@@ -1180,8 +1170,11 @@ function selfHandViewportStyle(layout: {
   left: number;
   rowCount: number;
   rowGap: number;
+  rowStep: number;
   top: number;
 }): CSSProperties {
+  const rowOffset = layout.rowStep - layout.cardSize.height;
+
   return {
     "--mock-self-card-gap": `${layout.gap}px`,
     "--mock-self-card-height": `${layout.cardSize.height}px`,
@@ -1192,7 +1185,8 @@ function selfHandViewportStyle(layout: {
     "--mock-self-hand-rows": layout.rowCount,
     "--mock-self-hand-top": `${layout.top}px`,
     "--mock-self-hand-width": `${layout.handWidth}px`,
-    "--mock-self-row-gap": `${layout.rowGap}px`
+    "--mock-self-row-three-offset": `${rowOffset * 2}px`,
+    "--mock-self-row-two-offset": `${rowOffset}px`
   } as CSSProperties;
 }
 
