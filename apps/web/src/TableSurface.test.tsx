@@ -134,6 +134,10 @@ describe("TableSurface", () => {
     expect(countOccurrences(html, "mock-projected-role-marker-score")).toBe(5);
     expect(html).toContain('aria-label="現在 第3局 / 全5局"');
     expect(html).toContain(">第3局</text>");
+    expect(html).toContain('aria-label="局ごとの得点履歴を表示"');
+    expect(html).toContain("<caption>局ごとの得点</caption>");
+    expect(html).toContain("<th scope=\"row\">左側AI</th><td>+10</td><td>+11</td>");
+    expect(html).toContain("<th scope=\"row\">奥左AI</th><td>-1</td><td>-2</td>");
 
     const expectedCenter = projectTablePoint({
       x: tableDesignMockLayout.center.x,
@@ -164,6 +168,29 @@ describe("TableSurface", () => {
     );
 
     expect(topRightMarker).not.toBeNull();
+  });
+
+  it("derives every finished Napoleon-solo role from the public result", () => {
+    const html = renderTable(createState({
+      opponentHandCounts: [0, 0, 0, 0],
+      phase: "finished",
+      result: {
+        resultType: "standard",
+        winner: "napoleon-team",
+        napoleonTeamPointCards: 14,
+        alliancePointCards: 6,
+        targetPointCards: 13,
+        napoleonPlayerId: "player-1",
+        adjutantPlayerId: null
+      }
+    }));
+
+    expect(html).toContain("左側AI: 役職 ナポレオン");
+    expect(html).toContain("奥左AI: 役職 市民");
+    expect(html).toContain("奥右AI: 役職 市民");
+    expect(html).toContain("右側AI: 役職 市民");
+    expect(html).toContain("自分: 役職 市民");
+    expect(countOccurrences(html, "役職 市民")).toBe(4);
   });
 
   it("preserves contract and called-card status after bidding", () => {
@@ -364,12 +391,12 @@ function renderTable(
 }
 
 function progressMatch(): PublicMatchState {
-  const scores = new Map([
-    ["player-0", 0],
-    ["player-1", 21],
-    ["player-2", -3],
-    ["player-3", 13],
-    ["player-4", 7]
+  const scores = new Map<string, readonly number[]>([
+    ["player-0", [0, 0]],
+    ["player-1", [10, 11]],
+    ["player-2", [-1, -2]],
+    ["player-3", [6, 7]],
+    ["player-4", [3, 4]]
   ]);
 
   return {
@@ -380,8 +407,8 @@ function progressMatch(): PublicMatchState {
     completed: false,
     players: ["player-4", "player-2", "player-0", "player-1", "player-3"].map((playerId) => ({
       playerId,
-      roundScores: [],
-      rawMatchScore: scores.get(playerId) ?? 0
+      roundScores: scores.get(playerId) ?? [],
+      rawMatchScore: (scores.get(playerId) ?? []).reduce((sum, score) => sum + score, 0)
     })),
     finalScores: null
   };
@@ -397,6 +424,7 @@ function createState({
   isTrickComplete = false,
   legalActions = [],
   phase = "playing",
+  result = null,
   opponentHandCounts,
   selfHand = [
     standardCard("spades", "A"),
@@ -413,6 +441,7 @@ function createState({
   isTrickComplete?: boolean;
   legalActions?: PublicGameState["legalActions"];
   phase?: PublicGameState["phase"];
+  result?: PublicGameState["result"];
   opponentHandCounts: readonly [number, number, number, number];
   selfHand?: PublicGameState["self"]["hand"];
 }): PublicGameState {
@@ -449,7 +478,7 @@ function createState({
         ? null
         : { calledCardId: adjutantCardId, revealedPlayerId: adjutantRevealedPlayerId },
     latestEvent: null,
-    result: null,
+    result,
     bidding:
       phase === "bidding"
         ? {

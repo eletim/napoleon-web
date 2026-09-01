@@ -214,6 +214,7 @@ export function TableSurface({
         <strong>{handOrderMode === "riipai" ? "ON" : "OFF"}</strong>
       </button>
       <div className="production-table-tools" aria-label="補助操作">
+        <ProductionRoundScoreHistory adapters={adapters} match={match} />
         <button
           aria-label={highlightWinningCard ? "暫定勝ち札強調オン" : "暫定勝ち札強調オフ"}
           aria-pressed={highlightWinningCard}
@@ -506,6 +507,56 @@ function createProductionRoleText(
     role,
     score
   };
+}
+
+function ProductionRoundScoreHistory({
+  adapters,
+  match
+}: {
+  adapters: readonly TablePlayerAdapter[];
+  match: PublicMatchState | undefined;
+}) {
+  if (match === undefined || match.completed) {
+    return null;
+  }
+
+  const labels = new Map(adapters.map((player) => [player.id, player.label]));
+  const completedRounds = Array.from(
+    { length: match.completedRoundCount },
+    (_, index) => index + 1
+  );
+
+  return (
+    <details className="production-round-score-history">
+      <summary aria-label="局ごとの得点履歴を表示">局別</summary>
+      <div className="production-round-score-history-panel">
+        <table>
+          <caption>局ごとの得点</caption>
+          <thead>
+            <tr>
+              <th scope="col">プレイヤー</th>
+              {completedRounds.map((round) => <th key={round} scope="col">第{round}局</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {match.players.map((player) => (
+              <tr key={player.playerId}>
+                <th scope="row">{labels.get(player.playerId) ?? player.playerId}</th>
+                {completedRounds.map((round) => (
+                  <td key={round}>
+                    {player.roundScores[round - 1] === undefined
+                      ? "—"
+                      : formatMatchScore(player.roundScores[round - 1])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {completedRounds.length === 0 ? <p>終了した局はまだありません。</p> : null}
+      </div>
+    </details>
+  );
 }
 
 function ProductionMatchRound({ match }: { match: PublicMatchState | undefined }) {
@@ -1206,7 +1257,30 @@ function tableSurfaceStyle(layout: typeof tableDesignMockLayout): CSSProperties 
 }
 
 function playerRoleLabel(playerId: string, state: PublicGameState | undefined): string {
-  if (state === undefined || state.contract === null) {
+  if (state === undefined) {
+    return "?";
+  }
+
+  if (state.phase === "finished" && state.result?.resultType === "standard") {
+    const isNapoleon = state.result.napoleonPlayerId === playerId;
+    const isAdjutant = state.result.adjutantPlayerId === playerId;
+
+    if (isNapoleon && isAdjutant) {
+      return "ナ/副";
+    }
+
+    if (isNapoleon) {
+      return "ナポレオン";
+    }
+
+    if (isAdjutant) {
+      return "副官";
+    }
+
+    return "市民";
+  }
+
+  if (state.contract === null) {
     return "?";
   }
 
