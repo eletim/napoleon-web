@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import type {
   AiPolicyComposition,
   AiPreset,
@@ -50,6 +50,18 @@ interface Session {
 type AppMode = "game" | "simulation" | "ai-settings";
 
 const defaultPresetId: AiPresetId = "com-ai";
+const interactiveMatchResultSelector = [
+  "a[href]",
+  "button",
+  "details",
+  "input",
+  "label",
+  "select",
+  "summary",
+  "textarea",
+  "[contenteditable='true']",
+  "[role='button']"
+].join(",");
 
 export function App() {
   if (window.location.pathname.endsWith("/mock/card-design")) {
@@ -329,6 +341,15 @@ function GameApp() {
     });
   }
 
+  function handleResultBackgroundClick(event: MouseEvent<HTMLElement>): void {
+    const target = event.target;
+    if (target instanceof Element && target.closest(interactiveMatchResultSelector) !== null) {
+      return;
+    }
+
+    void handleAdvanceMatch();
+  }
+
   async function runRequest(work: () => Promise<void>): Promise<void> {
     if (requestInFlightRef.current) {
       return;
@@ -359,6 +380,11 @@ function GameApp() {
   const isStartedGame = session !== undefined && mode === "game";
   const isGameInProgress = isStartedGame && !session.state.isGameOver;
   const completedMatch = hasCompletedMatchResult(session?.match) ? session.match : undefined;
+  const canAdvanceMatch =
+    session?.state.result !== null &&
+    session?.state.result !== undefined &&
+    session.match !== undefined &&
+    !session.match.completed;
   const appShellClassName = [
     "app-shell",
     isStartedGame ? "app-shell-game-active" : "",
@@ -459,7 +485,11 @@ function GameApp() {
                 <span>スマートフォンを横にすると、5人卓と手札を見やすく表示します。</span>
               </section>
 
-              <section className="table" aria-label="ゲームテーブル">
+              <section
+                className={canAdvanceMatch ? "table table-result-advance" : "table"}
+                aria-label="ゲームテーブル"
+                onClick={canAdvanceMatch ? handleResultBackgroundClick : undefined}
+              >
             <TableSurface
               actionPanel={
                 hasTableActionPanel ? (
