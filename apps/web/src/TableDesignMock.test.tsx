@@ -16,6 +16,7 @@ import {
   createProjectedBoardFit,
   createProjectedRoleTextCenters,
   createProjectedRoleTextObstacles,
+  createProjectedRoleTextSectorGeometry,
   createProjectedRoleBoardBoundingBox,
   createProjectedTableBoundingBox,
   createRiverFaceMetrics,
@@ -32,6 +33,7 @@ import {
   projectVerticalCard,
   projectTablePoint,
   projectTablePolygon,
+  projectedRoleTextSectorMinimumAlignment,
   projectedTextMinimumScale,
   regularPentagon,
   roleBoardSelfSideLength,
@@ -469,12 +471,27 @@ describe("TableDesignMock", () => {
             width: labels[index].length * 9
           });
         });
+        const renderedCenters = seats.map((seatId) => {
+          const center = centers[seatId];
+
+          return {
+            x: center.x * fit.scale + fit.translate.x,
+            y: center.y * fit.scale + fit.translate.y
+          };
+        });
 
         expect(obstacles.opponentHands).toHaveLength(4);
         expect(obstacles.playerInfos).toHaveLength(5);
         expect(obstacles.trickCards).toHaveLength(5);
         expect(obstacles.biddingOverlay).toHaveLength(isBidding ? 1 : 0);
         expect(obstacles.biddingBubbles).toHaveLength(isBidding ? 5 : 0);
+
+        for (const [index, seatId] of seats.entries()) {
+          const ownSector = createProjectedRoleTextSectorGeometry(tableDesignMockLayout, viewport, seatId);
+
+          expect(projectedSectorAlignment(renderedCenters[index], ownSector))
+            .toBeGreaterThanOrEqual(projectedRoleTextSectorMinimumAlignment);
+        }
 
         for (const [index, markerBox] of markerBoxes.entries()) {
           expect(markerBox.left).toBeGreaterThanOrEqual(0);
@@ -1145,6 +1162,39 @@ function midpointBetween(a: { x: number; y: number }, b: { x: number; y: number 
     x: (a.x + b.x) / 2,
     y: (a.y + b.y) / 2
   };
+}
+
+function projectedSectorAlignment(
+  point: { x: number; y: number },
+  sector: {
+    center: { x: number; y: number };
+    end: { x: number; y: number };
+    start: { x: number; y: number };
+  }
+): number {
+  const start = subtractPoints(sector.start, sector.center);
+  const end = subtractPoints(sector.end, sector.center);
+  const candidate = subtractPoints(point, sector.center);
+  const direction = normalizeSectorVector({
+    x: (start.x + end.x) / 2,
+    y: (start.y + end.y) / 2
+  });
+  const candidateDirection = normalizeSectorVector(candidate);
+
+  return direction.x * candidateDirection.x + direction.y * candidateDirection.y;
+}
+
+function subtractPoints(
+  a: { x: number; y: number },
+  b: { x: number; y: number }
+): { x: number; y: number } {
+  return { x: a.x - b.x, y: a.y - b.y };
+}
+
+function normalizeSectorVector(vector: { x: number; y: number }): { x: number; y: number } {
+  const length = Math.hypot(vector.x, vector.y);
+
+  return { x: vector.x / length, y: vector.y / length };
 }
 
 function boxFromCenter(box: {

@@ -1193,8 +1193,18 @@ interface ProjectedBoardFit {
   viewport: ViewportSize;
 }
 
+interface ProjectedRoleTextSectorGeometry {
+  center: Point;
+  end: Point;
+  start: Point;
+}
+
 export const projectedTextMinimumScale = 0.75;
 const compactProjectedRoleTextCollisionSize = { height: 20, width: 52 };
+// Compact controls can occupy the nominal pentagon wedge. Keep candidates in
+// the seat-facing projected direction while leaving the collision solver room
+// to route around those controls.
+export const projectedRoleTextSectorMinimumAlignment = Math.cos((75 * Math.PI) / 180);
 
 interface BiddingBubbleLayout extends Box {
   action: BiddingMockAction;
@@ -1470,11 +1480,16 @@ export function createProjectedRoleTextCenters(
 
   for (const seatId of roleMarkerSeatOrder) {
     const preferred = transformPoint(preferredCenters[seatId], fit.scale, fit.translate);
+    const sector = createProjectedRoleTextSectorGeometry(layout, viewport, seatId);
     const avoidBoxes = [...staticAvoidBoxes, ...placedBoxes];
     let candidate: Point | undefined;
     let candidateDistance = Number.POSITIVE_INFINITY;
 
     for (const center of viewportCandidates) {
+      if (!pointIsInProjectedRoleTextSector(center, sector)) {
+        continue;
+      }
+
       const box = boundingBoxFromCenter({ ...compactProjectedRoleTextCollisionSize, ...center });
 
       if (avoidBoxes.some((avoidBox) => boxesOverlap(box, avoidBox))) {
@@ -1489,7 +1504,9 @@ export function createProjectedRoleTextCenters(
     }
 
     if (candidate === undefined) {
-      throw new Error(`Unable to place compact role text for ${seatId}`);
+      throw new Error(
+        `Unable to place compact role text for ${seatId} at ${viewport.width}x${viewport.height} (bidding: ${context.isBidding === true})`
+      );
     }
 
     placedBoxes.push(boundingBoxFromCenter({ ...compactProjectedRoleTextCollisionSize, ...candidate }));
@@ -1500,6 +1517,57 @@ export function createProjectedRoleTextCenters(
   }
 
   return centers;
+}
+
+export function createProjectedRoleTextSectorGeometry(
+  layout: TableDesignMockLayout,
+  viewport: ViewportSize,
+  seatId: SeatId
+): ProjectedRoleTextSectorGeometry {
+  const fit = createProjectedBoardFit(layout, viewport);
+  const sector = createRoleSectorGeometry(layout.center, seatId);
+
+  return {
+    center: transformPoint(
+      projectTablePoint({ x: layout.center.x, y: layout.center.y }, layout.camera),
+      fit.scale,
+      fit.translate
+    ),
+    start: transformPoint(
+      projectTablePoint(roleBoardLocalToAbsolute(layout.center, sector.outerStart), layout.camera),
+      fit.scale,
+      fit.translate
+    ),
+    end: transformPoint(
+      projectTablePoint(roleBoardLocalToAbsolute(layout.center, sector.outerEnd), layout.camera),
+      fit.scale,
+      fit.translate
+    )
+  };
+}
+
+function pointIsInProjectedRoleTextSector(
+  point: Point,
+  sector: ProjectedRoleTextSectorGeometry
+): boolean {
+  return projectedRoleTextSectorAlignment(point, sector)
+    >= projectedRoleTextSectorMinimumAlignment;
+}
+
+function projectedRoleTextSectorAlignment(
+  point: Point,
+  sector: ProjectedRoleTextSectorGeometry
+): number {
+  const start = { x: sector.start.x - sector.center.x, y: sector.start.y - sector.center.y };
+  const end = { x: sector.end.x - sector.center.x, y: sector.end.y - sector.center.y };
+  const candidate = { x: point.x - sector.center.x, y: point.y - sector.center.y };
+  const direction = normalizeVector({
+    x: (start.x + end.x) / 2,
+    y: (start.y + end.y) / 2
+  });
+  const candidateDirection = normalizeVector(candidate);
+
+  return direction.x * candidateDirection.x + direction.y * candidateDirection.y;
 }
 
 function createProjectedRoleMarkerLabelCenter(layout: TableDesignMockLayout, seatId: SeatId): Point {
