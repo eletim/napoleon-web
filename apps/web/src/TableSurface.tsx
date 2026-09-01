@@ -275,8 +275,12 @@ function ProjectedProductionBoard({
       .filter((adapter) => adapter.seat !== "self")
       .map((adapter) => [adapter.seat, adapter.handCount])),
     riverCardCounts: Object.fromEntries(adapters
-      .map((adapter) => [adapter.seat, adapter.capturedPointCards.length]))
-  }), [adapters, state?.phase, viewportSize]);
+      .map((adapter) => [adapter.seat, adapter.capturedPointCards.length])),
+    roleTextLabels: Object.fromEntries(seatOrder.map((seat) => [
+      seat,
+      createProductionRoleText(adapters, match, state, seat).compact
+    ]))
+  }), [adapters, match, state, viewportSize]);
 
   return (
     <div className="mock-projected-board-fit" style={projectedBoardFitStyle(fit)}>
@@ -395,17 +399,12 @@ function ProductionRoleMarker({
     },
     layout.camera
   );
-  const player = adapters.find((entry) => entry.seat === seat);
-  const role = player === undefined ? "?" : playerRoleLabel(player.id, state);
-  const displayedRole = compact ? compactRoleLabel(role) : role;
-  const rawMatchScore = player === undefined
-    ? undefined
-    : match?.players.find((entry) => entry.playerId === player.id)?.rawMatchScore;
-  const score = rawMatchScore === undefined ? "—" : formatMatchScore(rawMatchScore);
+  const roleText = createProductionRoleText(adapters, match, state, seat);
+  const displayedRole = compact ? roleText.compactRole : roleText.role;
 
   return (
     <g
-      aria-label={`${player?.label ?? seat}: 役職 ${role}, 累積試合スコア ${score}`}
+      aria-label={`${roleText.player?.label ?? seat}: 役職 ${roleText.role}, 累積試合スコア ${roleText.score}`}
       className={`mock-projected-role-marker mock-projected-role-marker-${seat}`}
     >
       <polygon className="mock-projected-role-marker-fill" points={svgPoints(corners)} />
@@ -417,7 +416,7 @@ function ProductionRoleMarker({
           x={labelCenter.x}
           y={labelCenter.y}
         >
-          {displayedRole}/{score}
+          {roleText.compact}
         </text>
       ) : (
         <text
@@ -438,7 +437,7 @@ function ProductionRoleMarker({
             x={labelCenter.x}
             y={labelCenter.y + 13}
           >
-            {score}
+            {roleText.score}
           </tspan>
         </text>
       )}
@@ -459,6 +458,36 @@ function compactRoleLabel(role: string): string {
     default:
       return role;
   }
+}
+
+function createProductionRoleText(
+  adapters: readonly TablePlayerAdapter[],
+  match: PublicMatchState | undefined,
+  state: PublicGameState | undefined,
+  seat: TableSeatId
+): {
+  compact: string;
+  compactRole: string;
+  player: TablePlayerAdapter | undefined;
+  role: string;
+  score: string;
+} {
+  const player = adapters.find((entry) => entry.seat === seat);
+  const role = player === undefined ? "?" : playerRoleLabel(player.id, state);
+  const rawMatchScore = player === undefined
+    ? undefined
+    : match?.players.find((entry) => entry.playerId === player.id)?.rawMatchScore;
+  const score = rawMatchScore === undefined ? "—" : formatMatchScore(rawMatchScore);
+
+  const compactRole = compactRoleLabel(role);
+
+  return {
+    compact: `${compactRole}/${score}`,
+    compactRole,
+    player,
+    role,
+    score
+  };
 }
 
 function ProductionMatchRound({ match }: { match: PublicMatchState | undefined }) {

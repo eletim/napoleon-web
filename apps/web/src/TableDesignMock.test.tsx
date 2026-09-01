@@ -457,7 +457,10 @@ describe("TableDesignMock", () => {
     ]) {
       for (const isBidding of [false, true]) {
         const fit = createProjectedBoardFit(tableDesignMockLayout, viewport);
-        const context = { isBidding };
+        const context = {
+          isBidding,
+          roleTextLabels: Object.fromEntries(seats.map((seatId, index) => [seatId, labels[index]]))
+        };
         const centers = createProjectedRoleTextCenters(tableDesignMockLayout, viewport, context);
         const obstacles = createProjectedRoleTextObstacles(tableDesignMockLayout, viewport, context);
         const markerBoxes = seats.map((seatId, index) => {
@@ -513,19 +516,21 @@ describe("TableDesignMock", () => {
   });
 
   it("keeps initial production bidding labels renderable on common mobile landscape viewports", () => {
-    const labels = ["ナ/+21", "副/-3", "市/+13", "市/+7", "市/0"];
+    const labels = ["ナ副/+220", "副/-3", "市/+13", "市/+7", "市/0"];
     const seats = ["top-left", "top-right", "right", "left", "self"] as const;
     const context = {
       isBidding: true,
       opponentHandCounts: { "top-left": 10, "top-right": 10, right: 10, left: 10 },
-      riverCardCounts: { "top-left": 0, "top-right": 0, right: 0, self: 0, left: 0 }
+      riverCardCounts: { "top-left": 0, "top-right": 0, right: 0, self: 0, left: 0 },
+      roleTextLabels: Object.fromEntries(seats.map((seatId, index) => [seatId, labels[index]]))
     };
 
     for (const viewport of [
       { width: 568, height: 320 },
       { width: 640, height: 360 },
       { width: 667, height: 375 },
-      { width: 720, height: 360 }
+      { width: 720, height: 360 },
+      { width: 960, height: 500 }
     ]) {
       const fit = createProjectedBoardFit(tableDesignMockLayout, viewport);
       const roleBoardBox = createProjectedRoleBoardBoundingBox(tableDesignMockLayout, viewport);

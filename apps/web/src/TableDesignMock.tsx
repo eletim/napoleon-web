@@ -1200,7 +1200,12 @@ interface ProjectedRoleTextSectorGeometry {
 }
 
 export const projectedTextMinimumScale = 0.75;
-const compactProjectedRoleTextCollisionSize = { height: 20, width: 52 };
+const compactProjectedRoleTextMaxLabel = "ナ副/+220";
+const compactProjectedRoleTextMaximumCollisionSize = {
+  height: 15,
+  width: compactProjectedRoleTextMaxLabel.length * 9
+};
+const compactProjectedRoundTextCollisionSize = { height: 20, width: 52 };
 const projectedRoleTextCandidateStep = 2;
 // Keep counter-scaled labels visually attached to the projected role board.
 export const projectedRoleTextBoardMaxDistance = 72;
@@ -1229,6 +1234,7 @@ interface ProjectedRoleTextContext {
   isBidding?: boolean;
   opponentHandCounts?: Partial<Record<OpponentSeatId, number>>;
   riverCardCounts?: Partial<Record<SeatId, number>>;
+  roleTextLabels?: Partial<Record<SeatId, string>>;
 }
 
 interface ProjectedRoleTextObstacles {
@@ -1471,6 +1477,7 @@ export function createProjectedRoleTextCenters(
   for (const seatId of roleMarkerSeatOrder) {
     const preferred = transformPoint(preferredCenters[seatId], fit.scale, fit.translate);
     const sector = createProjectedRoleTextSectorGeometry(layout, viewport, seatId);
+    const collisionSize = createCompactProjectedRoleTextCollisionSize(context.roleTextLabels?.[seatId]);
     const avoidBoxes = [...staticAvoidBoxes, ...placedBoxes];
     let candidate: Point | undefined;
     let candidateDistance = Number.POSITIVE_INFINITY;
@@ -1483,7 +1490,7 @@ export function createProjectedRoleTextCenters(
         continue;
       }
 
-      const box = boundingBoxFromCenter({ ...compactProjectedRoleTextCollisionSize, ...center });
+      const box = boundingBoxFromCenter({ ...collisionSize, ...center });
       const overlap = avoidBoxes.reduce((total, avoidBox) => total + overlapArea(box, avoidBox), 0);
       const distanceFromPreferred = distance(center, preferred);
       const distanceFromRoleBoard = distanceFromBoundingBox(center, roleBoardBox);
@@ -1515,7 +1522,7 @@ export function createProjectedRoleTextCenters(
       candidate = leastOverlapCandidate ?? preferred;
     }
 
-    placedBoxes.push(boundingBoxFromCenter({ ...compactProjectedRoleTextCollisionSize, ...candidate }));
+    placedBoxes.push(boundingBoxFromCenter({ ...collisionSize, ...candidate }));
     centers[seatId] = {
       x: toLayoutPrecision((candidate.x - fit.translate.x) / fit.scale),
       y: toLayoutPrecision((candidate.y - fit.translate.y) / fit.scale)
@@ -1525,14 +1532,25 @@ export function createProjectedRoleTextCenters(
   return centers;
 }
 
+function createCompactProjectedRoleTextCollisionSize(
+  label: string | undefined
+): Pick<Box, "height" | "width"> {
+  return {
+    height: compactProjectedRoleTextMaximumCollisionSize.height,
+    width: label === undefined
+      ? compactProjectedRoleTextMaximumCollisionSize.width
+      : label.length * 9
+  };
+}
+
 export function createProjectedRoleTextCandidates(
   layout: TableDesignMockLayout,
   viewport: ViewportSize,
   selfHandTop = createSelfHandViewportLayout(layout, selfCards.length, viewport).top
 ): Point[] {
   const roleBoardBox = createProjectedRoleBoardBoundingBox(layout, viewport);
-  const horizontalMargin = compactProjectedRoleTextCollisionSize.width / 2 + 4;
-  const verticalMargin = compactProjectedRoleTextCollisionSize.height / 2 + 4;
+  const horizontalMargin = compactProjectedRoleTextMaximumCollisionSize.width / 2 + 4;
+  const verticalMargin = compactProjectedRoleTextMaximumCollisionSize.height / 2 + 4;
   const left = Math.max(horizontalMargin, roleBoardBox.left - projectedRoleTextBoardMaxDistance);
   const right = Math.min(
     viewport.width - horizontalMargin,
@@ -1962,7 +1980,7 @@ export function createProjectedRoleTextObstacles(
     opponentHands,
     playerInfos: createPlayerInfoLayouts(layout, viewport, true).map((info) => boundingBoxFromCenter(info)),
     rivers,
-    round: [boundingBoxFromCenter({ ...compactProjectedRoleTextCollisionSize, ...roundCenter })],
+    round: [boundingBoxFromCenter({ ...compactProjectedRoundTextCollisionSize, ...roundCenter })],
     selfHand: [boundingBoxFromTopLeft({
       height: selfHand.cardSize.height,
       width: selfHand.handWidth,
