@@ -3,7 +3,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
@@ -13,7 +13,7 @@ import {
 } from "./TableDesignMock";
 
 const cssPath = fileURLToPath(new URL("./TableDesignMock.css", import.meta.url));
-const chromePath = process.env.CHROME_BIN ?? "/usr/bin/google-chrome";
+const chromePath = findChromeExecutable();
 
 interface BrowserHitTestResult {
   errors: string[];
@@ -23,8 +23,6 @@ interface BrowserHitTestResult {
 
 describe("exchange hand browser hit targets", () => {
   it("keeps every 13-card exchange target fully exposed and tappable on compact viewports", () => {
-    expect(existsSync(chromePath), `Chrome executable not found at ${chromePath}`).toBe(true);
-
     for (const viewport of [
       { width: 568, height: 320 },
       { width: 812, height: 341 },
@@ -40,6 +38,55 @@ describe("exchange hand browser hit targets", () => {
     }
   }, 20_000);
 });
+
+function findChromeExecutable(): string {
+  const configuredPath = process.env.CHROME_BIN?.trim();
+
+  if (configuredPath !== undefined && configuredPath.length > 0) {
+    if (existsSync(configuredPath)) {
+      return configuredPath;
+    }
+
+    throw new Error(`CHROME_BIN does not point to an executable: ${configuredPath}`);
+  }
+
+  const executableNames = process.platform === "win32"
+    ? ["chrome.exe", "msedge.exe"]
+    : ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"];
+  const pathCandidates = (process.env.PATH ?? "")
+    .split(delimiter)
+    .filter((entry) => entry.length > 0)
+    .flatMap((directory) => executableNames.map((name) => join(directory, name)));
+  const platformCandidates = process.platform === "darwin"
+    ? [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium"
+      ]
+    : process.platform === "win32"
+      ? [
+          join(process.env.PROGRAMFILES ?? "", "Google", "Chrome", "Application", "chrome.exe"),
+          join(process.env["PROGRAMFILES(X86)"] ?? "", "Google", "Chrome", "Application", "chrome.exe"),
+          join(process.env.LOCALAPPDATA ?? "", "Google", "Chrome", "Application", "chrome.exe"),
+          join(process.env.PROGRAMFILES ?? "", "Microsoft", "Edge", "Application", "msedge.exe")
+        ]
+      : [
+          "/usr/bin/google-chrome",
+          "/usr/bin/google-chrome-stable",
+          "/usr/bin/chromium",
+          "/usr/bin/chromium-browser"
+        ];
+  const discoveredPath = [...pathCandidates, ...platformCandidates].find((candidate) =>
+    candidate.length > 0 && existsSync(candidate)
+  );
+
+  if (discoveredPath === undefined) {
+    throw new Error(
+      "Chrome or Chromium was not found. Install one or set CHROME_BIN, then run pnpm --filter @napoleon/web test:browser."
+    );
+  }
+
+  return discoveredPath;
+}
 
 function runHitTest(viewport: { height: number; width: number }): BrowserHitTestResult {
   const hand = createSelfHandViewportLayout(tableDesignMockLayout, 13, viewport);

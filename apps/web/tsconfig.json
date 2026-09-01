@@ -10,6 +10,7 @@
   },
   "include": [
     "src",
+    "vitest.browser.config.ts",
     "vite.config.ts",
     "viteBasePath.ts",
     "viteAllowedHosts.ts",
