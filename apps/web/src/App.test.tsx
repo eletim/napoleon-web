@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
+  AdvanceMatchResponse,
   CreateGameResponse,
   GetAiPresetsResponse,
   PublicGameState,
@@ -11,7 +12,7 @@ import type {
   PublicMatchState
 } from "@napoleon/protocol";
 import { App } from "./App";
-import { createGame, getAiPresets } from "./api";
+import { advanceMatch, createGame, getAiPresets } from "./api";
 
 vi.mock("./api", () => ({
   advanceMatch: vi.fn(),
@@ -26,11 +27,18 @@ vi.mock("./api", () => ({
 }));
 
 vi.mock("./TableSurface", () => ({
-  TableSurface: ({ match }: { match?: PublicMatchState }) => (
+  TableSurface: ({ actionPanel, match }: { actionPanel?: React.ReactNode; match?: PublicMatchState }) => (
     <section aria-label="ゲームテーブル">
       {match === undefined ? null : (
         <span className="production-match-round">第{match.currentRound}局</span>
       )}
+      <div className="production-table-background">卓背景</div>
+      <a href="#round-details">結果リンク</a>
+      <details>
+        <summary>局の詳細</summary>
+        <p id="round-details">詳細内容</p>
+      </details>
+      {actionPanel}
     </section>
   )
 }));
@@ -42,6 +50,90 @@ afterEach(() => {
 });
 
 describe("App match final result flow", () => {
+  it.each([1, 2, 3, 4])(
+    "advances round %i from the non-interactive result background",
+    async (currentRound) => {
+      vi.mocked(getAiPresets).mockResolvedValue(aiPresetResponse());
+      vi.mocked(createGame).mockResolvedValue(roundResultSession(currentRound));
+      vi.mocked(advanceMatch).mockResolvedValue(freshSession(currentRound + 1));
+
+      const { container, root } = await renderStartedApp();
+
+      expect(container.textContent).toContain("次局へ");
+      await clickElement(container.querySelector(".production-table-background"));
+
+      expect(advanceMatch).toHaveBeenCalledTimes(1);
+      expect(advanceMatch).toHaveBeenCalledWith("round-result-game");
+      expect(container.querySelector(".production-match-round")?.textContent).toBe(
+        `第${currentRound + 1}局`
+      );
+
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  );
+
+  it("opens the final results from the fifth-round result background", async () => {
+    vi.mocked(getAiPresets).mockResolvedValue(aiPresetResponse());
+    vi.mocked(createGame).mockResolvedValue(roundResultSession(5));
+    vi.mocked(advanceMatch).mockResolvedValue(completedSession());
+
+    const { container, root } = await renderStartedApp();
+
+    expect(container.textContent).toContain("試合結果へ");
+    await clickElement(container.querySelector(".result-grid"));
+
+    expect(advanceMatch).toHaveBeenCalledTimes(1);
+    expect(container.querySelector(".match-final-results")).not.toBeNull();
+    expect(container.textContent).toContain("全5局 終了");
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("does not advance from interactive result-screen elements", async () => {
+    vi.mocked(getAiPresets).mockResolvedValue(aiPresetResponse());
+    vi.mocked(createGame).mockResolvedValue(roundResultSession(2));
+
+    const { container, root } = await renderStartedApp();
+
+    await clickElement(container.querySelector("summary"));
+    await clickElement(container.querySelector("#round-details"));
+    await clickElement(container.querySelector("a"));
+    expect(advanceMatch).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("uses one request for a bubbling button click and rapid background clicks", async () => {
+    vi.mocked(getAiPresets).mockResolvedValue(aiPresetResponse());
+    vi.mocked(createGame).mockResolvedValue(roundResultSession(3));
+    let resolveAdvance: ((session: AdvanceMatchResponse) => void) | undefined;
+    vi.mocked(advanceMatch).mockImplementation(
+      () => new Promise((resolve) => {
+        resolveAdvance = resolve;
+      })
+    );
+
+    const { container, root } = await renderStartedApp();
+
+    await act(async () => {
+      const button = [...container.querySelectorAll("button")].find(
+        (candidate) => candidate.textContent?.trim() === "次局へ"
+      );
+      button?.click();
+      container.querySelector<HTMLElement>(".production-table-background")?.click();
+      container.querySelector<HTMLElement>(".production-table-background")?.click();
+    });
+
+    expect(advanceMatch).toHaveBeenCalledTimes(1);
+
+    await act(async () => resolveAdvance?.(freshSession(4)));
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it("replaces a completed match with a fresh round-one session when starting a new match", async () => {
     vi.mocked(getAiPresets).mockResolvedValue(aiPresetResponse());
     vi.mocked(createGame)
@@ -78,6 +170,26 @@ describe("App match final result flow", () => {
     container.remove();
   });
 });
+
+async function renderStartedApp() {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+
+  await act(async () => {
+    root.render(<App />);
+  });
+  await clickButton(container, "ゲーム開始");
+
+  return { container, root };
+}
+
+async function clickElement(element: Element | null): Promise<void> {
+  expect(element).not.toBeNull();
+  await act(async () => {
+    (element as HTMLElement).click();
+  });
+}
 
 async function clickButton(container: HTMLElement, label: string): Promise<void> {
   const button = [...container.querySelectorAll("button")].find(
@@ -118,7 +230,7 @@ function aiPresetResponse(): GetAiPresetsResponse {
   };
 }
 
-function completedSession(): CreateGameResponse {
+function completedSession(): AdvanceMatchResponse {
   const finalScores: readonly PublicMatchPlayerFinalScore[] = [
     finalScore("player-0", 1, 20, 20, 40, 40),
     finalScore("player-1", 2, 10, 10, 20, 20),
@@ -143,23 +255,37 @@ function completedSession(): CreateGameResponse {
   };
 }
 
-function freshSession(): CreateGameResponse {
+function freshSession(currentRound = 1): AdvanceMatchResponse {
   return {
     gameId: "fresh-game",
     playerId: "player-0",
     state: gameState(false),
-    match: progressMatch()
+    match: progressMatch(currentRound)
   };
 }
 
-function progressMatch(): PublicMatchState {
+function roundResultSession(currentRound: number): CreateGameResponse {
   return {
-    currentRound: 1,
+    gameId: "round-result-game",
+    playerId: "player-0",
+    state: gameState(true),
+    match: progressMatch(currentRound, true)
+  };
+}
+
+function progressMatch(currentRound = 1, hasRoundResult = false): PublicMatchState {
+  const completedRoundCount = hasRoundResult ? currentRound : currentRound - 1;
+  return {
+    currentRound,
     roundCount: 5,
-    completedRoundCount: 0,
-    remainingRounds: 5,
+    completedRoundCount,
+    remainingRounds: 5 - completedRoundCount,
     completed: false,
-    players: playerIds.map((playerId) => ({ playerId, roundScores: [], rawMatchScore: 0 })),
+    players: playerIds.map((playerId) => ({
+      playerId,
+      roundScores: Array.from({ length: completedRoundCount }, () => 0),
+      rawMatchScore: 0
+    })),
     finalScores: null
   };
 }
