@@ -33,6 +33,7 @@ import {
   projectVerticalCard,
   projectTablePoint,
   projectTablePolygon,
+  projectedRoleTextBoardMaxDistance,
   projectedRoleTextSectorMinimumAlignment,
   projectedTextMinimumScale,
   regularPentagon,
@@ -520,11 +521,13 @@ describe("TableDesignMock", () => {
     };
 
     for (const viewport of [
+      { width: 568, height: 320 },
       { width: 640, height: 360 },
       { width: 667, height: 375 },
       { width: 720, height: 360 }
     ]) {
       const fit = createProjectedBoardFit(tableDesignMockLayout, viewport);
+      const roleBoardBox = createProjectedRoleBoardBoundingBox(tableDesignMockLayout, viewport);
       const centers = createProjectedRoleTextCenters(tableDesignMockLayout, viewport, context);
       const obstacles = createProjectedRoleTextObstacles(tableDesignMockLayout, viewport, context);
       const markerBoxes = seats.map((seatId, index) => {
@@ -556,6 +559,8 @@ describe("TableDesignMock", () => {
 
         expect(projectedSectorAlignment(renderedCenters[index], ownSector))
           .toBeGreaterThanOrEqual(projectedRoleTextSectorMinimumAlignment);
+        expect(distanceFromTestBox(renderedCenters[index], roleBoardBox))
+          .toBeLessThanOrEqual(projectedRoleTextBoardMaxDistance);
       }
       for (const [index, markerBox] of markerBoxes.entries()) {
         expect(markerBox.left).toBeGreaterThanOrEqual(0);
@@ -1305,6 +1310,16 @@ function boxesOverlap(
   b: { bottom: number; left: number; right: number; top: number }
 ): boolean {
   return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+
+function distanceFromTestBox(
+  point: { x: number; y: number },
+  box: { bottom: number; left: number; right: number; top: number }
+): number {
+  const dx = Math.max(box.left - point.x, 0, point.x - box.right);
+  const dy = Math.max(box.top - point.y, 0, point.y - box.bottom);
+
+  return Math.hypot(dx, dy);
 }
 
 function boundingTestBox(points: readonly { x: number; y: number }[]): {

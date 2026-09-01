@@ -1201,6 +1201,8 @@ interface ProjectedRoleTextSectorGeometry {
 
 export const projectedTextMinimumScale = 0.75;
 const compactProjectedRoleTextCollisionSize = { height: 20, width: 52 };
+// Keep counter-scaled labels visually attached to the projected role board.
+export const projectedRoleTextBoardMaxDistance = 72;
 // Compact controls can occupy the nominal pentagon wedge. Keep candidates in
 // the seat-facing projected direction while leaving the collision solver room
 // to route around those controls.
@@ -1456,6 +1458,7 @@ export function createProjectedRoleTextCenters(
   }
 
   const fit = createProjectedBoardFit(layout, viewport);
+  const roleBoardBox = createProjectedRoleBoardBoundingBox(layout, viewport);
   const obstacles = createProjectedRoleTextObstacles(layout, viewport, context);
   const staticAvoidBoxes = Object.values(obstacles).flat();
   const placedBoxes: BoundingBox[] = [];
@@ -1496,6 +1499,11 @@ export function createProjectedRoleTextCenters(
       const box = boundingBoxFromCenter({ ...compactProjectedRoleTextCollisionSize, ...center });
       const overlap = avoidBoxes.reduce((total, avoidBox) => total + overlapArea(box, avoidBox), 0);
       const distanceFromPreferred = distance(center, preferred);
+      const distanceFromRoleBoard = distanceFromBoundingBox(center, roleBoardBox);
+
+      if (distanceFromRoleBoard > projectedRoleTextBoardMaxDistance) {
+        continue;
+      }
 
       if (overlap < leastOverlapArea
         || (overlap === leastOverlapArea && distanceFromPreferred < leastOverlapDistance)) {
@@ -3096,6 +3104,13 @@ function overlapArea(a: BoundingBox, b: BoundingBox): number {
   const height = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
 
   return width * height;
+}
+
+function distanceFromBoundingBox(point: Point, box: BoundingBox): number {
+  const dx = Math.max(box.left - point.x, 0, point.x - box.right);
+  const dy = Math.max(box.top - point.y, 0, point.y - box.bottom);
+
+  return Math.hypot(dx, dy);
 }
 
 function clamp(value: number, min: number, max: number): number {
