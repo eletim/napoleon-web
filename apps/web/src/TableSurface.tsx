@@ -392,6 +392,31 @@ function ProjectedProductionBoard({
   );
 }
 
+function projectRoleMarkerBox(
+  layout: typeof tableDesignMockLayout,
+  marker: ReturnType<typeof createRoleMarkerGeometry>
+): { center: { x: number; y: number }; corners: readonly { x: number; y: number }[]; rotate: string } {
+  const center = roleBoardLocalToAbsolute(layout.center, marker);
+  const corners = projectTableCard(
+    {
+      direction: { x: 1, y: 0 },
+      height: marker.height,
+      normal: { x: 0, y: 1 },
+      width: marker.width,
+      x: center.x,
+      y: center.y
+    },
+    layout.camera
+  );
+  const boxCenter = polygonCenter(corners);
+
+  return {
+    center: boxCenter,
+    corners,
+    rotate: `rotate(${marker.rotation} ${boxCenter.x} ${boxCenter.y})`
+  };
+}
+
 function ProductionRoleMarker({
   adapters,
   compact,
@@ -408,41 +433,31 @@ function ProductionRoleMarker({
   state: PublicGameState | undefined;
 }) {
   const layout = tableDesignMockLayout;
-  const marker = createRoleMarkerGeometry(layout.center, seat);
-  const center = roleBoardLocalToAbsolute(layout.center, marker);
-  const corners = projectTableCard(
-    {
-      direction: { x: 1, y: 0 },
-      height: marker.height,
-      normal: { x: 0, y: 1 },
-      width: marker.width,
-      x: center.x,
-      y: center.y
-    },
-    layout.camera
-  );
-  // Rotate the badge shape around its own (fixed) center so it never drifts
-  // off the collision-avoided label position that roleTextCenters computed.
-  const fillCenter = polygonCenter(corners);
-  const fillRotate = `rotate(${marker.rotation} ${fillCenter.x} ${fillCenter.y})`;
-  const textRotate = `rotate(${marker.rotation} ${labelCenter.x} ${labelCenter.y})`;
   const roleText = createProductionRoleText(adapters, match, state, seat);
+  const ariaLabel = `${roleText.player?.label ?? seat}: 役職 ${roleText.role}, 累積試合スコア ${roleText.score}`;
+  const groupClassName = `mock-projected-role-marker mock-projected-role-marker-${seat}`;
 
-  return (
-    <g
-      aria-label={`${roleText.player?.label ?? seat}: 役職 ${roleText.role}, 累積試合スコア ${roleText.score}`}
-      className={`mock-projected-role-marker mock-projected-role-marker-${seat}`}
-    >
-      <polygon
-        className={`mock-projected-role-marker-fill mock-projected-role-marker-fill-${roleText.kind}`}
-        points={svgPoints(corners)}
-        transform={fillRotate}
-      />
-      {/* The text's own CSS transform (counter-scale) would override an SVG
-          transform attribute on the same element, so the rotation goes on a
-          wrapping <g> instead. */}
-      <g transform={textRotate}>
-        {compact ? (
+  if (compact) {
+    // Compact (short-landscape) viewports keep the original single combined
+    // box: there isn't room to split role and score into two layers, and
+    // the collision solver may have nudged labelCenter away from its
+    // nominal spot to dodge nearby cards, so the fill rotates around its
+    // own (fixed) center while the text rotates around that adjusted point.
+    const marker = createRoleMarkerGeometry(layout.center, seat);
+    const box = projectRoleMarkerBox(layout, marker);
+    const textRotate = `rotate(${marker.rotation} ${labelCenter.x} ${labelCenter.y})`;
+
+    return (
+      <g aria-label={ariaLabel} className={groupClassName}>
+        <polygon
+          className={`mock-projected-role-marker-fill mock-projected-role-marker-fill-${roleText.kind}`}
+          points={svgPoints(box.corners)}
+          transform={box.rotate}
+        />
+        {/* The text's own CSS transform (counter-scale) would override an
+            SVG transform attribute on the same element, so the rotation
+            goes on a wrapping <g> instead. */}
+        <g transform={textRotate}>
           <text
             className="mock-projected-role-marker-text mock-projected-role-marker-compact"
             dominantBaseline="central"
@@ -452,29 +467,50 @@ function ProductionRoleMarker({
           >
             {roleText.compact}
           </text>
-        ) : (
-          <text
-            className="mock-projected-role-marker-text"
-            textAnchor="middle"
-          >
-            <tspan
-              className="mock-projected-role-marker-role"
-              dominantBaseline="central"
-              x={labelCenter.x}
-              y={labelCenter.y - 11}
-            >
-              {roleText.glyph}
-            </tspan>
-            <tspan
-              className="mock-projected-role-marker-score"
-              dominantBaseline="central"
-              x={labelCenter.x}
-              y={labelCenter.y + 13}
-            >
-              {roleText.score}
-            </tspan>
-          </text>
-        )}
+        </g>
+      </g>
+    );
+  }
+
+  // Score sits in its own box toward the sector's outer (seat) edge, and
+  // the role glyph in its own box toward the inner (pentagon-center) edge,
+  // so the two read as separate layers instead of being packed together.
+  const scoreBox = projectRoleMarkerBox(layout, createRoleMarkerGeometry(layout.center, seat, layout.roleScoreMarker));
+  const glyphBox = projectRoleMarkerBox(layout, createRoleMarkerGeometry(layout.center, seat, layout.roleGlyphMarker));
+
+  return (
+    <g aria-label={ariaLabel} className={groupClassName}>
+      <polygon
+        className="mock-projected-role-score-fill"
+        points={svgPoints(scoreBox.corners)}
+        transform={scoreBox.rotate}
+      />
+      <g transform={scoreBox.rotate}>
+        <text
+          className="mock-projected-role-marker-text mock-projected-role-marker-score"
+          dominantBaseline="central"
+          textAnchor="middle"
+          x={scoreBox.center.x}
+          y={scoreBox.center.y}
+        >
+          {roleText.score}
+        </text>
+      </g>
+      <polygon
+        className={`mock-projected-role-marker-fill mock-projected-role-marker-fill-${roleText.kind}`}
+        points={svgPoints(glyphBox.corners)}
+        transform={glyphBox.rotate}
+      />
+      <g transform={glyphBox.rotate}>
+        <text
+          className="mock-projected-role-marker-text mock-projected-role-marker-role"
+          dominantBaseline="central"
+          textAnchor="middle"
+          x={glyphBox.center.x}
+          y={glyphBox.center.y}
+        >
+          {roleText.glyph}
+        </text>
       </g>
     </g>
   );

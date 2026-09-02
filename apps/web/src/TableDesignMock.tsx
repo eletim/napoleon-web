@@ -83,6 +83,19 @@ interface TableDesignMockLayout {
     sectorMidpointRatio: number;
     width: number;
   };
+  // Split layout (production, non-compact): role glyph and score sit in
+  // their own boxes along the sector's outer(seat)-to-inner(center) axis
+  // instead of being packed into the single roleMarker box above.
+  roleGlyphMarker: {
+    height: number;
+    sectorMidpointRatio: number;
+    width: number;
+  };
+  roleScoreMarker: {
+    height: number;
+    sectorMidpointRatio: number;
+    width: number;
+  };
   opponentHand: {
     baselineOffset: number;
     cardCounts: Readonly<Record<OpponentSeatId, number>>;
@@ -281,6 +294,18 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
     width: scaleTabletopDimension(58),
     height: scaleTabletopDimension(34),
     sectorMidpointRatio: 0.5
+  },
+  // Closer to the inner pentagon (the pentagon-center side of the sector).
+  roleGlyphMarker: {
+    width: scaleTabletopDimension(46),
+    height: scaleTabletopDimension(36),
+    sectorMidpointRatio: 0.72
+  },
+  // Closer to the outer pentagon (the seat side of the sector).
+  roleScoreMarker: {
+    width: scaleTabletopDimension(60),
+    height: scaleTabletopDimension(30),
+    sectorMidpointRatio: 0.25
   },
   seats: [
     {

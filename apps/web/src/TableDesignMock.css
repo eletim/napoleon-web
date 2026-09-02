@@ -459,9 +459,17 @@ html:has(.table-design-mock-page) {
   font-size: 22px;
 }
 
+/* The score now lives in its own scoreboard-styled box (see
+   .mock-projected-role-score-fill), separate from the role glyph's badge. */
+.mock-projected-role-score-fill {
+  fill: #1b2333;
+  stroke: #0c1220;
+  stroke-width: 1.4;
+}
+
 .mock-projected-role-marker-score {
-  fill: #172033;
-  font-size: 18px;
+  fill: #ffd23f;
+  font-size: 22px;
   font-weight: 900;
 }
 
