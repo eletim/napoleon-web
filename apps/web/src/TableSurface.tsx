@@ -36,6 +36,7 @@ import {
   createRoleBoardSectorLines,
   createRoleMarkerGeometry,
   createSelfHandViewportLayout,
+  polygonCenter,
   projectTableCard,
   projectTablePoint,
   projectTablePolygon,
@@ -420,64 +421,97 @@ function ProductionRoleMarker({
     },
     layout.camera
   );
+  // Rotate the badge shape around its own (fixed) center so it never drifts
+  // off the collision-avoided label position that roleTextCenters computed.
+  const fillCenter = polygonCenter(corners);
+  const fillRotate = `rotate(${marker.rotation} ${fillCenter.x} ${fillCenter.y})`;
+  const textRotate = `rotate(${marker.rotation} ${labelCenter.x} ${labelCenter.y})`;
   const roleText = createProductionRoleText(adapters, match, state, seat);
-  const displayedRole = compact ? roleText.compactRole : roleText.role;
 
   return (
     <g
       aria-label={`${roleText.player?.label ?? seat}: 役職 ${roleText.role}, 累積試合スコア ${roleText.score}`}
       className={`mock-projected-role-marker mock-projected-role-marker-${seat}`}
     >
-      <polygon className="mock-projected-role-marker-fill" points={svgPoints(corners)} />
-      {compact ? (
-        <text
-          className="mock-projected-role-marker-text mock-projected-role-marker-compact"
-          dominantBaseline="central"
-          textAnchor="middle"
-          x={labelCenter.x}
-          y={labelCenter.y}
-        >
-          {roleText.compact}
-        </text>
-      ) : (
-        <text
-          className="mock-projected-role-marker-text"
-          textAnchor="middle"
-        >
-          <tspan
-            className="mock-projected-role-marker-role"
+      <polygon
+        className={`mock-projected-role-marker-fill mock-projected-role-marker-fill-${roleText.kind}`}
+        points={svgPoints(corners)}
+        transform={fillRotate}
+      />
+      {/* The text's own CSS transform (counter-scale) would override an SVG
+          transform attribute on the same element, so the rotation goes on a
+          wrapping <g> instead. */}
+      <g transform={textRotate}>
+        {compact ? (
+          <text
+            className="mock-projected-role-marker-text mock-projected-role-marker-compact"
             dominantBaseline="central"
+            textAnchor="middle"
             x={labelCenter.x}
-            y={labelCenter.y - 11}
+            y={labelCenter.y}
           >
-            {displayedRole}
-          </tspan>
-          <tspan
-            className="mock-projected-role-marker-score"
-            dominantBaseline="central"
-            x={labelCenter.x}
-            y={labelCenter.y + 13}
+            {roleText.compact}
+          </text>
+        ) : (
+          <text
+            className="mock-projected-role-marker-text"
+            textAnchor="middle"
           >
-            {roleText.score}
-          </tspan>
-        </text>
-      )}
+            <tspan
+              className="mock-projected-role-marker-role"
+              dominantBaseline="central"
+              x={labelCenter.x}
+              y={labelCenter.y - 11}
+            >
+              {roleText.glyph}
+            </tspan>
+            <tspan
+              className="mock-projected-role-marker-score"
+              dominantBaseline="central"
+              x={labelCenter.x}
+              y={labelCenter.y + 13}
+            >
+              {roleText.score}
+            </tspan>
+          </text>
+        )}
+      </g>
     </g>
   );
 }
 
-function compactRoleLabel(role: string): string {
+type RoleMarkerKind = "adjutant" | "citizen" | "napoleon" | "napoleon-adjutant" | "unknown";
+
+// Short glyphs instead of spelled-out role names: the badge should read as
+// "this seat holds a role," not "this seat's role name is printed here."
+// 市民/連合軍 (the non-Napoleon side) share one team marker regardless of player.
+function roleMarkerGlyph(role: string): string {
   switch (role) {
     case "ナポレオン":
-      return "ナ";
+      return "♛";
     case "副官":
-      return "副";
+      return "★";
     case "市民":
-      return "市";
+      return "⚑";
     case "ナ/副":
-      return "ナ副";
+      return "♛★";
     default:
-      return role;
+      return "?";
+  }
+}
+
+function roleMarkerKind(role: string): RoleMarkerKind {
+  switch (role) {
+    case "ナポレオン":
+      return "napoleon";
+    case "副官":
+      return "adjutant";
+    case "市民":
+      return "citizen";
+    case "ナ/副":
+      return "napoleon-adjutant";
+    default:
+      return "unknown";
   }
 }
 
@@ -488,7 +522,8 @@ function createProductionRoleText(
   seat: TableSeatId
 ): {
   compact: string;
-  compactRole: string;
+  glyph: string;
+  kind: RoleMarkerKind;
   player: TablePlayerAdapter | undefined;
   role: string;
   score: string;
@@ -499,12 +534,12 @@ function createProductionRoleText(
     ? undefined
     : match?.players.find((entry) => entry.playerId === player.id)?.rawMatchScore;
   const score = rawMatchScore === undefined ? "—" : formatMatchScore(rawMatchScore);
-
-  const compactRole = compactRoleLabel(role);
+  const glyph = roleMarkerGlyph(role);
 
   return {
-    compact: `${compactRole}/${score}`,
-    compactRole,
+    compact: `${glyph} ${score}`,
+    glyph,
+    kind: roleMarkerKind(role),
     player,
     role,
     score

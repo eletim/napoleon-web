@@ -377,12 +377,22 @@ const riverCards: Record<string, readonly MockPlayingCard[]> = {
   ]
 };
 
+// Compact role glyphs, not spelled-out names: a badge/emblem reads as "this
+// seat holds a role", not "this seat's role name is written out".
 const roleMarkers: Record<SeatId, string> = {
   "top-left": "?",
   "top-right": "?",
   right: "?",
-  self: "ナポ",
-  left: "副"
+  self: "♛",
+  left: "★"
+};
+
+const roleMarkerKinds: Record<SeatId, string> = {
+  "top-left": "unknown",
+  "top-right": "unknown",
+  right: "unknown",
+  self: "napoleon",
+  left: "adjutant"
 };
 
 const roleMarkerSeatOrder = ["top-left", "top-right", "right", "self", "left"] as const satisfies readonly SeatId[];
@@ -708,7 +718,7 @@ function RoleBoard({ layout }: { layout: Box }) {
 
           return (
             <span
-              className={`role-marker role-marker-${seatId}`}
+              className={`role-marker role-marker-${seatId} role-marker-${roleMarkerKinds[seatId]}`}
               key={seatId}
               style={roleMarkerStyle(marker)}
             >
@@ -898,19 +908,29 @@ function ProjectedRoleMarker({ layout, seatId }: { layout: TableDesignMockLayout
     layout.camera
   );
   const labelCenter = polygonCenter(corners);
+  const rotate = `rotate(${marker.rotation} ${labelCenter.x} ${labelCenter.y})`;
 
   return (
     <g className={`mock-projected-role-marker mock-projected-role-marker-${seatId}`}>
-      <polygon className="mock-projected-role-marker-fill" points={svgPoints(corners)} />
-      <text
-        className="mock-projected-role-marker-text"
-        dominantBaseline="central"
-        textAnchor="middle"
-        x={labelCenter.x}
-        y={labelCenter.y}
-      >
-        {roleMarkers[seatId]}
-      </text>
+      <polygon
+        className={`mock-projected-role-marker-fill mock-projected-role-marker-fill-${roleMarkerKinds[seatId]}`}
+        points={svgPoints(corners)}
+        transform={rotate}
+      />
+      {/* The text's own CSS transform (counter-scale) would override an SVG
+          transform attribute on the same element, so the rotation goes on a
+          wrapping <g> instead. */}
+      <g transform={rotate}>
+        <text
+          className="mock-projected-role-marker-text"
+          dominantBaseline="central"
+          textAnchor="middle"
+          x={labelCenter.x}
+          y={labelCenter.y}
+        >
+          {roleMarkers[seatId]}
+        </text>
+      </g>
     </g>
   );
 }
@@ -1114,6 +1134,10 @@ interface CurrentTrickZoneGeometry extends RoleBoardEdgeGeometry {
 
 interface RoleMarkerGeometry {
   height: number;
+  // Degrees to rotate the marker so it stays parallel to its pentagon edge,
+  // seat-facing: upright when read by the player sitting at that edge (text
+  // top toward the pentagon center, text bottom toward the seat).
+  rotation: number;
   sector: {
     innerEnd: Point;
     innerStart: Point;
@@ -2642,6 +2666,7 @@ export function createRoleMarkerGeometry(
 
   return {
     height: marker.height,
+    rotation: createRoleBoardEdgeGeometry(layout, seatId).rotation,
     sector,
     width: marker.width,
     x: toLayoutPrecision(center.x),
@@ -2932,7 +2957,8 @@ function roleMarkerStyle(marker: RoleMarkerGeometry): CSSProperties {
     "--mock-role-marker-height": `${marker.height}px`,
     "--mock-role-marker-width": `${marker.width}px`,
     "--mock-role-marker-x": `${marker.x}px`,
-    "--mock-role-marker-y": `${marker.y}px`
+    "--mock-role-marker-y": `${marker.y}px`,
+    "--mock-rotation": `${marker.rotation}deg`
   } as CSSProperties;
 }
 
@@ -3118,7 +3144,7 @@ function svgPoints(points: readonly Point[]): string {
   return points.map((point) => `${toLayoutPrecision(point.x)},${toLayoutPrecision(point.y)}`).join(" ");
 }
 
-function polygonCenter(points: readonly Point[]): Point {
+export function polygonCenter(points: readonly Point[]): Point {
   const total = points.reduce(
     (sum, point) => ({
       x: sum.x + point.x,

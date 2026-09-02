@@ -372,6 +372,22 @@ html:has(.table-design-mock-page) {
   stroke-width: 1.4;
 }
 
+.mock-projected-role-marker-fill-napoleon,
+.mock-projected-role-marker-fill-napoleon-adjutant {
+  fill: #f4c542;
+  stroke: #a97e12;
+}
+
+.mock-projected-role-marker-fill-adjutant {
+  fill: #9db8d6;
+  stroke: #4c6b8a;
+}
+
+.mock-projected-role-marker-fill-citizen {
+  fill: #7fc9b5;
+  stroke: #2f7d68;
+}
+
 .mock-projected-card-layer {
   height: var(--mock-page-height);
   inset: 0;
@@ -440,7 +456,7 @@ html:has(.table-design-mock-page) {
 }
 
 .mock-projected-role-marker-role {
-  font-size: 16px;
+  font-size: 22px;
 }
 
 .mock-projected-role-marker-score {
@@ -466,11 +482,11 @@ html:has(.table-design-mock-page) {
   align-items: center;
   background: rgb(255 255 255 / 72%);
   border: 1px solid rgb(117 117 117 / 54%);
-  border-radius: 7px;
+  border-radius: 999px;
   box-shadow: 0 1px 0 rgb(0 0 0 / 20%);
   color: #303030;
   display: flex;
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 800;
   height: var(--mock-role-marker-height);
   justify-content: center;
@@ -478,10 +494,25 @@ html:has(.table-design-mock-page) {
   line-height: 1;
   position: absolute;
   top: var(--mock-role-marker-y);
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%) rotate(var(--mock-rotation, 0deg));
   white-space: nowrap;
   width: var(--mock-role-marker-width);
   z-index: 2;
+}
+
+.role-marker-napoleon {
+  background: #f4c542;
+  border-color: #a97e12;
+}
+
+.role-marker-adjutant {
+  background: #9db8d6;
+  border-color: #4c6b8a;
+}
+
+.role-marker-citizen {
+  background: #7fc9b5;
+  border-color: #2f7d68;
 }
 
 .mock-self-action {

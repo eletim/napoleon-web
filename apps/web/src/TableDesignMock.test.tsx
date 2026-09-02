@@ -135,8 +135,8 @@ describe("TableDesignMock", () => {
     expect(html).not.toContain("mock-card-corner");
     expect(html).not.toContain("mock-card-face");
     expect(html).toContain("aria-label=\"Js\"");
-    expect(html).toContain(">ナポ</span>");
-    expect(html).toContain(">副</span>");
+    expect(html).toContain(">♛</span>");
+    expect(html).toContain(">★</span>");
   });
 
   it("renders the issue 348 projected mock from projected tabletop polygons", () => {
@@ -1562,11 +1562,11 @@ describe("TableDesignMock", () => {
 
   it("generates role markers inside the five sectors between the outer and inner pentagons", () => {
     const expected = {
-      "top-left": { x: 208.648, y: 168.619 },
-      "top-right": { x: 421.352, y: 168.619 },
-      right: { x: 487.081, y: 370.913 },
-      self: { x: 315, y: 495.937 },
-      left: { x: 142.919, y: 370.913 }
+      "top-left": { x: 208.648, y: 168.619, rotation: 144 },
+      "top-right": { x: 421.352, y: 168.619, rotation: -144 },
+      right: { x: 487.081, y: 370.913, rotation: -72 },
+      self: { x: 315, y: 495.937, rotation: 0 },
+      left: { x: 142.919, y: 370.913, rotation: 72 }
     } as const;
 
     for (const seatId of ["top-left", "top-right", "right", "self", "left"] as const) {
@@ -1582,6 +1582,9 @@ describe("TableDesignMock", () => {
       expect(marker.x).toBeCloseTo((outerMidpoint.x + innerMidpoint.x) / 2);
       expect(marker.y).toBeCloseTo((outerMidpoint.y + innerMidpoint.y) / 2);
       expect(marker.sector).toEqual(sector);
+      // Seat-facing: parallel to the pentagon edge, text top toward the
+      // center and text bottom toward the seat.
+      expect(marker.rotation).toBeCloseTo(expected[seatId].rotation);
     }
   });
 });

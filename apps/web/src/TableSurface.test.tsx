@@ -107,9 +107,13 @@ describe("TableSurface", () => {
 
     expect(countOccurrences(biddingHtml, "mock-projected-role-marker-text")).toBe(5);
     expect(biddingHtml).toContain(">?</tspan>");
-    expect(playingHtml).toContain(">ナポレオン</tspan>");
-    expect(playingHtml).toContain(">副官</tspan>");
-    expect(playingHtml).toContain(">市民</tspan>");
+    // Roles show as compact badge glyphs, not spelled-out role names.
+    expect(playingHtml).toContain(">♛</tspan>");
+    expect(playingHtml).toContain(">★</tspan>");
+    expect(playingHtml).toContain(">⚑</tspan>");
+    expect(playingHtml).toContain("mock-projected-role-marker-fill-napoleon");
+    expect(playingHtml).toContain("mock-projected-role-marker-fill-adjutant");
+    expect(playingHtml).toContain("mock-projected-role-marker-fill-citizen");
     expect(productionTableTestExports.playerRoleLabel("player-1", createState({ opponentHandCounts: [9, 9, 9, 9] }))).toBe("ナポレオン");
     expect(productionTableTestExports.playerRoleLabel("player-3", createState({ opponentHandCounts: [9, 9, 9, 9] }))).toBe("?");
     expect(productionTableTestExports.playerRoleLabel("player-1", createState({
