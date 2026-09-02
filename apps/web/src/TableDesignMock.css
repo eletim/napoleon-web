@@ -314,14 +314,17 @@ html:has(.table-design-mock-page) {
 }
 
 .mock-role-board-shape {
+  /* Charcoal, not gray: dark enough that the yellow score text and the
+     role-marker badges (gold/blue/teal/white) read clearly against it, and
+     that the pentagon reads as a distinct panel against the green table. */
   background:
     conic-gradient(
       from 18deg,
-      #d9d9d9 0 72deg,
-      #dedede 72deg 144deg,
-      #d7d7d7 144deg 216deg,
-      #e2e2e2 216deg 288deg,
-      #d6d6d6 288deg 360deg
+      #242830 0 72deg,
+      #262a33 72deg 144deg,
+      #22262d 144deg 216deg,
+      #272b34 216deg 288deg,
+      #21252c 288deg 360deg
     );
   clip-path: polygon(var(--mock-role-board-polygon));
   height: 100%;
@@ -428,7 +431,10 @@ html:has(.table-design-mock-page) {
 }
 
 .mock-projected-role-board-outer {
-  fill: #d9d9d9;
+  /* Charcoal, not gray: keeps the yellow score text and the role-marker
+     badges (gold/blue/teal/white) reading clearly, and separates the
+     pentagon from the green table as a distinct dark panel. */
+  fill: #242830;
   opacity: 0.94;
   stroke: rgb(255 255 255 / 58%);
   stroke-width: 2;
