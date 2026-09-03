@@ -4,6 +4,7 @@ import type {
   AiPolicyComposition,
   AiPreset,
   AiPresetId,
+  AdvanceMatchResponse,
   GetAiPresetsResponse,
   GetAgentsResponse,
   GetGameResponse,
@@ -55,6 +56,12 @@ export async function sendAction(
 
 export async function nextTrick(gameId: string): Promise<NextTrickResponse> {
   return request<NextTrickResponse>(resolveAppPath(`api/games/${gameId}/next-trick`), {
+    method: "POST"
+  });
+}
+
+export async function advanceMatch(gameId: string): Promise<AdvanceMatchResponse> {
+  return request<AdvanceMatchResponse>(resolveAppPath(`api/games/${gameId}/next-round`), {
     method: "POST"
   });
 }

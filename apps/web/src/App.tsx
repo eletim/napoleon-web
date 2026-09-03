@@ -1,24 +1,28 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import type {
   AiPolicyComposition,
   AiPreset,
   AiPresetId,
+  CreateGameAgentSelection,
   PublicCard,
   PublicGameAction,
   PublicGameState,
+  PublicMatchState,
   PublicRank,
   PublicSuit,
   PublicPhasePolicyRegistry
 } from "@napoleon/protocol";
 import {
   AiSettingsPanel,
-  GamePresetSelector,
+  SeatPresetSelector,
   isPresetCompositionAvailable
 } from "./AiPresetControls";
 import { AutomatedSimulationViewer } from "./AutomatedSimulationViewer";
 import { CardDesignMock } from "./CardDesignMock";
 import { TableSurface } from "./TableSurface";
 import { TableDesignMock } from "./TableDesignMock";
+import { hasCompletedMatchResult, MatchFinalResults } from "./MatchFinalResults";
+import { RoundResultPanel } from "./RoundResultPanel";
 import {
   createAdjutantCardId,
   createAdjutantSelectionLabel,
@@ -30,9 +34,9 @@ import {
   type AdjutantSelection,
   type AdjutantSuitOption
 } from "./adjutantSelection";
-import { createGame, getAiPresets, nextTrick, sendAction, updateAiPreset } from "./api";
+import { advanceMatch, createGame, getAiPresets, nextTrick, sendAction, updateAiPreset } from "./api";
 import { suitSymbols } from "./cardSymbols";
-import { createMessage, formatPlayerLabel, formatWinningTeam } from "./displayText";
+import { createMessage } from "./displayText";
 import { createTablePlayers } from "./tablePlayers";
 import { useTrickAnimation } from "./useTrickAnimation";
 import "./styles.css";
@@ -41,11 +45,24 @@ interface Session {
   gameId: string;
   playerId: string;
   state: PublicGameState;
+  match?: PublicMatchState;
 }
 
 type AppMode = "game" | "simulation" | "ai-settings";
 
 const defaultPresetId: AiPresetId = "com-ai";
+const interactiveMatchResultSelector = [
+  "a[href]",
+  "button",
+  "details",
+  "input",
+  "label",
+  "select",
+  "summary",
+  "textarea",
+  "[contenteditable='true']",
+  "[role='button']"
+].join(",");
 
 export function App() {
   if (window.location.pathname.endsWith("/mock/card-design")) {
@@ -78,7 +95,8 @@ function GameApp() {
   const [isBusy, setIsBusy] = useState(false);
   const [presets, setPresets] = useState<readonly AiPreset[]>([]);
   const [policyRegistry, setPolicyRegistry] = useState<PublicPhasePolicyRegistry>();
-  const [selectedPresetId, setSelectedPresetId] = useState<AiPresetId>(defaultPresetId);
+  const [seatPresetSelections, setSeatPresetSelections] =
+    useState<Record<string, AiPresetId>>({});
   const [presetDrafts, setPresetDrafts] =
     useState<Partial<Record<AiPresetId, AiPolicyComposition>>>({});
   const [settingsMessage, setSettingsMessage] = useState("設定を読み込んでいます。");
@@ -87,7 +105,12 @@ function GameApp() {
     useState<AdjutantSelection>(defaultAdjutantSelection);
   const [hasRequestError, setHasRequestError] = useState(false);
   const [winningCardHighlightEnabled, setWinningCardHighlightEnabled] = useState(true);
+  // The final trick still plays through the same show-then-collect animation
+  // as any other trick before the round-end screen replaces it; this flips
+  // once that animation has finished for the game's current final trick.
+  const [isFinalResultRevealed, setIsFinalResultRevealed] = useState(false);
   const requestInFlightRef = useRef(false);
+  const autoAdvanceTrickKeyRef = useRef<string | undefined>(undefined);
 
   const legalCardIds = useMemo(() => {
     const actions = session?.state.legalActions ?? [];
@@ -114,6 +137,10 @@ function GameApp() {
     session.state.adjutantChoice?.napoleonPlayerId === session.playerId;
 
   const tablePlayers = useMemo(() => createTablePlayers(session?.state), [session?.state]);
+  const aiSeats = useMemo(
+    () => tablePlayers.filter((player) => !player.isSelf),
+    [tablePlayers]
+  );
   const adjutantShortcutOptions = useMemo(
     () => createAdjutantShortcutOptions(session?.state.specialCards),
     [session?.state.specialCards]
@@ -124,9 +151,14 @@ function GameApp() {
     adjutantShortcutOptions
   );
   const canSelectJoker = session?.state.adjutantChoice?.jokerAllowed === true;
-  const selectedPreset = presets.find((preset) => preset.id === selectedPresetId);
-  const hasUnavailablePresetSelection = selectedPreset === undefined ||
-    !isPresetCompositionAvailable(selectedPreset.composition, policyRegistry);
+  const resolveSeatPreset = (playerId: string): AiPreset | undefined => {
+    const presetId = seatPresetSelections[playerId] ?? defaultPresetId;
+    return presets.find((preset) => preset.id === presetId) ?? presets[0];
+  };
+  const hasUnavailablePresetSelection = aiSeats.some((seat) => {
+    const preset = resolveSeatPreset(seat.id);
+    return preset === undefined || !isPresetCompositionAvailable(preset.composition, policyRegistry);
+  });
   const hasActionPrompt =
     session !== undefined &&
     (session.state.currentPlayerId === session.playerId ||
@@ -141,15 +173,21 @@ function GameApp() {
     hasRequestError;
   const trickAnimation = useTrickAnimation({ state: session?.state });
   const isInteractionLocked = isBusy || trickAnimation.isAnimating;
+  // The final trick's result only replaces the trick display once its
+  // show-then-collect animation has actually finished (see the auto-advance
+  // effect below), so the very last card played is never instantly hidden
+  // behind the round-end screen.
+  const isFinalTrickPendingReveal =
+    session !== undefined &&
+    session.state.isGameOver &&
+    session.state.currentTrick.length === 5 &&
+    !isFinalResultRevealed;
   const hasTableActionPanel =
     session !== undefined &&
     session.state.phase !== "bidding" &&
-    ((session.state.phase === "playing" &&
-      session.state.isTrickComplete &&
-      !session.state.isGameOver) ||
-      session.state.phase === "exchanging" ||
+    (session.state.phase === "exchanging" ||
       session.state.phase === "choosing-adjutant" ||
-      session.state.result !== null);
+      (session.state.result !== null && !isFinalTrickPendingReveal));
 
   useEffect(() => {
     let cancelled = false;
@@ -165,11 +203,14 @@ function GameApp() {
         setPresetDrafts(Object.fromEntries(
           response.presets.map((preset) => [preset.id, { ...preset.composition }])
         ));
-        setSelectedPresetId((current) =>
-          response.presets.some(({ id }) => id === current)
-            ? current
-            : response.presets[0]?.id ?? defaultPresetId
-        );
+        // Drop any seat's selection that no longer names a known preset; unset
+        // seats simply fall back to the default/first preset when read.
+        setSeatPresetSelections((current) => {
+          const validPresetIds = new Set(response.presets.map(({ id }) => id));
+          return Object.fromEntries(
+            Object.entries(current).filter(([, presetId]) => validPresetIds.has(presetId))
+          );
+        });
         setSettingsMessage("変更後はpresetごとに保存・適用してください。");
       })
       .catch((error) => {
@@ -190,14 +231,27 @@ function GameApp() {
 
   async function handleCreateGame(): Promise<void> {
     await runRequest(async () => {
-      const response = await createGame({ aiPresetId: selectedPresetId });
+      // Each of the four non-self seats brings its own selected AI preset into the
+      // actual agent assigned for the game, instead of one preset for every seat.
+      const aiAgents: CreateGameAgentSelection[] = aiSeats.flatMap((seat) => {
+        const preset = resolveSeatPreset(seat.id);
+        return preset === undefined
+          ? []
+          : [{ playerId: seat.id, policyComposition: preset.composition }];
+      });
+      const response = await createGame({ aiAgents });
       setSession(response);
       setSelectedDiscardCardIds([]);
       setAdjutantSelection(defaultAdjutantSelection);
+      setIsFinalResultRevealed(false);
       setMessage(
         createMessage(response.state, response.playerId, createTablePlayers(response.state))
       );
     });
+  }
+
+  function handleSeatPresetChange(playerId: string, presetId: AiPresetId): void {
+    setSeatPresetSelections((current) => ({ ...current, [playerId]: presetId }));
   }
 
   function handlePresetDraftChange(
@@ -291,8 +345,17 @@ function GameApp() {
     });
   }
 
-  async function handleNextTrick(): Promise<void> {
+  async function handleTrickComplete(): Promise<void> {
     if (session === undefined || isInteractionLocked) {
+      return;
+    }
+
+    if (session.state.isGameOver) {
+      // The final trick: nothing to fetch, just let the same show-then-collect
+      // animation play before the round-end screen replaces the trick view.
+      await trickAnimation.playCollectionBefore(async () => {
+        setIsFinalResultRevealed(true);
+      });
       return;
     }
 
@@ -305,6 +368,58 @@ function GameApp() {
         );
       })
     );
+  }
+
+  // Advances automatically once a completed trick's show-then-collect
+  // animation has finished playing, instead of waiting for a manual "次へ".
+  // autoAdvanceTrickKeyRef guards against re-triggering for the same trick,
+  // e.g. while collection is itself briefly reported as not-animating
+  // between renders.
+  useEffect(() => {
+    if (session === undefined || isInteractionLocked) {
+      return;
+    }
+
+    const state = session.state;
+    if (!state.isTrickComplete || state.currentTrick.length !== 5) {
+      return;
+    }
+
+    const trickKey = `${session.gameId}:${state.trickNumber}:${state.isGameOver}`;
+    if (autoAdvanceTrickKeyRef.current === trickKey) {
+      return;
+    }
+
+    autoAdvanceTrickKeyRef.current = trickKey;
+    void handleTrickComplete();
+  }, [session, isInteractionLocked]);
+
+  async function handleAdvanceMatch(): Promise<void> {
+    if (session === undefined || session.match === undefined || isInteractionLocked) {
+      return;
+    }
+
+    await runRequest(async () => {
+      const response = await advanceMatch(session.gameId);
+      setSession(response);
+      setSelectedDiscardCardIds([]);
+      setAdjutantSelection(defaultAdjutantSelection);
+      setIsFinalResultRevealed(false);
+      setMessage(
+        response.match.completed
+          ? "5局が終了しました。試合結果を確認してください。"
+          : `第${response.match.currentRound}局を開始します。`
+      );
+    });
+  }
+
+  function handleResultBackgroundClick(event: MouseEvent<HTMLElement>): void {
+    const target = event.target;
+    if (target instanceof Element && target.closest(interactiveMatchResultSelector) !== null) {
+      return;
+    }
+
+    void handleAdvanceMatch();
   }
 
   async function runRequest(work: () => Promise<void>): Promise<void> {
@@ -336,10 +451,18 @@ function GameApp() {
 
   const isStartedGame = session !== undefined && mode === "game";
   const isGameInProgress = isStartedGame && !session.state.isGameOver;
+  const completedMatch = hasCompletedMatchResult(session?.match) ? session.match : undefined;
+  const canAdvanceMatch =
+    session?.state.result !== null &&
+    session?.state.result !== undefined &&
+    session.match !== undefined &&
+    !session.match.completed &&
+    !isFinalTrickPendingReveal;
   const appShellClassName = [
     "app-shell",
     isStartedGame ? "app-shell-game-active" : "",
     isGameInProgress ? "app-shell-game-in-progress" : "",
+    completedMatch !== undefined ? "app-shell-match-completed" : "",
     isGameInProgress ? `app-shell-phase-${session.state.phase}` : ""
   ]
     .filter(Boolean)
@@ -413,38 +536,38 @@ function GameApp() {
           </section>
 
           {session === undefined ? (
-            <GamePresetSelector
+            <SeatPresetSelector
               disabled={isBusy || presets.length === 0}
-              onChange={setSelectedPresetId}
+              onChange={handleSeatPresetChange}
               presets={presets}
-              selectedPresetId={selectedPresetId}
+              seats={aiSeats}
+              selections={seatPresetSelections}
             />
           ) : null}
 
-          <section className="mobile-landscape-guide" aria-label="横向きプレイ案内">
-            <strong>横向きでプレイしてください</strong>
-            <span>スマートフォンを横にすると、5人卓と手札を見やすく表示します。</span>
-          </section>
+          {completedMatch !== undefined ? (
+            <MatchFinalResults
+              disabled={isInteractionLocked || hasUnavailablePresetSelection}
+              match={completedMatch}
+              onStartNewMatch={() => void handleCreateGame()}
+              players={tablePlayers}
+            />
+          ) : (
+            <>
+              <section className="mobile-landscape-guide" aria-label="横向きプレイ案内">
+                <strong>横向きでプレイしてください</strong>
+                <span>スマートフォンを横にすると、5人卓と手札を見やすく表示します。</span>
+              </section>
 
-          <section className="table" aria-label="ゲームテーブル">
+              <section
+                className={canAdvanceMatch ? "table table-result-advance" : "table"}
+                aria-label="ゲームテーブル"
+                onClick={canAdvanceMatch ? handleResultBackgroundClick : undefined}
+              >
             <TableSurface
               actionPanel={
                 hasTableActionPanel ? (
                   <div className="action-area">
-                    {session?.state.phase === "playing" &&
-                    session.state.isTrickComplete &&
-                    !session.state.isGameOver ? (
-                      <button
-                        aria-label="次のトリックへ進む"
-                        className="secondary-button next-trick-button"
-                        disabled={isInteractionLocked}
-                        onClick={handleNextTrick}
-                        type="button"
-                      >
-                        次へ
-                      </button>
-                    ) : null}
-
                     {session?.state.phase === "exchanging" ? (
                       <section className="exchange-panel" aria-label="埋札交換">
                         <h2>交換</h2>
@@ -591,51 +714,14 @@ function GameApp() {
                     ) : null}
 
                     {session?.state.result !== null && session?.state.result !== undefined ? (
-                      <section className="result-panel" aria-label="ゲーム結果">
-                        <h2>ゲーム終了</h2>
-                        {session.state.result.resultType === "all-pass" ? (
-                          <div className="result-grid">
-                            <span>結果</span>
-                            <strong>全員パス</strong>
-                            <span>親</span>
-                            <strong>
-                              {formatPlayerLabel(
-                                session.state.result.starterPlayerId,
-                                tablePlayers
-                              )}
-                            </strong>
-                            <span>親の報酬</span>
-                            <strong>+1</strong>
-                            <span>他プレイヤー</span>
-                            <strong>-1</strong>
-                          </div>
-                        ) : (
-                          <div className="result-grid">
-                            <span>勝者</span>
-                            <strong>{formatWinningTeam(session.state.result.winner)}</strong>
-                            <span>契約</span>
-                            <strong>{session.state.result.targetPointCards}枚</strong>
-                            <span>ナポレオン陣営</span>
-                            <strong>{session.state.result.napoleonTeamPointCards}枚</strong>
-                            <span>連合軍</span>
-                            <strong>{session.state.result.alliancePointCards}枚</strong>
-                            <span>ナポレオン</span>
-                            <strong>
-                              {formatPlayerLabel(
-                                session.state.result.napoleonPlayerId,
-                                tablePlayers
-                              )}
-                            </strong>
-                            <span>副官</span>
-                            <strong>
-                              {formatPlayerLabel(
-                                session.state.result.adjutantPlayerId,
-                                tablePlayers
-                              )}
-                            </strong>
-                          </div>
-                        )}
-                      </section>
+                      <RoundResultPanel
+                        disabled={isInteractionLocked}
+                        match={session.match}
+                        onAdvanceMatch={() => void handleAdvanceMatch()}
+                        players={tablePlayers}
+                        result={session.state.result}
+                        selfPlayerId={session.playerId}
+                      />
                     ) : null}
                   </div>
                 ) : null
@@ -649,6 +735,7 @@ function GameApp() {
               isResultEmphasisActive={trickAnimation.isResultEmphasisActive}
               legalBidActions={legalBidActions}
               legalCardIds={legalCardIds}
+              match={session?.match}
               onBid={(action) => void handleSendAction(action)}
               onPass={() => void handleSendAction({ type: "pass" })}
               onToggleWinningCardHighlight={() =>
@@ -662,7 +749,9 @@ function GameApp() {
               trickNumber={session?.state.trickNumber}
               trumpSuit={session?.state.trumpSuit}
             />
-          </section>
+              </section>
+            </>
+          )}
         </>
       ) : mode === "simulation" ? (
         <AutomatedSimulationViewer />

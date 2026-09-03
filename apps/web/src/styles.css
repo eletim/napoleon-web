@@ -116,10 +116,6 @@ select {
   width: 100%;
 }
 
-.preset-selector {
-  max-width: 360px;
-}
-
 .ai-settings {
   display: grid;
   gap: 16px;
@@ -1075,6 +1071,70 @@ input:focus-visible {
   z-index: 24;
 }
 
+.production-round-score-history {
+  position: relative;
+}
+
+.production-round-score-history summary {
+  align-content: center;
+  background: rgb(15 23 42 / 86%);
+  border: 1px solid rgb(255 255 255 / 24%);
+  border-radius: 8px;
+  color: #e2e8f0;
+  cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 900;
+  min-height: 32px;
+  padding: 0 10px;
+}
+
+.production-round-score-history summary::marker {
+  content: "";
+}
+
+.production-round-score-history-panel {
+  background: rgb(15 23 42 / 94%);
+  border: 1px solid rgb(255 255 255 / 24%);
+  border-radius: 8px;
+  box-shadow: 0 12px 28px rgb(0 0 0 / 32%);
+  max-width: calc(100vw - 24px);
+  overflow-x: auto;
+  padding: 10px;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+}
+
+.production-round-score-history table {
+  border-collapse: collapse;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.production-round-score-history caption {
+  font-size: 0.9rem;
+  font-weight: 900;
+  margin-bottom: 6px;
+  text-align: left;
+}
+
+.production-round-score-history th,
+.production-round-score-history td {
+  border-bottom: 1px solid rgb(255 255 255 / 16%);
+  padding: 4px 7px;
+  text-align: right;
+}
+
+.production-round-score-history th:first-child {
+  text-align: left;
+}
+
+.production-round-score-history p {
+  font-size: 0.78rem;
+  margin: 6px 0 0;
+  white-space: nowrap;
+}
+
 .production-contract-hud {
   align-items: center;
   color: #f8fafc;
@@ -1088,7 +1148,12 @@ input:focus-visible {
 
 .production-contract-chip {
   align-items: center;
-  background: rgb(15 23 42 / 86%);
+  /* Lighter than the other dark panels on this table: the suit color itself
+     (--mock-bidding-action-color) is left untouched, but spades' near-black
+     glyph (#111827) was nearly invisible against the old near-black
+     background. This stays in the same slate family, just a lighter shade,
+     so it still reads as part of the dark UI. */
+  background: rgb(100 116 139 / 88%);
   border: 1px solid rgb(255 255 255 / 22%);
   border-radius: 8px;
   box-shadow: 0 8px 18px rgb(0 0 0 / 22%);
@@ -1190,7 +1255,7 @@ input:focus-visible {
 
 .production-action-overlay .exchange-panel,
 .production-action-overlay .adjutant-panel,
-.production-action-overlay .result-panel {
+.production-action-overlay .round-result-panel {
   background: transparent;
   border: 0;
   color: inherit;
@@ -1199,8 +1264,7 @@ input:focus-visible {
 }
 
 .production-action-overlay .exchange-panel h2,
-.production-action-overlay .adjutant-panel h2,
-.production-action-overlay .result-panel h2 {
+.production-action-overlay .adjutant-panel h2 {
   color: inherit;
   font-size: 1rem;
   margin: 0;
@@ -1210,6 +1274,71 @@ input:focus-visible {
   cursor: not-allowed;
   filter: saturate(0.55);
   opacity: 0.42;
+}
+
+/* The overlay now sits in the (smaller) gap between the role board and the
+   self hand instead of filling most of the screen, so its content is scaled
+   down to match - still comfortably tappable, just not oversized for the
+   space it actually has. Short landscape viewports keep their own separate
+   (already compact) tuning below, which wins there by appearing later. */
+.production-bidding-overlay {
+  gap: 8px;
+  padding: 12px 18px;
+}
+
+.production-bidding-overlay .mock-bidding-highest {
+  gap: 10px;
+}
+
+.production-bidding-overlay .mock-bidding-label {
+  font-size: 13px;
+}
+
+.production-bidding-overlay .mock-bidding-highest-value {
+  border-width: 3px;
+  font-size: 28px;
+  min-width: 80px;
+  padding: 3px 8px 4px;
+}
+
+.production-bidding-overlay .mock-bidding-suit-selector {
+  gap: 8px;
+}
+
+.production-bidding-overlay .mock-bidding-suit-button {
+  font-size: 24px;
+  height: 44px;
+  width: 44px;
+}
+
+.production-bidding-overlay .mock-bidding-suit-button[aria-pressed="true"] {
+  outline-width: 3px;
+  outline-offset: 2px;
+}
+
+.production-bidding-overlay .mock-bidding-number-selector {
+  gap: 10px;
+  grid-template-columns: 44px 66px 44px;
+}
+
+.production-bidding-overlay .mock-bidding-step-button {
+  font-size: 22px;
+  height: 44px;
+}
+
+.production-bidding-overlay .mock-bidding-number-value {
+  font-size: 30px;
+}
+
+.production-bidding-overlay .mock-bidding-actions {
+  gap: 10px;
+  width: 100%;
+}
+
+.production-bidding-overlay .mock-bidding-declare-button,
+.production-bidding-overlay .mock-bidding-pass-button {
+  font-size: 16px;
+  height: 40px;
 }
 
 @media (max-height: 520px) and (orientation: landscape) {
@@ -1227,7 +1356,7 @@ input:focus-visible {
   }
 
   .production-riipai-sidebar {
-    bottom: 192px;
+    bottom: max(16px, env(safe-area-inset-bottom, 0px));
     gap: 1px;
     height: 54px;
     padding: 6px 4px;
@@ -1280,40 +1409,53 @@ input:focus-visible {
 
   .production-bidding-overlay {
     border-radius: 12px;
-    gap: 8px 10px;
-    grid-template-columns: minmax(150px, 1fr) minmax(240px, 1.2fr);
+    gap: 8px var(--mock-bidding-column-gap);
+    grid-template-columns:
+      minmax(0, var(--mock-bidding-primary-column-width))
+      minmax(0, var(--mock-bidding-secondary-column-width));
     grid-template-rows: auto auto;
-    padding: 8px 12px;
+    padding: 8px var(--mock-bidding-padding-inline);
   }
 
   .production-bidding-overlay .mock-bidding-highest {
     align-items: center;
     flex-direction: column;
     gap: 4px;
+    min-width: 0;
+    width: 100%;
   }
 
   .production-bidding-overlay .mock-bidding-label {
-    font-size: 14px;
+    font-size: clamp(9px, calc(var(--mock-bidding-primary-column-width) / 7), 14px);
+    white-space: nowrap;
   }
 
   .production-bidding-overlay .mock-bidding-highest-value {
     border-width: 3px;
     border-radius: 9px;
-    font-size: 35px;
-    min-width: 82px;
+    font-size: clamp(20px, calc(var(--mock-bidding-primary-column-width) / 3), 35px);
+    max-width: 82px;
+    min-width: 0;
     padding: 3px 8px 5px;
+    width: 100%;
   }
 
   .production-bidding-overlay .mock-bidding-suit-selector {
-    gap: 8px;
+    display: grid;
+    gap: 4px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     justify-content: center;
+    min-width: 0;
+    width: 100%;
   }
 
   .production-bidding-overlay .mock-bidding-suit-button {
     border-radius: 9px;
-    font-size: 28px;
+    font-size: clamp(15px, calc(var(--mock-bidding-secondary-column-width) / 6), 28px);
     height: 40px;
-    width: 48px;
+    min-width: 0;
+    padding: 0;
+    width: 100%;
   }
 
   .production-bidding-overlay .mock-bidding-suit-button[aria-pressed="true"] {
@@ -1322,29 +1464,68 @@ input:focus-visible {
   }
 
   .production-bidding-overlay .mock-bidding-number-selector {
-    gap: 10px;
-    grid-template-columns: 46px 58px 46px;
+    gap: 6px;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 0.8fr);
     justify-content: center;
+    min-width: 0;
+    width: 100%;
   }
 
   .production-bidding-overlay .mock-bidding-step-button {
-    font-size: 27px;
+    font-size: clamp(14px, calc(var(--mock-bidding-primary-column-width) / 5), 27px);
     height: 36px;
+    min-width: 0;
+    padding: 0;
   }
 
   .production-bidding-overlay .mock-bidding-number-value {
-    font-size: 36px;
+    font-size: clamp(14px, calc(var(--mock-bidding-primary-column-width) / 5), 36px);
   }
 
   .production-bidding-overlay .mock-bidding-actions {
     gap: 8px;
-    width: min(230px, 100%);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
+    width: 100%;
   }
 
   .production-bidding-overlay .mock-bidding-declare-button,
   .production-bidding-overlay .mock-bidding-pass-button {
     border-radius: 9px;
-    font-size: 17px;
+    font-size: clamp(12px, calc(var(--mock-bidding-secondary-column-width) / 8), 17px);
+    height: 36px;
+    min-width: 0;
+    padding-inline: 4px;
+  }
+
+  .production-bidding-overlay-narrow {
+    gap: 2px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: repeat(4, auto);
+    padding-block: 4px;
+  }
+
+  .production-bidding-overlay-narrow .mock-bidding-highest {
+    flex-direction: row;
+    justify-content: space-between;
+  }
+
+  .production-bidding-overlay-narrow .mock-bidding-label {
+    font-size: 11px;
+  }
+
+  .production-bidding-overlay-narrow .mock-bidding-highest-value {
+    border-width: 2px;
+    font-size: 24px;
+    max-width: 76px;
+    padding: 1px 6px 2px;
+    width: 76px;
+  }
+
+  .production-bidding-overlay-narrow .mock-bidding-suit-button,
+  .production-bidding-overlay-narrow .mock-bidding-step-button,
+  .production-bidding-overlay-narrow .mock-bidding-declare-button,
+  .production-bidding-overlay-narrow .mock-bidding-pass-button {
     height: 36px;
   }
 
@@ -1365,10 +1546,6 @@ input:focus-visible {
   }
 }
 
-.next-trick-button {
-  margin-top: 2px;
-}
-
 .action-area {
   display: grid;
   gap: 10px;
@@ -1382,7 +1559,7 @@ input:focus-visible {
 .bidding-panel,
 .exchange-panel,
 .adjutant-panel,
-.result-panel {
+.round-result-panel {
   background: #f8fafc;
   border-radius: 8px;
   color: #172033;
@@ -1550,8 +1727,7 @@ input:focus-visible {
 }
 
 .exchange-panel h2,
-.adjutant-panel h2,
-.result-panel h2 {
+.adjutant-panel h2 {
   font-size: 1rem;
   margin: 0;
 }
@@ -1652,19 +1828,109 @@ input:focus-visible {
   padding: 8px 10px;
 }
 
-.result-panel {
+.round-result-panel {
   display: grid;
   gap: 10px;
 }
 
-.result-grid {
-  display: grid;
-  gap: 8px 16px;
-  grid-template-columns: max-content minmax(0, 1fr);
+/* The winner is the single strongest thing on this screen: a full-width,
+   high-contrast banner rather than one more line among equals. */
+.round-result-winner {
+  border-radius: 8px;
+  font-size: 1.24rem;
+  font-weight: 900;
+  margin: 0;
+  padding: 10px 14px;
+  text-align: center;
 }
 
-.result-grid span {
+.round-result-winner-napoleon {
+  background: #f4c542;
+  color: #4a3400;
+}
+
+.round-result-winner-alliance {
+  background: #7fc9b5;
+  color: #0d3329;
+}
+
+.round-result-winner-draw {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.round-result-roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+}
+
+.round-result-role-chip {
+  align-items: center;
+  border-radius: 999px;
+  display: inline-flex;
+  font-weight: 800;
+  gap: 5px;
+  padding: 5px 10px;
+}
+
+.round-result-role-napoleon {
+  background: #f4c542;
+  color: #4a3400;
+}
+
+.round-result-role-adjutant {
+  background: #9db8d6;
+  color: #1c3a57;
+}
+
+.round-result-detail {
   color: #64748b;
+  font-size: 0.82rem;
+  margin: 0;
+}
+
+.round-result-progress {
+  color: #64748b;
+  font-size: 0.8rem;
+  font-weight: 800;
+  margin: 0;
+}
+
+/* This round's score next to the running total, so the two are read as one
+   comparison instead of two separate lookups. */
+.round-result-scores {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.round-result-scores caption {
+  text-align: left;
+}
+
+.round-result-scores th,
+.round-result-scores td {
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 0.86rem;
+  padding: 4px 6px;
+  text-align: right;
+}
+
+.round-result-scores thead th {
+  color: #64748b;
+  font-weight: 700;
+}
+
+.round-result-scores th[scope="row"] {
+  color: inherit;
+  font-weight: 700;
+  text-align: left;
+}
+
+.round-result-scores-self {
+  background: rgb(15 23 42 / 5%);
+  font-weight: 900;
 }
 
 .self-panel {
@@ -2613,11 +2879,6 @@ input:focus-visible {
     font-size: 0.68rem;
   }
 
-  .app-shell-game-active .next-trick-button {
-    margin-top: 0;
-    min-height: 32px;
-  }
-
   .app-shell-game-active .action-area {
     gap: 3px;
     max-height: min(30dvh, 180px);
@@ -3006,6 +3267,182 @@ input:focus-visible {
   }
 }
 
+.match-advance-button {
+  margin-top: 10px;
+  width: 100%;
+}
+
+.match-final-results {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 14px;
+  box-shadow: 0 14px 34px rgb(15 23 42 / 12%);
+  margin: 18px auto;
+  max-width: 960px;
+  padding: 24px;
+  width: calc(100% - 32px);
+}
+
+.match-final-header {
+  margin-bottom: 18px;
+  text-align: center;
+}
+
+.match-final-header p {
+  color: #64748b;
+  font-size: 0.82rem;
+  font-weight: 700;
+  margin: 0 0 3px;
+}
+
+.match-final-header h2 {
+  color: #172033;
+  font-size: clamp(1.45rem, 4vw, 2rem);
+  margin: 0;
+}
+
+.match-final-ranking {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.match-final-player {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(130px, 0.8fr) minmax(440px, 2fr);
+  padding: 12px 14px;
+}
+
+.match-final-player-heading {
+  align-items: center;
+  color: #172033;
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+
+.match-final-player-heading > span {
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.match-final-rank {
+  color: #9a6700;
+  flex: 0 0 auto;
+  font-size: 1.2rem;
+  min-width: 2.5em;
+}
+
+.match-final-values {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(86px, 1fr));
+  margin: 0;
+}
+
+.match-final-values > div {
+  border-left: 1px solid #e2e8f0;
+  padding: 0 12px;
+  text-align: right;
+}
+
+.match-final-values dt {
+  color: #64748b;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.match-final-values dd {
+  color: #172033;
+  font-variant-numeric: tabular-nums;
+  margin: 3px 0 0;
+}
+
+.match-final-values dd strong {
+  font-size: 1.08rem;
+}
+
+.match-final-round-details {
+  border-top: 1px solid #e2e8f0;
+  color: #334155;
+  margin-top: 16px;
+  padding-top: 12px;
+}
+
+.match-final-round-details summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.match-final-round-list {
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+}
+
+.match-final-round-player {
+  display: flex;
+  font-size: 0.78rem;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.match-final-round-player span {
+  font-variant-numeric: tabular-nums;
+}
+
+.match-new-game-button {
+  display: block;
+  margin: 20px auto 0;
+  min-width: 220px;
+}
+
+@media (max-width: 720px) {
+  .match-final-results {
+    margin: 10px auto;
+    padding: 16px 12px;
+    width: calc(100% - 16px);
+  }
+
+  .match-final-player {
+    display: block;
+    padding: 10px;
+  }
+
+  .match-final-values {
+    gap: 8px 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 10px;
+  }
+
+  .match-final-values > div {
+    border-left: 0;
+    border-top: 1px solid #e2e8f0;
+    padding: 7px 4px 0;
+    text-align: left;
+  }
+
+  .match-final-round-player {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .match-new-game-button {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
 .table-side-actions .bidding-panel,
 .table-side-actions .exchange-panel,
 .table-side-actions .adjutant-panel,
@@ -3278,11 +3715,6 @@ input:focus-visible {
   white-space: normal;
 }
 
-.table-side-actions .next-trick-button {
-  justify-self: stretch;
-  white-space: nowrap;
-}
-
 .table-seat-container {
   --seat-gap: 12px;
   --seat-guide-opacity: 0.72;
@@ -3429,8 +3861,7 @@ input:focus-visible {
   gap: 7px;
 }
 
-.table-seat-actions .table-side-tool,
-.table-seat-actions .next-trick-button {
+.table-seat-actions .table-side-tool {
   min-height: 30px;
   padding: 5px 10px;
 }
@@ -3945,12 +4376,6 @@ input:focus-visible {
     padding: 0 4px;
   }
 
-  .table-side-actions .next-trick-button {
-    font-size: 0.62rem;
-    min-height: 26px;
-    padding: 0 5px;
-  }
-
   .table-seat-container {
     --seat-gap: 4px;
   }
@@ -4019,8 +4444,7 @@ input:focus-visible {
     gap: 4px;
   }
 
-  .table-seat-actions .table-side-tool,
-  .table-seat-actions .next-trick-button {
+  .table-seat-actions .table-side-tool {
     font-size: 0.62rem;
     min-height: 44px;
     padding: 4px 8px;
@@ -4552,12 +4976,6 @@ input:focus-visible {
     font-size: 0.68rem;
   }
 
-  .app-shell-game-active .next-trick-button {
-    margin-top: 0;
-    min-height: 24px;
-    padding: 0 10px;
-  }
-
   .app-shell-game-active .action-area {
     gap: 3px;
     grid-row: 2;
@@ -4706,6 +5124,7 @@ input:focus-visible {
 
 .app-shell-game-in-progress .table {
   border-radius: 8px;
+  height: auto;
   margin: 0;
   max-width: none;
   padding: 10px;
@@ -5126,12 +5545,7 @@ input:focus-visible {
     font-size: 0.68rem;
   }
 
-  .app-shell-game-active .next-trick-button {
-    min-height: 24px;
-  }
-
-  .app-shell-game-active .table-seat-actions .table-side-tool,
-  .app-shell-game-active .table-seat-actions .next-trick-button {
+  .app-shell-game-active .table-seat-actions .table-side-tool {
     min-height: 44px;
     padding: 4px 8px;
   }
@@ -5220,4 +5634,11 @@ input:focus-visible {
   .app-shell-game-in-progress .table {
     display: none;
   }
+}
+
+.app-shell-game-active.app-shell-match-completed {
+  height: auto;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow: visible;
 }

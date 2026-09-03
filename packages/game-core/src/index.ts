@@ -17,7 +17,24 @@ export {
   yoromekiCardId
 } from "./cards.js";
 export { GameRuleError } from "./errors.js";
+export {
+  MATCH_ROUND_COUNT,
+  MatchRuleError,
+  completeCurrentRound,
+  createInitialMatch,
+  updateCurrentGame
+} from "./match.js";
 export { calculateGameResult, createAllPassGameResult } from "./scoring.js";
+export {
+  MATCH_SCORING_PLAYER_COUNT,
+  MATCH_UMA_BY_POSITION,
+  calculateMatchScore,
+  calculateGameRoundScores,
+  calculateMatchProgressScores,
+  calculateMatchUma,
+  calculateRawMatchScore,
+  calculateRoundScore
+} from "./matchScoring.js";
 export {
   biddingSuitOrder,
   biddingSuitPriority,
@@ -87,3 +104,18 @@ export type {
   WinningTeam
 } from "./types.js";
 export type { TrickCardCategory, TrickCardStrength, TrickContext } from "./trick.js";
+export type {
+  CreateNextRoundOptions,
+  MatchRoundResult,
+  MatchRuleErrorCode,
+  MatchState
+} from "./match.js";
+export type {
+  MatchPlayerScore,
+  MatchProgressPlayerScore,
+  MatchScoreResult,
+  MatchUma,
+  PlayerRoundScores,
+  RawMatchScore,
+  RoundScoringRole
+} from "./matchScoring.js";

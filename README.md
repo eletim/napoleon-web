@@ -278,6 +278,20 @@ pnpm build
 
 `game-core`と`ai`の単体テストに加え、`apps/server`にはFastify `inject`を使ったAPI統合テストがあります。
 
+### Webブラウザテスト
+
+通常の`pnpm test`は外部ブラウザを必要としません。実ブラウザのヒットテストは、ChromeまたはChromiumをインストールした環境で明示的に実行します。
+
+```bash
+pnpm --filter @napoleon/web test:browser
+```
+
+ブラウザはmacOS、Windows、Linuxの一般的なインストール先と`PATH`から検索します。別の場所にある場合は、実行ファイルの絶対パスを指定してください。
+
+```bash
+CHROME_BIN=/path/to/chrome pnpm --filter @napoleon/web test:browser
+```
+
 ## API
 
 - `GET /api/health`

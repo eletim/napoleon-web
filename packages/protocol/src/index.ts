@@ -190,10 +190,34 @@ export interface PublicGameState {
   legalActions: readonly PublicLegalAction[];
 }
 
+export interface PublicMatchPlayerProgress {
+  playerId: string;
+  roundScores: readonly number[];
+  rawMatchScore: number;
+}
+
+export interface PublicMatchPlayerFinalScore extends PublicMatchPlayerProgress {
+  rank: number;
+  uma: number;
+  score: number;
+  finalValue: number;
+}
+
+export interface PublicMatchState {
+  currentRound: number;
+  roundCount: number;
+  completedRoundCount: number;
+  remainingRounds: number;
+  completed: boolean;
+  players: readonly PublicMatchPlayerProgress[];
+  finalScores: readonly PublicMatchPlayerFinalScore[] | null;
+}
+
 export interface CreateGameResponse {
   gameId: string;
   playerId: string;
   state: PublicGameState;
+  match?: PublicMatchState;
 }
 
 export interface PlayCardRequest {
@@ -236,18 +260,28 @@ export interface SendActionResponse {
   gameId: string;
   playerId: string;
   state: PublicGameState;
+  match?: PublicMatchState;
 }
 
 export interface GetGameResponse {
   gameId: string;
   playerId: string;
   state: PublicGameState;
+  match?: PublicMatchState;
 }
 
 export interface NextTrickResponse {
   gameId: string;
   playerId: string;
   state: PublicGameState;
+  match?: PublicMatchState;
+}
+
+export interface AdvanceMatchResponse {
+  gameId: string;
+  playerId: string;
+  state: PublicGameState;
+  match: PublicMatchState;
 }
 
 export interface PublicAgentDescriptor {
