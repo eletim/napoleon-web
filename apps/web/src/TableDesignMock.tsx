@@ -120,6 +120,7 @@ interface TableDesignMockLayout {
       width: number;
     };
     overlay: {
+      gapFromRoleBoard: number;
       gapFromSelfHand: number;
       height: number;
       maxWidth: number;
@@ -251,12 +252,13 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
       width: 168
     },
     overlay: {
+      gapFromRoleBoard: 24,
       gapFromSelfHand: 36,
-      height: 430,
-      maxWidth: 820,
-      minWidth: 680,
+      height: 260,
+      maxWidth: 600,
+      minWidth: 460,
       viewportMargin: 24,
-      widthRatio: 0.48,
+      widthRatio: 0.4,
       yOffsetFromTableCenter: 34
     }
   },
@@ -2051,11 +2053,46 @@ export function createBiddingOverlayGeometry(
     viewport
   )[0]?.y ?? selfHand.bottom;
   const config = layout.bidding.overlay;
-  const isCompactLandscape = viewport.height <= 520 && viewport.width > viewport.height;
-  const minimumHeight = isCompactLandscape ? 160 : 240;
-  const desiredHeight = isCompactLandscape
-    ? Math.min(config.height, viewport.height * 0.52)
-    : config.height;
+  const roleBoardBox = createProjectedRoleBoardBoundingBox(layout, viewport);
+  const belowRoleBoardTop = roleBoardBox.bottom + config.gapFromRoleBoard;
+  const belowRoleBoardBottom = visibleSelfHandTop - config.gapFromSelfHand;
+  // Must comfortably clear the overlay's own (fixed-size) content - the
+  // highest-bid readout, suit row, number stepper, and declare/pass row.
+  const minimumBelowRoleBoardHeight = 224;
+  const fitsBelowRoleBoard =
+    belowRoleBoardBottom - belowRoleBoardTop >= minimumBelowRoleBoardHeight;
+
+  // The natural spot for the bidding UI - the central control for this phase
+  // - is directly below the role board (pentagon), in the gap between it and
+  // the self hand: it never overlaps either one there. Short landscape
+  // viewports don't leave enough vertical room below the role board (it and
+  // its per-seat labels already claim most of the height there), so the
+  // overlay tucks beside the role board instead, same as before.
+  if (fitsBelowRoleBoard) {
+    const height = toLayoutPrecision(
+      Math.min(config.height, belowRoleBoardBottom - belowRoleBoardTop)
+    );
+    const idealY = (belowRoleBoardTop + belowRoleBoardBottom) / 2;
+    const y = toLayoutPrecision(clamp(
+      idealY,
+      belowRoleBoardTop + height / 2,
+      belowRoleBoardBottom - height / 2
+    ));
+    const width = toLayoutPrecision(Math.min(
+      viewport.width - config.viewportMargin * 2,
+      clamp(viewport.width * config.widthRatio, config.minWidth, config.maxWidth)
+    ));
+    const x = toLayoutPrecision(clamp(
+      viewport.width / 2,
+      config.viewportMargin + width / 2,
+      viewport.width - config.viewportMargin - width / 2
+    ));
+
+    return { height, width, x, y };
+  }
+
+  const minimumHeight = 160;
+  const desiredHeight = Math.min(config.height, viewport.height * 0.52);
   const availableHeight = Math.max(
     visibleSelfHandTop - config.gapFromSelfHand - config.viewportMargin,
     0
@@ -2069,50 +2106,23 @@ export function createBiddingOverlayGeometry(
     config.viewportMargin + height / 2,
     visibleSelfHandTop - config.gapFromSelfHand - height / 2
   ));
-
-  // Short landscape viewports have so little room around the (still visible)
-  // role board that the compact per-seat labels have nowhere left to go if
-  // the overlay also claims that space: keep tucking it beside the role
-  // board there, same as before. Everywhere else there is room to spare, so
-  // the bidding UI - the central control for this phase - sits dead center
-  // on screen instead of beside the role board or down near the self hand.
-  if (isCompactLandscape) {
-    const roleBoardBox = createProjectedRoleBoardBoundingBox(layout, viewport);
-    const requestedWidth = Math.min(
-      viewport.width - config.viewportMargin * 2,
-      clamp(viewport.width * config.widthRatio, config.minWidth, config.maxWidth)
-    );
-    const roleBoardGap = Math.max(config.viewportMargin, 32);
-    const availableLeftWidth = roleBoardBox.left - config.viewportMargin - roleBoardGap;
-    const availableRightWidth = viewport.width - roleBoardBox.right - config.viewportMargin - roleBoardGap;
-    const placeOnRight = availableRightWidth >= availableLeftWidth;
-    const width = toLayoutPrecision(Math.min(
-      requestedWidth,
-      Math.max(placeOnRight ? availableRightWidth : availableLeftWidth, 0)
-    ));
-    const x = toLayoutPrecision(placeOnRight
-      ? roleBoardBox.right + roleBoardGap + width / 2
-      : roleBoardBox.left - roleBoardGap - width / 2);
-
-    return { height, width, x, y };
-  }
-
-  const width = toLayoutPrecision(Math.min(
+  const requestedWidth = Math.min(
     viewport.width - config.viewportMargin * 2,
     clamp(viewport.width * config.widthRatio, config.minWidth, config.maxWidth)
+  );
+  const roleBoardGap = Math.max(config.viewportMargin, 32);
+  const availableLeftWidth = roleBoardBox.left - config.viewportMargin - roleBoardGap;
+  const availableRightWidth = viewport.width - roleBoardBox.right - config.viewportMargin - roleBoardGap;
+  const placeOnRight = availableRightWidth >= availableLeftWidth;
+  const width = toLayoutPrecision(Math.min(
+    requestedWidth,
+    Math.max(placeOnRight ? availableRightWidth : availableLeftWidth, 0)
   ));
-  const x = toLayoutPrecision(clamp(
-    viewport.width / 2,
-    config.viewportMargin + width / 2,
-    viewport.width - config.viewportMargin - width / 2
-  ));
+  const x = toLayoutPrecision(placeOnRight
+    ? roleBoardBox.right + roleBoardGap + width / 2
+    : roleBoardBox.left - roleBoardGap - width / 2);
 
-  return {
-    height,
-    width,
-    x,
-    y
-  };
+  return { height, width, x, y };
 }
 
 export function createCompactBiddingContentMetrics(overlay: Box): CompactBiddingContentMetrics {

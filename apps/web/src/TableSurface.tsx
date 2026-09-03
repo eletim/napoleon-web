@@ -883,7 +883,10 @@ function ProductionBiddingOverlay({
   const stepper = useMemo(() => getBidStepperState(legalBidActions, selection), [legalBidActions, selection]);
 
   useEffect(() => {
-    setSelection((current) => normalizeBidSelection(legalBidActions, current));
+    // Each new turn (a new legalBidActions list, e.g. after someone else
+    // raised) starts fresh at the minimal legal raise over the current
+    // highest bid, rather than keeping whatever was selected last turn.
+    setSelection(normalizeBidSelection(legalBidActions, null));
   }, [legalBidActions]);
 
   return (

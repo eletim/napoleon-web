@@ -22,7 +22,7 @@ import { CardDesignMock } from "./CardDesignMock";
 import { TableSurface } from "./TableSurface";
 import { TableDesignMock } from "./TableDesignMock";
 import { hasCompletedMatchResult, MatchFinalResults } from "./MatchFinalResults";
-import { getMatchAdvanceLabel } from "./MatchProgress";
+import { RoundResultPanel } from "./RoundResultPanel";
 import {
   createAdjutantCardId,
   createAdjutantSelectionLabel,
@@ -36,7 +36,7 @@ import {
 } from "./adjutantSelection";
 import { advanceMatch, createGame, getAiPresets, nextTrick, sendAction, updateAiPreset } from "./api";
 import { suitSymbols } from "./cardSymbols";
-import { createMessage, formatPlayerLabel, formatWinningTeam } from "./displayText";
+import { createMessage } from "./displayText";
 import { createTablePlayers } from "./tablePlayers";
 import { useTrickAnimation } from "./useTrickAnimation";
 import "./styles.css";
@@ -105,7 +105,12 @@ function GameApp() {
     useState<AdjutantSelection>(defaultAdjutantSelection);
   const [hasRequestError, setHasRequestError] = useState(false);
   const [winningCardHighlightEnabled, setWinningCardHighlightEnabled] = useState(true);
+  // The final trick still plays through the same show-then-collect animation
+  // as any other trick before the round-end screen replaces it; this flips
+  // once that animation has finished for the game's current final trick.
+  const [isFinalResultRevealed, setIsFinalResultRevealed] = useState(false);
   const requestInFlightRef = useRef(false);
+  const autoAdvanceTrickKeyRef = useRef<string | undefined>(undefined);
 
   const legalCardIds = useMemo(() => {
     const actions = session?.state.legalActions ?? [];
@@ -168,15 +173,21 @@ function GameApp() {
     hasRequestError;
   const trickAnimation = useTrickAnimation({ state: session?.state });
   const isInteractionLocked = isBusy || trickAnimation.isAnimating;
+  // The final trick's result only replaces the trick display once its
+  // show-then-collect animation has actually finished (see the auto-advance
+  // effect below), so the very last card played is never instantly hidden
+  // behind the round-end screen.
+  const isFinalTrickPendingReveal =
+    session !== undefined &&
+    session.state.isGameOver &&
+    session.state.currentTrick.length === 5 &&
+    !isFinalResultRevealed;
   const hasTableActionPanel =
     session !== undefined &&
     session.state.phase !== "bidding" &&
-    ((session.state.phase === "playing" &&
-      session.state.isTrickComplete &&
-      !session.state.isGameOver) ||
-      session.state.phase === "exchanging" ||
+    (session.state.phase === "exchanging" ||
       session.state.phase === "choosing-adjutant" ||
-      session.state.result !== null);
+      (session.state.result !== null && !isFinalTrickPendingReveal));
 
   useEffect(() => {
     let cancelled = false;
@@ -232,6 +243,7 @@ function GameApp() {
       setSession(response);
       setSelectedDiscardCardIds([]);
       setAdjutantSelection(defaultAdjutantSelection);
+      setIsFinalResultRevealed(false);
       setMessage(
         createMessage(response.state, response.playerId, createTablePlayers(response.state))
       );
@@ -333,8 +345,17 @@ function GameApp() {
     });
   }
 
-  async function handleNextTrick(): Promise<void> {
+  async function handleTrickComplete(): Promise<void> {
     if (session === undefined || isInteractionLocked) {
+      return;
+    }
+
+    if (session.state.isGameOver) {
+      // The final trick: nothing to fetch, just let the same show-then-collect
+      // animation play before the round-end screen replaces the trick view.
+      await trickAnimation.playCollectionBefore(async () => {
+        setIsFinalResultRevealed(true);
+      });
       return;
     }
 
@@ -349,6 +370,30 @@ function GameApp() {
     );
   }
 
+  // Advances automatically once a completed trick's show-then-collect
+  // animation has finished playing, instead of waiting for a manual "次へ".
+  // autoAdvanceTrickKeyRef guards against re-triggering for the same trick,
+  // e.g. while collection is itself briefly reported as not-animating
+  // between renders.
+  useEffect(() => {
+    if (session === undefined || isInteractionLocked) {
+      return;
+    }
+
+    const state = session.state;
+    if (!state.isTrickComplete || state.currentTrick.length !== 5) {
+      return;
+    }
+
+    const trickKey = `${session.gameId}:${state.trickNumber}:${state.isGameOver}`;
+    if (autoAdvanceTrickKeyRef.current === trickKey) {
+      return;
+    }
+
+    autoAdvanceTrickKeyRef.current = trickKey;
+    void handleTrickComplete();
+  }, [session, isInteractionLocked]);
+
   async function handleAdvanceMatch(): Promise<void> {
     if (session === undefined || session.match === undefined || isInteractionLocked) {
       return;
@@ -359,6 +404,7 @@ function GameApp() {
       setSession(response);
       setSelectedDiscardCardIds([]);
       setAdjutantSelection(defaultAdjutantSelection);
+      setIsFinalResultRevealed(false);
       setMessage(
         response.match.completed
           ? "5局が終了しました。試合結果を確認してください。"
@@ -410,7 +456,8 @@ function GameApp() {
     session?.state.result !== null &&
     session?.state.result !== undefined &&
     session.match !== undefined &&
-    !session.match.completed;
+    !session.match.completed &&
+    !isFinalTrickPendingReveal;
   const appShellClassName = [
     "app-shell",
     isStartedGame ? "app-shell-game-active" : "",
@@ -521,20 +568,6 @@ function GameApp() {
               actionPanel={
                 hasTableActionPanel ? (
                   <div className="action-area">
-                    {session?.state.phase === "playing" &&
-                    session.state.isTrickComplete &&
-                    !session.state.isGameOver ? (
-                      <button
-                        aria-label="次のトリックへ進む"
-                        className="secondary-button next-trick-button"
-                        disabled={isInteractionLocked}
-                        onClick={handleNextTrick}
-                        type="button"
-                      >
-                        次へ
-                      </button>
-                    ) : null}
-
                     {session?.state.phase === "exchanging" ? (
                       <section className="exchange-panel" aria-label="埋札交換">
                         <h2>交換</h2>
@@ -681,61 +714,14 @@ function GameApp() {
                     ) : null}
 
                     {session?.state.result !== null && session?.state.result !== undefined ? (
-                      <section className="result-panel" aria-label="ゲーム結果">
-                        <h2>ゲーム終了</h2>
-                        {session.state.result.resultType === "all-pass" ? (
-                          <div className="result-grid">
-                            <span>結果</span>
-                            <strong>全員パス</strong>
-                            <span>親</span>
-                            <strong>
-                              {formatPlayerLabel(
-                                session.state.result.starterPlayerId,
-                                tablePlayers
-                              )}
-                            </strong>
-                            <span>親の報酬</span>
-                            <strong>+1</strong>
-                            <span>他プレイヤー</span>
-                            <strong>-1</strong>
-                          </div>
-                        ) : (
-                          <div className="result-grid">
-                            <span>勝者</span>
-                            <strong>{formatWinningTeam(session.state.result.winner)}</strong>
-                            <span>契約</span>
-                            <strong>{session.state.result.targetPointCards}枚</strong>
-                            <span>ナポレオン陣営</span>
-                            <strong>{session.state.result.napoleonTeamPointCards}枚</strong>
-                            <span>連合軍</span>
-                            <strong>{session.state.result.alliancePointCards}枚</strong>
-                            <span>ナポレオン</span>
-                            <strong>
-                              {formatPlayerLabel(
-                                session.state.result.napoleonPlayerId,
-                                tablePlayers
-                              )}
-                            </strong>
-                            <span>副官</span>
-                            <strong>
-                              {formatPlayerLabel(
-                                session.state.result.adjutantPlayerId,
-                                tablePlayers
-                              )}
-                            </strong>
-                          </div>
-                        )}
-                        {session.match === undefined || session.match.completed ? null : (
-                          <button
-                            className="primary-button match-advance-button"
-                            disabled={isInteractionLocked}
-                            onClick={() => void handleAdvanceMatch()}
-                            type="button"
-                          >
-                            {getMatchAdvanceLabel(session.match)}
-                          </button>
-                        )}
-                      </section>
+                      <RoundResultPanel
+                        disabled={isInteractionLocked}
+                        match={session.match}
+                        onAdvanceMatch={() => void handleAdvanceMatch()}
+                        players={tablePlayers}
+                        result={session.state.result}
+                        selfPlayerId={session.playerId}
+                      />
                     ) : null}
                   </div>
                 ) : null

@@ -9,10 +9,13 @@ import type {
   GetAiPresetsResponse,
   PublicGameState,
   PublicMatchPlayerFinalScore,
-  PublicMatchState
+  PublicMatchState,
+  PublicPlayedCard,
+  PublicRank,
+  PublicSuit
 } from "@napoleon/protocol";
 import { App } from "./App";
-import { advanceMatch, createGame, getAiPresets } from "./api";
+import { advanceMatch, createGame, getAiPresets, nextTrick } from "./api";
 
 vi.mock("./api", () => ({
   advanceMatch: vi.fn(),
@@ -81,7 +84,7 @@ describe("App match final result flow", () => {
     const { container, root } = await renderStartedApp();
 
     expect(container.textContent).toContain("試合結果へ");
-    await clickElement(container.querySelector(".result-grid"));
+    await clickElement(container.querySelector(".round-result-winner"));
 
     expect(advanceMatch).toHaveBeenCalledTimes(1);
     expect(container.querySelector(".match-final-results")).not.toBeNull();
@@ -305,6 +308,160 @@ describe("per-seat AI preset selection", () => {
     container.remove();
   });
 });
+
+describe("automatic trick progression", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("advances to the next trick on its own once the trick animation finishes, without a next-trick button", async () => {
+    vi.useFakeTimers();
+    vi.mocked(getAiPresets).mockResolvedValue(aiPresetResponse());
+    vi.mocked(createGame).mockResolvedValue({
+      gameId: "trick-game",
+      playerId: "player-0",
+      state: trickCompleteState()
+    });
+    vi.mocked(nextTrick).mockResolvedValue({
+      gameId: "trick-game",
+      playerId: "player-0",
+      state: trickCompleteState({
+        currentTrick: [],
+        isTrickComplete: false,
+        trickNumber: 4
+      })
+    });
+
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await act(async () => {
+      const button = [...container.querySelectorAll("button")].find(
+        (candidate) => candidate.textContent?.trim() === "ゲーム開始"
+      );
+      button?.click();
+    });
+
+    expect(container.textContent).not.toContain("次へ");
+    expect(nextTrick).not.toHaveBeenCalled();
+
+    // Let the show-then-collect animation run its course.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+
+    expect(nextTrick).toHaveBeenCalledWith("trick-game");
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("does not reveal the round-end screen until the final trick's animation finishes", async () => {
+    vi.useFakeTimers();
+    vi.mocked(getAiPresets).mockResolvedValue(aiPresetResponse());
+    vi.mocked(createGame).mockResolvedValue({
+      gameId: "final-trick-game",
+      playerId: "player-0",
+      state: trickCompleteState({
+        isGameOver: true,
+        phase: "finished",
+        result: {
+          resultType: "standard",
+          winner: "napoleon-team",
+          napoleonTeamPointCards: 14,
+          alliancePointCards: 6,
+          targetPointCards: 13,
+          napoleonPlayerId: "player-1",
+          adjutantPlayerId: null
+        },
+        trickNumber: 10
+      })
+    });
+
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await act(async () => {
+      const button = [...container.querySelectorAll("button")].find(
+        (candidate) => candidate.textContent?.trim() === "ゲーム開始"
+      );
+      button?.click();
+    });
+
+    // The final card just arrived: the round-end result panel must not have
+    // instantly replaced the (still animating) trick view.
+    expect(container.querySelector('[aria-label="ゲーム結果"]')).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+
+    expect(container.querySelector('[aria-label="ゲーム結果"]')).not.toBeNull();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+});
+
+function playedCard(playerId: string, suit: PublicSuit, rank: PublicRank): PublicPlayedCard {
+  return {
+    playerId,
+    card: {
+      type: "standard",
+      id: `${suit}-${rank}`,
+      suit,
+      rank
+    }
+  };
+}
+
+function trickCompleteState(overrides: Partial<PublicGameState> = {}): PublicGameState {
+  return {
+    self: { id: "player-0", handCount: 9, hand: [], capturedPointCards: [] },
+    opponents: playerIds.slice(1).map((id) => ({ id, handCount: 9, capturedPointCards: [] })),
+    phase: "playing",
+    trumpSuit: "spades",
+    contract: {
+      napoleonPlayerId: "player-1",
+      trumpSuit: "spades",
+      targetPointCards: 13
+    },
+    specialCards: {
+      orumaCardId: "spades-A",
+      yoromekiCardId: "hearts-Q",
+      seiJackCardId: null,
+      uraJackCardId: null
+    },
+    adjutant: { calledCardId: "hearts-A", revealedPlayerId: null },
+    latestEvent: null,
+    result: null,
+    bidding: null,
+    exchange: null,
+    adjutantChoice: null,
+    currentPlayerId: "player-0",
+    currentTrick: [
+      playedCard("player-1", "spades", "10"),
+      playedCard("player-2", "spades", "9"),
+      playedCard("player-3", "spades", "8"),
+      playedCard("player-4", "spades", "7"),
+      playedCard("player-0", "spades", "6")
+    ],
+    completedTrickCount: 2,
+    trickNumber: 3,
+    isTrickComplete: true,
+    isGameOver: false,
+    legalActions: [],
+    ...overrides
+  };
+}
 
 async function selectSeatPreset(
   container: HTMLElement,

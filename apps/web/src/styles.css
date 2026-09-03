@@ -1255,7 +1255,7 @@ input:focus-visible {
 
 .production-action-overlay .exchange-panel,
 .production-action-overlay .adjutant-panel,
-.production-action-overlay .result-panel {
+.production-action-overlay .round-result-panel {
   background: transparent;
   border: 0;
   color: inherit;
@@ -1264,8 +1264,7 @@ input:focus-visible {
 }
 
 .production-action-overlay .exchange-panel h2,
-.production-action-overlay .adjutant-panel h2,
-.production-action-overlay .result-panel h2 {
+.production-action-overlay .adjutant-panel h2 {
   color: inherit;
   font-size: 1rem;
   margin: 0;
@@ -1275,6 +1274,71 @@ input:focus-visible {
   cursor: not-allowed;
   filter: saturate(0.55);
   opacity: 0.42;
+}
+
+/* The overlay now sits in the (smaller) gap between the role board and the
+   self hand instead of filling most of the screen, so its content is scaled
+   down to match - still comfortably tappable, just not oversized for the
+   space it actually has. Short landscape viewports keep their own separate
+   (already compact) tuning below, which wins there by appearing later. */
+.production-bidding-overlay {
+  gap: 8px;
+  padding: 12px 18px;
+}
+
+.production-bidding-overlay .mock-bidding-highest {
+  gap: 10px;
+}
+
+.production-bidding-overlay .mock-bidding-label {
+  font-size: 13px;
+}
+
+.production-bidding-overlay .mock-bidding-highest-value {
+  border-width: 3px;
+  font-size: 28px;
+  min-width: 80px;
+  padding: 3px 8px 4px;
+}
+
+.production-bidding-overlay .mock-bidding-suit-selector {
+  gap: 8px;
+}
+
+.production-bidding-overlay .mock-bidding-suit-button {
+  font-size: 24px;
+  height: 44px;
+  width: 44px;
+}
+
+.production-bidding-overlay .mock-bidding-suit-button[aria-pressed="true"] {
+  outline-width: 3px;
+  outline-offset: 2px;
+}
+
+.production-bidding-overlay .mock-bidding-number-selector {
+  gap: 10px;
+  grid-template-columns: 44px 66px 44px;
+}
+
+.production-bidding-overlay .mock-bidding-step-button {
+  font-size: 22px;
+  height: 44px;
+}
+
+.production-bidding-overlay .mock-bidding-number-value {
+  font-size: 30px;
+}
+
+.production-bidding-overlay .mock-bidding-actions {
+  gap: 10px;
+  width: 100%;
+}
+
+.production-bidding-overlay .mock-bidding-declare-button,
+.production-bidding-overlay .mock-bidding-pass-button {
+  font-size: 16px;
+  height: 40px;
 }
 
 @media (max-height: 520px) and (orientation: landscape) {
@@ -1482,10 +1546,6 @@ input:focus-visible {
   }
 }
 
-.next-trick-button {
-  margin-top: 2px;
-}
-
 .action-area {
   display: grid;
   gap: 10px;
@@ -1499,7 +1559,7 @@ input:focus-visible {
 .bidding-panel,
 .exchange-panel,
 .adjutant-panel,
-.result-panel {
+.round-result-panel {
   background: #f8fafc;
   border-radius: 8px;
   color: #172033;
@@ -1667,8 +1727,7 @@ input:focus-visible {
 }
 
 .exchange-panel h2,
-.adjutant-panel h2,
-.result-panel h2 {
+.adjutant-panel h2 {
   font-size: 1rem;
   margin: 0;
 }
@@ -1769,19 +1828,109 @@ input:focus-visible {
   padding: 8px 10px;
 }
 
-.result-panel {
+.round-result-panel {
   display: grid;
   gap: 10px;
 }
 
-.result-grid {
-  display: grid;
-  gap: 8px 16px;
-  grid-template-columns: max-content minmax(0, 1fr);
+/* The winner is the single strongest thing on this screen: a full-width,
+   high-contrast banner rather than one more line among equals. */
+.round-result-winner {
+  border-radius: 8px;
+  font-size: 1.24rem;
+  font-weight: 900;
+  margin: 0;
+  padding: 10px 14px;
+  text-align: center;
 }
 
-.result-grid span {
+.round-result-winner-napoleon {
+  background: #f4c542;
+  color: #4a3400;
+}
+
+.round-result-winner-alliance {
+  background: #7fc9b5;
+  color: #0d3329;
+}
+
+.round-result-winner-draw {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.round-result-roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+}
+
+.round-result-role-chip {
+  align-items: center;
+  border-radius: 999px;
+  display: inline-flex;
+  font-weight: 800;
+  gap: 5px;
+  padding: 5px 10px;
+}
+
+.round-result-role-napoleon {
+  background: #f4c542;
+  color: #4a3400;
+}
+
+.round-result-role-adjutant {
+  background: #9db8d6;
+  color: #1c3a57;
+}
+
+.round-result-detail {
   color: #64748b;
+  font-size: 0.82rem;
+  margin: 0;
+}
+
+.round-result-progress {
+  color: #64748b;
+  font-size: 0.8rem;
+  font-weight: 800;
+  margin: 0;
+}
+
+/* This round's score next to the running total, so the two are read as one
+   comparison instead of two separate lookups. */
+.round-result-scores {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.round-result-scores caption {
+  text-align: left;
+}
+
+.round-result-scores th,
+.round-result-scores td {
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 0.86rem;
+  padding: 4px 6px;
+  text-align: right;
+}
+
+.round-result-scores thead th {
+  color: #64748b;
+  font-weight: 700;
+}
+
+.round-result-scores th[scope="row"] {
+  color: inherit;
+  font-weight: 700;
+  text-align: left;
+}
+
+.round-result-scores-self {
+  background: rgb(15 23 42 / 5%);
+  font-weight: 900;
 }
 
 .self-panel {
@@ -2730,11 +2879,6 @@ input:focus-visible {
     font-size: 0.68rem;
   }
 
-  .app-shell-game-active .next-trick-button {
-    margin-top: 0;
-    min-height: 32px;
-  }
-
   .app-shell-game-active .action-area {
     gap: 3px;
     max-height: min(30dvh, 180px);
@@ -3571,11 +3715,6 @@ input:focus-visible {
   white-space: normal;
 }
 
-.table-side-actions .next-trick-button {
-  justify-self: stretch;
-  white-space: nowrap;
-}
-
 .table-seat-container {
   --seat-gap: 12px;
   --seat-guide-opacity: 0.72;
@@ -3722,8 +3861,7 @@ input:focus-visible {
   gap: 7px;
 }
 
-.table-seat-actions .table-side-tool,
-.table-seat-actions .next-trick-button {
+.table-seat-actions .table-side-tool {
   min-height: 30px;
   padding: 5px 10px;
 }
@@ -4238,12 +4376,6 @@ input:focus-visible {
     padding: 0 4px;
   }
 
-  .table-side-actions .next-trick-button {
-    font-size: 0.62rem;
-    min-height: 26px;
-    padding: 0 5px;
-  }
-
   .table-seat-container {
     --seat-gap: 4px;
   }
@@ -4312,8 +4444,7 @@ input:focus-visible {
     gap: 4px;
   }
 
-  .table-seat-actions .table-side-tool,
-  .table-seat-actions .next-trick-button {
+  .table-seat-actions .table-side-tool {
     font-size: 0.62rem;
     min-height: 44px;
     padding: 4px 8px;
@@ -4843,12 +4974,6 @@ input:focus-visible {
 
   .app-shell-game-active .trick-adjutant-summary {
     font-size: 0.68rem;
-  }
-
-  .app-shell-game-active .next-trick-button {
-    margin-top: 0;
-    min-height: 24px;
-    padding: 0 10px;
   }
 
   .app-shell-game-active .action-area {
@@ -5420,12 +5545,7 @@ input:focus-visible {
     font-size: 0.68rem;
   }
 
-  .app-shell-game-active .next-trick-button {
-    min-height: 24px;
-  }
-
-  .app-shell-game-active .table-seat-actions .table-side-tool,
-  .app-shell-game-active .table-seat-actions .next-trick-button {
+  .app-shell-game-active .table-seat-actions .table-side-tool {
     min-height: 44px;
     padding: 4px 8px;
   }

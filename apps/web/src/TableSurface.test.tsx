@@ -1,3 +1,7 @@
+// @vitest-environment happy-dom
+
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type {
@@ -10,6 +14,8 @@ import type {
   PublicSuit
 } from "@napoleon/protocol";
 import { TableSurface, productionTableTestExports } from "./TableSurface";
+
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 import { projectTablePoint, tableDesignMockLayout } from "./TableDesignMock";
 import { fourColorSuitColors } from "./cardSuitTheme";
 import { createTablePlayers } from "./tablePlayers";
@@ -278,6 +284,110 @@ describe("TableSurface", () => {
     expect(html).toContain('class="mock-bidding-pass-button"');
   });
 
+  it("defaults each new turn to the minimal legal raise, discarding a stale manual selection", async () => {
+    // Turn 1: highest bid is clubs-13, so the minimal legal raise is diamonds-13.
+    const turnOneLegalActions: readonly PublicBidAction[] = [
+      { type: "bid", suit: "diamonds", targetPointCards: 13 },
+      { type: "bid", suit: "hearts", targetPointCards: 13 },
+      { type: "bid", suit: "spades", targetPointCards: 13 },
+      { type: "bid", suit: "clubs", targetPointCards: 14 },
+      { type: "bid", suit: "diamonds", targetPointCards: 14 },
+      { type: "bid", suit: "hearts", targetPointCards: 14 },
+      { type: "bid", suit: "spades", targetPointCards: 14 }
+    ];
+    // Turn 2: someone else raised to diamonds-13 (not the user's manual
+    // clubs-14 pick below), so the minimal legal raise is now hearts-13.
+    // clubs-14 is still a legal bid here - it just should no longer be
+    // selected by default.
+    const turnTwoLegalActions: readonly PublicBidAction[] = [
+      { type: "bid", suit: "hearts", targetPointCards: 13 },
+      { type: "bid", suit: "spades", targetPointCards: 13 },
+      { type: "bid", suit: "clubs", targetPointCards: 14 },
+      { type: "bid", suit: "diamonds", targetPointCards: 14 },
+      { type: "bid", suit: "hearts", targetPointCards: 14 },
+      { type: "bid", suit: "spades", targetPointCards: 14 }
+    ];
+    const state = createState({
+      legalActions: [...turnOneLegalActions, { type: "pass" }],
+      opponentHandCounts: [10, 10, 10, 10],
+      phase: "bidding"
+    });
+
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <TableSurface
+          actionPanel={null}
+          canExchange={false}
+          canPass={true}
+          currentTrick={[]}
+          highlightWinningCard={true}
+          isBusy={false}
+          legalBidActions={turnOneLegalActions}
+          legalCardIds={new Set()}
+          onBid={vi.fn()}
+          onPass={vi.fn()}
+          onPlay={vi.fn()}
+          onToggleWinningCardHighlight={vi.fn()}
+          players={createTablePlayers(state)}
+          selectedDiscardCardIds={[]}
+          selfPlayerId="player-0"
+          state={state}
+          trickNumber={1}
+          trumpSuit="spades"
+        />
+      );
+    });
+
+    expect(selectedSuitButton(container)?.getAttribute("aria-label")).toBe("♦を選択");
+    expect(container.querySelector(".mock-bidding-number-value")?.textContent).toBe("13");
+
+    // The user manually escalates their (unsubmitted) pick to clubs-14.
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[aria-label="♣を選択"]')?.click();
+    });
+
+    expect(selectedSuitButton(container)?.getAttribute("aria-label")).toBe("♣を選択");
+    expect(container.querySelector(".mock-bidding-number-value")?.textContent).toBe("14");
+
+    // Turn 2 arrives (a new legalBidActions list from a new highest bid).
+    await act(async () => {
+      root.render(
+        <TableSurface
+          actionPanel={null}
+          canExchange={false}
+          canPass={true}
+          currentTrick={[]}
+          highlightWinningCard={true}
+          isBusy={false}
+          legalBidActions={turnTwoLegalActions}
+          legalCardIds={new Set()}
+          onBid={vi.fn()}
+          onPass={vi.fn()}
+          onPlay={vi.fn()}
+          onToggleWinningCardHighlight={vi.fn()}
+          players={createTablePlayers(state)}
+          selectedDiscardCardIds={[]}
+          selfPlayerId="player-0"
+          state={state}
+          trickNumber={1}
+          trumpSuit="spades"
+        />
+      );
+    });
+
+    // Resets to the new minimal legal raise (hearts-13), not the stale
+    // clubs-14 pick from before - even though clubs-14 is still legal.
+    expect(selectedSuitButton(container)?.getAttribute("aria-label")).toBe("♥を選択");
+    expect(container.querySelector(".mock-bidding-number-value")?.textContent).toBe("13");
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it("keeps centered match information available during the bidding phase", () => {
     const html = renderTable(
       createState({
@@ -533,4 +643,8 @@ function standardCard(suit: PublicSuit, rank: PublicRank): PublicStandardCard {
 
 function countOccurrences(value: string, needle: string): number {
   return value.split(needle).length - 1;
+}
+
+function selectedSuitButton(container: HTMLElement): Element | null {
+  return container.querySelector('.mock-bidding-suit-button[aria-pressed="true"]');
 }
