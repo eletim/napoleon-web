@@ -116,10 +116,6 @@ select {
   width: 100%;
 }
 
-.preset-selector {
-  max-width: 360px;
-}
-
 .ai-settings {
   display: grid;
   gap: 16px;

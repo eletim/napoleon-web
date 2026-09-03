@@ -6,37 +6,49 @@ import type {
   PublicPhasePolicyRegistry
 } from "@napoleon/protocol";
 
-interface GamePresetSelectorProps {
-  presets: readonly AiPreset[];
-  selectedPresetId: AiPresetId;
-  disabled: boolean;
-  onChange(presetId: AiPresetId): void;
+export interface SeatPresetOption {
+  id: string;
+  label: string;
 }
 
-export function GamePresetSelector({
+interface SeatPresetSelectorProps {
+  seats: readonly SeatPresetOption[];
+  presets: readonly AiPreset[];
+  selections: Readonly<Record<string, AiPresetId>>;
+  disabled: boolean;
+  onChange(playerId: string, presetId: AiPresetId): void;
+}
+
+/** Lets each of the four non-self seats pick its own AI preset independently. */
+export function SeatPresetSelector({
+  seats,
   presets,
-  selectedPresetId,
+  selections,
   disabled,
   onChange
-}: GamePresetSelectorProps) {
+}: SeatPresetSelectorProps) {
   return (
     <section className="agent-setup" aria-label="対戦AI選択">
       <h2>対戦AI</h2>
-      <label className="agent-selector preset-selector">
-        <span>AI preset</span>
-        <select
-          aria-label="対戦AI"
-          disabled={disabled}
-          onChange={(event) => onChange(event.target.value as AiPresetId)}
-          value={selectedPresetId}
-        >
-          {presets.map((preset) => (
-            <option key={preset.id} value={preset.id}>
-              {preset.displayName}
-            </option>
-          ))}
-        </select>
-      </label>
+      <div className="agent-selector-grid">
+        {seats.map((seat) => (
+          <label className="agent-selector" key={seat.id}>
+            <span>{seat.label}</span>
+            <select
+              aria-label={`${seat.label}の対戦AI`}
+              disabled={disabled}
+              onChange={(event) => onChange(seat.id, event.target.value as AiPresetId)}
+              value={selections[seat.id] ?? presets[0]?.id ?? ""}
+            >
+              {presets.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.displayName}
+                </option>
+              ))}
+            </select>
+          </label>
+        ))}
+      </div>
     </section>
   );
 }

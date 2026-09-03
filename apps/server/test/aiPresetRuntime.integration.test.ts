@@ -102,6 +102,101 @@ describe.sequential("AI preset runtime integration", () => {
     )).toBe(true);
   });
 
+  it("applies a different preset per seat when each seat selects independently", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games",
+      payload: {
+        aiAgents: [
+          {
+            playerId: "player-1",
+            policyComposition: {
+              playing: "rule-based",
+              bidding: "rule-based",
+              nonPlaying: "rule-based"
+            }
+          },
+          {
+            playerId: "player-2",
+            policyComposition: {
+              playing: "ppo-separated-v1000",
+              bidding: "frozen-raise-v1",
+              nonPlaying: "parameterized-adjutant-exchange-v1"
+            }
+          },
+          {
+            playerId: "player-3",
+            policyComposition: {
+              playing: "rule-based",
+              bidding: "rule-based",
+              nonPlaying: "rule-based"
+            }
+          },
+          {
+            playerId: "player-4",
+            policyComposition: {
+              playing: "ppo-separated-v1000",
+              bidding: "frozen-raise-v1",
+              nonPlaying: "parameterized-adjutant-exchange-v1"
+            }
+          }
+        ]
+      }
+    });
+    const game = response.json<CreateGameResponse>();
+    const diagnosticsResponse = await app.inject({
+      method: "GET",
+      url: `/api/games/${game.gameId}/diagnostics`
+    });
+    const body = diagnosticsResponse.json<GetGamePolicyDiagnosticsResponse>();
+
+    expect(response.statusCode, response.body).toBe(201);
+    // A mixed request never resolves to a single overall preset.
+    expect(body.presetId).toBeUndefined();
+    expect(body.diagnostics["player-1"]?.composition.playing).toBe("rule-based");
+    expect(body.diagnostics["player-2"]?.composition.playing).toBe("ppo-separated-v1000");
+    // The same preset (RuleBase) can be reused on more than one seat.
+    expect(body.diagnostics["player-3"]?.composition.playing).toBe("rule-based");
+    expect(body.diagnostics["player-4"]?.composition.playing).toBe("ppo-separated-v1000");
+  });
+
+  it("applies the same explicitly selected preset to all four seats via per-seat selections", async () => {
+    const uniformComposition = {
+      playing: "ppo-separated-v1000",
+      bidding: "frozen-raise-v1",
+      nonPlaying: "parameterized-adjutant-exchange-v1"
+    } as const;
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/games",
+      payload: {
+        aiAgents: ["player-1", "player-2", "player-3", "player-4"].map((playerId) => ({
+          playerId,
+          policyComposition: uniformComposition
+        }))
+      }
+    });
+    const game = response.json<CreateGameResponse>();
+    const diagnosticsResponse = await app.inject({
+      method: "GET",
+      url: `/api/games/${game.gameId}/diagnostics`
+    });
+    const body = diagnosticsResponse.json<GetGamePolicyDiagnosticsResponse>();
+
+    expect(response.statusCode, response.body).toBe(201);
+    expect(Object.keys(body.diagnostics)).toEqual([
+      "player-1",
+      "player-2",
+      "player-3",
+      "player-4"
+    ]);
+    expect(Object.values(body.diagnostics).every(({ composition }) =>
+      composition.playing === uniformComposition.playing &&
+      composition.bidding === uniformComposition.bidding &&
+      composition.nonPlaying === uniformComposition.nonPlaying
+    )).toBe(true);
+  });
+
   it("persists a settings change and uses it for subsequent games", async () => {
     const mixed = {
       playing: "rule-based",

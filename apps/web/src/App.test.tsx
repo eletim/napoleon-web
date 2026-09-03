@@ -157,7 +157,14 @@ describe("App match final result flow", () => {
     await clickButton(container, "新しい試合を始める");
 
     expect(createGame).toHaveBeenCalledTimes(2);
-    expect(createGame).toHaveBeenNthCalledWith(2, { aiPresetId: "com-ai" });
+    expect(createGame).toHaveBeenNthCalledWith(2, {
+      aiAgents: [
+        { playerId: "player-1", policyComposition: aiPresetResponse().presets[0].composition },
+        { playerId: "player-2", policyComposition: aiPresetResponse().presets[0].composition },
+        { playerId: "player-3", policyComposition: aiPresetResponse().presets[0].composition },
+        { playerId: "player-4", policyComposition: aiPresetResponse().presets[0].composition }
+      ]
+    });
     expect(container.querySelector(".match-final-results")).toBeNull();
     expect(container.textContent).not.toContain("全5局 終了");
     expect(container.querySelector(".app-shell-match-completed")).toBeNull();
@@ -170,6 +177,189 @@ describe("App match final result flow", () => {
     container.remove();
   });
 });
+
+describe("per-seat AI preset selection", () => {
+  it("sends each of the four seats' independently selected AI preset when starting a game", async () => {
+    vi.mocked(getAiPresets).mockResolvedValue(twoAiPresetResponse());
+    vi.mocked(createGame).mockResolvedValue(freshSession());
+
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(<App />);
+    });
+
+    // Mixed selection: RuleBase / AI / RuleBase / AI across the four seats,
+    // with the same preset ("com-rule-base") reused on two different seats.
+    await selectSeatPreset(container, "左側AI", "com-rule-base");
+    await selectSeatPreset(container, "奥左AI", "com-ai");
+    await selectSeatPreset(container, "奥右AI", "com-rule-base");
+    await selectSeatPreset(container, "右側AI", "com-ai");
+
+    await clickButton(container, "ゲーム開始");
+
+    const { presets } = twoAiPresetResponse();
+    const ruleBase = presets.find(({ id }) => id === "com-rule-base")?.composition;
+    const ai = presets.find(({ id }) => id === "com-ai")?.composition;
+
+    expect(createGame).toHaveBeenCalledWith({
+      aiAgents: [
+        { playerId: "player-1", policyComposition: ruleBase },
+        { playerId: "player-2", policyComposition: ai },
+        { playerId: "player-3", policyComposition: ruleBase },
+        { playerId: "player-4", policyComposition: ai }
+      ]
+    });
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("does not turn the human's own seat into a COM seat", async () => {
+    vi.mocked(getAiPresets).mockResolvedValue(twoAiPresetResponse());
+    vi.mocked(createGame).mockResolvedValue(freshSession());
+
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(<App />);
+    });
+
+    expect(container.querySelector('[aria-label="自分の対戦AI"]')).toBeNull();
+    expect(container.querySelectorAll(".agent-selector-grid select")).toHaveLength(4);
+
+    await clickButton(container, "ゲーム開始");
+
+    const [request] = vi.mocked(createGame).mock.calls[0] ?? [];
+    expect(request?.aiAgents?.some((selection) => selection.playerId === "player-0")).toBe(false);
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("still starts a game when all four seats keep the same default preset unset", async () => {
+    vi.mocked(getAiPresets).mockResolvedValue(twoAiPresetResponse());
+    vi.mocked(createGame).mockResolvedValue(freshSession());
+
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(<App />);
+    });
+
+    await clickButton(container, "ゲーム開始");
+
+    const defaultComposition = twoAiPresetResponse().presets
+      .find(({ id }) => id === "com-ai")?.composition;
+
+    expect(createGame).toHaveBeenCalledWith({
+      aiAgents: [
+        { playerId: "player-1", policyComposition: defaultComposition },
+        { playerId: "player-2", policyComposition: defaultComposition },
+        { playerId: "player-3", policyComposition: defaultComposition },
+        { playerId: "player-4", policyComposition: defaultComposition }
+      ]
+    });
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("lets every seat share the same explicitly selected preset", async () => {
+    vi.mocked(getAiPresets).mockResolvedValue(twoAiPresetResponse());
+    vi.mocked(createGame).mockResolvedValue(freshSession());
+
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(<App />);
+    });
+
+    for (const seatLabel of ["左側AI", "奥左AI", "奥右AI", "右側AI"]) {
+      await selectSeatPreset(container, seatLabel, "com-rule-base");
+    }
+
+    await clickButton(container, "ゲーム開始");
+
+    const ruleBase = twoAiPresetResponse().presets
+      .find(({ id }) => id === "com-rule-base")?.composition;
+
+    expect(createGame).toHaveBeenCalledWith({
+      aiAgents: [
+        { playerId: "player-1", policyComposition: ruleBase },
+        { playerId: "player-2", policyComposition: ruleBase },
+        { playerId: "player-3", policyComposition: ruleBase },
+        { playerId: "player-4", policyComposition: ruleBase }
+      ]
+    });
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+});
+
+async function selectSeatPreset(
+  container: HTMLElement,
+  seatLabel: string,
+  presetId: string
+): Promise<void> {
+  const select = container.querySelector<HTMLSelectElement>(
+    `[aria-label="${seatLabel}の対戦AI"]`
+  );
+  expect(select, `${seatLabel} select`).not.toBeNull();
+
+  await act(async () => {
+    if (select !== null) {
+      select.value = presetId;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  });
+}
+
+function twoAiPresetResponse(): GetAiPresetsResponse {
+  const policy = (id: string) => ({
+    id,
+    displayName: id,
+    isAvailable: true,
+    artifactProvenance: null
+  });
+
+  return {
+    presets: [
+      {
+        id: "com-rule-base",
+        displayName: "COM-RuleBase",
+        composition: {
+          playing: "rule-based",
+          bidding: "rule-based",
+          nonPlaying: "rule-based"
+        }
+      },
+      {
+        id: "com-ai",
+        displayName: "COM-AI",
+        composition: {
+          playing: "ppo-separated-v1000",
+          bidding: "frozen-raise-v1",
+          nonPlaying: "parameterized-adjutant-exchange-v1"
+        }
+      }
+    ],
+    policyRegistry: {
+      playing: [policy("rule-based"), policy("ppo-separated-v1000")],
+      bidding: [policy("rule-based"), policy("frozen-raise-v1")],
+      nonPlaying: [policy("rule-based"), policy("parameterized-adjutant-exchange-v1")]
+    }
+  };
+}
 
 async function renderStartedApp() {
   const container = document.createElement("div");

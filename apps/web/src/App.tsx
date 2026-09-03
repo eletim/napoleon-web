@@ -3,6 +3,7 @@ import type {
   AiPolicyComposition,
   AiPreset,
   AiPresetId,
+  CreateGameAgentSelection,
   PublicCard,
   PublicGameAction,
   PublicGameState,
@@ -13,7 +14,7 @@ import type {
 } from "@napoleon/protocol";
 import {
   AiSettingsPanel,
-  GamePresetSelector,
+  SeatPresetSelector,
   isPresetCompositionAvailable
 } from "./AiPresetControls";
 import { AutomatedSimulationViewer } from "./AutomatedSimulationViewer";
@@ -94,7 +95,8 @@ function GameApp() {
   const [isBusy, setIsBusy] = useState(false);
   const [presets, setPresets] = useState<readonly AiPreset[]>([]);
   const [policyRegistry, setPolicyRegistry] = useState<PublicPhasePolicyRegistry>();
-  const [selectedPresetId, setSelectedPresetId] = useState<AiPresetId>(defaultPresetId);
+  const [seatPresetSelections, setSeatPresetSelections] =
+    useState<Record<string, AiPresetId>>({});
   const [presetDrafts, setPresetDrafts] =
     useState<Partial<Record<AiPresetId, AiPolicyComposition>>>({});
   const [settingsMessage, setSettingsMessage] = useState("設定を読み込んでいます。");
@@ -130,6 +132,10 @@ function GameApp() {
     session.state.adjutantChoice?.napoleonPlayerId === session.playerId;
 
   const tablePlayers = useMemo(() => createTablePlayers(session?.state), [session?.state]);
+  const aiSeats = useMemo(
+    () => tablePlayers.filter((player) => !player.isSelf),
+    [tablePlayers]
+  );
   const adjutantShortcutOptions = useMemo(
     () => createAdjutantShortcutOptions(session?.state.specialCards),
     [session?.state.specialCards]
@@ -140,9 +146,14 @@ function GameApp() {
     adjutantShortcutOptions
   );
   const canSelectJoker = session?.state.adjutantChoice?.jokerAllowed === true;
-  const selectedPreset = presets.find((preset) => preset.id === selectedPresetId);
-  const hasUnavailablePresetSelection = selectedPreset === undefined ||
-    !isPresetCompositionAvailable(selectedPreset.composition, policyRegistry);
+  const resolveSeatPreset = (playerId: string): AiPreset | undefined => {
+    const presetId = seatPresetSelections[playerId] ?? defaultPresetId;
+    return presets.find((preset) => preset.id === presetId) ?? presets[0];
+  };
+  const hasUnavailablePresetSelection = aiSeats.some((seat) => {
+    const preset = resolveSeatPreset(seat.id);
+    return preset === undefined || !isPresetCompositionAvailable(preset.composition, policyRegistry);
+  });
   const hasActionPrompt =
     session !== undefined &&
     (session.state.currentPlayerId === session.playerId ||
@@ -181,11 +192,14 @@ function GameApp() {
         setPresetDrafts(Object.fromEntries(
           response.presets.map((preset) => [preset.id, { ...preset.composition }])
         ));
-        setSelectedPresetId((current) =>
-          response.presets.some(({ id }) => id === current)
-            ? current
-            : response.presets[0]?.id ?? defaultPresetId
-        );
+        // Drop any seat's selection that no longer names a known preset; unset
+        // seats simply fall back to the default/first preset when read.
+        setSeatPresetSelections((current) => {
+          const validPresetIds = new Set(response.presets.map(({ id }) => id));
+          return Object.fromEntries(
+            Object.entries(current).filter(([, presetId]) => validPresetIds.has(presetId))
+          );
+        });
         setSettingsMessage("変更後はpresetごとに保存・適用してください。");
       })
       .catch((error) => {
@@ -206,7 +220,15 @@ function GameApp() {
 
   async function handleCreateGame(): Promise<void> {
     await runRequest(async () => {
-      const response = await createGame({ aiPresetId: selectedPresetId });
+      // Each of the four non-self seats brings its own selected AI preset into the
+      // actual agent assigned for the game, instead of one preset for every seat.
+      const aiAgents: CreateGameAgentSelection[] = aiSeats.flatMap((seat) => {
+        const preset = resolveSeatPreset(seat.id);
+        return preset === undefined
+          ? []
+          : [{ playerId: seat.id, policyComposition: preset.composition }];
+      });
+      const response = await createGame({ aiAgents });
       setSession(response);
       setSelectedDiscardCardIds([]);
       setAdjutantSelection(defaultAdjutantSelection);
@@ -214,6 +236,10 @@ function GameApp() {
         createMessage(response.state, response.playerId, createTablePlayers(response.state))
       );
     });
+  }
+
+  function handleSeatPresetChange(playerId: string, presetId: AiPresetId): void {
+    setSeatPresetSelections((current) => ({ ...current, [playerId]: presetId }));
   }
 
   function handlePresetDraftChange(
@@ -463,11 +489,12 @@ function GameApp() {
           </section>
 
           {session === undefined ? (
-            <GamePresetSelector
+            <SeatPresetSelector
               disabled={isBusy || presets.length === 0}
-              onChange={setSelectedPresetId}
+              onChange={handleSeatPresetChange}
               presets={presets}
-              selectedPresetId={selectedPresetId}
+              seats={aiSeats}
+              selections={seatPresetSelections}
             />
           ) : null}
 
