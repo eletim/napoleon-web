@@ -1152,7 +1152,12 @@ input:focus-visible {
 
 .production-contract-chip {
   align-items: center;
-  background: rgb(15 23 42 / 86%);
+  /* Lighter than the other dark panels on this table: the suit color itself
+     (--mock-bidding-action-color) is left untouched, but spades' near-black
+     glyph (#111827) was nearly invisible against the old near-black
+     background. This stays in the same slate family, just a lighter shade,
+     so it still reads as part of the dark UI. */
+  background: rgb(100 116 139 / 88%);
   border: 1px solid rgb(255 255 255 / 22%);
   border-radius: 8px;
   box-shadow: 0 8px 18px rgb(0 0 0 / 22%);

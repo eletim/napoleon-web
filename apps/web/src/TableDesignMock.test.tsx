@@ -206,7 +206,7 @@ describe("TableDesignMock", () => {
     expect(projected).not.toContain("mock-bidding-bubble");
   });
 
-  it("places the bidding overlay over the table without covering the self hand at 1920x1080", () => {
+  it("centers the bidding overlay on screen over the table without covering the self hand at 1920x1080", () => {
     const viewport = { width: 1920, height: 1080 };
     const overlay = createBiddingOverlayGeometry(tableDesignMockLayout, viewport);
     const overlayBox = boxFromCenter(overlay);
@@ -223,11 +223,11 @@ describe("TableDesignMock", () => {
       y: visibleSelfHandTop
     });
 
-    const roleBoardBox = createProjectedRoleBoardBoundingBox(tableDesignMockLayout, viewport);
-
     expect(overlay.width).toBeLessThanOrEqual(820);
     expect(overlay.height).toBe(430);
-    expect(boxesOverlap(overlayBox, roleBoardBox)).toBe(false);
+    // The bidding UI is the central control for this phase: dead center
+    // horizontally, not tucked beside the role board.
+    expect(overlay.x).toBeCloseTo(viewport.width / 2);
     expect(overlayBox.top).toBeGreaterThanOrEqual(tableDesignMockLayout.bidding.overlay.viewportMargin);
     expect(overlayBox.bottom).toBeLessThanOrEqual(
       visibleSelfHandTop - tableDesignMockLayout.bidding.overlay.gapFromSelfHand
@@ -235,21 +235,29 @@ describe("TableDesignMock", () => {
     expect(boxesOverlap(overlayBox, selfHandBox)).toBe(false);
   });
 
-  it("keeps the projected match-information pentagon visible during bidding at desktop and mobile landscape viewports", () => {
+  it("keeps the bidding overlay horizontally centered without covering the self hand at desktop and mobile landscape viewports", () => {
     for (const viewport of [
       { width: 1440, height: 900 },
       { width: 844, height: 390 }
     ]) {
-      const overlayBox = boxFromCenter(
-        createBiddingOverlayGeometry(tableDesignMockLayout, viewport)
-      );
+      const overlay = createBiddingOverlayGeometry(tableDesignMockLayout, viewport);
+      const overlayBox = boxFromCenter(overlay);
       const roleBoardBox = createProjectedRoleBoardBoundingBox(
         tableDesignMockLayout,
         viewport
       );
       const bubbles = createBiddingBubbleLayouts(tableDesignMockLayout, viewport);
+      const isCompactLandscape = viewport.height <= 520 && viewport.width > viewport.height;
 
-      expect(boxesOverlap(overlayBox, roleBoardBox)).toBe(false);
+      if (isCompactLandscape) {
+        // Short landscape viewports have too little room around the role
+        // board for both the overlay and the compact per-seat labels to
+        // stay centered without covering each other, so this keeps the
+        // pre-existing side placement there.
+        expect(boxesOverlap(overlayBox, roleBoardBox)).toBe(false);
+      } else {
+        expect(overlay.x).toBeCloseTo(viewport.width / 2);
+      }
       for (const bubble of bubbles) {
         expect(boxesOverlap(boxFromCenter(bubble), roleBoardBox)).toBe(false);
       }

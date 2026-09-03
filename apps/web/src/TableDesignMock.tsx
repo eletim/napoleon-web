@@ -2044,7 +2044,6 @@ export function createBiddingOverlayGeometry(
   viewport: ViewportSize = layout.page
 ): Box {
   const fit = createProjectedBoardFit(layout, viewport);
-  const roleBoardBox = createProjectedRoleBoardBoundingBox(layout, viewport);
   const selfHand = createSelfHandViewportLayout(layout, normalSelfHandCardCount, viewport);
   const visibleSelfHandTop = createSelfHandCardPlacements(
     layout,
@@ -2057,18 +2056,6 @@ export function createBiddingOverlayGeometry(
   const desiredHeight = isCompactLandscape
     ? Math.min(config.height, viewport.height * 0.52)
     : config.height;
-  const requestedWidth = Math.min(
-    viewport.width - config.viewportMargin * 2,
-    clamp(viewport.width * config.widthRatio, config.minWidth, config.maxWidth)
-  );
-  const roleBoardGap = isCompactLandscape ? Math.max(config.viewportMargin, 32) : config.viewportMargin;
-  const availableLeftWidth = roleBoardBox.left - config.viewportMargin - roleBoardGap;
-  const availableRightWidth = viewport.width - roleBoardBox.right - config.viewportMargin - roleBoardGap;
-  const placeOnRight = availableRightWidth >= availableLeftWidth;
-  const width = toLayoutPrecision(Math.min(
-    requestedWidth,
-    Math.max(placeOnRight ? availableRightWidth : availableLeftWidth, 0)
-  ));
   const availableHeight = Math.max(
     visibleSelfHandTop - config.gapFromSelfHand - config.viewportMargin,
     0
@@ -2077,13 +2064,47 @@ export function createBiddingOverlayGeometry(
     desiredHeight,
     availableHeight >= minimumHeight ? availableHeight : Math.max(availableHeight, 1)
   ));
-  const x = toLayoutPrecision(placeOnRight
-    ? roleBoardBox.right + roleBoardGap + width / 2
-    : roleBoardBox.left - roleBoardGap - width / 2);
   const y = toLayoutPrecision(clamp(
     fit.transformedTableBox.y + config.yOffsetFromTableCenter,
     config.viewportMargin + height / 2,
     visibleSelfHandTop - config.gapFromSelfHand - height / 2
+  ));
+
+  // Short landscape viewports have so little room around the (still visible)
+  // role board that the compact per-seat labels have nowhere left to go if
+  // the overlay also claims that space: keep tucking it beside the role
+  // board there, same as before. Everywhere else there is room to spare, so
+  // the bidding UI - the central control for this phase - sits dead center
+  // on screen instead of beside the role board or down near the self hand.
+  if (isCompactLandscape) {
+    const roleBoardBox = createProjectedRoleBoardBoundingBox(layout, viewport);
+    const requestedWidth = Math.min(
+      viewport.width - config.viewportMargin * 2,
+      clamp(viewport.width * config.widthRatio, config.minWidth, config.maxWidth)
+    );
+    const roleBoardGap = Math.max(config.viewportMargin, 32);
+    const availableLeftWidth = roleBoardBox.left - config.viewportMargin - roleBoardGap;
+    const availableRightWidth = viewport.width - roleBoardBox.right - config.viewportMargin - roleBoardGap;
+    const placeOnRight = availableRightWidth >= availableLeftWidth;
+    const width = toLayoutPrecision(Math.min(
+      requestedWidth,
+      Math.max(placeOnRight ? availableRightWidth : availableLeftWidth, 0)
+    ));
+    const x = toLayoutPrecision(placeOnRight
+      ? roleBoardBox.right + roleBoardGap + width / 2
+      : roleBoardBox.left - roleBoardGap - width / 2);
+
+    return { height, width, x, y };
+  }
+
+  const width = toLayoutPrecision(Math.min(
+    viewport.width - config.viewportMargin * 2,
+    clamp(viewport.width * config.widthRatio, config.minWidth, config.maxWidth)
+  ));
+  const x = toLayoutPrecision(clamp(
+    viewport.width / 2,
+    config.viewportMargin + width / 2,
+    viewport.width - config.viewportMargin - width / 2
   ));
 
   return {
@@ -2297,7 +2318,16 @@ function chooseBiddingBubbleBox(
     { x: 0, y: 1 },
     { x: -1, y: 0 }
   ];
-  const directions = info.seatId === "self" ? selfDirections : opponentDirections;
+  // The left seat's own bubble should sit above its player info rather than
+  // below: "outward" (west) happens to tilt slightly downward for this seat
+  // and wins the general collision search first, so try straight up before
+  // falling back to the shared opponent order (unchanged for every other seat).
+  const leftSeatDirections = [{ x: 0, y: -1 }, ...opponentDirections];
+  const directions = info.seatId === "self"
+    ? selfDirections
+    : info.seatId === "left"
+      ? leftSeatDirections
+      : opponentDirections;
   const distanceMultipliers = [1, 2, 3];
   const candidates = uniquePoints(
     directions.flatMap((direction) => {
