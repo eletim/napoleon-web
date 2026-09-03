@@ -1,10 +1,14 @@
 import {
+  forwardRef,
+  useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
   type ReactNode,
+  type Ref,
   type RefObject
 } from "react";
 import type {
@@ -59,9 +63,22 @@ import {
 } from "./biddingOptions";
 import { mockCardBackComponent, mockCardBackComponentName, type MockPlayingCard } from "./mockPlayingCardAdapter";
 import { getDisplayedHandCards, type HandOrderMode } from "./handSorting";
+import {
+  CARD_PLAY_DURATION_MS,
+  TRICK_COLLECT_DURATION_MS,
+  TRICK_RESULT_HOLD_MS,
+  TRICK_WINNER_PULSE_MS,
+  usePrefersReducedMotion
+} from "./presentationTiming";
 import type { Seat, TablePlayer } from "./tableTypes";
 
 interface TableSurfaceProps {
+  /**
+   * Who presentation-wise "has the turn" right now, which during the pause
+   * before a COM's card is revealed is that COM even though the server has
+   * already resolved the whole trick. Falls back to `state.currentPlayerId`.
+   */
+  activePlayerId?: string;
   actionPanel: ReactNode;
   canExchange: boolean;
   canPass?: boolean;
@@ -69,6 +86,8 @@ interface TableSurfaceProps {
   currentTrick: readonly PublicPlayedCard[];
   highlightWinningCard: boolean;
   isBusy: boolean;
+  /** Whether a given played card arrived via the animated deal (eligible for the hand->table flight), vs. an instant jump/resume. */
+  isEntryAnimated?: (playerId: string, cardId: string) => boolean;
   isResultEmphasisActive?: boolean;
   legalBidActions?: readonly PublicBidAction[];
   legalCardIds: ReadonlySet<string>;
@@ -78,6 +97,8 @@ interface TableSurfaceProps {
   onPlay: (card: PublicCard) => void;
   onToggleWinningCardHighlight: () => void;
   players: readonly TablePlayer[];
+  /** The settled trick winner, shown regardless of the tentative-winner toggle. */
+  resultWinnerId?: string;
   selectedDiscardCardIds: readonly string[];
   selfPlayerId?: string;
   state: PublicGameState | undefined;
@@ -108,6 +129,7 @@ const opponentSeatOrder = ["top-left", "top-right", "right", "left"] as const sa
 const biddingSuitOptions = ["spades", "hearts", "diamonds", "clubs"] as const satisfies readonly PublicSuit[];
 
 export function TableSurface({
+  activePlayerId,
   actionPanel,
   canExchange,
   canPass = false,
@@ -115,6 +137,7 @@ export function TableSurface({
   currentTrick,
   highlightWinningCard,
   isBusy,
+  isEntryAnimated = alwaysFalse,
   isResultEmphasisActive = false,
   legalBidActions = [],
   legalCardIds,
@@ -124,6 +147,7 @@ export function TableSurface({
   onPlay,
   onToggleWinningCardHighlight,
   players,
+  resultWinnerId,
   selectedDiscardCardIds,
   selfPlayerId,
   state,
@@ -138,11 +162,60 @@ export function TableSurface({
     () => new Map(currentTrick.map((played) => [played.playerId, played] as const)),
     [currentTrick]
   );
-  const winningPlayerId =
+  // The card-face glow always shows the settled winner once a trick is
+  // complete (that's core information, not a flourish); the optional
+  // "tentative winner" toggle only governs the live in-progress highlight.
+  const tentativeWinningPlayerId =
     highlightWinningCard && trumpSuit !== null && trumpSuit !== undefined
       ? getCurrentWinningPlayerId(currentTrick, trumpSuit, trickNumber)
       : undefined;
+  const winningPlayerId = resultWinnerId ?? tentativeWinningPlayerId;
   const collectingSeat = adapters.find((player) => player.id === collectingWinnerId)?.seat;
+
+  // Flight sources for the hand->table deal-in animation: the self player's
+  // clicked card position (captured at click time, before it leaves the
+  // hand) and, per opponent seat, the DOM of that seat's face-down hand so a
+  // random card-back can be picked as the visual "this one flew" origin.
+  const selfHandCardRectsRef = useRef<Map<string, DOMRect>>(new Map());
+  const opponentHandRefs = useRef<Partial<Record<Exclude<TableSeatId, "self">, HTMLElement>>>({});
+  const selfHandContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const registerOpponentHandContainer = useCallback(
+    (seat: Exclude<TableSeatId, "self">, element: HTMLElement | null) => {
+      if (element === null) {
+        delete opponentHandRefs.current[seat];
+      } else {
+        opponentHandRefs.current[seat] = element;
+      }
+    },
+    []
+  );
+
+  const getFlightSourceRect = useCallback(
+    (seat: TableSeatId, played: PublicPlayedCard): DOMRect | undefined => {
+      if (seat === "self") {
+        return selfHandCardRectsRef.current.get(played.card.id);
+      }
+
+      const container = opponentHandRefs.current[seat];
+      if (container === undefined) {
+        return undefined;
+      }
+
+      const backs = container.querySelectorAll<HTMLElement>(
+        ".mock-projected-playing-card-opponent-hand"
+      );
+      if (backs.length === 0) {
+        return undefined;
+      }
+
+      // Which card back "flew" is purely a visual choice made here at
+      // render time; it never touches AI action selection.
+      return backs[Math.floor(Math.random() * backs.length)]?.getBoundingClientRect();
+    },
+    []
+  );
+
   const className = [
     "production-table-surface",
     state?.phase === "bidding" ? "production-table-surface-bidding" : "production-table-surface-playing",
@@ -164,15 +237,19 @@ export function TableSurface({
       <ProjectedProductionBoard
         adapters={adapters}
         currentTrickByPlayerId={playedCardsByPlayerId}
+        getFlightSourceRect={getFlightSourceRect}
         isCollecting={collectingSeat !== undefined}
+        isEntryAnimated={isEntryAnimated}
         match={match}
+        registerOpponentHandContainer={registerOpponentHandContainer}
         viewportSize={viewportSize}
         winningPlayerId={winningPlayerId}
         state={state}
       />
       <PlayerInfoLayer
         adapters={adapters}
-        currentPlayerId={state?.currentPlayerId}
+        currentPlayerId={activePlayerId ?? state?.currentPlayerId}
+        resultWinnerId={resultWinnerId}
         viewportSize={viewportSize}
       />
       {state?.phase !== "bidding" ? <ProductionContractHud state={state} /> : null}
@@ -194,6 +271,8 @@ export function TableSurface({
       ) : null}
       <SelfHandLayer
         canExchange={canExchange}
+        cardRectsRef={selfHandCardRectsRef}
+        containerRef={selfHandContainerRef}
         handOrderMode={handOrderMode}
         isBusy={isBusy}
         legalCardIds={legalCardIds}
@@ -264,16 +343,22 @@ function ProductionContractHud({ state }: { state: PublicGameState | undefined }
 function ProjectedProductionBoard({
   adapters,
   currentTrickByPlayerId,
+  getFlightSourceRect,
   isCollecting,
+  isEntryAnimated,
   match,
+  registerOpponentHandContainer,
   state,
   viewportSize,
   winningPlayerId
 }: {
   adapters: readonly TablePlayerAdapter[];
   currentTrickByPlayerId: ReadonlyMap<string, PublicPlayedCard>;
+  getFlightSourceRect: (seat: TableSeatId, played: PublicPlayedCard) => DOMRect | undefined;
   isCollecting: boolean;
+  isEntryAnimated: (playerId: string, cardId: string) => boolean;
   match: PublicMatchState | undefined;
+  registerOpponentHandContainer: (seat: Exclude<TableSeatId, "self">, element: HTMLElement | null) => void;
   state: PublicGameState | undefined;
   viewportSize: ViewportSize;
   winningPlayerId: string | undefined;
@@ -355,7 +440,9 @@ function ProjectedProductionBoard({
 
           return (
             <ProjectedCurrentTrickCard
+              getSourceRect={getFlightSourceRect}
               isCollecting={isCollecting}
+              isEntryAnimated={isEntryAnimated}
               isWinning={played !== undefined && played.playerId === winningPlayerId}
               key={`production-trick-card-${seat}`}
               played={played}
@@ -383,6 +470,7 @@ function ProjectedProductionBoard({
               count={player?.handCount ?? 0}
               key={`production-opponent-hand-${seat}`}
               label={player?.label ?? seat}
+              registerContainer={registerOpponentHandContainer}
               seat={seat}
             />
           );
@@ -658,26 +746,97 @@ function ProductionMatchRound({ match }: { match: PublicMatchState | undefined }
 }
 
 function ProjectedCurrentTrickCard({
+  getSourceRect,
   isCollecting,
+  isEntryAnimated,
   isWinning,
   played,
   seat,
   viewportSize
 }: {
+  getSourceRect: (seat: TableSeatId, played: PublicPlayedCard) => DOMRect | undefined;
   isCollecting: boolean;
+  isEntryAnimated: (playerId: string, cardId: string) => boolean;
   isWinning: boolean;
   played: PublicPlayedCard | undefined;
   seat: TableSeatId;
   viewportSize: { height: number; width: number };
 }) {
-  if (played === undefined) {
-    return null;
-  }
-
   const layout = tableDesignMockLayout;
   const cardPlane = createCurrentTrickCardPlaneForViewport(layout, seat, viewportSize);
   const size = { width: cardPlane.width, height: cardPlane.height };
   const corners = projectTableCard(cardPlane, layout.camera);
+  const baseTransform = projectiveTransformForRectangle(corners, size.width, size.height);
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const rootRef = useRef<HTMLElement>(null);
+  const revealedKeyRef = useRef<string | undefined>(undefined);
+  // Only opponents' cards fly in face-down (the human already knows their
+  // own card); this flips back to face-up once the flight lands.
+  const [isFaceDown, setIsFaceDown] = useState(false);
+
+  // Hand -> table "deal" flight: on the render where a genuinely new card
+  // lands in this seat's trick slot (not a resumed/jumped-to state), fly it
+  // in from wherever it actually came from - the clicked hand card for the
+  // self seat, a random face-down card for an opponent seat - using plain
+  // FLIP (measure the real DOM positions, then transition the delta away).
+  useLayoutEffect(() => {
+    const key = played === undefined ? undefined : `${played.playerId}:${played.card.id}`;
+    const isNewEntry = key !== undefined && key !== revealedKeyRef.current;
+    revealedKeyRef.current = key;
+
+    const el = rootRef.current;
+    if (!isNewEntry || el === null || played === undefined) {
+      return;
+    }
+
+    if (prefersReducedMotion || !isEntryAnimated(played.playerId, played.card.id)) {
+      return;
+    }
+
+    const sourceRect = getSourceRect(seat, played);
+    const destRect = el.getBoundingClientRect();
+    if (sourceRect === undefined || sourceRect.width === 0 || destRect.width === 0) {
+      return;
+    }
+
+    if (seat !== "self") {
+      setIsFaceDown(true);
+    }
+
+    const dx = sourceRect.left + sourceRect.width / 2 - (destRect.left + destRect.width / 2);
+    const dy = sourceRect.top + sourceRect.height / 2 - (destRect.top + destRect.height / 2);
+    const scale = clampFlightScale(sourceRect.width / destRect.width);
+
+    el.style.transition = "none";
+    el.style.transform = `translate(${dx}px, ${dy}px) scale(${scale}) ${baseTransform}`;
+
+    let settleFrame = requestAnimationFrame(() => {
+      settleFrame = requestAnimationFrame(() => {
+        el.style.transition = `transform ${CARD_PLAY_DURATION_MS}ms cubic-bezier(0.22, 0.68, 0.32, 1)`;
+        el.style.transform = baseTransform;
+      });
+    });
+
+    const cleanupTimer = setTimeout(() => {
+      // Hand control back to the declarative style (which stays current on
+      // e.g. a later viewport resize) instead of leaving a stale transform.
+      el.style.transition = "";
+      el.style.transform = "";
+      setIsFaceDown(false);
+    }, CARD_PLAY_DURATION_MS + 40);
+
+    return () => {
+      cancelAnimationFrame(settleFrame);
+      clearTimeout(cleanupTimer);
+    };
+    // Only the specific card identity should retrigger the flight; re-running
+    // this for every viewport-driven transform recompute would replay it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [played?.playerId, played?.card.id]);
+
+  if (played === undefined) {
+    return null;
+  }
 
   return (
     <ProjectedPlayingCard
@@ -692,9 +851,19 @@ function ProjectedCurrentTrickCard({
         .filter(Boolean)
         .join(" ")}
       corners={corners}
+      isFaceDown={isFaceDown}
+      ref={rootRef}
       size={size}
     />
   );
+}
+
+function clampFlightScale(ratio: number): number {
+  if (!Number.isFinite(ratio) || ratio <= 0) {
+    return 1;
+  }
+
+  return Math.min(1.6, Math.max(0.4, ratio));
 }
 
 function ProjectedPointRiverCards({
@@ -741,10 +910,12 @@ function ProjectedPointRiverCards({
 function ProjectedOpponentHand({
   count,
   label,
+  registerContainer,
   seat
 }: {
   count: number;
   label: string;
+  registerContainer: (seat: Exclude<TableSeatId, "self">, element: HTMLElement | null) => void;
   seat: Exclude<TableSeatId, "self">;
 }) {
   const layout = tableDesignMockLayout;
@@ -766,6 +937,7 @@ function ProjectedOpponentHand({
     <section
       aria-label={`${label}の裏向き手札 ${count}枚`}
       className={`mock-projected-opponent-hand mock-projected-opponent-hand-${seat}`}
+      ref={(element) => registerContainer(seat, element)}
     >
       {geometry.cards.map((card) => (
         <ProjectedPlayingCardBack corners={projectVerticalCard(card, layout.camera)} key={card.index} size={geometry.cardSize} />
@@ -777,10 +949,12 @@ function ProjectedOpponentHand({
 function PlayerInfoLayer({
   adapters,
   currentPlayerId,
+  resultWinnerId,
   viewportSize
 }: {
   adapters: readonly TablePlayerAdapter[];
   currentPlayerId: string | undefined;
+  resultWinnerId?: string;
   viewportSize: ViewportSize;
 }) {
   const selfHandCardCount = adapters.find((adapter) => adapter.isSelf)?.selfHand.length ?? 0;
@@ -796,15 +970,17 @@ function PlayerInfoLayer({
       {infos.map((info) => {
         const player = adapters.find((entry) => entry.seat === info.seatId);
         const isCurrent = player?.id === currentPlayerId;
+        const isTrickWinner = resultWinnerId !== undefined && player?.id === resultWinnerId;
 
         return (
           <div
-            aria-label={`${player?.label ?? info.label} プレイヤー${isCurrent ? " 現在の手番" : ""}`}
+            aria-label={`${player?.label ?? info.label} プレイヤー${isCurrent ? " 現在の手番" : ""}${isTrickWinner ? " トリック獲得" : ""}`}
             className={[
               "mock-player-info",
               `mock-player-info-${info.seatId}`,
               "production-player-info",
-              isCurrent ? "production-player-info-current" : ""
+              isCurrent ? "production-player-info-current" : "",
+              isTrickWinner ? "production-player-info-trick-winner" : ""
             ]
               .filter(Boolean)
               .join(" ")}
@@ -975,6 +1151,8 @@ function ProductionBiddingOverlay({
 
 function SelfHandLayer({
   canExchange,
+  cardRectsRef,
+  containerRef,
   isBusy,
   legalCardIds,
   onPlay,
@@ -984,6 +1162,8 @@ function SelfHandLayer({
   viewportSize
 }: {
   canExchange: boolean;
+  cardRectsRef: RefObject<Map<string, DOMRect>>;
+  containerRef: RefObject<HTMLDivElement | null>;
   handOrderMode: HandOrderMode;
   isBusy: boolean;
   legalCardIds: ReadonlySet<string>;
@@ -1000,6 +1180,7 @@ function SelfHandLayer({
     <div
       aria-label="自分の手札"
       className="mock-self-hand production-self-hand"
+      ref={containerRef}
       style={selfHandViewportStyle(hand)}
     >
       {cards.map((card, index) => {
@@ -1027,7 +1208,13 @@ function SelfHandLayer({
                   : true)
             }
             key={card.id}
-            onClick={() => onPlay(card)}
+            onClick={(event) => {
+              // Captured before the play request resolves and this card
+              // disappears from the hand, so the trick slot's arrival
+              // animation knows exactly where to fly in from.
+              cardRectsRef.current.set(card.id, event.currentTarget.getBoundingClientRect());
+              onPlay(card);
+            }}
             style={selfHandCardIndexStyle(index)}
             type="button"
           >
@@ -1048,41 +1235,44 @@ function CardFace({ card }: { card: PublicCard }) {
   return <CardmeisterPlayingCard card={standardToMock(card)} className="mock-cardmeister-playing-card" />;
 }
 
-function ProjectedPlayingCard({
-  card,
-  className,
-  contentClassName,
-  corners,
-  size
-}: {
-  card: PublicCard;
-  className: string;
-  contentClassName?: string;
-  corners: readonly { x: number; y: number }[];
-  size: { height: number; width: number };
-}) {
+const ProjectedPlayingCard = forwardRef<
+  HTMLElement,
+  {
+    card: PublicCard;
+    className: string;
+    contentClassName?: string;
+    corners: readonly { x: number; y: number }[];
+    /** Renders the shared card-back face instead of this card's own face. */
+    isFaceDown?: boolean;
+    size: { height: number; width: number };
+  }
+>(function ProjectedPlayingCard(
+  { card, className, contentClassName, corners, isFaceDown = false, size },
+  ref
+) {
   const transform = projectiveTransformForRectangle(corners, size.width, size.height);
+  const CardBack = mockCardBackComponent();
+  const content = isFaceDown ? (
+    <CardBack aria-hidden="true" className="mock-playing-card-svg" focusable="false" />
+  ) : (
+    <CardFace card={card} />
+  );
 
   return (
     <article
-      aria-label={formatCardForAria(card)}
+      aria-label={isFaceDown ? mockCardBackComponentName : formatCardForAria(card)}
       className={`mock-projected-playing-card mock-playing-card ${className}`}
+      ref={ref as Ref<HTMLElement>}
       style={{
         "--mock-projected-card-height": `${size.height}px`,
         "--mock-projected-card-transform": transform,
         "--mock-projected-card-width": `${size.width}px`
       } as CSSProperties}
     >
-      {contentClassName === undefined ? (
-        <CardFace card={card} />
-      ) : (
-        <div className={contentClassName}>
-          <CardFace card={card} />
-        </div>
-      )}
+      {contentClassName === undefined ? content : <div className={contentClassName}>{content}</div>}
     </article>
   );
-}
+});
 
 function ProjectedRiverCardFace({
   card,
@@ -1304,7 +1494,14 @@ function tableSurfaceStyle(layout: typeof tableDesignMockLayout): CSSProperties 
   return {
     "--mock-page-background": layout.page.background,
     "--mock-page-height": `${layout.page.height}px`,
-    "--mock-page-width": `${layout.page.width}px`
+    "--mock-page-width": `${layout.page.width}px`,
+    // Threaded through from presentationTiming.ts so the CSS-driven parts of
+    // the trick animation (the winner pulse and the collection flight) stay
+    // in lockstep with the same constants the JS timing uses, instead of
+    // duplicating the numbers here.
+    "--trick-collect-duration": `${TRICK_COLLECT_DURATION_MS}ms`,
+    "--trick-result-hold-duration": `${TRICK_RESULT_HOLD_MS}ms`,
+    "--trick-winner-pulse-duration": `${TRICK_WINNER_PULSE_MS}ms`
   } as CSSProperties;
 }
 
@@ -1483,6 +1680,10 @@ function useViewportSize(
 
 function toLayoutPrecision(value: number): number {
   return Number(value.toFixed(3));
+}
+
+function alwaysFalse(): boolean {
+  return false;
 }
 
 export const productionTableTestExports = {
