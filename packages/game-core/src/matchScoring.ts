@@ -54,7 +54,8 @@ export function calculateGameRoundScores(
     });
   }
 
-  const d = result.winner === "napoleon-team" ? result.targetPointCards : 0;
+  const napoleonTeamWon = result.winner === "napoleon-team";
+  const d = result.targetPointCards;
   return playerIds.map((playerId) => {
     const role: RoundScoringRole = playerId === result.napoleonPlayerId
       ? result.adjutantPlayerId === null || result.adjutantPlayerId === playerId
@@ -63,7 +64,7 @@ export function calculateGameRoundScores(
       : playerId === result.adjutantPlayerId
         ? "adjutant"
         : "alliance";
-    return { playerId, rawMatchScore: calculateRoundScore(role, d) };
+    return { playerId, rawMatchScore: calculateRoundScore(role, d, napoleonTeamWon) };
   });
 }
 
@@ -94,19 +95,28 @@ export function calculateMatchProgressScores(
   });
 }
 
-/** Calculates one round's unadjusted score from the existing outcome value d. */
-export function calculateRoundScore(role: RoundScoringRole, d: number): number {
+/**
+ * Calculates one round's unadjusted score from the existing outcome value d.
+ * Only the winning side receives a d-based score; the losing side other than
+ * Napoleon receives 0, and a losing Napoleon (solo or with an adjutant) receives
+ * a flat -5. No margin or other adjustment is added.
+ */
+export function calculateRoundScore(
+  role: RoundScoringRole,
+  d: number,
+  napoleonTeamWon: boolean
+): number {
   requireFinite(d, "d");
 
   switch (role) {
     case "napoleon":
-      return 2 * d - 5;
+      return napoleonTeamWon ? 2 * d : -5;
     case "adjutant":
-      return d;
+      return napoleonTeamWon ? d : 0;
     case "alliance":
-      return d;
+      return napoleonTeamWon ? 0 : d;
     case "napoleon-solo":
-      return 3 * d - 5;
+      return napoleonTeamWon ? 3 * d : -5;
   }
 }
 

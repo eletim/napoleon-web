@@ -103,10 +103,16 @@ export function completeCurrentRound(
     };
   }
 
+  const playerIds = currentGame.players.map((player) => player.id);
+  // The starter rotates to the next player each round (A -> B -> C -> D -> E) so
+  // that a match ends exactly when the starter has gone once around all players.
+  const nextStarterPlayerId = playerIds[match.currentRound % playerIds.length];
+
   return {
     currentRound: match.currentRound + 1,
     currentGame: createInitialGame({
-      playerIds: currentGame.players.map((player) => player.id),
+      playerIds,
+      starterPlayerId: nextStarterPlayerId,
       rng: options.rng
     }),
     roundResults,

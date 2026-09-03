@@ -116,4 +116,41 @@ describe("match lifecycle", () => {
       "MATCH_COMPLETED"
     );
   });
+
+  it("rotates the starter to the next player each round until all five have started once", () => {
+    let match = createInitialMatch({ playerIds, rng: noShuffle });
+    const starters: string[] = [];
+
+    for (let roundNumber = 1; roundNumber <= MATCH_ROUND_COUNT; roundNumber += 1) {
+      const activeGame = requireCurrentGame(match);
+
+      starters.push(activeGame.currentPlayerId);
+      expect(activeGame.bidding?.starterPlayerId).toBe(activeGame.currentPlayerId);
+
+      match = updateCurrentGame(match, finishWithAllPasses(activeGame));
+      match = completeCurrentRound(match, { rng: noShuffle });
+    }
+
+    // A -> B -> C -> D -> E, each player starting exactly once, in seat order.
+    expect(starters).toEqual(playerIds);
+    expect(new Set(starters).size).toBe(playerIds.length);
+    expect(match.completed).toBe(true);
+  });
+
+  it("has not completed the match until the fifth (final) starter's round ends", () => {
+    let match = createInitialMatch({ playerIds, rng: noShuffle });
+
+    for (let roundNumber = 1; roundNumber <= MATCH_ROUND_COUNT - 1; roundNumber += 1) {
+      match = updateCurrentGame(match, finishWithAllPasses(requireCurrentGame(match)));
+      match = completeCurrentRound(match, { rng: noShuffle });
+      expect(match.completed).toBe(false);
+    }
+
+    expect(requireCurrentGame(match).currentPlayerId).toBe(playerIds[4]);
+
+    match = updateCurrentGame(match, finishWithAllPasses(requireCurrentGame(match)));
+    match = completeCurrentRound(match, { rng: noShuffle });
+
+    expect(match.completed).toBe(true);
+  });
 });

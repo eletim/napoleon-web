@@ -244,5 +244,7 @@ export interface PlayerView {
 
 export interface CreateInitialGameOptions {
   playerIds?: readonly PlayerId[];
+  /** Defaults to playerIds[0] when omitted. */
+  starterPlayerId?: PlayerId;
   rng?: () => number;
 }

@@ -43,6 +43,12 @@ export function createInitialGame(options: CreateInitialGameOptions = {}): GameS
     throw new GameRuleError("INVALID_PLAYER_COUNT", "A game must have exactly 5 players.");
   }
 
+  const starterPlayerId = options.starterPlayerId ?? playerIds[0];
+
+  if (!playerIds.includes(starterPlayerId)) {
+    throw new GameRuleError("PLAYER_NOT_FOUND", "Starter player was not found among playerIds.");
+  }
+
   const deck = shuffleDeck(createDeck(), options.rng);
   const cardsPerPlayer = Math.floor(deck.length / playerCount);
   const dealtCardCount = cardsPerPlayer * playerCount;
@@ -58,14 +64,14 @@ export function createInitialGame(options: CreateInitialGameOptions = {}): GameS
   return {
     players,
     phase: "bidding",
-    currentPlayerId: playerIds[0],
+    currentPlayerId: starterPlayerId,
     currentTrick: [],
     completedTricks: [],
     trumpSuit: null,
     contract: null,
     adjutant: null,
     bidding: {
-      starterPlayerId: playerIds[0],
+      starterPlayerId,
       highestBid: null,
       consecutivePassCount: 0,
       history: []

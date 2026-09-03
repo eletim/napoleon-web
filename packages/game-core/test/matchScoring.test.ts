@@ -14,16 +14,31 @@ import {
 const playerIds = ["alice", "bob", "carol", "dave", "eve"] as const;
 
 describe("match scoring", () => {
-  it("calculates each role's round score from d without a margin adjustment", () => {
-    expect(calculateRoundScore("napoleon", 13)).toBe(21);
-    expect(calculateRoundScore("adjutant", 13)).toBe(13);
-    expect(calculateRoundScore("alliance", 13)).toBe(13);
-    expect(calculateRoundScore("napoleon-solo", 13)).toBe(34);
+  it("gives only the winning side a d-based score, without a margin adjustment", () => {
+    // Napoleon team wins: napoleon = 2d, adjutant = d, alliance = 0.
+    expect(calculateRoundScore("napoleon", 13, true)).toBe(26);
+    expect(calculateRoundScore("adjutant", 13, true)).toBe(13);
+    expect(calculateRoundScore("alliance", 13, true)).toBe(0);
+    // Napoleon solo wins: napoleon-solo = 3d, alliance = 0.
+    expect(calculateRoundScore("napoleon-solo", 13, true)).toBe(39);
+    expect(calculateRoundScore("alliance", 13, true)).toBe(0);
 
-    expect(calculateRoundScore("napoleon", 19)).toBe(33);
-    expect(calculateRoundScore("adjutant", 19)).toBe(19);
-    expect(calculateRoundScore("alliance", 19)).toBe(19);
-    expect(calculateRoundScore("napoleon-solo", 19)).toBe(52);
+    // Alliance wins: napoleon = -5, adjutant = 0, alliance = d.
+    expect(calculateRoundScore("napoleon", 13, false)).toBe(-5);
+    expect(calculateRoundScore("adjutant", 13, false)).toBe(0);
+    expect(calculateRoundScore("alliance", 13, false)).toBe(13);
+    // Alliance wins against a solo napoleon: napoleon-solo = -5, alliance = d.
+    expect(calculateRoundScore("napoleon-solo", 13, false)).toBe(-5);
+
+    expect(calculateRoundScore("napoleon", 19, true)).toBe(38);
+    expect(calculateRoundScore("adjutant", 19, true)).toBe(19);
+    expect(calculateRoundScore("alliance", 19, true)).toBe(0);
+    expect(calculateRoundScore("napoleon-solo", 19, true)).toBe(57);
+
+    expect(calculateRoundScore("napoleon", 19, false)).toBe(-5);
+    expect(calculateRoundScore("adjutant", 19, false)).toBe(0);
+    expect(calculateRoundScore("alliance", 19, false)).toBe(19);
+    expect(calculateRoundScore("napoleon-solo", 19, false)).toBe(-5);
   });
 
   it("accumulates exactly five round scores into rawMatchScore", () => {
@@ -135,6 +150,7 @@ describe("match scoring", () => {
   });
 
   it("assigns all five scores when the Napoleon team wins with an adjutant", () => {
+    // napoleon = 2d, adjutant = d, alliance/citizen = 0.
     expect(calculateGameRoundScores({
       resultType: "standard",
       winner: "napoleon-team",
@@ -144,15 +160,16 @@ describe("match scoring", () => {
       napoleonPlayerId: "alice",
       adjutantPlayerId: "bob"
     }, playerIds)).toEqual([
-      { playerId: "alice", rawMatchScore: 25 },
+      { playerId: "alice", rawMatchScore: 30 },
       { playerId: "bob", rawMatchScore: 15 },
-      { playerId: "carol", rawMatchScore: 15 },
-      { playerId: "dave", rawMatchScore: 15 },
-      { playerId: "eve", rawMatchScore: 15 }
+      { playerId: "carol", rawMatchScore: 0 },
+      { playerId: "dave", rawMatchScore: 0 },
+      { playerId: "eve", rawMatchScore: 0 }
     ]);
   });
 
   it("assigns all five scores when the alliance wins against Napoleon and an adjutant", () => {
+    // napoleon = -5, adjutant = 0, alliance/citizen = d (issue #473's reversed fix corrected).
     expect(calculateGameRoundScores({
       resultType: "standard",
       winner: "alliance",
@@ -161,18 +178,20 @@ describe("match scoring", () => {
       targetPointCards: 15,
       napoleonPlayerId: "alice",
       adjutantPlayerId: "bob"
-    }, playerIds).map(({ rawMatchScore }) => rawMatchScore)).toEqual([-5, 0, 0, 0, 0]);
+    }, playerIds).map(({ rawMatchScore }) => rawMatchScore)).toEqual([-5, 0, 15, 15, 15]);
   });
 
   it("assigns all five scores for Napoleon-solo wins and losses", () => {
+    // Solo win: napoleon-solo = 3d, alliance/citizen = 0.
     expect(calculateGameRoundScores(
       standardResult("napoleon-team", 15, "alice", null),
       playerIds
-    ).map(({ rawMatchScore }) => rawMatchScore)).toEqual([40, 15, 15, 15, 15]);
+    ).map(({ rawMatchScore }) => rawMatchScore)).toEqual([45, 0, 0, 0, 0]);
+    // Solo loss: napoleon-solo = -5, alliance/citizen = d.
     expect(calculateGameRoundScores(
       standardResult("alliance", 15, "alice", null),
       playerIds
-    ).map(({ rawMatchScore }) => rawMatchScore)).toEqual([-5, 0, 0, 0, 0]);
+    ).map(({ rawMatchScore }) => rawMatchScore)).toEqual([-5, 15, 15, 15, 15]);
   });
 
   it("keeps all-pass payoff assignment unchanged", () => {
@@ -203,11 +222,11 @@ describe("match scoring", () => {
     ];
 
     expect(calculateMatchProgressScores(playerIds, results)).toEqual([
-      { playerId: "alice", roundScores: [21, 0, 15, 0, -1], rawMatchScore: 35 },
-      { playerId: "bob", roundScores: [13, -5, 15, 0, -1], rawMatchScore: 22 },
-      { playerId: "carol", roundScores: [13, 0, 40, 0, -1], rawMatchScore: 52 },
-      { playerId: "dave", roundScores: [13, 0, 15, -5, -1], rawMatchScore: 22 },
-      { playerId: "eve", roundScores: [13, 0, 15, 0, 1], rawMatchScore: 29 }
+      { playerId: "alice", roundScores: [26, 15, 0, 17, -1], rawMatchScore: 57 },
+      { playerId: "bob", roundScores: [13, -5, 0, 17, -1], rawMatchScore: 24 },
+      { playerId: "carol", roundScores: [0, 0, 45, 17, -1], rawMatchScore: 61 },
+      { playerId: "dave", roundScores: [0, 15, 0, -5, -1], rawMatchScore: 9 },
+      { playerId: "eve", roundScores: [0, 15, 0, 17, 1], rawMatchScore: 33 }
     ]);
   });
 
@@ -233,11 +252,11 @@ describe("match scoring", () => {
     ];
 
     expect(calculateMatchProgressScores(playerIds, results)).toEqual([
-      { playerId: "alice", roundScores: [1, 0], rawMatchScore: 1 },
+      { playerId: "alice", roundScores: [1, 15], rawMatchScore: 16 },
       { playerId: "bob", roundScores: [-1, -5], rawMatchScore: -6 },
       { playerId: "carol", roundScores: [-1, 0], rawMatchScore: -1 },
-      { playerId: "dave", roundScores: [-1, 0], rawMatchScore: -1 },
-      { playerId: "eve", roundScores: [-1, 0], rawMatchScore: -1 }
+      { playerId: "dave", roundScores: [-1, 15], rawMatchScore: 14 },
+      { playerId: "eve", roundScores: [-1, 15], rawMatchScore: 14 }
     ]);
   });
 });

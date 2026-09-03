@@ -358,8 +358,20 @@ export async function registerRoutes(
         record.match = completeCurrentRound(updateCurrentGame(record.match, record.state));
         if (record.match.currentGame !== null) {
           record.state = record.match.currentGame;
+          // The starter rotates to the next player each round, so it may take an
+          // AI turn or several before the human is up again in the new round.
+          const advanced = await advanceAiTurns(
+            record.state,
+            record.humanPlayerId,
+            record.agents,
+            []
+          );
+          record.state = advanced.state;
+          syncMatchGame(record);
+          record.publicActionHistory = advanced.publicActionHistory;
+        } else {
+          record.publicActionHistory = [];
         }
-        record.publicActionHistory = [];
       } catch (error) {
         return handleActionError(reply, error);
       }
