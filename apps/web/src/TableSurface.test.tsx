@@ -105,11 +105,19 @@ describe("TableSurface", () => {
       })
     );
 
-    expect(countOccurrences(biddingHtml, "mock-projected-role-marker-text")).toBe(5);
-    expect(biddingHtml).toContain(">?</tspan>");
-    expect(playingHtml).toContain(">ナポレオン</tspan>");
-    expect(playingHtml).toContain(">副官</tspan>");
-    expect(playingHtml).toContain(">市民</tspan>");
+    // Role glyph and score are separate <text> elements (two per seat).
+    expect(countOccurrences(biddingHtml, "mock-projected-role-marker-text")).toBe(10);
+    expect(biddingHtml).toContain(">?</text>");
+    // Roles show as compact badge glyphs, not spelled-out role names.
+    expect(playingHtml).toContain(">♛</text>");
+    expect(playingHtml).toContain(">★</text>");
+    expect(playingHtml).toContain(">⚑</text>");
+    expect(playingHtml).toContain("mock-projected-role-marker-fill-napoleon");
+    expect(playingHtml).toContain("mock-projected-role-marker-fill-adjutant");
+    expect(playingHtml).toContain("mock-projected-role-marker-fill-citizen");
+    // Score sits in its own scoreboard-styled box, separate from the role badge.
+    expect(countOccurrences(playingHtml, "mock-projected-role-score-fill")).toBe(5);
+    expect(countOccurrences(playingHtml, "mock-projected-role-marker-score")).toBe(5);
     expect(productionTableTestExports.playerRoleLabel("player-1", createState({ opponentHandCounts: [9, 9, 9, 9] }))).toBe("ナポレオン");
     expect(productionTableTestExports.playerRoleLabel("player-3", createState({ opponentHandCounts: [9, 9, 9, 9] }))).toBe("?");
     expect(productionTableTestExports.playerRoleLabel("player-1", createState({
@@ -308,7 +316,7 @@ describe("TableSurface", () => {
     expect(fullHtml).toContain('cid="Kh"');
   });
 
-  it("renders ten production cards in a stable five-column by two-row hand region", () => {
+  it("renders ten production cards in a single row inside a stable fixed-footprint hand region", () => {
     const tenCards = (["A", "K", "Q", "J", "10", "9", "8", "7", "6", "5"] as const)
       .map((rank) => standardCard("spades", rank));
     const fullHtml = renderTable(createState({
@@ -322,14 +330,21 @@ describe("TableSurface", () => {
     const stylePattern = /aria-label="自分の手札" class="mock-self-hand production-self-hand" style="([^"]+)"/;
     const fullStyle = fullHtml.match(stylePattern)?.[1] ?? "";
     const reducedStyle = reducedHtml.match(stylePattern)?.[1] ?? "";
+    // Footprint bounds (sized for the 13-card maximum) must stay fixed regardless of hand size;
+    // only --mock-self-content-left (which centers the actual cards inside that footprint) may
+    // change with the card count.
     const fixedBounds = (style: string) => style.match(
-      /--mock-self-hand-columns:[^;]+;--mock-self-hand-height:[^;]+;--mock-self-hand-left:[^;]+;--mock-self-hand-rows:[^;]+;--mock-self-hand-top:[^;]+;--mock-self-hand-width:[^;]+/
+      /--mock-self-hand-height:[^;]+;--mock-self-hand-left:[^;]+;--mock-self-hand-top:[^;]+;--mock-self-hand-width:[^;]+/
     )?.[0];
+    const cardIndexes = (html: string) => Array.from(
+      html.matchAll(/mock-self-hand-card[^>]*--mock-self-card-index:(\d+)/g)
+    ).map((match) => Number(match[1]));
 
     expect(countOccurrences(fullHtml, "mock-self-hand-card")).toBe(10);
-    expect(fullStyle).toContain("--mock-self-hand-columns:5");
-    expect(fullStyle).toContain("--mock-self-hand-rows:2");
+    expect(fullStyle).toContain("--mock-self-card-step:");
+    expect(fixedBounds(fullStyle)).toBeDefined();
     expect(fixedBounds(fullStyle)).toBe(fixedBounds(reducedStyle));
+    expect(cardIndexes(fullHtml)).toEqual(Array.from({ length: 10 }, (_, index) => index));
   });
 
   it("keeps exchange/adjutant/result action panels available outside bidding", () => {
@@ -351,8 +366,7 @@ describe("TableSurface", () => {
     expect(html).toContain("埋札交換");
     expect(html).toContain("捨てる");
     expect(countOccurrences(html, "mock-self-hand-card")).toBe(13);
-    expect(html).toContain("--mock-self-hand-columns:7");
-    expect(html).toContain("--mock-self-hand-rows:2");
+    expect(html).toContain("--mock-self-card-step:");
     expect(countOccurrences(html, "production-card-selectable")).toBe(13);
   });
 });

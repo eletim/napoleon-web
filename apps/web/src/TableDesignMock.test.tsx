@@ -135,8 +135,8 @@ describe("TableDesignMock", () => {
     expect(html).not.toContain("mock-card-corner");
     expect(html).not.toContain("mock-card-face");
     expect(html).toContain("aria-label=\"Js\"");
-    expect(html).toContain(">ナポ</span>");
-    expect(html).toContain(">副</span>");
+    expect(html).toContain(">♛</span>");
+    expect(html).toContain(">★</span>");
   });
 
   it("renders the issue 348 projected mock from projected tabletop polygons", () => {
@@ -206,7 +206,7 @@ describe("TableDesignMock", () => {
     expect(projected).not.toContain("mock-bidding-bubble");
   });
 
-  it("places the bidding overlay over the table without covering the self hand at 1920x1080", () => {
+  it("centers the bidding overlay on screen over the table without covering the self hand at 1920x1080", () => {
     const viewport = { width: 1920, height: 1080 };
     const overlay = createBiddingOverlayGeometry(tableDesignMockLayout, viewport);
     const overlayBox = boxFromCenter(overlay);
@@ -223,11 +223,11 @@ describe("TableDesignMock", () => {
       y: visibleSelfHandTop
     });
 
-    const roleBoardBox = createProjectedRoleBoardBoundingBox(tableDesignMockLayout, viewport);
-
     expect(overlay.width).toBeLessThanOrEqual(820);
     expect(overlay.height).toBe(430);
-    expect(boxesOverlap(overlayBox, roleBoardBox)).toBe(false);
+    // The bidding UI is the central control for this phase: dead center
+    // horizontally, not tucked beside the role board.
+    expect(overlay.x).toBeCloseTo(viewport.width / 2);
     expect(overlayBox.top).toBeGreaterThanOrEqual(tableDesignMockLayout.bidding.overlay.viewportMargin);
     expect(overlayBox.bottom).toBeLessThanOrEqual(
       visibleSelfHandTop - tableDesignMockLayout.bidding.overlay.gapFromSelfHand
@@ -235,21 +235,29 @@ describe("TableDesignMock", () => {
     expect(boxesOverlap(overlayBox, selfHandBox)).toBe(false);
   });
 
-  it("keeps the projected match-information pentagon visible during bidding at desktop and mobile landscape viewports", () => {
+  it("keeps the bidding overlay horizontally centered without covering the self hand at desktop and mobile landscape viewports", () => {
     for (const viewport of [
       { width: 1440, height: 900 },
       { width: 844, height: 390 }
     ]) {
-      const overlayBox = boxFromCenter(
-        createBiddingOverlayGeometry(tableDesignMockLayout, viewport)
-      );
+      const overlay = createBiddingOverlayGeometry(tableDesignMockLayout, viewport);
+      const overlayBox = boxFromCenter(overlay);
       const roleBoardBox = createProjectedRoleBoardBoundingBox(
         tableDesignMockLayout,
         viewport
       );
       const bubbles = createBiddingBubbleLayouts(tableDesignMockLayout, viewport);
+      const isCompactLandscape = viewport.height <= 520 && viewport.width > viewport.height;
 
-      expect(boxesOverlap(overlayBox, roleBoardBox)).toBe(false);
+      if (isCompactLandscape) {
+        // Short landscape viewports have too little room around the role
+        // board for both the overlay and the compact per-seat labels to
+        // stay centered without covering each other, so this keeps the
+        // pre-existing side placement there.
+        expect(boxesOverlap(overlayBox, roleBoardBox)).toBe(false);
+      } else {
+        expect(overlay.x).toBeCloseTo(viewport.width / 2);
+      }
       for (const bubble of bubbles) {
         expect(boxesOverlap(boxFromCenter(bubble), roleBoardBox)).toBe(false);
       }
@@ -373,42 +381,47 @@ describe("TableDesignMock", () => {
     }
   });
 
-  it("keeps a fixed self-hand footprint as cards are removed", () => {
+  it("keeps a fixed self-hand footprint sized for the maximum hand as cards are removed", () => {
     const viewportWidth = tableDesignMockLayout.page.width;
     const metrics = createSelfHandViewportMetrics(viewportWidth);
     const exchangeHand = createSelfHandViewportLayout(tableDesignMockLayout, 13);
     const fullHand = createSelfHandViewportLayout(tableDesignMockLayout, 10);
     const reducedHand = createSelfHandViewportLayout(tableDesignMockLayout, 3);
+    const emptyHand = createSelfHandViewportLayout(tableDesignMockLayout, 0);
 
     expect(metrics.cardSize.width).toBeCloseTo((0.8 * viewportWidth) / 13);
     expect(metrics.cardSize.height).toBeCloseTo(metrics.cardSize.width * 7 / 5);
     expect(metrics.gap).toBeCloseTo((0.16 * viewportWidth) / 12);
-    expect(fullHand.columnCount).toBe(5);
-    expect(fullHand.rowCount).toBe(2);
-    expect(fullHand.handWidth).toBeCloseTo(selfHandWidth(5, metrics));
-    expect(fullHand.contentWidth).toBe(fullHand.handWidth);
+    expect(fullHand.cardCount).toBe(10);
+    expect(fullHand.handWidth).toBeCloseTo(selfHandWidth(13, metrics));
+    expect(fullHand.handHeight).toBeCloseTo(metrics.cardSize.height);
+    expect(fullHand.contentWidth).toBeCloseTo(selfHandWidth(10, metrics));
+    expect(fullHand.contentWidth).toBeLessThan(fullHand.handWidth);
     expect(fullHand.top).toBeGreaterThan(0);
     expect(fullHand.bottom).toBeLessThanOrEqual(tableDesignMockLayout.page.height);
 
-    expect(reducedHand.cardSize.width).toBe(fullHand.cardSize.width);
-    expect(reducedHand.cardSize.height).toBe(fullHand.cardSize.height);
-    expect(reducedHand.gap).toBe(fullHand.gap);
+    // Only the actual rendered content width changes with card count; the footprint used by
+    // every other layout computation (table fit, self player info, opponent avoidance) stays
+    // fixed for the full 0-to-13 range.
+    for (const hand of [reducedHand, exchangeHand, emptyHand]) {
+      expect(hand.cardSize).toEqual(fullHand.cardSize);
+      expect(hand.gap).toBe(fullHand.gap);
+      expect(hand.step).toBe(fullHand.step);
+      expect(hand.handWidth).toBe(fullHand.handWidth);
+      expect(hand.handHeight).toBe(fullHand.handHeight);
+      expect(hand.left).toBe(fullHand.left);
+      expect(hand.top).toBe(fullHand.top);
+      expect(hand.bottom).toBe(fullHand.bottom);
+      expect(hand.center).toEqual(fullHand.center);
+    }
+
     expect(reducedHand.contentWidth).toBeLessThan(fullHand.contentWidth);
-    expect(reducedHand.handWidth).toBe(fullHand.handWidth);
-    expect(reducedHand.handHeight).toBe(fullHand.handHeight);
-    expect(reducedHand.left).toBe(fullHand.left);
-    expect(reducedHand.top).toBe(fullHand.top);
-    expect(reducedHand.center.x).toBeCloseTo(viewportWidth / 2);
-    expect(exchangeHand).toMatchObject({
-      bottom: fullHand.bottom,
-      handHeight: fullHand.handHeight,
-      handWidth: fullHand.handWidth,
-      left: fullHand.left,
-      top: fullHand.top
-    });
+    expect(emptyHand.contentWidth).toBe(0);
+    expect(exchangeHand.contentWidth).toBeCloseTo(exchangeHand.handWidth);
+    expect(fullHand.center.x).toBeCloseTo(viewportWidth / 2);
   });
 
-  it("places ten self-hand cards in five fixed columns and two rows", () => {
+  it("places every self-hand card in a single row, centered inside the fixed footprint", () => {
     for (const viewport of [
       { width: 1920, height: 1080 },
       { width: 844, height: 390 },
@@ -417,23 +430,31 @@ describe("TableDesignMock", () => {
       const hand = createSelfHandViewportLayout(tableDesignMockLayout, 10, viewport);
       const cards = createSelfHandCardPlacements(tableDesignMockLayout, 10, viewport);
 
-      expect(new Set(cards.map((card) => card.x)).size).toBe(5);
-      expect(new Set(cards.map((card) => card.y)).size).toBe(2);
-      const firstVisibleRowTop = hand.top;
-      for (const card of cards.slice(0, 5)) {
-        expect(card.y).toBeCloseTo(firstVisibleRowTop);
+      expect(new Set(cards.map((card) => card.x)).size).toBe(10);
+      expect(new Set(cards.map((card) => card.y)).size).toBe(1);
+      for (const card of cards) {
+        expect(card.y).toBe(hand.top);
+        expect(card.height).toBeCloseTo(hand.handHeight);
       }
-      for (const card of cards.slice(5)) {
-        expect(card.y).toBeCloseTo(firstVisibleRowTop + hand.rowStep);
+      for (const [index, card] of cards.entries()) {
+        if (index > 0) {
+          expect(card.x).toBeCloseTo(cards[index - 1].x + hand.step);
+        }
       }
-      expect(cards[0]?.x).toBe(hand.left);
-      expect(cards[5]?.x).toBe(hand.left);
+      // Ten cards are narrower than the 13-card footprint, so they are centered inside it
+      // rather than starting flush at the footprint's left edge.
+      expect(cards[0]?.x).toBeGreaterThan(hand.left);
+      expect(Math.max(...cards.map((card) => card.x + card.width)))
+        .toBeLessThan(hand.left + hand.handWidth);
       expect(Math.max(...cards.map((card) => card.y + card.height))).toBeCloseTo(hand.bottom);
 
       const exchangeHand = createSelfHandViewportLayout(tableDesignMockLayout, 13, viewport);
       const exchangeCards = createSelfHandCardPlacements(tableDesignMockLayout, 13, viewport);
-      expect(new Set(exchangeCards.map((card) => card.x)).size).toBe(7);
-      expect(new Set(exchangeCards.map((card) => card.y)).size).toBe(2);
+      expect(new Set(exchangeCards.map((card) => card.x)).size).toBe(13);
+      expect(new Set(exchangeCards.map((card) => card.y)).size).toBe(1);
+      // At the maximum hand size, the content exactly fills the footprint, so it starts flush
+      // at the footprint's left edge.
+      expect(exchangeCards[0]?.x).toBeCloseTo(exchangeHand.left);
       expect(Math.min(...exchangeCards.map((card) => card.y))).toBeCloseTo(exchangeHand.top);
       expect(Math.max(...exchangeCards.map((card) => card.y + card.height))).toBeCloseTo(
         exchangeHand.bottom
@@ -453,12 +474,12 @@ describe("TableDesignMock", () => {
     expect(fullHdHand.cardSize.width).toBeCloseTo((0.8 * 1920) / 13);
     expect(fullHdHand.cardSize.height).toBeCloseTo(fullHdHand.cardSize.width * 7 / 5);
     expect(fullHdHand.gap).toBeCloseTo((0.16 * 1920) / 12);
-    expect(fullHdHand.handWidth).toBeCloseTo(selfHandWidth(5, fullHdHand));
+    expect(fullHdHand.handWidth).toBeCloseTo(selfHandWidth(13, fullHdHand));
     expect(fullHdHand.center.x).toBeCloseTo(960);
     expect(fullHdHand.bottom).toBe(1080 - tableDesignMockLayout.selfHandUi.bottomInset);
 
     expect(qhdHand.cardSize.width).toBeCloseTo((0.8 * 2560) / 13);
-    expect(qhdHand.handWidth).toBeCloseTo(selfHandWidth(5, qhdHand));
+    expect(qhdHand.handWidth).toBeCloseTo(selfHandWidth(13, qhdHand));
     expect(qhdHand.center.x).toBeCloseTo(1280);
     expect(qhdHand.cardSize.width).toBeGreaterThan(fullHdHand.cardSize.width);
   });
@@ -511,9 +532,17 @@ describe("TableDesignMock", () => {
       );
       expect(fullHand.left).toBeGreaterThanOrEqual(0);
       expect(fullHand.left + fullHand.handWidth).toBeLessThanOrEqual(viewport.width);
+      // All 13 exchange cards stay inside the viewport, not just the 10-card hand.
+      expect(exchangeHandBox.top).toBeGreaterThanOrEqual(0);
+      expect(exchangeHandBox.bottom).toBeLessThanOrEqual(viewport.height);
+      expect(exchangeHandBox.left).toBeGreaterThanOrEqual(0);
+      expect(exchangeHandBox.right).toBeLessThanOrEqual(viewport.width);
+      // The table never crowds the hand closer than gapFromTable; the single-row hand frees up
+      // enough vertical room that the table's own height ratio cap, not the hand, is often the
+      // binding constraint, so the actual gap can exceed the minimum.
       expect(
         normalHandBox.top - normalProjectedTable.transformedTableBox.bottom
-      ).toBeCloseTo(tableDesignMockLayout.selfHandUi.gapFromTable);
+      ).toBeGreaterThanOrEqual(tableDesignMockLayout.selfHandUi.gapFromTable - 0.01);
       expect(exchangeProjectedTable.transformedTableBox.bottom).toBeLessThanOrEqual(
         fullHand.top - tableDesignMockLayout.selfHandUi.gapFromTable
       );
@@ -898,8 +927,11 @@ describe("TableDesignMock", () => {
     const selfBox = boxFromCenter(selfInfo);
 
     expect(selfBox.left).toBeGreaterThanOrEqual(tableDesignMockLayout.playerInfo.viewportMargin);
-    expect(selfBox.right).toBeLessThanOrEqual(
-      selfHand.left - tableDesignMockLayout.playerInfo.selfGap
+    // The single-row hand's fixed footprint leaves little side margin at this viewport width,
+    // so self player info sits directly above the hand (left-aligned to its footprint) rather
+    // than beside it.
+    expect(selfBox.bottom).toBeLessThanOrEqual(
+      selfHand.top - tableDesignMockLayout.playerInfo.selfGap
     );
     expect(boxesOverlap(selfBox, boxFromTopLeft({
       height: selfHand.handHeight,
@@ -1031,6 +1063,93 @@ describe("TableDesignMock", () => {
         for (const otherBox of boxes.slice(index + 1)) {
           expect(boxesOverlap(box, otherBox)).toBe(false);
         }
+      }
+    }
+  });
+
+  it("keeps every player info panel fixed as the self hand shrinks from 13 to 0, on desktop and mobile landscape", () => {
+    for (const viewport of [
+      { width: 1920, height: 1080 },
+      { width: 568, height: 320 }
+    ]) {
+      const cardCounts = [13, 10, 9, 5, 1, 0];
+      const layoutsByCount = cardCounts.map((cardCount) => ({
+        cardCount,
+        infos: createPlayerInfoLayouts(tableDesignMockLayout, viewport, true, cardCount)
+      }));
+      const [baseline, ...rest] = layoutsByCount;
+
+      for (const { cardCount, infos } of rest) {
+        expect(infos, `${viewport.width}x${viewport.height} at ${cardCount} cards`).toEqual(baseline.infos);
+      }
+
+      // At the widest (13-card) hand, self player info must still clear the actually-rendered
+      // cards, not just the fixed footprint.
+      const selfInfo = baseline.infos.find((info) => info.seatId === "self");
+      const exchangeCards = createSelfHandCardPlacements(tableDesignMockLayout, 13, viewport);
+
+      expect(selfInfo).toBeDefined();
+      if (selfInfo !== undefined && exchangeCards.length > 0) {
+        const exchangeHandBox = boundingTestBox(exchangeCards.flatMap((card) => [
+          { x: card.x, y: card.y },
+          { x: card.x + card.width, y: card.y },
+          { x: card.x + card.width, y: card.y + card.height },
+          { x: card.x, y: card.y + card.height }
+        ]));
+
+        expect(boxesOverlap(boxFromCenter(selfInfo), exchangeHandBox)).toBe(false);
+      }
+    }
+  });
+
+  it("keeps self player info within the viewport margin on a wide, short viewport with enough vertical room", () => {
+    // A wide-but-short viewport still leaves enough vertical room above the hand for the panel
+    // (unitHeight + selfGap) here, so the panel's y-position stays within the viewport margin
+    // as usual.
+    const viewport = { width: 1200, height: 250 };
+    const selfInfo = createPlayerInfoLayouts(tableDesignMockLayout, viewport, true, 13)
+      .find((info) => info.seatId === "self");
+
+    expect(selfInfo).toBeDefined();
+    if (selfInfo !== undefined) {
+      const selfBox = boxFromCenter(selfInfo);
+      const exchangeCards = createSelfHandCardPlacements(tableDesignMockLayout, 13, viewport);
+      const exchangeHandBox = boundingTestBox(exchangeCards.flatMap((card) => [
+        { x: card.x, y: card.y },
+        { x: card.x + card.width, y: card.y },
+        { x: card.x + card.width, y: card.y + card.height },
+        { x: card.x, y: card.y + card.height }
+      ]));
+
+      expect(selfBox.top).toBeGreaterThanOrEqual(tableDesignMockLayout.playerInfo.viewportMargin - 0.01);
+      expect(selfBox.bottom).toBeLessThanOrEqual(viewport.height);
+      expect(boxesOverlap(selfBox, exchangeHandBox)).toBe(false);
+    }
+  });
+
+  it("keeps self player info clear of the 13-card hand even on an extreme viewport with no room to also honor the margin", () => {
+    // At this aspect ratio, the fixed-width-scaled cards leave less vertical room above the
+    // hand than the panel needs, so the viewport-margin invariant cannot be honored too;
+    // staying clear of the actually-rendered hand takes priority.
+    for (const viewport of [
+      { width: 3000, height: 300 },
+      { width: 4000, height: 200 }
+    ]) {
+      const selfInfo = createPlayerInfoLayouts(tableDesignMockLayout, viewport, true, 13)
+        .find((info) => info.seatId === "self");
+
+      expect(selfInfo).toBeDefined();
+      if (selfInfo !== undefined) {
+        const selfBox = boxFromCenter(selfInfo);
+        const exchangeCards = createSelfHandCardPlacements(tableDesignMockLayout, 13, viewport);
+        const exchangeHandBox = boundingTestBox(exchangeCards.flatMap((card) => [
+          { x: card.x, y: card.y },
+          { x: card.x + card.width, y: card.y },
+          { x: card.x + card.width, y: card.y + card.height },
+          { x: card.x, y: card.y + card.height }
+        ]));
+
+        expect(boxesOverlap(selfBox, exchangeHandBox)).toBe(false);
       }
     }
   });
@@ -1451,11 +1570,11 @@ describe("TableDesignMock", () => {
 
   it("generates role markers inside the five sectors between the outer and inner pentagons", () => {
     const expected = {
-      "top-left": { x: 208.648, y: 168.619 },
-      "top-right": { x: 421.352, y: 168.619 },
-      right: { x: 487.081, y: 370.913 },
-      self: { x: 315, y: 495.937 },
-      left: { x: 142.919, y: 370.913 }
+      "top-left": { x: 208.648, y: 168.619, rotation: 144 },
+      "top-right": { x: 421.352, y: 168.619, rotation: -144 },
+      right: { x: 487.081, y: 370.913, rotation: -72 },
+      self: { x: 315, y: 495.937, rotation: 0 },
+      left: { x: 142.919, y: 370.913, rotation: 72 }
     } as const;
 
     for (const seatId of ["top-left", "top-right", "right", "self", "left"] as const) {
@@ -1471,6 +1590,9 @@ describe("TableDesignMock", () => {
       expect(marker.x).toBeCloseTo((outerMidpoint.x + innerMidpoint.x) / 2);
       expect(marker.y).toBeCloseTo((outerMidpoint.y + innerMidpoint.y) / 2);
       expect(marker.sector).toEqual(sector);
+      // Seat-facing: parallel to the pentagon edge, text top toward the
+      // center and text bottom toward the seat.
+      expect(marker.rotation).toBeCloseTo(expected[seatId].rotation);
     }
   });
 });

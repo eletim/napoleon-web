@@ -36,6 +36,7 @@ import {
   createRoleBoardSectorLines,
   createRoleMarkerGeometry,
   createSelfHandViewportLayout,
+  polygonCenter,
   projectTableCard,
   projectTablePoint,
   projectTablePolygon,
@@ -44,6 +45,8 @@ import {
   roleBoardInnerPolygon,
   roleBoardLocalToAbsolute,
   roleBoardOuterPolygon,
+  selfHandCardIndexStyle,
+  selfHandViewportStyle,
   tableDesignMockLayout
 } from "./TableDesignMock";
 import { fourColorSuitColors } from "./cardSuitTheme";
@@ -389,6 +392,31 @@ function ProjectedProductionBoard({
   );
 }
 
+function projectRoleMarkerBox(
+  layout: typeof tableDesignMockLayout,
+  marker: ReturnType<typeof createRoleMarkerGeometry>
+): { center: { x: number; y: number }; corners: readonly { x: number; y: number }[]; rotate: string } {
+  const center = roleBoardLocalToAbsolute(layout.center, marker);
+  const corners = projectTableCard(
+    {
+      direction: { x: 1, y: 0 },
+      height: marker.height,
+      normal: { x: 0, y: 1 },
+      width: marker.width,
+      x: center.x,
+      y: center.y
+    },
+    layout.camera
+  );
+  const boxCenter = polygonCenter(corners);
+
+  return {
+    center: boxCenter,
+    corners,
+    rotate: `rotate(${marker.rotation} ${boxCenter.x} ${boxCenter.y})`
+  };
+}
+
 function ProductionRoleMarker({
   adapters,
   compact,
@@ -405,77 +433,121 @@ function ProductionRoleMarker({
   state: PublicGameState | undefined;
 }) {
   const layout = tableDesignMockLayout;
-  const marker = createRoleMarkerGeometry(layout.center, seat);
-  const center = roleBoardLocalToAbsolute(layout.center, marker);
-  const corners = projectTableCard(
-    {
-      direction: { x: 1, y: 0 },
-      height: marker.height,
-      normal: { x: 0, y: 1 },
-      width: marker.width,
-      x: center.x,
-      y: center.y
-    },
-    layout.camera
-  );
   const roleText = createProductionRoleText(adapters, match, state, seat);
-  const displayedRole = compact ? roleText.compactRole : roleText.role;
+  const ariaLabel = `${roleText.player?.label ?? seat}: 役職 ${roleText.role}, 累積試合スコア ${roleText.score}`;
+  const groupClassName = `mock-projected-role-marker mock-projected-role-marker-${seat}`;
+
+  if (compact) {
+    // Compact (short-landscape) viewports keep the original single combined
+    // box: there isn't room to split role and score into two layers, and
+    // the collision solver may have nudged labelCenter away from its
+    // nominal spot to dodge nearby cards, so the fill rotates around its
+    // own (fixed) center while the text rotates around that adjusted point.
+    const marker = createRoleMarkerGeometry(layout.center, seat);
+    const box = projectRoleMarkerBox(layout, marker);
+    const textRotate = `rotate(${marker.rotation} ${labelCenter.x} ${labelCenter.y})`;
+
+    return (
+      <g aria-label={ariaLabel} className={groupClassName}>
+        <polygon
+          className={`mock-projected-role-marker-fill mock-projected-role-marker-fill-${roleText.kind}`}
+          points={svgPoints(box.corners)}
+          transform={box.rotate}
+        />
+        {/* The text's own CSS transform (counter-scale) would override an
+            SVG transform attribute on the same element, so the rotation
+            goes on a wrapping <g> instead. */}
+        <g transform={textRotate}>
+          <text
+            className="mock-projected-role-marker-text mock-projected-role-marker-compact"
+            dominantBaseline="central"
+            textAnchor="middle"
+            x={labelCenter.x}
+            y={labelCenter.y}
+          >
+            {roleText.compact}
+          </text>
+        </g>
+      </g>
+    );
+  }
+
+  // Score sits in its own box toward the sector's outer (seat) edge, and
+  // the role glyph in its own box toward the inner (pentagon-center) edge,
+  // so the two read as separate layers instead of being packed together.
+  const scoreBox = projectRoleMarkerBox(layout, createRoleMarkerGeometry(layout.center, seat, layout.roleScoreMarker));
+  const glyphBox = projectRoleMarkerBox(layout, createRoleMarkerGeometry(layout.center, seat, layout.roleGlyphMarker));
 
   return (
-    <g
-      aria-label={`${roleText.player?.label ?? seat}: 役職 ${roleText.role}, 累積試合スコア ${roleText.score}`}
-      className={`mock-projected-role-marker mock-projected-role-marker-${seat}`}
-    >
-      <polygon className="mock-projected-role-marker-fill" points={svgPoints(corners)} />
-      {compact ? (
+    <g aria-label={ariaLabel} className={groupClassName}>
+      <polygon
+        className="mock-projected-role-score-fill"
+        points={svgPoints(scoreBox.corners)}
+        transform={scoreBox.rotate}
+      />
+      <g transform={scoreBox.rotate}>
         <text
-          className="mock-projected-role-marker-text mock-projected-role-marker-compact"
+          className="mock-projected-role-marker-text mock-projected-role-marker-score"
           dominantBaseline="central"
           textAnchor="middle"
-          x={labelCenter.x}
-          y={labelCenter.y}
+          x={scoreBox.center.x}
+          y={scoreBox.center.y}
         >
-          {roleText.compact}
+          {roleText.score}
         </text>
-      ) : (
+      </g>
+      <polygon
+        className={`mock-projected-role-marker-fill mock-projected-role-marker-fill-${roleText.kind}`}
+        points={svgPoints(glyphBox.corners)}
+        transform={glyphBox.rotate}
+      />
+      <g transform={glyphBox.rotate}>
         <text
-          className="mock-projected-role-marker-text"
+          className="mock-projected-role-marker-text mock-projected-role-marker-role"
+          dominantBaseline="central"
           textAnchor="middle"
+          x={glyphBox.center.x}
+          y={glyphBox.center.y}
         >
-          <tspan
-            className="mock-projected-role-marker-role"
-            dominantBaseline="central"
-            x={labelCenter.x}
-            y={labelCenter.y - 11}
-          >
-            {displayedRole}
-          </tspan>
-          <tspan
-            className="mock-projected-role-marker-score"
-            dominantBaseline="central"
-            x={labelCenter.x}
-            y={labelCenter.y + 13}
-          >
-            {roleText.score}
-          </tspan>
+          {roleText.glyph}
         </text>
-      )}
+      </g>
     </g>
   );
 }
 
-function compactRoleLabel(role: string): string {
+type RoleMarkerKind = "adjutant" | "citizen" | "napoleon" | "napoleon-adjutant" | "unknown";
+
+// Short glyphs instead of spelled-out role names: the badge should read as
+// "this seat holds a role," not "this seat's role name is printed here."
+// 市民/連合軍 (the non-Napoleon side) share one team marker regardless of player.
+function roleMarkerGlyph(role: string): string {
   switch (role) {
     case "ナポレオン":
-      return "ナ";
+      return "♛";
     case "副官":
-      return "副";
+      return "★";
     case "市民":
-      return "市";
+      return "⚑";
     case "ナ/副":
-      return "ナ副";
+      return "♛★";
     default:
-      return role;
+      return "?";
+  }
+}
+
+function roleMarkerKind(role: string): RoleMarkerKind {
+  switch (role) {
+    case "ナポレオン":
+      return "napoleon";
+    case "副官":
+      return "adjutant";
+    case "市民":
+      return "citizen";
+    case "ナ/副":
+      return "napoleon-adjutant";
+    default:
+      return "unknown";
   }
 }
 
@@ -486,7 +558,8 @@ function createProductionRoleText(
   seat: TableSeatId
 ): {
   compact: string;
-  compactRole: string;
+  glyph: string;
+  kind: RoleMarkerKind;
   player: TablePlayerAdapter | undefined;
   role: string;
   score: string;
@@ -497,12 +570,12 @@ function createProductionRoleText(
     ? undefined
     : match?.players.find((entry) => entry.playerId === player.id)?.rawMatchScore;
   const score = rawMatchScore === undefined ? "—" : formatMatchScore(rawMatchScore);
-
-  const compactRole = compactRoleLabel(role);
+  const glyph = roleMarkerGlyph(role);
 
   return {
-    compact: `${compactRole}/${score}`,
-    compactRole,
+    compact: `${glyph} ${score}`,
+    glyph,
+    kind: roleMarkerKind(role),
     player,
     role,
     score
@@ -926,7 +999,7 @@ function SelfHandLayer({
       className="mock-self-hand production-self-hand"
       style={selfHandViewportStyle(hand)}
     >
-      {cards.map((card) => {
+      {cards.map((card, index) => {
         const interactionState = getCardInteractionState(card, state, legalCardIds, canExchange);
         const selected = selectedDiscardCardIds.includes(card.id);
 
@@ -952,6 +1025,7 @@ function SelfHandLayer({
             }
             key={card.id}
             onClick={() => onPlay(card)}
+            style={selfHandCardIndexStyle(index)}
             type="button"
           >
             <CardFace card={card} />
@@ -1209,31 +1283,6 @@ function biddingOverlayStyle(geometry: { height: number; width: number; x: numbe
     "--mock-bidding-secondary-column-width": `${compactContent.secondaryColumnWidth}px`,
     "--mock-x": `${geometry.x}px`,
     "--mock-y": `${geometry.y}px`
-  } as CSSProperties;
-}
-
-function selfHandViewportStyle(layout: {
-  cardSize: { height: number; width: number };
-  columnCount: number;
-  gap: number;
-  handHeight: number;
-  handWidth: number;
-  left: number;
-  rowCount: number;
-  rowGap: number;
-  top: number;
-}): CSSProperties {
-  return {
-    "--mock-self-card-gap": `${layout.gap}px`,
-    "--mock-self-card-height": `${layout.cardSize.height}px`,
-    "--mock-self-card-width": `${layout.cardSize.width}px`,
-    "--mock-self-hand-columns": layout.columnCount,
-    "--mock-self-hand-height": `${layout.handHeight}px`,
-    "--mock-self-hand-left": `${layout.left}px`,
-    "--mock-self-hand-rows": layout.rowCount,
-    "--mock-self-hand-top": `${layout.top}px`,
-    "--mock-self-hand-width": `${layout.handWidth}px`,
-    "--mock-self-row-gap": `${layout.rowGap}px`
   } as CSSProperties;
 }
 

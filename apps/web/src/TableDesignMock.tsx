@@ -83,6 +83,19 @@ interface TableDesignMockLayout {
     sectorMidpointRatio: number;
     width: number;
   };
+  // Split layout (production, non-compact): role glyph and score sit in
+  // their own boxes along the sector's outer(seat)-to-inner(center) axis
+  // instead of being packed into the single roleMarker box above.
+  roleGlyphMarker: {
+    height: number;
+    sectorMidpointRatio: number;
+    width: number;
+  };
+  roleScoreMarker: {
+    height: number;
+    sectorMidpointRatio: number;
+    width: number;
+  };
   opponentHand: {
     baselineOffset: number;
     cardCounts: Readonly<Record<OpponentSeatId, number>>;
@@ -147,8 +160,6 @@ const mockPageWidth = 2200;
 const mockPageHeight = 1830;
 const maxSelfHandCardCount = 13;
 const normalSelfHandCardCount = 10;
-const selfHandColumnCount = 5;
-const selfHandReservedRowCount = 2;
 const tabletopWorldScale = 1.8;
 const tableSurfaceRadius = scaleTabletopDimension(700);
 const roleBoardRadius = scaleTabletopDimension(175);
@@ -284,6 +295,18 @@ export const tableDesignMockLayout: TableDesignMockLayout = {
     height: scaleTabletopDimension(34),
     sectorMidpointRatio: 0.5
   },
+  // Closer to the inner pentagon (the pentagon-center side of the sector).
+  roleGlyphMarker: {
+    width: scaleTabletopDimension(46),
+    height: scaleTabletopDimension(36),
+    sectorMidpointRatio: 0.72
+  },
+  // Closer to the outer pentagon (the seat side of the sector).
+  roleScoreMarker: {
+    width: scaleTabletopDimension(60),
+    height: scaleTabletopDimension(30),
+    sectorMidpointRatio: 0.25
+  },
   seats: [
     {
       id: "top-left",
@@ -379,12 +402,22 @@ const riverCards: Record<string, readonly MockPlayingCard[]> = {
   ]
 };
 
+// Compact role glyphs, not spelled-out names: a badge/emblem reads as "this
+// seat holds a role", not "this seat's role name is written out".
 const roleMarkers: Record<SeatId, string> = {
   "top-left": "?",
   "top-right": "?",
   right: "?",
-  self: "ナポ",
-  left: "副"
+  self: "♛",
+  left: "★"
+};
+
+const roleMarkerKinds: Record<SeatId, string> = {
+  "top-left": "unknown",
+  "top-right": "unknown",
+  right: "unknown",
+  self: "napoleon",
+  left: "adjutant"
 };
 
 const roleMarkerSeatOrder = ["top-left", "top-right", "right", "self", "left"] as const satisfies readonly SeatId[];
@@ -618,7 +651,12 @@ function SelfHand({
       style={selfHandViewportStyle(selfHandLayout)}
     >
       {cards.map((card, index) => (
-        <PlayingCard card={card} className="mock-self-hand-card" key={`${card.rank}-${card.suit}-${index}`} />
+        <PlayingCard
+          card={card}
+          className="mock-self-hand-card"
+          key={`${card.rank}-${card.suit}-${index}`}
+          style={selfHandCardIndexStyle(index)}
+        />
       ))}
     </div>
   );
@@ -705,7 +743,7 @@ function RoleBoard({ layout }: { layout: Box }) {
 
           return (
             <span
-              className={`role-marker role-marker-${seatId}`}
+              className={`role-marker role-marker-${seatId} role-marker-${roleMarkerKinds[seatId]}`}
               key={seatId}
               style={roleMarkerStyle(marker)}
             >
@@ -895,19 +933,29 @@ function ProjectedRoleMarker({ layout, seatId }: { layout: TableDesignMockLayout
     layout.camera
   );
   const labelCenter = polygonCenter(corners);
+  const rotate = `rotate(${marker.rotation} ${labelCenter.x} ${labelCenter.y})`;
 
   return (
     <g className={`mock-projected-role-marker mock-projected-role-marker-${seatId}`}>
-      <polygon className="mock-projected-role-marker-fill" points={svgPoints(corners)} />
-      <text
-        className="mock-projected-role-marker-text"
-        dominantBaseline="central"
-        textAnchor="middle"
-        x={labelCenter.x}
-        y={labelCenter.y}
-      >
-        {roleMarkers[seatId]}
-      </text>
+      <polygon
+        className={`mock-projected-role-marker-fill mock-projected-role-marker-fill-${roleMarkerKinds[seatId]}`}
+        points={svgPoints(corners)}
+        transform={rotate}
+      />
+      {/* The text's own CSS transform (counter-scale) would override an SVG
+          transform attribute on the same element, so the rotation goes on a
+          wrapping <g> instead. */}
+      <g transform={rotate}>
+        <text
+          className="mock-projected-role-marker-text"
+          dominantBaseline="central"
+          textAnchor="middle"
+          x={labelCenter.x}
+          y={labelCenter.y}
+        >
+          {roleMarkers[seatId]}
+        </text>
+      </g>
     </g>
   );
 }
@@ -1111,6 +1159,10 @@ interface CurrentTrickZoneGeometry extends RoleBoardEdgeGeometry {
 
 interface RoleMarkerGeometry {
   height: number;
+  // Degrees to rotate the marker so it stays parallel to its pentagon edge,
+  // seat-facing: upright when read by the player sitting at that edge (text
+  // top toward the pentagon center, text bottom toward the seat).
+  rotation: number;
   sector: {
     innerEnd: Point;
     innerStart: Point;
@@ -1162,18 +1214,24 @@ interface OpponentHandGeometry {
 
 interface SelfHandViewportLayout {
   bottom: number;
+  // Number of cards actually laid out in the single row (i.e. the current hand size).
+  cardCount: number;
   cardSize: { height: number; width: number };
   center: Point;
-  columnCount: number;
+  // Horizontal offset from the footprint's left edge to the actual (centered) card row's left
+  // edge: (handWidth - contentWidth) / 2. Precomputed here so the JS card placements and the
+  // CSS --mock-self-content-left variable can never drift out of sync with each other.
+  contentLeftInset: number;
   contentWidth: number;
   gap: number;
   handHeight: number;
+  // handWidth/left/top/handHeight always describe the fixed footprint sized for
+  // selfHandUi.maxCardCount cards, independent of cardCount, so that surrounding
+  // layout never shifts as the actual hand size changes.
   handWidth: number;
   left: number;
-  reservedRowCount: number;
-  rowCount: number;
-  rowGap: number;
-  rowStep: number;
+  // Horizontal distance between consecutive card left edges.
+  step: number;
   top: number;
 }
 
@@ -1416,41 +1474,33 @@ export function createSelfHandViewportLayout(
   viewport: ViewportSize = layout.page
 ): SelfHandViewportLayout {
   const metrics = createSelfHandViewportMetrics(viewport.width);
-  const columnCount = cardCount > normalSelfHandCardCount
-    ? Math.ceil(layout.selfHandUi.maxCardCount / selfHandReservedRowCount)
-    : selfHandColumnCount;
-  const rowCount = selfHandReservedRowCount;
-  const reservedRowCount = selfHandReservedRowCount;
-  const renderedRowCount = Math.max(rowCount, Math.ceil(cardCount / columnCount));
-  const cardsInWidestRow = Math.min(cardCount, columnCount);
-  const contentWidth = selfHandWidth(cardsInWidestRow, metrics);
-  const handWidth = selfHandWidth(selfHandColumnCount, metrics);
-  const rowGap = metrics.gap;
-  const handHeight = reservedRowCount * metrics.cardSize.height
-    + (reservedRowCount - 1) * rowGap;
-  const rowStep = renderedRowCount <= reservedRowCount
-    ? metrics.cardSize.height + rowGap
-    : (handHeight - metrics.cardSize.height) / (renderedRowCount - 1);
+  const maxCardCount = layout.selfHandUi.maxCardCount;
+  // The footprint is always sized for the maximum hand (13 cards during exchange), so
+  // handWidth/left/top/handHeight never change as the actual card count changes; only the
+  // rendered content (a single row, centered inside that footprint) grows or shrinks.
+  const handWidth = selfHandWidth(maxCardCount, metrics);
+  const handHeight = metrics.cardSize.height;
+  const contentWidth = selfHandWidth(cardCount, metrics);
+  const step = metrics.cardSize.width + metrics.gap;
   const left = toLayoutPrecision((viewport.width - handWidth) / 2);
   const bottom = toLayoutPrecision(viewport.height - layout.selfHandUi.bottomInset);
   const top = toLayoutPrecision(bottom - handHeight);
+  const contentLeftInset = (handWidth - contentWidth) / 2;
 
   return {
     ...metrics,
     bottom,
+    cardCount,
     center: {
       x: toLayoutPrecision(left + handWidth / 2),
       y: toLayoutPrecision(top + handHeight / 2)
     },
-    columnCount,
+    contentLeftInset,
     contentWidth,
     handHeight,
     handWidth,
     left,
-    reservedRowCount,
-    rowCount,
-    rowGap,
-    rowStep,
+    step,
     top
   };
 }
@@ -1461,17 +1511,13 @@ export function createSelfHandCardPlacements(
   viewport: ViewportSize = layout.page
 ): Box[] {
   const hand = createSelfHandViewportLayout(layout, cardCount, viewport);
-  const contentLeft = hand.left + (hand.handWidth - hand.contentWidth) / 2;
+  const contentLeft = hand.left + hand.contentLeftInset;
 
   return Array.from({ length: cardCount }, (_, index) => ({
     height: hand.cardSize.height,
     width: hand.cardSize.width,
-    x: toLayoutPrecision(
-      contentLeft + (index % hand.columnCount) * (hand.cardSize.width + hand.gap)
-    ),
-    y: toLayoutPrecision(
-      hand.top + Math.floor(index / hand.columnCount) * hand.rowStep
-    )
+    x: toLayoutPrecision(contentLeft + index * hand.step),
+    y: hand.top
   }));
 }
 
@@ -1943,12 +1989,7 @@ export function createPlayerInfoLayouts(
 ): PlayerInfoGeometry[] {
   const effectiveLayout = createViewportPlayerInfoLayout(layout, viewport);
   const selfHandLayout = createSelfHandViewportLayout(effectiveLayout, selfHandCardCount, viewport);
-  const self = createSelfPlayerInfoLayout(
-    effectiveLayout,
-    selfHandLayout,
-    viewport,
-    selfHandCardCount
-  );
+  const self = createSelfPlayerInfoLayout(effectiveLayout, selfHandLayout, viewport);
   const placedInfoBoxes: BoundingBox[] = isProjected
     ? [boundingBoxFromCenter(self)]
     : [];
@@ -2003,7 +2044,6 @@ export function createBiddingOverlayGeometry(
   viewport: ViewportSize = layout.page
 ): Box {
   const fit = createProjectedBoardFit(layout, viewport);
-  const roleBoardBox = createProjectedRoleBoardBoundingBox(layout, viewport);
   const selfHand = createSelfHandViewportLayout(layout, normalSelfHandCardCount, viewport);
   const visibleSelfHandTop = createSelfHandCardPlacements(
     layout,
@@ -2016,18 +2056,6 @@ export function createBiddingOverlayGeometry(
   const desiredHeight = isCompactLandscape
     ? Math.min(config.height, viewport.height * 0.52)
     : config.height;
-  const requestedWidth = Math.min(
-    viewport.width - config.viewportMargin * 2,
-    clamp(viewport.width * config.widthRatio, config.minWidth, config.maxWidth)
-  );
-  const roleBoardGap = isCompactLandscape ? Math.max(config.viewportMargin, 32) : config.viewportMargin;
-  const availableLeftWidth = roleBoardBox.left - config.viewportMargin - roleBoardGap;
-  const availableRightWidth = viewport.width - roleBoardBox.right - config.viewportMargin - roleBoardGap;
-  const placeOnRight = availableRightWidth >= availableLeftWidth;
-  const width = toLayoutPrecision(Math.min(
-    requestedWidth,
-    Math.max(placeOnRight ? availableRightWidth : availableLeftWidth, 0)
-  ));
   const availableHeight = Math.max(
     visibleSelfHandTop - config.gapFromSelfHand - config.viewportMargin,
     0
@@ -2036,13 +2064,47 @@ export function createBiddingOverlayGeometry(
     desiredHeight,
     availableHeight >= minimumHeight ? availableHeight : Math.max(availableHeight, 1)
   ));
-  const x = toLayoutPrecision(placeOnRight
-    ? roleBoardBox.right + roleBoardGap + width / 2
-    : roleBoardBox.left - roleBoardGap - width / 2);
   const y = toLayoutPrecision(clamp(
     fit.transformedTableBox.y + config.yOffsetFromTableCenter,
     config.viewportMargin + height / 2,
     visibleSelfHandTop - config.gapFromSelfHand - height / 2
+  ));
+
+  // Short landscape viewports have so little room around the (still visible)
+  // role board that the compact per-seat labels have nowhere left to go if
+  // the overlay also claims that space: keep tucking it beside the role
+  // board there, same as before. Everywhere else there is room to spare, so
+  // the bidding UI - the central control for this phase - sits dead center
+  // on screen instead of beside the role board or down near the self hand.
+  if (isCompactLandscape) {
+    const roleBoardBox = createProjectedRoleBoardBoundingBox(layout, viewport);
+    const requestedWidth = Math.min(
+      viewport.width - config.viewportMargin * 2,
+      clamp(viewport.width * config.widthRatio, config.minWidth, config.maxWidth)
+    );
+    const roleBoardGap = Math.max(config.viewportMargin, 32);
+    const availableLeftWidth = roleBoardBox.left - config.viewportMargin - roleBoardGap;
+    const availableRightWidth = viewport.width - roleBoardBox.right - config.viewportMargin - roleBoardGap;
+    const placeOnRight = availableRightWidth >= availableLeftWidth;
+    const width = toLayoutPrecision(Math.min(
+      requestedWidth,
+      Math.max(placeOnRight ? availableRightWidth : availableLeftWidth, 0)
+    ));
+    const x = toLayoutPrecision(placeOnRight
+      ? roleBoardBox.right + roleBoardGap + width / 2
+      : roleBoardBox.left - roleBoardGap - width / 2);
+
+    return { height, width, x, y };
+  }
+
+  const width = toLayoutPrecision(Math.min(
+    viewport.width - config.viewportMargin * 2,
+    clamp(viewport.width * config.widthRatio, config.minWidth, config.maxWidth)
+  ));
+  const x = toLayoutPrecision(clamp(
+    viewport.width / 2,
+    config.viewportMargin + width / 2,
+    viewport.width - config.viewportMargin - width / 2
   ));
 
   return {
@@ -2256,7 +2318,16 @@ function chooseBiddingBubbleBox(
     { x: 0, y: 1 },
     { x: -1, y: 0 }
   ];
-  const directions = info.seatId === "self" ? selfDirections : opponentDirections;
+  // The left seat's own bubble should sit above its player info rather than
+  // below: "outward" (west) happens to tilt slightly downward for this seat
+  // and wins the general collision search first, so try straight up before
+  // falling back to the shared opponent order (unchanged for every other seat).
+  const leftSeatDirections = [{ x: 0, y: -1 }, ...opponentDirections];
+  const directions = info.seatId === "self"
+    ? selfDirections
+    : info.seatId === "left"
+      ? leftSeatDirections
+      : opponentDirections;
   const distanceMultipliers = [1, 2, 3];
   const candidates = uniquePoints(
     directions.flatMap((direction) => {
@@ -2418,10 +2489,16 @@ function createProjectedOpponentPlayerInfoLayout(
     ? boundingBoxFromTopLeft({ height: 36, width: viewport.width * 0.45, x: 0, y: 0 })
     : boundingBoxFromTopLeft(layout.hud);
   const riverBox = createProjectedRiverCardsBoundingBox(layout, seatId, context.fit);
-  const selfHandCards = createSelfHandCardPlacements(layout, selfHandCardCount, viewport);
-  const selfHandAvoidBoxes = selfHandCards.length === 0
-    ? []
-    : [boundingBoxAroundBoxes(selfHandCards.map((card) => boundingBoxFromTopLeft(card)))];
+  // Avoid the fixed hand footprint (not the actual per-count content bounds) so opponent info
+  // panels never shift position as the self hand size changes; the footprint always contains
+  // the actually-rendered cards.
+  const selfHandLayout = createSelfHandViewportLayout(layout, selfHandCardCount, viewport);
+  const selfHandAvoidBoxes = [boundingBoxFromTopLeft({
+    height: selfHandLayout.handHeight,
+    width: selfHandLayout.handWidth,
+    x: selfHandLayout.left,
+    y: selfHandLayout.top
+  })];
 
   return createPlayerInfoGeometry(
     layout,
@@ -2521,39 +2598,30 @@ function createProjectedOpponentPlayerInfoBalancedCenter(
 function createSelfPlayerInfoLayout(
   layout: TableDesignMockLayout,
   selfHandLayout: SelfHandViewportLayout,
-  viewport: ViewportSize,
-  selfHandCardCount: number
+  viewport: ViewportSize
 ): PlayerInfoGeometry {
   const info = layout.playerInfo;
-  const selfHandCards = createSelfHandCardPlacements(layout, selfHandCardCount, viewport);
-  const selfHandBox = selfHandCards.length === 0
-    ? boundingBoxFromTopLeft({
-        height: selfHandLayout.handHeight,
-        width: selfHandLayout.handWidth,
-        x: selfHandLayout.left,
-        y: selfHandLayout.top
-      })
-    : boundingBoxAroundBoxes(selfHandCards.map((card) => boundingBoxFromTopLeft(card)));
-  const leftOfHand = selfHandBox.left - info.selfGap - info.unitWidth;
-  const canPlaceLeftOfHand = leftOfHand >= info.viewportMargin;
-  const x = canPlaceLeftOfHand
-    ? leftOfHand
-    : clamp(
-        selfHandBox.left,
-        info.viewportMargin,
-        viewport.width - info.viewportMargin - info.unitWidth
-      );
-  const y = canPlaceLeftOfHand
-    ? clamp(
-        selfHandBox.top,
-        info.viewportMargin,
-        viewport.height - info.viewportMargin - info.unitHeight
-      )
-    : clamp(
-        selfHandBox.top - info.unitHeight - info.selfGap,
-        info.viewportMargin,
-        selfHandBox.top - info.unitHeight - info.selfGap
-      );
+  // The single-row hand's fixed footprint (selfHandUi.maxCardCount basis) leaves almost no
+  // side margin at typical viewport widths, so the panel always sits directly above the hand,
+  // left-aligned to the footprint's left edge, rather than beside it. Anchoring to the fixed
+  // footprint (not the actual per-count content bounds) means the panel never shifts as the
+  // hand size changes; because the single row of cards is always centered inside that
+  // footprint, this also guarantees the panel never overlaps the actually-rendered cards at
+  // any card count, as long as there is enough vertical room above the hand for the panel.
+  const x = clamp(
+    selfHandLayout.left,
+    info.viewportMargin,
+    viewport.width - info.viewportMargin - info.unitWidth
+  );
+  // The ideal position keeps the panel exactly selfGap above the hand. When there is enough
+  // room, also keep it within the viewport margin. An extreme viewport shape (very wide and
+  // very short) can leave less vertical room above the hand than the panel needs; in that case
+  // keep the panel clear of the hand rather than force it down to the margin, which would push
+  // it into the hand's own cards instead.
+  const idealY = selfHandLayout.top - info.unitHeight - info.selfGap;
+  const y = idealY >= info.viewportMargin
+    ? Math.min(idealY, viewport.height - info.viewportMargin - info.unitHeight)
+    : idealY;
 
   return createPlayerInfoGeometry(layout, "self", {
     x: toLayoutPrecision(x + info.unitWidth / 2),
@@ -2653,6 +2721,7 @@ export function createRoleMarkerGeometry(
 
   return {
     height: marker.height,
+    rotation: createRoleBoardEdgeGeometry(layout, seatId).rotation,
     sector,
     width: marker.width,
     x: toLayoutPrecision(center.x),
@@ -2943,23 +3012,27 @@ function roleMarkerStyle(marker: RoleMarkerGeometry): CSSProperties {
     "--mock-role-marker-height": `${marker.height}px`,
     "--mock-role-marker-width": `${marker.width}px`,
     "--mock-role-marker-x": `${marker.x}px`,
-    "--mock-role-marker-y": `${marker.y}px`
+    "--mock-role-marker-y": `${marker.y}px`,
+    "--mock-rotation": `${marker.rotation}deg`
   } as CSSProperties;
 }
 
-function selfHandViewportStyle(layout: SelfHandViewportLayout): CSSProperties {
+export function selfHandViewportStyle(layout: SelfHandViewportLayout): CSSProperties {
   return {
     "--mock-self-card-gap": `${layout.gap}px`,
     "--mock-self-card-height": `${layout.cardSize.height}px`,
+    "--mock-self-card-step": `${layout.step}px`,
     "--mock-self-card-width": `${layout.cardSize.width}px`,
-    "--mock-self-hand-columns": layout.columnCount,
+    "--mock-self-content-left": `${layout.contentLeftInset}px`,
     "--mock-self-hand-height": `${layout.handHeight}px`,
     "--mock-self-hand-left": `${layout.left}px`,
-    "--mock-self-hand-rows": layout.rowCount,
     "--mock-self-hand-top": `${layout.top}px`,
-    "--mock-self-hand-width": `${layout.handWidth}px`,
-    "--mock-self-row-gap": `${layout.rowGap}px`
+    "--mock-self-hand-width": `${layout.handWidth}px`
   } as CSSProperties;
+}
+
+export function selfHandCardIndexStyle(index: number): CSSProperties {
+  return { "--mock-self-card-index": index } as CSSProperties;
 }
 
 function projectedBoardFitStyle(fit: ProjectedBoardFit): CSSProperties {
@@ -3126,7 +3199,7 @@ function svgPoints(points: readonly Point[]): string {
   return points.map((point) => `${toLayoutPrecision(point.x)},${toLayoutPrecision(point.y)}`).join(" ");
 }
 
-function polygonCenter(points: readonly Point[]): Point {
+export function polygonCenter(points: readonly Point[]): Point {
   const total = points.reduce(
     (sum, point) => ({
       x: sum.x + point.x,
