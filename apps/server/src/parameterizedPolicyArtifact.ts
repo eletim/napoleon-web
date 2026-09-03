@@ -84,7 +84,18 @@ interface FeatureRow {
 export function loadParameterizedPolicyArtifact(
   policyPath = PARAMETERIZED_ADJUTANT_EXCHANGE_V1_POLICY_PATH,
   schemaPath = PARAMETERIZED_ADJUTANT_EXCHANGE_V1_SCHEMA_PATH,
-  options: { validateRepoManagedFileHashes?: boolean } = {}
+  options: {
+    /**
+     * Also hash-verify the historical Issue #454 provenance audit files
+     * (the verification report and its seed manifest) referenced by the
+     * artifact's own metadata. Defaults to false: normal server runtime
+     * only needs the artifact itself (weights, feature schema, and the
+     * dependency hashes embedded in policy.json), never those large
+     * research/audit files. Pass true from a dedicated provenance-audit
+     * check when you actually want that historical claim re-verified.
+     */
+    validateRepoManagedFileHashes?: boolean;
+  } = {}
 ): LoadedParameterizedPolicyArtifact {
   let policyBytes: Buffer;
   let schemaBytes: Buffer;
@@ -111,17 +122,24 @@ export function loadParameterizedPolicyArtifact(
     );
   }
 
-  const validateFileHashes = options.validateRepoManagedFileHashes ??
-    (policyPath === PARAMETERIZED_ADJUTANT_EXCHANGE_V1_POLICY_PATH &&
-      schemaPath === PARAMETERIZED_ADJUTANT_EXCHANGE_V1_SCHEMA_PATH);
+  // Runtime integrity of the artifact actually being loaded: when it's the
+  // known repo-managed policy/schema, their own file bytes must match the
+  // hash frozen at optimization time. This is never optional - it has
+  // nothing to do with the historical provenance audit below - so it isn't
+  // gated by `validateRepoManagedFileHashes`. A custom policyPath/schemaPath
+  // (e.g. test fixtures) has no fixed expected hash to check against, so
+  // this is naturally skipped for those.
+  const isRepoManagedArtifact =
+    policyPath === PARAMETERIZED_ADJUTANT_EXCHANGE_V1_POLICY_PATH &&
+    schemaPath === PARAMETERIZED_ADJUTANT_EXCHANGE_V1_SCHEMA_PATH;
   const policyFileSha256 = sha256(policyBytes);
   const schemaFileSha256 = sha256(schemaBytes);
-  if (validateFileHashes && policyFileSha256 !== expectedPolicyFileSha256) {
+  if (isRepoManagedArtifact && policyFileSha256 !== expectedPolicyFileSha256) {
     throw new Error(
       `Parameterized non-playing artifact file SHA256 mismatch: expected ${expectedPolicyFileSha256}, got ${policyFileSha256}.`
     );
   }
-  if (validateFileHashes && schemaFileSha256 !== expectedSchemaFileSha256) {
+  if (isRepoManagedArtifact && schemaFileSha256 !== expectedSchemaFileSha256) {
     throw new Error(
       `Parameterized non-playing feature schema file SHA256 mismatch: expected ${expectedSchemaFileSha256}, got ${schemaFileSha256}.`
     );
@@ -186,7 +204,17 @@ export function loadParameterizedPolicyArtifact(
     "dependencyProvenance.verificationEvaluator",
     evaluatorDependencySha256
   );
-  if (validateFileHashes) {
+  // Historical provenance audit: whether the repo-managed verification
+  // report / seed manifest this artifact's own metadata references (Issue
+  // #454's one-time 10,000-game independent verification) are present on
+  // disk and hash-correct. Those are large research/audit-trail files, not
+  // something the artifact needs in order to actually be loaded and run -
+  // default off so normal server runtime never requires them. Opt in
+  // explicitly via `validateRepoManagedFileHashes: true` from a dedicated
+  // provenance-audit check (see parameterizedPolicyArtifact.test.ts's
+  // "explicit strict provenance audit" test), not from ordinary startup.
+  const validateProvenanceAuditFiles = options.validateRepoManagedFileHashes ?? false;
+  if (validateProvenanceAuditFiles) {
     validateReferencedFileHash(verificationReportPath, verificationReportFileSha256);
     validateReferencedFileHash(
       verificationSeedManifestPath,
