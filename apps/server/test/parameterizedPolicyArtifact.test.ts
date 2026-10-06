@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   PARAMETERIZED_ADJUTANT_EXCHANGE_V1_POLICY_PATH,
@@ -23,8 +25,30 @@ describe("parameterized non-playing artifact", () => {
       verificationIssue: "454",
       biddingDependencySha256: "f3454cca5d2ef667942431296b1260da114f255ce9a03594d32720b180c9c623",
       playingDependencySha256: "54d7ba29222a12e99a91ab61ee7aa253fe3fab73200d78167d64bf9e7bb8887e",
-      playingCriticDependencySha256: "3055882f3e63e2a096ee7cedee341bc97e033572bcb59f36f3f68e3d89f134d9"
+      playingCriticDependencySha256: "3055882f3e63e2a096ee7cedee341bc97e033572bcb59f36f3f68e3d89f134d9",
+      verificationReportPath:
+        "benchmarks/exchange-values/issue454-independent-verification/verification-report.json",
+      verificationReportFileSha256:
+        "9503ec68de9bc342a08ad949e38cefb645576cb8667270ac81b132f8338538bf",
+      verificationSeedManifestPath:
+        "benchmarks/exchange-values/issue454-independent-verification/seeds/independent-verification.json",
+      verificationSeedManifestFileSha256:
+        "8d72f2fea934d65b421375666abf9ecc7f831cd4d12f5a65e157b89123e7455b",
+      verificationSeedManifestSha256:
+        "0408442b7a3fa7dbb0521e4d15755262dd3af21aaf7478e1f5201c71312bff56"
     });
+
+    const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
+    const manifest = JSON.parse(
+      readFileSync(join(repositoryRoot, loaded.provenance.verificationSeedManifestPath), "utf8")
+    ) as { seeds: number[]; sha256: string };
+    const logicalSeedSha256 = createHash("sha256")
+      .update(manifest.seeds.map((seed) => `${seed}\n`).join(""), "ascii")
+      .digest("hex");
+
+    expect(manifest.seeds).toHaveLength(10_000);
+    expect(manifest.sha256).toBe(loaded.provenance.verificationSeedManifestSha256);
+    expect(logicalSeedSha256).toBe(loaded.provenance.verificationSeedManifestSha256);
   });
 
   it("rejects missing and malformed artifacts without fallback", () => {
