@@ -42,6 +42,7 @@ export const RULE_BASED_POLICY_ID = "rule-based" as const;
 
 export interface PhasePolicyRegistryOptions {
   parameterizedArtifact?: LoadedParameterizedPolicyArtifact;
+  loadParameterizedArtifact?: () => LoadedParameterizedPolicyArtifact;
   loadPlayingPolicy?: () => Promise<LoadedPlayingActorBenchmark>;
   loadPlayingCritic?: () => Promise<LoadedPlayingCriticBenchmark>;
   loadBiddingPolicy?: () => Promise<LoadedBiddingMarginPolicyBenchmark>;
@@ -61,7 +62,23 @@ export interface PhasePolicyRegistry {
 export function createPhasePolicyRegistry(
   options: PhasePolicyRegistryOptions = {}
 ): PhasePolicyRegistry {
-  const parameterizedArtifact = options.parameterizedArtifact ?? loadParameterizedPolicyArtifact();
+  // Loading the parameterized non-playing artifact is synchronous (unlike
+  // the ONNX playing/critic/bidding benchmarks below, which are genuinely
+  // slow to load and awaited lazily in `initialize()`), so it's resolved
+  // eagerly here - but, just like those three, a load failure must not take
+  // the whole registry down with it. rule-based and the other two phases
+  // stay fully usable; only this one policy is reported unavailable.
+  let parameterizedArtifact: LoadedParameterizedPolicyArtifact | undefined;
+  let parameterizedArtifactError: unknown;
+  if (options.parameterizedArtifact !== undefined) {
+    parameterizedArtifact = options.parameterizedArtifact;
+  } else {
+    try {
+      parameterizedArtifact = (options.loadParameterizedArtifact ?? loadParameterizedPolicyArtifact)();
+    } catch (error) {
+      parameterizedArtifactError = error;
+    }
+  }
   let playing: LoadedPlayingActorBenchmark | undefined;
   let critic: LoadedPlayingCriticBenchmark | undefined;
   let bidding: LoadedBiddingMarginPolicyBenchmark | undefined;
@@ -149,37 +166,44 @@ export function createPhasePolicyRegistry(
       ],
       nonPlaying: [
         ruleBasedDescriptor(),
-        {
-          id: PARAMETERIZED_ADJUTANT_EXCHANGE_V1_POLICY_ID,
-          displayName: "Parameterized adjutant + exchange v1",
-          isAvailable: true,
-          artifactProvenance: {
-            logicalArtifactSha256: parameterizedArtifact.provenance.logicalArtifactSha256,
-            parameterSha256: parameterizedArtifact.provenance.parameterSha256,
-            weightVectorSha256: parameterizedArtifact.provenance.weightVectorSha256,
-            policyFileSha256: parameterizedArtifact.provenance.policyFileSha256,
-            schemaFileSha256: parameterizedArtifact.provenance.schemaFileSha256,
-            featureSchemaVersion: "1",
-            adjutantWeightCount: "35",
-            exchangeWeightCount: "60",
-            optimizerIssue: parameterizedArtifact.provenance.optimizerIssue,
-            verificationIssue: parameterizedArtifact.provenance.verificationIssue,
-            verificationReportFileSha256:
-              parameterizedArtifact.provenance.verificationReportFileSha256,
-            verificationSeedManifestSha256:
-              parameterizedArtifact.provenance.verificationSeedManifestSha256,
-            verificationSeedManifestFileSha256:
-              parameterizedArtifact.provenance.verificationSeedManifestFileSha256,
-            biddingDependencySha256:
-              parameterizedArtifact.provenance.biddingDependencySha256,
-            playingDependencySha256:
-              parameterizedArtifact.provenance.playingDependencySha256,
-            playingCriticDependencySha256:
-              parameterizedArtifact.provenance.playingCriticDependencySha256,
-            evaluatorDependencySha256:
-              parameterizedArtifact.provenance.evaluatorDependencySha256
-          }
-        }
+        parameterizedArtifact === undefined
+          ? {
+              id: PARAMETERIZED_ADJUTANT_EXCHANGE_V1_POLICY_ID,
+              displayName: "Parameterized adjutant + exchange v1",
+              isAvailable: false,
+              artifactProvenance: null
+            }
+          : {
+              id: PARAMETERIZED_ADJUTANT_EXCHANGE_V1_POLICY_ID,
+              displayName: "Parameterized adjutant + exchange v1",
+              isAvailable: true,
+              artifactProvenance: {
+                logicalArtifactSha256: parameterizedArtifact.provenance.logicalArtifactSha256,
+                parameterSha256: parameterizedArtifact.provenance.parameterSha256,
+                weightVectorSha256: parameterizedArtifact.provenance.weightVectorSha256,
+                policyFileSha256: parameterizedArtifact.provenance.policyFileSha256,
+                schemaFileSha256: parameterizedArtifact.provenance.schemaFileSha256,
+                featureSchemaVersion: "1",
+                adjutantWeightCount: "35",
+                exchangeWeightCount: "60",
+                optimizerIssue: parameterizedArtifact.provenance.optimizerIssue,
+                verificationIssue: parameterizedArtifact.provenance.verificationIssue,
+                verificationReportFileSha256:
+                  parameterizedArtifact.provenance.verificationReportFileSha256,
+                verificationSeedManifestSha256:
+                  parameterizedArtifact.provenance.verificationSeedManifestSha256,
+                verificationSeedManifestFileSha256:
+                  parameterizedArtifact.provenance.verificationSeedManifestFileSha256,
+                biddingDependencySha256:
+                  parameterizedArtifact.provenance.biddingDependencySha256,
+                playingDependencySha256:
+                  parameterizedArtifact.provenance.playingDependencySha256,
+                playingCriticDependencySha256:
+                  parameterizedArtifact.provenance.playingCriticDependencySha256,
+                evaluatorDependencySha256:
+                  parameterizedArtifact.provenance.evaluatorDependencySha256
+              }
+            }
       ]
     }),
     createDiagnostics: (composition) => createPhasePolicyDiagnostics(composition),
@@ -189,7 +213,16 @@ export function createPhasePolicyRegistry(
       rng = Math.random
     ) => {
       validateComposition(composition);
-      assertCompositionAvailable(composition, { playing, critic, bidding, playingError, criticError, biddingError });
+      assertCompositionAvailable(composition, {
+        playing,
+        critic,
+        bidding,
+        parameterizedArtifact,
+        playingError,
+        criticError,
+        biddingError,
+        parameterizedArtifactError
+      });
       return new ComposedPhasePolicyAgent({
         composition,
         diagnostics,
@@ -234,7 +267,12 @@ export function validateComposition(composition: AiPolicyComposition): void {
 
 class ComposedPhasePolicyAgent implements Agent {
   private readonly ruleBased: RuleBasedAgent;
-  private readonly parameterized: ParameterizedNonPlayingAgent;
+  // Absent when the parameterized artifact failed to load; createAgent()
+  // already refuses any composition that actually selects it via
+  // assertCompositionAvailable, so getParameterized() below should never be
+  // reached in that state - it throws defensively rather than crashing with
+  // a bare TypeError if that invariant is ever broken.
+  private readonly parameterized: ParameterizedNonPlayingAgent | undefined;
   private playing: PolicyOnnxAgent | undefined;
   private bidding: T1NapoleonEvBiddingAgent | undefined;
   private biddingDiagnostics: T1NapoleonEvBiddingDiagnostics | undefined;
@@ -242,16 +280,20 @@ class ComposedPhasePolicyAgent implements Agent {
   constructor(private readonly options: {
     composition: AiPolicyComposition;
     diagnostics: PublicAiPhaseCallDiagnostics;
-    parameterizedArtifact: LoadedParameterizedPolicyArtifact;
+    parameterizedArtifact: LoadedParameterizedPolicyArtifact | undefined;
     loadPlaying: () => Promise<LoadedPlayingActorBenchmark>;
     loadCritic: () => Promise<LoadedPlayingCriticBenchmark>;
     loadBidding: () => Promise<LoadedBiddingMarginPolicyBenchmark>;
     rng: () => number;
   }) {
     this.ruleBased = new RuleBasedAgent(options.rng);
-    this.parameterized = new ParameterizedNonPlayingAgent(
-      options.parameterizedArtifact.parameters
-    );
+    this.parameterized = options.parameterizedArtifact === undefined
+      ? undefined
+      : new ParameterizedNonPlayingAgent(options.parameterizedArtifact.parameters);
+  }
+
+  private getParameterized(): ParameterizedNonPlayingAgent {
+    return this.parameterized ?? unavailable(PARAMETERIZED_ADJUTANT_EXCHANGE_V1_POLICY_ID, undefined);
   }
 
   async selectAction(observation: PlayerObservation): Promise<GameAction> {
@@ -268,13 +310,13 @@ class ComposedPhasePolicyAgent implements Agent {
         this.options.diagnostics.adjutantCalls += 1;
         action = this.options.composition.nonPlaying === RULE_BASED_POLICY_ID
           ? await this.ruleBased.selectAction(observation)
-          : await this.parameterized.selectAction(observation);
+          : await this.getParameterized().selectAction(observation);
         break;
       case "exchanging":
         this.options.diagnostics.exchangeCalls += 1;
         action = this.options.composition.nonPlaying === RULE_BASED_POLICY_ID
           ? await this.ruleBased.selectAction(observation)
-          : await this.parameterized.selectAction(observation);
+          : await this.getParameterized().selectAction(observation);
         break;
       case "playing":
         this.options.diagnostics.playingCalls += 1;
@@ -409,9 +451,11 @@ function assertCompositionAvailable(
     playing: LoadedPlayingActorBenchmark | undefined;
     critic: LoadedPlayingCriticBenchmark | undefined;
     bidding: LoadedBiddingMarginPolicyBenchmark | undefined;
+    parameterizedArtifact: LoadedParameterizedPolicyArtifact | undefined;
     playingError: unknown;
     criticError: unknown;
     biddingError: unknown;
+    parameterizedArtifactError: unknown;
   }
 ): void {
   if (
@@ -428,6 +472,12 @@ function assertCompositionAvailable(
       FROZEN_RAISE_V1_BIDDING_MARGIN_POLICY_ID,
       status.biddingError ?? status.criticError
     );
+  }
+  if (
+    composition.nonPlaying === PARAMETERIZED_ADJUTANT_EXCHANGE_V1_POLICY_ID &&
+    status.parameterizedArtifact === undefined
+  ) {
+    unavailable(PARAMETERIZED_ADJUTANT_EXCHANGE_V1_POLICY_ID, status.parameterizedArtifactError);
   }
 }
 

@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PublicGameState, PublicPlayedCard } from "@napoleon/protocol";
 import { determineCurrentWinningPlayer } from "@napoleon/game-core";
-
-const PLAY_INTERVAL_MS = 220;
-const RESULT_EMPHASIS_DELAY_MS = 190;
-const RESULT_HOLD_MS = 520;
-const COLLECT_MS = 260;
-const REDUCED_RESULT_HOLD_MS = 80;
+import {
+  ACTION_GAP_MS,
+  REDUCED_MOTION_HOLD_MS,
+  TRICK_COLLECT_DURATION_MS,
+  TRICK_RESULT_HOLD_MS,
+  usePrefersReducedMotion
+} from "./presentationTiming";
 
 interface UseTrickAnimationOptions {
+  selfPlayerId: string | undefined;
   state: PublicGameState | undefined;
 }
 
@@ -17,10 +19,28 @@ interface TrickAnimationState {
   displayedTrick: readonly PublicPlayedCard[];
   isAnimating: boolean;
   isResultEmphasisActive: boolean;
+  /**
+   * Who presentation-wise "has the turn" right now. During the pause before
+   * a COM's card is revealed this is that COM (even though the server has
+   * already resolved the whole trick), so the table visibly hands the turn
+   * off one seat at a time instead of jumping straight to the final state.
+   * Falls back to the real `state.currentPlayerId` outside of that gap.
+   */
+  presentationCurrentPlayerId: string | undefined;
+  /** Cards revealed via the animated deal, eligible for the hand->table flight. */
+  isEntryAnimated: (playerId: string, cardId: string) => boolean;
+  /**
+   * The trick winner as soon as all 5 cards are visibly on the table, kept
+   * defined through the result hold and the collection flight. Unlike the
+   * optional "tentative winner" highlight toggle, this is core information
+   * about who just won and is always available once the trick is settled.
+   */
+  resultWinnerId: string | undefined;
   playCollectionBefore: <T>(work: () => Promise<T>) => Promise<T | undefined>;
 }
 
 export function useTrickAnimation({
+  selfPlayerId,
   state
 }: UseTrickAnimationOptions): TrickAnimationState {
   const prefersReducedMotion = usePrefersReducedMotion();
@@ -28,11 +48,13 @@ export function useTrickAnimation({
   const [isPlayingSequence, setIsPlayingSequence] = useState(false);
   const [isResultEmphasisActive, setIsResultEmphasisActive] = useState(false);
   const [collectingWinnerId, setCollectingWinnerId] = useState<string | undefined>();
+  const [pendingActorId, setPendingActorId] = useState<string | undefined>();
   const displayedTrickRef = useRef<readonly PublicPlayedCard[]>([]);
   const displayedTrickNumberRef = useRef<number | undefined>(undefined);
   const collectionInProgressRef = useRef(false);
   const targetKeyRef = useRef("");
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const animatedEntryKeysRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     displayedTrickRef.current = displayedTrick;
@@ -49,12 +71,16 @@ export function useTrickAnimation({
     targetKeyRef.current = targetKey;
     clearTimers(timersRef.current);
     setIsResultEmphasisActive(false);
+    setPendingActorId(undefined);
 
     if (state === undefined || targetTrick.length === 0) {
       setDisplayedTrick([]);
       displayedTrickRef.current = [];
       displayedTrickNumberRef.current = state?.trickNumber;
       setIsPlayingSequence(false);
+      if (state === undefined) {
+        animatedEntryKeysRef.current.clear();
+      }
       return;
     }
 
@@ -76,9 +102,16 @@ export function useTrickAnimation({
       matchesPrefix(currentDisplayedTrick, targetTrick);
 
     if (!isSameTrickGrowth || prefersReducedMotion) {
+      // A jump straight to the final state (resumed/mismatched state, or a
+      // reduced-motion viewer): show it outright rather than animating cards
+      // whose hand->table flight would have no meaningful starting point.
       setDisplayedTrick(targetTrick);
       if (state.isTrickComplete && targetTrick.length === 5) {
-        holdResultEmphasis(timersRef.current, setIsResultEmphasisActive, prefersReducedMotion);
+        holdResultEmphasis(
+          timersRef.current,
+          setIsResultEmphasisActive,
+          prefersReducedMotion
+        );
       }
       setIsPlayingSequence(false);
       return;
@@ -91,34 +124,46 @@ export function useTrickAnimation({
     }
 
     setIsPlayingSequence(true);
-    additions.forEach((_, index) => {
-      const timer = setTimeout(() => {
+
+    let elapsed = 0;
+    additions.forEach((addition, index) => {
+      // The local player's own card is already visible the instant they act
+      // (they just clicked it); only COM turns get the presentation pause,
+      // so the table doesn't feel like it's waiting on the human.
+      const gap = addition.playerId === selfPlayerId ? 0 : ACTION_GAP_MS;
+      elapsed += gap;
+      const revealAt = elapsed;
+
+      if (gap > 0) {
+        const actorTimer = setTimeout(() => {
+          setPendingActorId(addition.playerId);
+        }, revealAt - gap);
+        timersRef.current.push(actorTimer);
+      }
+
+      const revealTimer = setTimeout(() => {
         const nextLength = currentLength + index + 1;
+        animatedEntryKeysRef.current.add(entryKey(addition.playerId, addition.card.id));
         setDisplayedTrick(targetTrick.slice(0, nextLength));
+        setPendingActorId(undefined);
 
         if (index === additions.length - 1) {
           if (state.isTrickComplete && targetTrick.length === 5) {
-            const resultTimer = setTimeout(
-              () => {
-                holdResultEmphasis(
-                  timersRef.current,
-                  setIsResultEmphasisActive,
-                  prefersReducedMotion,
-                  () => setIsPlayingSequence(false)
-                );
-              },
-              prefersReducedMotion ? 0 : RESULT_EMPHASIS_DELAY_MS
+            holdResultEmphasis(
+              timersRef.current,
+              setIsResultEmphasisActive,
+              prefersReducedMotion,
+              () => setIsPlayingSequence(false)
             );
-            timersRef.current.push(resultTimer);
             return;
           }
 
           setIsPlayingSequence(false);
         }
-      }, index * PLAY_INTERVAL_MS);
-      timersRef.current.push(timer);
+      }, revealAt);
+      timersRef.current.push(revealTimer);
     });
-  }, [prefersReducedMotion, state]);
+  }, [prefersReducedMotion, selfPlayerId, state]);
 
   useEffect(
     () => () => {
@@ -132,7 +177,8 @@ export function useTrickAnimation({
       state === undefined ||
       !state.isTrickComplete ||
       state.currentTrick.length !== 5 ||
-      state.trumpSuit === null
+      state.trumpSuit === null ||
+      displayedTrick.length !== 5
     ) {
       return undefined;
     }
@@ -142,7 +188,7 @@ export function useTrickAnimation({
       { trumpSuit: state.trumpSuit },
       { trickNumber: state.trickNumber }
     );
-  }, [state]);
+  }, [displayedTrick.length, state]);
 
   async function playCollectionBefore<T>(work: () => Promise<T>): Promise<T | undefined> {
     if (collectionInProgressRef.current) {
@@ -158,7 +204,7 @@ export function useTrickAnimation({
 
     try {
       if (!prefersReducedMotion) {
-        await delay(COLLECT_MS);
+        await delay(TRICK_COLLECT_DURATION_MS);
       }
 
       return await work();
@@ -178,30 +224,16 @@ export function useTrickAnimation({
     displayedTrick: hasRenderedNewTrickBeforeReset ? [] : displayedTrick,
     isAnimating: isPlayingSequence || isResultEmphasisActive || collectingWinnerId !== undefined,
     isResultEmphasisActive,
+    presentationCurrentPlayerId: pendingActorId ?? state?.currentPlayerId,
+    isEntryAnimated: (playerId: string, cardId: string) =>
+      animatedEntryKeysRef.current.has(entryKey(playerId, cardId)),
+    resultWinnerId: completedWinnerId,
     playCollectionBefore
   };
 }
 
-function usePrefersReducedMotion(): boolean {
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-      return;
-    }
-
-    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const updatePreference = () => setPrefersReducedMotion(mediaQuery.matches);
-
-    updatePreference();
-    mediaQuery.addEventListener("change", updatePreference);
-
-    return () => {
-      mediaQuery.removeEventListener("change", updatePreference);
-    };
-  }, []);
-
-  return prefersReducedMotion;
+function entryKey(playerId: string, cardId: string): string {
+  return `${playerId}:${cardId}`;
 }
 
 function createTrickKey(state: PublicGameState | undefined): string {
@@ -243,7 +275,7 @@ function holdResultEmphasis(
       setIsResultEmphasisActive(false);
       onComplete?.();
     },
-    prefersReducedMotion ? REDUCED_RESULT_HOLD_MS : RESULT_HOLD_MS
+    prefersReducedMotion ? REDUCED_MOTION_HOLD_MS : TRICK_RESULT_HOLD_MS
   );
   timers.push(timer);
 }

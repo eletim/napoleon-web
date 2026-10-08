@@ -830,10 +830,25 @@ input:focus-visible {
   }
 }
 
+@keyframes trick-winner-seat-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px rgb(250 204 21 / 0%), 0 0 18px rgb(250 204 21 / 0%);
+  }
+
+  45% {
+    box-shadow: 0 0 0 3px rgb(250 204 21 / 82%), 0 0 18px rgb(250 204 21 / 62%);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .played-card,
   .trick-board-result .played-card-winning,
-  .trick-board-collecting .played-card {
+  .trick-board-collecting .played-card,
+  .production-trick-card,
+  .production-table-surface-result .production-trick-card-winning,
+  .production-table-surface-collecting .production-trick-card,
+  .production-player-info-trick-winner {
     animation: none;
   }
 }
@@ -1010,34 +1025,51 @@ input:focus-visible {
   filter: drop-shadow(0 0 8px rgb(250 204 21 / 86%)) brightness(1.06);
 }
 
+/* A short pulse called out right at the tail of the result hold (see
+   TRICK_RESULT_HOLD_MS / TRICK_WINNER_PULSE_MS in presentationTiming.ts,
+   threaded in as CSS custom properties) so the winner is unmistakable in
+   the moment just before the cards are collected away. */
 .production-table-surface-result .production-trick-card-winning {
-  animation: winning-card-pulse 520ms ease-out;
+  animation: winning-card-pulse var(--trick-winner-pulse-duration, 480ms) ease-out;
+  animation-delay: calc(var(--trick-result-hold-duration, 3000ms) - var(--trick-winner-pulse-duration, 480ms));
 }
 
 .production-table-surface-collecting .production-trick-card {
-  animation: played-card-collect 240ms cubic-bezier(0.4, 0, 0.8, 0.2) forwards;
+  animation: played-card-collect var(--trick-collect-duration, 650ms) cubic-bezier(0.4, 0, 0.8, 0.2) forwards;
 }
 
+/* These offsets live in the table's own internal layout-unit space (see
+   tableDesignMockLayout), which the surrounding projected-board transform
+   already scales to fit any real viewport - so a "160px" here isn't a
+   viewport-specific pixel value, it scales the same way every other card
+   on the table does. */
 .production-table-surface-collecting-to-left .production-trick-card {
-  --played-card-collect-x: -86px;
+  --played-card-collect-x: -170px;
 }
 
 .production-table-surface-collecting-to-top-left .production-trick-card {
-  --played-card-collect-x: -42px;
-  --played-card-collect-y: -78px;
+  --played-card-collect-x: -90px;
+  --played-card-collect-y: -150px;
 }
 
 .production-table-surface-collecting-to-top-right .production-trick-card {
-  --played-card-collect-x: 42px;
-  --played-card-collect-y: -78px;
+  --played-card-collect-x: 90px;
+  --played-card-collect-y: -150px;
 }
 
 .production-table-surface-collecting-to-right .production-trick-card {
-  --played-card-collect-x: 86px;
+  --played-card-collect-x: 170px;
 }
 
 .production-table-surface-collecting-to-self .production-trick-card {
-  --played-card-collect-y: 82px;
+  --played-card-collect-y: 160px;
+}
+
+.production-player-info-trick-winner {
+  animation: trick-winner-seat-glow var(--trick-winner-pulse-duration, 480ms) ease-out;
+  animation-delay: calc(var(--trick-result-hold-duration, 3000ms) - var(--trick-winner-pulse-duration, 480ms));
+  border-radius: 999px;
+  box-shadow: 0 0 0 3px rgb(250 204 21 / 82%), 0 0 18px rgb(250 204 21 / 62%);
 }
 
 .production-joker-card-face {

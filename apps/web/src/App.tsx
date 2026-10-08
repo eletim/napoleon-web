@@ -171,7 +171,10 @@ function GameApp() {
     hasActionPrompt ||
     session.state.latestEvent?.type === "buried-cards-resolved" ||
     hasRequestError;
-  const trickAnimation = useTrickAnimation({ state: session?.state });
+  const trickAnimation = useTrickAnimation({
+    selfPlayerId: session?.playerId,
+    state: session?.state
+  });
   const isInteractionLocked = isBusy || trickAnimation.isAnimating;
   // The final trick's result only replaces the trick display once its
   // show-then-collect animation has actually finished (see the auto-advance
@@ -374,14 +377,22 @@ function GameApp() {
   // animation has finished playing, instead of waiting for a manual "次へ".
   // autoAdvanceTrickKeyRef guards against re-triggering for the same trick,
   // e.g. while collection is itself briefly reported as not-animating
-  // between renders.
+  // between renders. Gating on the *displayed* trick (not just the raw
+  // server state) matters: the server already resolves every COM play for
+  // the trick in one response, so `session.state` reports 5 cards well
+  // before the deal animation has actually revealed the last of them - this
+  // must wait for the animation to catch up, not just for the state.
   useEffect(() => {
     if (session === undefined || isInteractionLocked) {
       return;
     }
 
     const state = session.state;
-    if (!state.isTrickComplete || state.currentTrick.length !== 5) {
+    if (
+      !state.isTrickComplete ||
+      state.currentTrick.length !== 5 ||
+      trickAnimation.displayedTrick.length !== 5
+    ) {
       return;
     }
 
@@ -392,7 +403,7 @@ function GameApp() {
 
     autoAdvanceTrickKeyRef.current = trickKey;
     void handleTrickComplete();
-  }, [session, isInteractionLocked]);
+  }, [session, isInteractionLocked, trickAnimation.displayedTrick]);
 
   async function handleAdvanceMatch(): Promise<void> {
     if (session === undefined || session.match === undefined || isInteractionLocked) {
@@ -450,7 +461,11 @@ function GameApp() {
   }
 
   const isStartedGame = session !== undefined && mode === "game";
-  const isGameInProgress = isStartedGame && !session.state.isGameOver;
+  // Stays in the immersive full-table layout through the final trick's
+  // show-then-collect animation: isGameOver flips true as soon as the last
+  // card is played, well before that animation (now several seconds) has
+  // actually finished, and this view must not shrink out from under it.
+  const isGameInProgress = isStartedGame && (!session.state.isGameOver || isFinalTrickPendingReveal);
   const completedMatch = hasCompletedMatchResult(session?.match) ? session.match : undefined;
   const canAdvanceMatch =
     session?.state.result !== null &&
@@ -565,6 +580,7 @@ function GameApp() {
                 onClick={canAdvanceMatch ? handleResultBackgroundClick : undefined}
               >
             <TableSurface
+              activePlayerId={trickAnimation.presentationCurrentPlayerId}
               actionPanel={
                 hasTableActionPanel ? (
                   <div className="action-area">
@@ -732,6 +748,7 @@ function GameApp() {
               currentTrick={trickAnimation.displayedTrick}
               highlightWinningCard={winningCardHighlightEnabled}
               isBusy={isInteractionLocked}
+              isEntryAnimated={trickAnimation.isEntryAnimated}
               isResultEmphasisActive={trickAnimation.isResultEmphasisActive}
               legalBidActions={legalBidActions}
               legalCardIds={legalCardIds}
@@ -743,6 +760,7 @@ function GameApp() {
               }
               onPlay={handlePlay}
               players={tablePlayers}
+              resultWinnerId={trickAnimation.resultWinnerId}
               selectedDiscardCardIds={selectedDiscardCardIds}
               selfPlayerId={session?.playerId}
               state={session?.state}

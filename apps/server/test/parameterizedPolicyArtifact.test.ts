@@ -11,6 +11,13 @@ import {
 } from "../src/parameterizedPolicyArtifact.js";
 
 describe("parameterized non-playing artifact", () => {
+  // Normal loading (the default, and what server startup uses) never reads
+  // the historical Issue #454 verification report / seed manifest - those
+  // large audit files were deliberately removed from the repo (see the
+  // artifact's own dependencyProvenance/verificationProvenance metadata,
+  // which is still validated below) and are not needed to actually run the
+  // policy. This must keep working even in a fresh checkout that never had
+  // them.
   it("loads the repo-managed human-readable source of truth with fixed provenance", () => {
     const loaded = loadParameterizedPolicyArtifact();
 
@@ -49,6 +56,27 @@ describe("parameterized non-playing artifact", () => {
     expect(manifest.seeds).toHaveLength(10_000);
     expect(manifest.sha256).toBe(loaded.provenance.verificationSeedManifestSha256);
     expect(logicalSeedSha256).toBe(loaded.provenance.verificationSeedManifestSha256);
+  });
+
+  // The dedicated entry point for re-verifying the historical Issue #454
+  // audit trail (never used by normal server startup - see above). In this
+  // repository the audit files were deliberately removed as oversized
+  // research artifacts, so opting in must fail loudly rather than silently
+  // skip the check.
+  it("detects a missing historical provenance audit file when explicitly requested", () => {
+    let thrown: unknown;
+    try {
+      loadParameterizedPolicyArtifact(undefined, undefined, {
+        validateRepoManagedFileHashes: true
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    const thrownMessage = (thrown as Error).message;
+    expect(thrownMessage).toContain("Artifact provenance file is missing or unreadable");
+    expect(thrownMessage).toContain("verification-report.json");
   });
 
   it("rejects missing and malformed artifacts without fallback", () => {

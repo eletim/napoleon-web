@@ -349,10 +349,10 @@ describe("automatic trick progression", () => {
     expect(container.textContent).not.toContain("次へ");
     expect(nextTrick).not.toHaveBeenCalled();
 
-    // Let the show-then-collect animation run its course.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(3000);
-    });
+    // Let the show-then-collect animation run its course: 4 COM cards each
+    // preceded by an ACTION_GAP_MS pause, then the TRICK_RESULT_HOLD_MS hold
+    // and the TRICK_COLLECT_DURATION_MS collection flight.
+    await advanceTimersInSteps(9000);
 
     expect(nextTrick).toHaveBeenCalledWith("trick-game");
 
@@ -400,9 +400,10 @@ describe("automatic trick progression", () => {
     // instantly replaced the (still animating) trick view.
     expect(container.querySelector('[aria-label="ゲーム結果"]')).toBeNull();
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(3000);
-    });
+    // Let the show-then-collect animation run its course: 4 COM cards each
+    // preceded by an ACTION_GAP_MS pause, then the TRICK_RESULT_HOLD_MS hold
+    // and the TRICK_COLLECT_DURATION_MS collection flight.
+    await advanceTimersInSteps(9000);
 
     expect(container.querySelector('[aria-label="ゲーム結果"]')).not.toBeNull();
 
@@ -547,6 +548,19 @@ async function clickButton(container: HTMLElement, label: string): Promise<void>
   await act(async () => {
     button?.click();
   });
+}
+
+// Advancing fake timers by one large jump doesn't reliably let React re-run
+// the effects that schedule further presentation timers in between (the
+// deal -> hold -> collect chain schedules its next step from inside an
+// effect once earlier state settles); stepping in smaller increments gives
+// each of those intermediate effects a chance to run.
+async function advanceTimersInSteps(totalMs: number, stepMs = 250): Promise<void> {
+  for (let elapsed = 0; elapsed < totalMs; elapsed += stepMs) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(stepMs);
+    });
+  }
 }
 
 function aiPresetResponse(): GetAiPresetsResponse {
