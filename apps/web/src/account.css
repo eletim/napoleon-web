@@ -1,0 +1,14 @@
+.account-screen { max-width: 28rem; margin: 12vh auto; padding: 2rem; color: #f4f4ee; background: #183c36; border-radius: 1rem; }
+.account-screen button, .account-bar button { padding: .5rem .85rem; margin: .25rem; cursor: pointer; }
+.account-bar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; padding: .4rem 1rem; color: #f4f4ee; background: #183c36; }
+.account-bar form { display: flex; flex-wrap: wrap; gap: .5rem; padding: .5rem 0; }
+.account-bar input { margin-left: .5rem; max-width: 12rem; }
+.account-bar summary { cursor: pointer; }
+
+.competition-lobby { margin: 1rem; padding: 1rem; background: #183c36; color: #f4f4ee; border-radius: .75rem; }
+.competition-lobby button, .competition-lobby select { padding: .6rem; margin: .4rem; }
+.competition-summary { display: flex; flex-wrap: wrap; gap: .6rem 1rem; padding: .5rem 1rem; color: #f4f4ee; background: #183c36; font-size: .85rem; }
+
+.match-history { margin-top: 1rem; overflow-x: auto; }
+.match-history table { border-collapse: collapse; width: 100%; }
+.match-history th, .match-history td { padding: .5rem; text-align: left; border-bottom: 1px solid #ffffff40; }

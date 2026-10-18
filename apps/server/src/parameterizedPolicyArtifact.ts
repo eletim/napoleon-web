@@ -212,7 +212,7 @@ export function loadParameterizedPolicyArtifact(
   // default off so normal server runtime never requires them. Opt in
   // explicitly via `validateRepoManagedFileHashes: true` from a dedicated
   // provenance-audit check (see parameterizedPolicyArtifact.test.ts's
-  // "explicit strict provenance audit" test), not from ordinary startup.
+  // strict provenance audit tests), not from ordinary startup.
   const validateProvenanceAuditFiles = options.validateRepoManagedFileHashes ?? false;
   if (validateProvenanceAuditFiles) {
     validateReferencedFileHash(verificationReportPath, verificationReportFileSha256);

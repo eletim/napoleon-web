@@ -1,3 +1,4 @@
+import { authHeaders } from "./auth";
 import type {
   CreateGameRequest,
   CreateGameResponse,
@@ -41,27 +42,27 @@ export async function createGame(requestBody: CreateGameRequest = {}): Promise<C
 }
 
 export async function getGame(gameId: string): Promise<GetGameResponse> {
-  return request<GetGameResponse>(resolveAppPath(`api/games/${gameId}`));
+  return request<GetGameResponse>(gamePath(gameId));
 }
 
 export async function sendAction(
   gameId: string,
   action: PublicGameAction
 ): Promise<SendActionResponse> {
-  return request<SendActionResponse>(resolveAppPath(`api/games/${gameId}/actions`), {
+  return request<SendActionResponse>(gamePath(gameId, "/actions"), {
     method: "POST",
     body: JSON.stringify({ action })
   });
 }
 
 export async function nextTrick(gameId: string): Promise<NextTrickResponse> {
-  return request<NextTrickResponse>(resolveAppPath(`api/games/${gameId}/next-trick`), {
+  return request<NextTrickResponse>(gamePath(gameId, "/next-trick"), {
     method: "POST"
   });
 }
 
 export async function advanceMatch(gameId: string): Promise<AdvanceMatchResponse> {
-  return request<AdvanceMatchResponse>(resolveAppPath(`api/games/${gameId}/next-round`), {
+  return request<AdvanceMatchResponse>(gamePath(gameId, "/next-round"), {
     method: "POST"
   });
 }
@@ -84,9 +85,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
           ...init.headers
         };
 
+  const authorization = await authHeaders();
+  const ratedId = /\/rated-matches\/(rated-[^/]+)/.exec(path)?.[1];
+  if (ratedId && init.method === "POST") authorization["If-Match"] = String(versions.get(ratedId) ?? -1);
   const response = await fetch(path, {
     ...init,
-    headers
+    headers: Object.keys(authorization).length === 0 ? headers : { ...headers, ...authorization }
   });
 
   if (!response.ok) {
@@ -95,7 +99,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new Error(message);
   }
 
-  return response.json() as Promise<T>;
+  const body = await response.json();
+  if (body.gameId && body.competition) versions.set(body.gameId, Math.max(versions.get(body.gameId) ?? -1, body.competition.version));
+  return body as T;
 }
 
 async function readErrorMessage(response: Response, fallback: string): Promise<string> {
@@ -119,3 +125,24 @@ async function readErrorMessage(response: Response, fallback: string): Promise<s
 
   return fallback;
 }
+
+const versions = new Map<string, number>();
+function gamePath(id: string, suffix = "") {
+  return resolveAppPath(`api/${id.startsWith("rated-") ? "rated-matches" : "games"}/${id}${suffix}`);
+}
+export interface CpuEntry { id: string; displayName: string; rating: number; games: number; }
+export interface QueueState { status: "idle" | "waiting" | "matched"; gameId?: string; waitedMs?: number; fillAfterMs?: number; }
+export const getCpuOpponents = () => request<{ cpus: CpuEntry[] }>(resolveAppPath("api/cpus"));
+export const getMyRating = () => request<CpuEntry>(resolveAppPath("api/ratings/me"));
+export const getMatchmaking = () => request<QueueState>(resolveAppPath("api/matchmaking"));
+export const joinMatchmaking = (cpuId: string) => request<QueueState>(resolveAppPath("api/matchmaking"), { method: "POST", body: JSON.stringify({ cpuId }) });
+export const cancelMatchmaking = () => request<QueueState>(resolveAppPath("api/matchmaking"), { method: "DELETE" });
+export const startCpuMatch = (cpuId: string) => request<CreateGameResponse>(resolveAppPath("api/matchmaking/cpu"), { method: "POST", body: JSON.stringify({ cpuId }) });
+
+export interface MatchHistoryEntry {
+  matchId: string; completedAt: string; rank: number; before: number; after: number; delta: number;
+  participants: { displayName: string; kind: "human" | "cpu"; rank: number }[];
+}
+export const getMatchHistory = (offset = 0) => request<{ matches: MatchHistoryEntry[] }>(resolveAppPath(`api/matches/history?offset=${offset}`));
+export const leaveRatedMatch = (id: string) => request<CreateGameResponse>(gamePath(id, "/leave"), { method: "POST" });
+export const resumeRatedMatch = (id: string) => request<CreateGameResponse>(gamePath(id, "/resume"), { method: "POST" });

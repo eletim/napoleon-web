@@ -14,6 +14,7 @@
     "@letele/playing-cards": "0.1.0",
     "@napoleon/game-core": "workspace:*",
     "@napoleon/protocol": "workspace:*",
+    "keycloak-js": "^26.2.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

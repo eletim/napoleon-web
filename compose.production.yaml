@@ -1,0 +1,91 @@
+name: napoleon-prod
+services:
+  players-db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: napoleon
+      POSTGRES_PASSWORD: ${PLAYERS_DB_PASSWORD:?set PLAYERS_DB_PASSWORD}
+      POSTGRES_DB: napoleon
+    volumes: [players-db:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U napoleon"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  keycloak-db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD}
+      POSTGRES_DB: keycloak
+    volumes: [keycloak-db:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U keycloak"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.5
+    restart: unless-stopped
+    command: [start, --import-realm]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD}
+      KC_HOSTNAME: https://${DOMAIN:?set DOMAIN}/auth
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:?set KEYCLOAK_ADMIN_USER}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD}
+    volumes: [./infra/keycloak/production-realm.json:/opt/keycloak/data/import/napoleon-realm.json:ro]
+    depends_on:
+      keycloak-db: {condition: service_healthy}
+  server:
+    build: {context: ., target: server}
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3000"
+      NAPOLEON_AUTH_ISSUER: https://${DOMAIN:?set DOMAIN}/auth/realms/napoleon
+      NAPOLEON_AUTH_CLIENT_ID: napoleon-web
+      NAPOLEON_AUTH_JWKS_URL: http://keycloak:8080/auth/realms/napoleon/protocol/openid-connect/certs
+      PGHOST: players-db
+      PGUSER: napoleon
+      PGDATABASE: napoleon
+      PGPASSWORD: ${PLAYERS_DB_PASSWORD:?set PLAYERS_DB_PASSWORD}
+      NAPOLEON_DATABASE_URL: postgresql://players-db/napoleon
+    depends_on:
+      players-db: {condition: service_healthy}
+      keycloak: {condition: service_started}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  nginx:
+    build: {context: ., target: web}
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN}
+      NGINX_ENVSUBST_FILTER: ^DOMAIN$
+    ports: ["80:80", "443:443"]
+    volumes: [certs:/etc/letsencrypt:ro, acme:/var/www/certbot:ro]
+    depends_on:
+      server: {condition: service_healthy}
+      keycloak: {condition: service_started}
+  certbot:
+    image: certbot/certbot:latest
+    profiles: [certificates]
+    volumes: [certs:/etc/letsencrypt, acme:/var/www/certbot]
+    entrypoint: certbot
+volumes:
+  players-db:
+  keycloak-db:
+  certs:
+  acme:

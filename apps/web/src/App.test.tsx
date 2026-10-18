@@ -14,6 +14,7 @@ import type {
   PublicRank,
   PublicSuit
 } from "@napoleon/protocol";
+import { PermissionsContext } from "./permissions";
 import { App } from "./App";
 import { advanceMatch, createGame, getAiPresets, nextTrick } from "./api";
 
@@ -722,3 +723,28 @@ function finalScore(
 }
 
 const playerIds = ["player-0", "player-1", "player-2", "player-3", "player-4"] as const;
+
+
+describe("role-based navigation", () => {
+  it("hides admin screens for users and closes an open admin screen after role removal", async () => {
+    vi.mocked(getAiPresets).mockResolvedValue(aiPresetResponse());
+    const container = document.createElement("div"); document.body.append(container);
+    const root = createRoot(container);
+    const render = async (isAdmin: boolean) => act(async () => root.render(
+      <PermissionsContext.Provider value={{ canPlay: true, isAdmin }}><App /></PermissionsContext.Provider>
+    ));
+    try {
+      await render(false);
+      expect(container.querySelector('[aria-label="AI設定"]')).toBeNull();
+      expect(container.querySelector('[aria-label="AI対戦ログ"]')).toBeNull();
+      expect(container.querySelector('[aria-label="通常プレイ"]')).not.toBeNull();
+      await render(true);
+      expect(container.querySelector('[aria-label="AI対戦ログ"]')).not.toBeNull();
+      await clickButton(container, "AI設定");
+      expect(container.querySelector('[aria-label="AI設定"]')?.getAttribute("aria-pressed")).toBe("true");
+      await render(false);
+      expect(container.querySelector('[aria-label="AI設定"]')).toBeNull();
+      expect(container.querySelector('[aria-label="通常プレイ"]')?.getAttribute("aria-pressed")).toBe("true");
+    } finally { await act(async () => root.unmount()); container.remove(); }
+  });
+});

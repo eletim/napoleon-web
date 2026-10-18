@@ -3,7 +3,12 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return { ...actual, readFileSync: vi.fn(actual.readFileSync) };
+});
 import {
   PARAMETERIZED_ADJUTANT_EXCHANGE_V1_POLICY_PATH,
   PARAMETERIZED_ADJUTANT_EXCHANGE_V1_SCHEMA_PATH,
@@ -11,13 +16,7 @@ import {
 } from "../src/parameterizedPolicyArtifact.js";
 
 describe("parameterized non-playing artifact", () => {
-  // Normal loading (the default, and what server startup uses) never reads
-  // the historical Issue #454 verification report / seed manifest - those
-  // large audit files were deliberately removed from the repo (see the
-  // artifact's own dependencyProvenance/verificationProvenance metadata,
-  // which is still validated below) and are not needed to actually run the
-  // policy. This must keep working even in a fresh checkout that never had
-  // them.
+  // Runtime validates policy metadata without requiring the historical audit files.
   it("loads the repo-managed human-readable source of truth with fixed provenance", () => {
     const loaded = loadParameterizedPolicyArtifact();
 
@@ -58,25 +57,46 @@ describe("parameterized non-playing artifact", () => {
     expect(logicalSeedSha256).toBe(loaded.provenance.verificationSeedManifestSha256);
   });
 
-  // The dedicated entry point for re-verifying the historical Issue #454
-  // audit trail (never used by normal server startup - see above). In this
-  // repository the audit files were deliberately removed as oversized
-  // research artifacts, so opting in must fail loudly rather than silently
-  // skip the check.
-  it("detects a missing historical provenance audit file when explicitly requested", () => {
-    let thrown: unknown;
-    try {
-      loadParameterizedPolicyArtifact(undefined, undefined, {
-        validateRepoManagedFileHashes: true
-      });
-    } catch (error) {
-      thrown = error;
-    }
+  it("validates the restored repository provenance audit files when explicitly requested", () => {
+    expect(() => loadParameterizedPolicyArtifact(undefined, undefined, {
+      validateRepoManagedFileHashes: true
+    })).not.toThrow();
+  });
 
-    expect(thrown).toBeInstanceOf(Error);
-    const thrownMessage = (thrown as Error).message;
-    expect(thrownMessage).toContain("Artifact provenance file is missing or unreadable");
-    expect(thrownMessage).toContain("verification-report.json");
+  it("detects a missing provenance audit file without changing repository files", () => {
+    const originalRead = vi.mocked(readFileSync).getMockImplementation()!;
+    vi.mocked(readFileSync).mockImplementation((...args: Parameters<typeof readFileSync>) => {
+      if (String(args[0]).endsWith("verification-report.json")) {
+        throw new Error("ENOENT: test audit file missing");
+      }
+      return originalRead(...args);
+    });
+    try {
+      // Default startup must continue to work even without audit files.
+      expect(() => loadParameterizedPolicyArtifact()).not.toThrow();
+      expect(() => loadParameterizedPolicyArtifact(undefined, undefined, {
+        validateRepoManagedFileHashes: true
+      })).toThrow(/Artifact provenance file is missing or unreadable: .*verification-report\.json/);
+    } finally {
+      vi.mocked(readFileSync).mockImplementation(originalRead);
+    }
+  });
+
+  it("rejects a corrupted provenance audit file", () => {
+    const originalRead = vi.mocked(readFileSync).getMockImplementation()!;
+    vi.mocked(readFileSync).mockImplementation((...args: Parameters<typeof readFileSync>) => {
+      if (String(args[0]).endsWith("verification-report.json")) {
+        return Buffer.from("tampered audit report");
+      }
+      return originalRead(...args);
+    });
+    try {
+      expect(() => loadParameterizedPolicyArtifact(undefined, undefined, {
+        validateRepoManagedFileHashes: true
+      })).toThrow("Artifact provenance file SHA256 mismatch");
+    } finally {
+      vi.mocked(readFileSync).mockImplementation(originalRead);
+    }
   });
 
   it("rejects missing and malformed artifacts without fallback", () => {

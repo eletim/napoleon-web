@@ -10,6 +10,7 @@ import { randomUUID } from "node:crypto";
 import { RULE_BASED_AGENT_ID, type AgentRegistry } from "./agentRegistry.js";
 
 export interface InternalGameState {
+  ownerSubject?: string;
   state: GameState;
   match?: MatchState;
   humanPlayerId: PlayerId;

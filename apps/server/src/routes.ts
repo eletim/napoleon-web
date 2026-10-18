@@ -1,3 +1,6 @@
+import { registerRatedMatches } from "./ratedMatches.js";
+import type { CompetitionStore } from "./competitionStore.js";
+import type { PlayerRepository } from "./players.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { NoLegalActionsError, RuleBasedAgent, runAutomatedGame } from "@napoleon/ai";
 import {
@@ -68,6 +71,10 @@ const humanPlayerId = "player-0";
 const maxAutomaticAiActions = 100;
 
 export interface RegisterRoutesOptions {
+  players?: PlayerRepository;
+  competitionStore?: CompetitionStore;
+  matchmakingWaitMs?: number;
+  now?: () => number;
   agentRegistry?: AgentRegistry;
   aiPresetRegistry?: AiPresetRegistry;
 }
@@ -79,6 +86,10 @@ export async function registerRoutes(
   const agentRegistry = options.agentRegistry ?? createAgentRegistryFromEnvironment();
   await agentRegistry.initializePhasePolicies();
   const aiPresetRegistry = options.aiPresetRegistry ?? createAiPresetRegistry(agentRegistry);
+
+  if (options.competitionStore) await registerRatedMatches(app, { players: options.players,
+    store: options.competitionStore, agents: agentRegistry, presets: aiPresetRegistry,
+    waitMs: options.matchmakingWaitMs, now: options.now });
 
   app.get("/api/health", async () => ({ ok: true }));
 
@@ -156,6 +167,7 @@ export async function registerRoutes(
     }
 
     games.set(gameId, {
+      ...(request.identity === null ? {} : { ownerSubject: request.identity.subject }),
       state,
       match,
       humanPlayerId,
@@ -389,9 +401,9 @@ export async function registerRoutes(
   );
 }
 
-async function advanceAiTurns(
+export async function advanceAiTurns(
   initialState: GameState,
-  humanPlayerId: PlayerId,
+  humanPlayerId: PlayerId | readonly PlayerId[],
   agents: ReadonlyMap<PlayerId, Agent>,
   initialPublicActionHistory: readonly PublicActionRecord[]
 ): Promise<{
@@ -405,7 +417,7 @@ async function advanceAiTurns(
   while (
     !state.isGameOver &&
     !state.isTrickComplete &&
-    state.currentPlayerId !== humanPlayerId
+    !(typeof humanPlayerId === "string" ? [humanPlayerId] : humanPlayerId).includes(state.currentPlayerId)
   ) {
     guard += 1;
 
@@ -438,7 +450,7 @@ async function advanceAiTurns(
   };
 }
 
-function toInternalAction(action: PublicGameAction, playerId: PlayerId): GameAction {
+export function toInternalAction(action: PublicGameAction, playerId: PlayerId): GameAction {
   switch (action.type) {
     case "play-card":
       return {
@@ -473,7 +485,7 @@ function toInternalAction(action: PublicGameAction, playerId: PlayerId): GameAct
   }
 }
 
-function appendPublicBiddingAction(
+export function appendPublicBiddingAction(
   history: readonly PublicActionRecord[],
   action: GameAction
 ): readonly PublicActionRecord[] {

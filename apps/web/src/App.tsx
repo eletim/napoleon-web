@@ -1,6 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { CompetitionLobby } from "./CompetitionLobby";
+import { usePermissions } from "./permissions";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import type {
   AiPolicyComposition,
+  CreateGameResponse,
+  PublicCompetition,
   AiPreset,
   AiPresetId,
   CreateGameAgentSelection,
@@ -34,7 +38,7 @@ import {
   type AdjutantSelection,
   type AdjutantSuitOption
 } from "./adjutantSelection";
-import { advanceMatch, createGame, getAiPresets, nextTrick, sendAction, updateAiPreset } from "./api";
+import { advanceMatch, createGame, getGame, leaveRatedMatch, resumeRatedMatch, getAiPresets, nextTrick, sendAction, updateAiPreset } from "./api";
 import { suitSymbols } from "./cardSymbols";
 import { createMessage } from "./displayText";
 import { createTablePlayers } from "./tablePlayers";
@@ -42,6 +46,7 @@ import { useTrickAnimation } from "./useTrickAnimation";
 import "./styles.css";
 
 interface Session {
+  competition?: PublicCompetition;
   gameId: string;
   playerId: string;
   state: PublicGameState;
@@ -89,7 +94,10 @@ export function App() {
 }
 
 function GameApp() {
-  const [mode, setMode] = useState<AppMode>("game");
+  const { isAdmin, rated } = usePermissions();
+  const [selectedMode, setMode] = useState<AppMode>("game");
+  const mode = isAdmin ? selectedMode : "game";
+  const [clockNow, setClockNow] = useState(Date.now());
   const [session, setSession] = useState<Session | undefined>();
   const [message, setMessage] = useState("ゲームを開始してください。");
   const [isBusy, setIsBusy] = useState(false);
@@ -136,7 +144,10 @@ function GameApp() {
     session?.state.phase === "choosing-adjutant" &&
     session.state.adjutantChoice?.napoleonPlayerId === session.playerId;
 
-  const tablePlayers = useMemo(() => createTablePlayers(session?.state), [session?.state]);
+  const tablePlayers = useMemo(() => createTablePlayers(session?.state).map((player) => {
+    const participant = session?.competition?.participants.find((p) => p.seatId === player.id);
+    return participant ? { ...player, label: `${participant.displayName}${participant.kind === "cpu" ? " [CPU]" : ""}` } : player;
+  }), [session?.state, session?.competition]);
   const aiSeats = useMemo(
     () => tablePlayers.filter((player) => !player.isSelf),
     [tablePlayers]
@@ -175,7 +186,13 @@ function GameApp() {
     selfPlayerId: session?.playerId,
     state: session?.state
   });
-  const isInteractionLocked = isBusy || trickAnimation.isAnimating;
+  const isSubstituted = !session?.match?.completed && (session?.competition?.substituteSeats?.includes(session.playerId) ?? false);
+  const isInteractionLocked = isBusy || trickAnimation.isAnimating || isSubstituted;
+  useEffect(() => {
+    if (!session?.competition?.deadlineAt || session.match?.completed) return;
+    const timer = setInterval(() => setClockNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [session?.competition?.deadlineAt, session?.match?.completed]);
   // The final trick's result only replaces the trick display once its
   // show-then-collect animation has actually finished (see the auto-advance
   // effect below), so the very last card played is never instantly hidden
@@ -193,6 +210,7 @@ function GameApp() {
       (session.state.result !== null && !isFinalTrickPendingReveal));
 
   useEffect(() => {
+    if (rated && !isAdmin) return;
     let cancelled = false;
 
     void getAiPresets()
@@ -230,9 +248,32 @@ function GameApp() {
     return () => {
       cancelled = true;
     };
+  }, [rated, isAdmin]);
+
+  const handleRatedStart = useCallback((response: CreateGameResponse) => {
+    setSession(response); setSelectedDiscardCardIds([]); setAdjutantSelection(defaultAdjutantSelection);
+    setIsFinalResultRevealed(false); setMessage("対戦を開始しました。");
   }, []);
+  useEffect(() => {
+    if (!session?.competition || session.match?.completed) return;
+    let active = true; let timer: ReturnType<typeof setTimeout>;
+    const gameId = session.gameId;
+    async function poll() {
+      try {
+        if (!requestInFlightRef.current) {
+          const result = await getGame(gameId);
+          if (active) setSession((current) => current?.gameId === gameId &&
+            (result.competition?.version ?? -1) > (current.competition?.version ?? -1) ? result : current);
+        }
+      } catch (error) { if (active) setMessage(error instanceof Error ? error.message : "通信に失敗しました。"); }
+      if (active) timer = setTimeout(() => void poll(), 750);
+    }
+    timer = setTimeout(() => void poll(), 750);
+    return () => { active = false; clearTimeout(timer); };
+  }, [session?.gameId, session?.match?.completed]);
 
   async function handleCreateGame(): Promise<void> {
+    if (rated) { setSession(undefined); setMessage("対戦方法を選んでください。"); return; }
     await runRequest(async () => {
       // Each of the four non-self seats brings its own selected AI preset into the
       // actual agent assigned for the game, instead of one preset for every seat.
@@ -504,6 +545,7 @@ function GameApp() {
         >
           {session !== undefined && mode === "game" ? "卓" : "通常プレイ"}
         </button>
+        {isAdmin ? <>
         <button
           aria-label="AI設定"
           aria-pressed={mode === "ai-settings"}
@@ -522,6 +564,7 @@ function GameApp() {
         >
           {session !== undefined && mode === "game" ? "ログ" : "AI対戦ログ"}
         </button>
+        </> : null}
       </nav>
 
       {mode === "game" ? (
@@ -542,7 +585,8 @@ function GameApp() {
             </div>
             <button
               className="primary-button"
-              disabled={isInteractionLocked || hasUnavailablePresetSelection}
+              hidden={rated && session === undefined}
+              disabled={isInteractionLocked || (!rated && hasUnavailablePresetSelection)}
               onClick={handleCreateGame}
               type="button"
             >
@@ -550,7 +594,23 @@ function GameApp() {
             </button>
           </section>
 
-          {session === undefined ? (
+          {session === undefined && rated ? <CompetitionLobby onStart={handleRatedStart} /> : null}
+          {session?.competition ? <section className="competition-summary" aria-label="対戦レート">
+            {!session.match?.completed ? <>
+              <span role="status">{isSubstituted ? "CPU代打中（画面を閉じても進行します）" : "手番制限30秒"}
+                {session.competition.deadlineAt ? `・次の進行まで ${Math.max(0, Math.ceil((session.competition.deadlineAt - clockNow) / 1000))}秒` : ""}</span>
+              <button disabled={isBusy} onClick={() => void runRequest(async () => {
+                const result = isSubstituted ? await resumeRatedMatch(session.gameId) : await leaveRatedMatch(session.gameId);
+                setSession(result); setMessage(isSubstituted ? "自席に復帰しました。" : "CPUに代打を任せました。");
+              })}>{isSubstituted ? "自席に復帰" : "退出してCPUに任せる"}</button>
+            </> : null}
+            {session.competition.participants.map((p) => {
+              const result = session.competition?.ratingChanges?.find((c) => c.seatId === p.seatId);
+              return <span key={p.seatId}>{p.displayName}{p.kind === "cpu" ? " [CPU]" : ""}：
+                {Math.round(result?.after ?? p.rating)}{result ? ` (${result.delta >= 0 ? "+" : ""}${result.delta.toFixed(1)})` : ""}</span>;
+            })}
+          </section> : null}
+          {session === undefined && !rated ? (
             <SeatPresetSelector
               disabled={isBusy || presets.length === 0}
               onChange={handleSeatPresetChange}
@@ -562,7 +622,7 @@ function GameApp() {
 
           {completedMatch !== undefined ? (
             <MatchFinalResults
-              disabled={isInteractionLocked || hasUnavailablePresetSelection}
+              disabled={isInteractionLocked || (!rated && hasUnavailablePresetSelection)}
               match={completedMatch}
               onStartNewMatch={() => void handleCreateGame()}
               players={tablePlayers}

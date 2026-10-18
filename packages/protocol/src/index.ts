@@ -213,7 +213,20 @@ export interface PublicMatchState {
   finalScores: readonly PublicMatchPlayerFinalScore[] | null;
 }
 
+export interface PublicRatedParticipant {
+  seatId: string; id: string; displayName: string; kind: "human" | "cpu"; rating: number;
+}
+export interface PublicCompetition {
+  deadlineAt?: number;
+  serverTime?: number;
+  substituteSeats?: readonly string[];
+  version: number;
+  participants: readonly PublicRatedParticipant[];
+  ratingChanges?: readonly { seatId: string; participantId: string; rank: number; before: number; after: number; delta: number }[];
+}
+
 export interface CreateGameResponse {
+  competition?: PublicCompetition;
   gameId: string;
   playerId: string;
   state: PublicGameState;
@@ -257,6 +270,7 @@ export interface SendActionRequest {
 }
 
 export interface SendActionResponse {
+  competition?: PublicCompetition;
   gameId: string;
   playerId: string;
   state: PublicGameState;
@@ -264,6 +278,7 @@ export interface SendActionResponse {
 }
 
 export interface GetGameResponse {
+  competition?: PublicCompetition;
   gameId: string;
   playerId: string;
   state: PublicGameState;
@@ -271,6 +286,7 @@ export interface GetGameResponse {
 }
 
 export interface NextTrickResponse {
+  competition?: PublicCompetition;
   gameId: string;
   playerId: string;
   state: PublicGameState;
@@ -278,6 +294,7 @@ export interface NextTrickResponse {
 }
 
 export interface AdvanceMatchResponse {
+  competition?: PublicCompetition;
   gameId: string;
   playerId: string;
   state: PublicGameState;

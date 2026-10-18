@@ -1,0 +1,76 @@
+{
+  "realm": "napoleon",
+  "enabled": true,
+  "registrationAllowed": true,
+  "resetPasswordAllowed": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "internationalizationEnabled": true,
+  "supportedLocales": [
+    "ja",
+    "en"
+  ],
+  "defaultLocale": "ja",
+  "clients": [
+    {
+      "clientId": "napoleon-web",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "redirectUris": [
+        "http://localhost:5173/",
+        "http://localhost:5173/napoleon/",
+        "http://127.0.0.1:5173/",
+        "http://127.0.0.1:5173/napoleon/"
+      ],
+      "webOrigins": [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+"
+      },
+      "protocolMappers": [
+        {
+          "name": "napoleon-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "napoleon-web",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "user",
+        "description": "通常プレイと自分のプレイヤー情報"
+      },
+      {
+        "name": "admin",
+        "description": "AI設定・AI対戦ログを含む管理機能"
+      },
+      {
+        "name": "default-roles-napoleon",
+        "composite": true,
+        "clientRole": false,
+        "composites": {
+          "realm": [
+            "user"
+          ]
+        }
+      }
+    ]
+  },
+  "defaultRole": {
+    "name": "default-roles-napoleon"
+  }
+}
