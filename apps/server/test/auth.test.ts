@@ -17,7 +17,7 @@ beforeAll(async () => {
 });
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); games.clear(); });
 async function token(sub = "alice", overrides: Record<string, unknown> = {}) {
-  return new SignJWT({ typ: "Bearer", azp: clientId, preferred_username: sub, ...overrides })
+  return new SignJWT({ typ: "Bearer", azp: clientId, preferred_username: sub, realm_access: { roles: ["user"] }, ...overrides })
     .setProtectedHeader({ alg: "RS256", kid: "test" }).setIssuer(issuer).setAudience(clientId)
     .setSubject(sub).setIssuedAt().setExpirationTime("5m").sign(keys.privateKey);
 }
@@ -53,10 +53,29 @@ describe("Keycloak authentication", () => {
     expect(created.statusCode).toBe(201);
     const id = created.json().gameId;
     expect((await instance.inject({ url: `/api/games/${id}`, headers: alice })).statusCode).toBe(200);
-    for (const suffix of ["", "/diagnostics", "/actions", "/next-trick", "/next-round"]) {
+    for (const suffix of ["", "/actions", "/next-trick", "/next-round"]) {
       const method = suffix === "" || suffix === "/diagnostics" ? "GET" : "POST";
       expect((await instance.inject({ method, url: `/api/games/${id}${suffix}`, headers: bob })).statusCode).toBe(404);
     }
+  });
+  it("enforces user/admin roles for UI-related APIs even with direct requests", async () => {
+    const instance = await buildApp({ auth: { config: { issuer, clientId, databaseUrl: "unused" },
+      players: memoryPlayers(), verificationKey } });
+    apps.push(instance);
+    const user = headers(await token());
+    const admin = headers(await token("admin", { realm_access: { roles: ["admin"] } }));
+    const noRole = headers(await token("none", { realm_access: { roles: [] } }));
+    for (const [method, url] of [["GET", "/api/agents"], ["POST", "/api/simulations"],
+      ["PUT", "/api/ai-presets/com-ai"], ["GET", "/api/games/missing/diagnostics"]] as const) {
+      expect((await instance.inject({ method, url, headers: user })).statusCode).toBe(403);
+      const response = await instance.inject({ method, url, headers: admin });
+      expect(response.statusCode).not.toBe(403);
+      expect(response.statusCode).not.toBe(401);
+    }
+    expect((await instance.inject({ url: "/api/me", headers: noRole })).statusCode).toBe(403);
+    expect((await instance.inject({ method: "POST", url: "/api/games", payload: {}, headers: noRole })).statusCode).toBe(403);
+    expect((await instance.inject({ url: "/api/ai-presets", headers: user })).statusCode).toBe(200);
+    expect((await instance.inject({ url: "/api/me", headers: admin })).statusCode).toBe(200);
   });
   it("rejects partial configuration and non-HTTPS remote issuers", () => {
     expect(readAuthConfig({})).toBeNull();

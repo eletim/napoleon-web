@@ -47,5 +47,30 @@
         }
       ]
     }
-  ]
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "user",
+        "description": "通常プレイと自分のプレイヤー情報"
+      },
+      {
+        "name": "admin",
+        "description": "AI設定・AI対戦ログを含む管理機能"
+      },
+      {
+        "name": "default-roles-napoleon",
+        "composite": true,
+        "clientRole": false,
+        "composites": {
+          "realm": [
+            "user"
+          ]
+        }
+      }
+    ]
+  },
+  "defaultRole": {
+    "name": "default-roles-napoleon"
+  }
 }

@@ -1,10 +1,12 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { authHeaders, initializeAuth, type AuthSession } from "./auth";
+import { PermissionsContext, type Permissions } from "./permissions";
 import { resolveAppPath } from "./appPath";
 import "./account.css";
 
 interface Profile { id: string; displayName: string; }
 export function AccountGate({ children }: { children: ReactNode }) {
+  const [permissions, setPermissions] = useState<Permissions>({ canPlay: false, isAdmin: false });
   const [session, setSession] = useState<AuthSession>();
   const [authenticated, setAuthenticated] = useState(false);
   const [profile, setProfile] = useState<Profile>();
@@ -20,9 +22,16 @@ export function AccountGate({ children }: { children: ReactNode }) {
       const client = value.client;
       setAuthenticated(client?.authenticated ?? false);
       if (client === null) return;
+      const updatePermissions = () => {
+        if (!active) return;
+        const isAdmin = client.hasRealmRole("admin");
+        setPermissions({ isAdmin, canPlay: isAdmin || client.hasRealmRole("user") });
+      };
+      updatePermissions();
+      client.onAuthRefreshSuccess = updatePermissions;
       client.onAuthLogout = () => { if (active) { setAuthenticated(false); setProfile(undefined); } };
-      cleanup = () => { client.onAuthLogout = undefined; };
-      if (client.authenticated) {
+      cleanup = () => { client.onAuthLogout = undefined; client.onAuthRefreshSuccess = undefined; };
+      if (client.authenticated && (client.hasRealmRole("user") || client.hasRealmRole("admin"))) {
         const result = await profileRequest();
         if (active) { setProfile(result); setName(result.displayName); }
       }
@@ -59,7 +68,9 @@ export function AccountGate({ children }: { children: ReactNode }) {
       <button disabled={busy} onClick={() => void action(() => client.logout({ redirectUri }))}>ログアウト</button>
       {message && <p role="status">{message}</p>}
     </section>
-    {children}
+    <PermissionsContext.Provider value={permissions}>
+      {permissions.canPlay ? children : <p className="account-screen" role="alert">このアカウントには利用権限がありません。</p>}
+    </PermissionsContext.Provider>
   </>;
 }
 

@@ -15,7 +15,7 @@ export interface AuthOptions {
 }
 
 declare module "fastify" {
-  interface FastifyRequest { identity: Identity | null; }
+  interface FastifyRequest { identity: Identity | null; appRoles: string[] | null; }
 }
 
 export function readAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig | null {
@@ -39,6 +39,7 @@ export function readAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig
 export async function registerAuth(app: FastifyInstance, options: AuthOptions = {}): Promise<void> {
   const config = options.config === undefined ? readAuthConfig() : options.config;
   app.decorateRequest("identity", null);
+  app.decorateRequest("appRoles", null);
   const publicPaths = new Set(["/api/health", "/api/auth/config"]);
   app.addHook("onSend", async (request, reply, payload) => {
     if (request.url.startsWith("/api/")) reply.header("Cache-Control", "no-store");
@@ -67,6 +68,9 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions = 
       });
       if (!payload.sub || payload.typ !== "Bearer" || payload.azp !== config.clientId ||
           typeof payload.exp !== "number") throw new Error("Invalid access token");
+      const access = payload.realm_access as { roles?: unknown } | undefined;
+      request.appRoles = Array.isArray(access?.roles)
+        ? access.roles.filter((role): role is string => typeof role === "string") : [];
       request.identity = { issuer: config.issuer, subject: payload.sub,
         username: typeof payload.preferred_username === "string" && payload.preferred_username.trim()
           ? payload.preferred_username : "プレイヤー" };
@@ -77,6 +81,15 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions = 
     }
   });
   app.addHook("preHandler", async (request, reply) => {
+    const path = request.routeOptions.url ?? "";
+    if (request.method === "OPTIONS" || publicPaths.has(path) || !path.startsWith("/api/")) return;
+    const isAdmin = request.appRoles?.includes("admin");
+    const adminOnly = path === "/api/agents" || path === "/api/simulations" ||
+      path === "/api/games/:gameId/diagnostics" ||
+      (path === "/api/ai-presets/:presetId" && request.method === "PUT");
+    if ((!isAdmin && !request.appRoles?.includes("user")) || (adminOnly && !isAdmin)) {
+      return reply.code(403).send({ error: { code: "FORBIDDEN", message: "この機能を利用する権限がありません。" } });
+    }
     const params = request.params as { gameId?: string };
     if (params.gameId === undefined) return;
     const game = games.get(params.gameId);

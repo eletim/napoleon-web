@@ -1,3 +1,4 @@
+import { usePermissions } from "./permissions";
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import type {
   AiPolicyComposition,
@@ -89,7 +90,9 @@ export function App() {
 }
 
 function GameApp() {
-  const [mode, setMode] = useState<AppMode>("game");
+  const { isAdmin } = usePermissions();
+  const [selectedMode, setMode] = useState<AppMode>("game");
+  const mode = isAdmin ? selectedMode : "game";
   const [session, setSession] = useState<Session | undefined>();
   const [message, setMessage] = useState("ゲームを開始してください。");
   const [isBusy, setIsBusy] = useState(false);
@@ -504,6 +507,7 @@ function GameApp() {
         >
           {session !== undefined && mode === "game" ? "卓" : "通常プレイ"}
         </button>
+        {isAdmin ? <>
         <button
           aria-label="AI設定"
           aria-pressed={mode === "ai-settings"}
@@ -522,6 +526,7 @@ function GameApp() {
         >
           {session !== undefined && mode === "game" ? "ログ" : "AI対戦ログ"}
         </button>
+        </> : null}
       </nav>
 
       {mode === "game" ? (
