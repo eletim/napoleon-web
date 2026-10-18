@@ -1,0 +1,377 @@
+{
+  "artifactId": "issue427-t1-strong-raise-ft",
+  "artifactType": "napoleon-bidding-margin-heteroscedastic-onnx",
+  "checkpointSchemaVersion": 1,
+  "constantSigma": 0.0,
+  "dataset": {
+    "manifest": {
+      "actionMapping": {
+        "actionCount": 29,
+        "bidTargets": [
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "id": "bidding-action-index-v1-pass-then-13-19-spades-hearts-diamonds-clubs",
+        "passActionIndex": 0,
+        "suitOrder": [
+          "spades",
+          "hearts",
+          "diamonds",
+          "clubs"
+        ]
+      },
+      "cardCount": 53,
+      "cardIds": [
+        "spades-A",
+        "spades-K",
+        "spades-Q",
+        "spades-J",
+        "spades-10",
+        "spades-9",
+        "spades-8",
+        "spades-7",
+        "spades-6",
+        "spades-5",
+        "spades-4",
+        "spades-3",
+        "spades-2",
+        "hearts-A",
+        "hearts-K",
+        "hearts-Q",
+        "hearts-J",
+        "hearts-10",
+        "hearts-9",
+        "hearts-8",
+        "hearts-7",
+        "hearts-6",
+        "hearts-5",
+        "hearts-4",
+        "hearts-3",
+        "hearts-2",
+        "diamonds-A",
+        "diamonds-K",
+        "diamonds-Q",
+        "diamonds-J",
+        "diamonds-10",
+        "diamonds-9",
+        "diamonds-8",
+        "diamonds-7",
+        "diamonds-6",
+        "diamonds-5",
+        "diamonds-4",
+        "diamonds-3",
+        "diamonds-2",
+        "clubs-A",
+        "clubs-K",
+        "clubs-Q",
+        "clubs-J",
+        "clubs-10",
+        "clubs-9",
+        "clubs-8",
+        "clubs-7",
+        "clubs-6",
+        "clubs-5",
+        "clubs-4",
+        "clubs-3",
+        "clubs-2",
+        "joker"
+      ],
+      "cardIdsSha256": "7ea0fdb58078f835bc5f7e6307a2a0c869430db343dd9e50ed1226f0452aaf38",
+      "compactObservation": {
+        "encoderSchemaVersion": 1,
+        "modelInputFeatureCount": 278,
+        "modelInputSchemaVersion": 2,
+        "phase": "bidding"
+      },
+      "datasetSchemaVersion": 1,
+      "fixedCondition": {
+        "fixed": [
+          "candidate hand",
+          "candidate seat index",
+          "dealSeed hidden deal",
+          "visible bidding history generated from the same deal",
+          "candidate role = Napoleon during teacher",
+          "contract owner = candidate during teacher",
+          "contract target/suit = evaluated raise"
+        ],
+        "note": "Source bidding starts from the true initial bidding state and runs RuleBased/Conservative 50:50 until candidate turns with a current bid are collected.",
+        "varied": [
+          "fixedHandId",
+          "dealSeed",
+          "source raise state",
+          "evaluated legal raise action"
+        ]
+      },
+      "fixedHandCount": 1250,
+      "format": "jsonl",
+      "generatorVersion": 1,
+      "opponentMix": {
+        "candidateBiddingPolicy": "same-seat-policy-mix-during-source-bidding",
+        "conservativeWeight": 0.5,
+        "mixingRuleVersion": "per-seat-seeded-rule-based-conservative-50-50-v1",
+        "ruleBasedWeight": 0.5
+      },
+      "pairCount": 5000,
+      "playerCount": 5,
+      "randomSeed": 427700,
+      "rawRolloutShards": [
+        {
+          "byteLength": 1512140,
+          "endSeed": 0,
+          "file": "raw-rollouts-00000.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "c340c26f83daf65b7b38ab813c718df14af49bdd5ebb77121153901dd6c25d9c",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1512175,
+          "endSeed": 0,
+          "file": "raw-rollouts-00001.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "b887dc2d4e37103d53ac1823a8bb0faf9a10445ecb3abdd239a8c92cc4cf7a65",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1512721,
+          "endSeed": 0,
+          "file": "raw-rollouts-00002.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "1a9423688aaa5b52e4a2c5cd0f88eb1355efbbcbea91cdee7cb07cbff7c082b7",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1513337,
+          "endSeed": 0,
+          "file": "raw-rollouts-00003.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "ff1a4b8e2c6466058aecaac5816843fcec77d372d095493357ade7e966b3cb1d",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 1513868,
+          "endSeed": 0,
+          "file": "raw-rollouts-00004.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "242072b2ad07a925f8e7a297dfc02abe144db801aba97d27e23fc09442c748ed",
+          "startSeed": 0
+        }
+      ],
+      "rolloutCount": 5000,
+      "sampleSchemaVersion": 1,
+      "sampleType": "history-consistent-raise-margin-sample",
+      "shardCount": 5,
+      "shards": [
+        {
+          "byteLength": 2681284,
+          "endSeed": 0,
+          "file": "shard-00000.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "def0be91a9e47b741841db6f61c48baeaab6cb443260f0fa6f0ac84c6156b66b",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2681992,
+          "endSeed": 0,
+          "file": "shard-00001.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "bc0eed8aaf263530520bdd66414c18788ea8dbde1f192a1c9f06a213062c8259",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2681608,
+          "endSeed": 0,
+          "file": "shard-00002.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "9e698d0fe7d4d02740bc37cc5f7029e9773e1817a34b4380c5f3b98c49b4976b",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2683230,
+          "endSeed": 0,
+          "file": "shard-00003.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "824d9f98ee393a5abcc289bdfc62a1644ccbfeb6a06aa0551046c790a94e8b1c",
+          "startSeed": 0
+        },
+        {
+          "byteLength": 2682514,
+          "endSeed": 0,
+          "file": "shard-00004.jsonl",
+          "gameCount": 1000,
+          "sampleCount": 1000,
+          "sha256": "a4113a8d0383d71448b44c5126cb1a2561633769f3e80ddb65a3b078f311f3d2",
+          "startSeed": 0
+        }
+      ],
+      "sourceCommit": null,
+      "summary": {
+        "currentSuitCounts": {
+          "clubs": 1396,
+          "diamonds": 1316,
+          "hearts": 1220,
+          "spades": 1068
+        },
+        "currentTargetCounts": {
+          "14": 4356,
+          "15": 644
+        },
+        "empiricalMarginMean": {
+          "count": 5000,
+          "max": 6,
+          "mean": -4.2842,
+          "min": -16,
+          "std": 4.056134904068107
+        },
+        "empiricalMarginStd": {
+          "count": 5000,
+          "max": 0,
+          "mean": 0,
+          "min": 0,
+          "std": 0
+        },
+        "empiricalWinRate": {
+          "count": 5000,
+          "max": 1,
+          "mean": 0.188,
+          "min": 0,
+          "std": 0.390712170273728
+        },
+        "fixedHandCount": 1250,
+        "pairCount": 5000,
+        "repeatCountMax": 1,
+        "repeatCountMin": 1,
+        "rolloutCount": 5000,
+        "splitHintCounts": {
+          "none": 5000
+        },
+        "suitCounts": {
+          "clubs": 1250,
+          "diamonds": 1250,
+          "hearts": 1250,
+          "spades": 1250
+        },
+        "targetCounts": {
+          "14": 1753,
+          "15": 2860,
+          "16": 387
+        },
+        "uniqueDealSeedCount": 1250,
+        "uniqueRaiseStateCount": 1250
+      },
+      "teacher": {
+        "id": "history-consistent-raise-contract-margin-v1",
+        "note": "Each label uses the same hidden deal that generated the visible bidding history; no post-history hidden-hand reshuffle is performed.",
+        "primaryLabel": "empiricalMarginMean",
+        "repeatsPerPair": 1,
+        "stdLabel": "empiricalMarginStd",
+        "winRateLabel": "empiricalWinRate"
+      },
+      "uniqueDealSeedCount": 1250,
+      "uniqueRaiseStateCount": 1250
+    },
+    "path": "/tmp/issue427-raise-strong-5k",
+    "sampleCount": 5000
+  },
+  "displayName": "Issue #427 T1 history-consistent raise FT",
+  "inputName": "model_input",
+  "metadataSchemaVersion": 1,
+  "modelConfig": {
+    "actionCount": 29,
+    "architectureId": "bidding-margin-heteroscedastic-mlp-v1",
+    "dropout": 0.0,
+    "hidden_dims": [
+      512,
+      512,
+      256,
+      256
+    ],
+    "input_dim": 278,
+    "logVarianceMax": 5.991464547107982,
+    "logVarianceMin": -5.991464547107982
+  },
+  "modelType": "bidding-margin-heteroscedastic",
+  "onnx": {
+    "inputs": [
+      {
+        "dtype": "float32",
+        "name": "model_input",
+        "shape": [
+          "batch",
+          278
+        ]
+      }
+    ],
+    "opsetVersion": 18,
+    "outputs": [
+      {
+        "dtype": "float32",
+        "name": "mean",
+        "shape": [
+          "batch",
+          29
+        ]
+      },
+      {
+        "dtype": "float32",
+        "name": "log_variance",
+        "shape": [
+          "batch",
+          29
+        ]
+      }
+    ]
+  },
+  "outputNames": [
+    "mean",
+    "log_variance"
+  ],
+  "outputValueType": "standardized-margin-mean-and-log-variance",
+  "sourceCheckpointSha256": "86330f47ea4b77781e01ea6d9bbec6e3655d49ec1928361e4a5d7e4a06571766",
+  "sourceNote": "#423 single-head M2 fine-tuned on #427 history-consistent raise dataset; exported for Issue #429 runtime evaluation.",
+  "targetStandardization": {
+    "enabled": true,
+    "mean": -4.304,
+    "std": 4.077754774382589
+  },
+  "trainingConfig": {
+    "algorithm": "fixed-hand-empirical-margin-selected-action-v1",
+    "batch_size": 256,
+    "device": "cpu",
+    "dropout": 0.0,
+    "epochs": 30,
+    "final_ratio": 0.1,
+    "hidden_dims": [
+      512,
+      512,
+      256,
+      256
+    ],
+    "init_checkpoint_path": "/tmp/issue423-model-5k-M2/checkpoint.pt",
+    "learning_rate": 0.0003,
+    "min_delta": 0.0,
+    "min_sigma": 0.05,
+    "patience": 6,
+    "seed": 4273,
+    "std_loss_weight": 0.25,
+    "target_standardization": true,
+    "train_pair_limit": null,
+    "validation_ratio": 0.1,
+    "variant": "M2",
+    "weight_decay": 0.0001
+  },
+  "variant": "M2"
+}

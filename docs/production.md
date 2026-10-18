@@ -102,13 +102,10 @@ docker compose --env-file .env.production -f compose.production.yaml exec -T ngi
   メール確認を有効にする場合は、新規登録から確認完了・ログインまで確認する。
 - ホストOSを再起動し、Dockerと各サービスが起動してログイン・対戦復元できることを確認する。
 
-### 残っている旧AIモデルのテスト依存
+### 旧AIモデルのテスト依存
 
-`packages/policy-onnx/test/t1NapoleonEvBiddingAgent.test.ts` の2件は、
-次の旧Issue #427モデルがリポジトリに含まれていないため失敗します。
-通常対戦で使用する `frozen-raise-v1` は別のモデルで、代わりにコピーしても整合性検証を通りません。
-
-復元先は `benchmarks/bidding-margin-policies/issue427-t1-strong-raise-ft/` です。
-必要な元ファイルは `margin.onnx`、`margin.onnx.data`、`margin.json`、`export-report.json`。
-復元する際は `packages/policy-onnx/src/benchmarkArtifacts.ts` に固定されたSHA256との一致を確認し、
-当該テストを再実行してください。テストのスキップやハッシュの変更で成功扱いにはしていません。
+`packages/policy-onnx/test/t1NapoleonEvBiddingAgent.test.ts` が参照する旧Issue #427モデルは、
+`benchmarks/bidding-margin-policies/issue427-t1-strong-raise-ft/` に保管しています。
+`margin.onnx`、`margin.onnx.data`、`margin.json`、`export-report.json` は、
+`packages/policy-onnx/src/benchmarkArtifacts.ts` に固定されたSHA256との一致を確認済みです。
+モデルを更新または復元する場合は、固定SHA256との一致を確認してから当該テストを再実行してください。
