@@ -91,3 +91,24 @@ docker compose --env-file .env.production -f compose.production.yaml exec -T ngi
 本番用DockerイメージとCompose一式の起動、Nginx実バイナリの構文、自己署名証明書を使ったHTTPS、
 実Keycloak・PostgreSQLとブラウザによるE2E、実DBのバックアップ・復元を独立したローカル環境で確認しています。
 実公開DNS、Let's Encryptによる証明書の発行・更新、SMTP、ホストOS再起動時の自動起動は未検証です。
+
+## 公開前の最終確認
+
+- 実ドメインでゲームとKeycloakを開き、登録・ログイン・対戦開始まで確認する。
+- Let's Encrypt証明書を取得し、`certbot renew --dry-run --webroot -w /var/www/certbot`
+  を上記のComposeのcertbotサービスで実行して更新経路を確認する。更新の定期実行も設定する。
+- Keycloakのnapoleon realmにSMTPのホスト・ポート・送信元・認証・TLSを設定し、
+  テスト送信と、実ユーザーのパスワード再設定メールの到着・リンクからの変更を確認する。
+  メール確認を有効にする場合は、新規登録から確認完了・ログインまで確認する。
+- ホストOSを再起動し、Dockerと各サービスが起動してログイン・対戦復元できることを確認する。
+
+### 残っている旧AIモデルのテスト依存
+
+`packages/policy-onnx/test/t1NapoleonEvBiddingAgent.test.ts` の2件は、
+次の旧Issue #427モデルがリポジトリに含まれていないため失敗します。
+通常対戦で使用する `frozen-raise-v1` は別のモデルで、代わりにコピーしても整合性検証を通りません。
+
+復元先は `benchmarks/bidding-margin-policies/issue427-t1-strong-raise-ft/` です。
+必要な元ファイルは `margin.onnx`、`margin.onnx.data`、`margin.json`、`export-report.json`。
+復元する際は `packages/policy-onnx/src/benchmarkArtifacts.ts` に固定されたSHA256との一致を確認し、
+当該テストを再実行してください。テストのスキップやハッシュの変更で成功扱いにはしていません。
