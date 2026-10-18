@@ -203,6 +203,7 @@ function GameApp() {
       (session.state.result !== null && !isFinalTrickPendingReveal));
 
   useEffect(() => {
+    if (rated && !isAdmin) return;
     let cancelled = false;
 
     void getAiPresets()
@@ -240,7 +241,7 @@ function GameApp() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [rated, isAdmin]);
 
   const handleRatedStart = useCallback((response: CreateGameResponse) => {
     setSession(response); setSelectedDiscardCardIds([]); setAdjutantSelection(defaultAdjutantSelection);

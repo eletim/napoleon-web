@@ -29,8 +29,11 @@ export function AccountGate({ children }: { children: ReactNode }) {
       };
       updatePermissions();
       client.onAuthRefreshSuccess = updatePermissions;
-      client.onAuthLogout = () => { if (active) { setAuthenticated(false); setProfile(undefined); } };
-      cleanup = () => { client.onAuthLogout = undefined; client.onAuthRefreshSuccess = undefined; };
+      client.onTokenExpired = () => {
+        void client.updateToken(30).catch(() => client.clearToken());
+      };
+      client.onAuthLogout = () => { if (active) { setAuthenticated(false); setProfile(undefined); setPermissions({ canPlay: false, isAdmin: false }); } };
+      cleanup = () => { client.onAuthLogout = undefined; client.onAuthRefreshSuccess = undefined; client.onTokenExpired = undefined; };
       if (client.authenticated && (client.hasRealmRole("user") || client.hasRealmRole("admin"))) {
         const result = await profileRequest();
         if (active) { setProfile(result); setName(result.displayName); }

@@ -65,7 +65,7 @@ describe("Keycloak authentication", () => {
     const user = headers(await token());
     const admin = headers(await token("admin", { realm_access: { roles: ["admin"] } }));
     const noRole = headers(await token("none", { realm_access: { roles: [] } }));
-    for (const [method, url] of [["GET", "/api/agents"], ["POST", "/api/simulations"],
+    for (const [method, url] of [["GET", "/api/agents"], ["GET", "/api/ai-presets"], ["HEAD", "/api/ai-presets"], ["POST", "/api/simulations"],
       ["PUT", "/api/ai-presets/com-ai"], ["GET", "/api/games/missing/diagnostics"]] as const) {
       expect((await instance.inject({ method, url, headers: user })).statusCode).toBe(403);
       const response = await instance.inject({ method, url, headers: admin });
@@ -74,11 +74,12 @@ describe("Keycloak authentication", () => {
     }
     expect((await instance.inject({ url: "/api/me", headers: noRole })).statusCode).toBe(403);
     expect((await instance.inject({ method: "POST", url: "/api/games", payload: {}, headers: noRole })).statusCode).toBe(403);
-    expect((await instance.inject({ url: "/api/ai-presets", headers: user })).statusCode).toBe(200);
+    expect((await instance.inject({ url: "/api/ai-presets", headers: user })).statusCode).toBe(403);
     expect((await instance.inject({ url: "/api/me", headers: admin })).statusCode).toBe(200);
   });
   it("rejects partial configuration and non-HTTPS remote issuers", () => {
     expect(readAuthConfig({})).toBeNull();
+    expect(() => readAuthConfig({ NODE_ENV: "production" })).toThrow("required in production");
     expect(() => readAuthConfig({ NAPOLEON_AUTH_CLIENT_ID: clientId })).toThrow();
     expect(() => readAuthConfig({ NAPOLEON_AUTH_ISSUER: "http://remote/realms/test",
       NAPOLEON_AUTH_CLIENT_ID: clientId, NAPOLEON_DATABASE_URL: "db" })).toThrow();

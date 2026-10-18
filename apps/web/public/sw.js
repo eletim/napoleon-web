@@ -1,4 +1,4 @@
-const CACHE_NAME = "napoleon-web-v1";
+const CACHE_NAME = "napoleon-web-v2";
 const IS_DEV_SERVICE_WORKER = new URL(self.location.href).searchParams.has("dev-sw");
 const SERVICE_WORKER_PATHNAME = new URL(self.location.href).pathname;
 const SCOPE_URL = new URL(self.registration.scope);
@@ -63,11 +63,14 @@ self.addEventListener("fetch", (event) => {
 
   const request = event.request;
 
-  if (request.method !== "GET") {
+  if (request.method !== "GET" || request.headers.has("Authorization")) {
     return;
   }
 
   const url = new URL(request.url);
+  let decodedPath;
+  try { decodedPath = decodeURIComponent(url.pathname); } catch { return; }
+  if (decodedPath.startsWith(new URL("api/", SCOPE_URL).pathname)) return;
 
   if (
     url.origin !== self.location.origin ||
@@ -92,7 +95,7 @@ async function networkFirst(request) {
   try {
     const response = await fetch(request);
 
-    if (response.ok) {
+    if (canCache(response)) {
       await cache.put(request, response.clone());
     }
 
@@ -112,7 +115,7 @@ async function cacheFirst(request) {
 
   const response = await fetch(request);
 
-  if (response.ok) {
+  if (canCache(response)) {
     await cache.put(request, response.clone());
     await trimRuntimeCache(cache);
   }
@@ -132,4 +135,8 @@ async function trimRuntimeCache(cache) {
 
 function isWithinScope(pathname) {
   return pathname === SCOPE_PATHNAME || pathname.startsWith(SCOPE_PATHNAME);
+}
+
+function canCache(response) {
+  return response.ok && !/\b(no-store|private)\b/i.test(response.headers.get("Cache-Control") ?? "");
 }

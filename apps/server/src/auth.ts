@@ -21,7 +21,10 @@ declare module "fastify" {
 export function readAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig | null {
   const { NAPOLEON_AUTH_ISSUER: issuer, NAPOLEON_AUTH_CLIENT_ID: clientId,
     NAPOLEON_DATABASE_URL: databaseUrl } = env;
-  if (!issuer && !clientId && !databaseUrl) return null;
+  if (!issuer && !clientId && !databaseUrl) {
+    if (env.NODE_ENV === "production") throw new Error("Authentication configuration is required in production.");
+    return null;
+  }
   if (!issuer || !clientId || !databaseUrl) {
     throw new Error("Set NAPOLEON_AUTH_ISSUER, NAPOLEON_AUTH_CLIENT_ID and NAPOLEON_DATABASE_URL together.");
   }
@@ -42,7 +45,7 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions = 
   app.decorateRequest("appRoles", null);
   const publicPaths = new Set(["/api/health", "/api/auth/config"]);
   app.addHook("onSend", async (request, reply, payload) => {
-    if (request.url.startsWith("/api/")) reply.header("Cache-Control", "no-store");
+    if (request.routeOptions.url?.startsWith("/api/")) reply.header("Cache-Control", "no-store");
     return payload;
   });
   app.get("/api/auth/config", async () => {
@@ -58,7 +61,7 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions = 
     new URL(`${config.issuer}/protocol/openid-connect/certs`)
   );
   app.addHook("onRequest", async (request, reply) => {
-    const path = request.url.split("?")[0];
+    const path = request.routeOptions.url ?? "";
     if (request.method === "OPTIONS" || publicPaths.has(path) || !path.startsWith("/api/")) return;
     const match = /^Bearer (\S+)$/i.exec(request.headers.authorization ?? "");
     try {
@@ -83,8 +86,11 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions = 
   app.addHook("preHandler", async (request, reply) => {
     const path = request.routeOptions.url ?? "";
     if (request.method === "OPTIONS" || publicPaths.has(path) || !path.startsWith("/api/")) return;
+    if (!request.identity) return reply.code(401).header("WWW-Authenticate", "Bearer").send({
+      error: { code: "UNAUTHENTICATED", message: "ログインしてください。" }
+    });
     const isAdmin = request.appRoles?.includes("admin");
-    const adminOnly = path === "/api/agents" || path === "/api/simulations" ||
+    const adminOnly = path === "/api/ai-presets" || path === "/api/agents" || path === "/api/simulations" ||
       path === "/api/games/:gameId/diagnostics" ||
       (path === "/api/ai-presets/:presetId" && request.method === "PUT");
     if ((!isAdmin && !request.appRoles?.includes("user")) || (adminOnly && !isAdmin)) {
