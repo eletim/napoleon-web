@@ -64,7 +64,7 @@ export function AccountGate({ children }: { children: ReactNode }) {
         <form onSubmit={(event) => { event.preventDefault(); void action(async () => {
           const result = await profileRequest(name); setProfile(result); setName(result.displayName); setMessage("保存しました。");
         }); }}>
-          <label>プレイヤー名<input value={name} required maxLength={60} onChange={(event) => setName(event.target.value)} /></label>
+          <label>プレイヤー名<input value={name} required maxLength={30} onChange={(event) => setName(event.target.value)} /></label>
           <button disabled={busy}>保存</button>
         </form>
       </details>

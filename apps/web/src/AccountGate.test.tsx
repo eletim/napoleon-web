@@ -24,6 +24,10 @@ beforeEach(()=>{
 });
 afterEach(async()=>{await act(async()=>root.unmount());container.remove();vi.unstubAllGlobals();vi.clearAllMocks();});
 describe("account permissions lifecycle",()=>{
+  it("matches the profile input limit to the server-side 30-character limit",async()=>{
+    await act(async()=>root.render(<AccountGate><Child/></AccountGate>));
+    expect(container.querySelector<HTMLInputElement>("label input")?.maxLength).toBe(30);
+  });
   it("removes admin UI after an expired token is refreshed with revoked roles",async()=>{
     await act(async()=>root.render(<AccountGate><Child/></AccountGate>));expect(container.textContent).toContain("管理画面");
     roles.delete("admin");await act(async()=>client.onTokenExpired?.());

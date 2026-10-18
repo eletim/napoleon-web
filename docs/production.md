@@ -88,5 +88,6 @@ docker compose --env-file .env.production -f compose.production.yaml exec -T ngi
 
 ## この環境での確認範囲
 
-Dockerコンテナのビルド・起動、Nginx実バイナリの構文確認、実DNS・TLS・Keycloak・PostgreSQLを使ったE2Eは未実施です。
-YAML読み込み、準備スクリプトの出力、バックアップ/復元スクリプトの制御、アプリの型・ビルド・テストで確認しています。
+本番用DockerイメージとCompose一式の起動、Nginx実バイナリの構文、自己署名証明書を使ったHTTPS、
+実Keycloak・PostgreSQLとブラウザによるE2E、実DBのバックアップ・復元を独立したローカル環境で確認しています。
+実公開DNS、Let's Encryptによる証明書の発行・更新、SMTP、ホストOS再起動時の自動起動は未検証です。
