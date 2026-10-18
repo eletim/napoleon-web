@@ -328,3 +328,7 @@ CHROME_BIN=/path/to/chrome pnpm --filter @napoleon/web test:browser
 - Web UIの操作性改善
 - WebSocketによるリアルタイム更新
 - 永続化、認証、オンライン対戦
+
+## ユーザー管理
+
+Keycloakによる登録・ログインとプレイヤー情報の保存は [ユーザー管理ガイド](docs/user-management.md) を参照してください。

@@ -1,3 +1,4 @@
+import { registerAuth, type AuthOptions } from "./auth.js";
 import cors from "@fastify/cors";
 import Fastify from "fastify";
 import { registerRoutes } from "./routes.js";
@@ -6,6 +7,7 @@ import type { AiPresetRegistry } from "./aiPresetRegistry.js";
 
 export interface BuildAppOptions {
   logger?: boolean;
+  auth?: AuthOptions;
   agentRegistry?: AgentRegistry;
   aiPresetRegistry?: AiPresetRegistry;
 }
@@ -18,6 +20,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(cors, {
     origin: ["http://127.0.0.1:5173", "http://localhost:5173"]
   });
+
+  await registerAuth(app, options.auth);
 
   await registerRoutes(app, {
     agentRegistry: options.agentRegistry,

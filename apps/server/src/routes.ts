@@ -156,6 +156,7 @@ export async function registerRoutes(
     }
 
     games.set(gameId, {
+      ...(request.identity === null ? {} : { ownerSubject: request.identity.subject }),
       state,
       match,
       humanPlayerId,

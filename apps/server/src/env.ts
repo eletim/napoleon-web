@@ -6,6 +6,9 @@ import { fullPolicyEnvKeys, learnedPolicyEnvKeys } from "./agentEnv.js";
 const supportedLocalEnvKeys = new Set([
   "PORT",
   "HOST",
+  "NAPOLEON_AUTH_ISSUER",
+  "NAPOLEON_AUTH_CLIENT_ID",
+  "NAPOLEON_DATABASE_URL",
   ...learnedPolicyEnvKeys,
   ...fullPolicyEnvKeys
 ]);

@@ -1,0 +1,53 @@
+# Keycloakによるユーザー管理
+
+Keycloakで登録・認証、PostgreSQLでプレイヤー情報を管理します。
+ブラウザはAuthorization Code Flow + PKCE S256でログインし、トークンはメモリ内だけに保持します。
+APIはJWKSによるRS256署名、issuer、audience、期限、Bearer種別、発行先クライアントを検証します。
+
+## ローカル起動
+
+```sh
+docker compose -f compose.auth.yaml up -d
+```
+
+ルートの `.env` に以下を設定します。
+
+```dotenv
+NAPOLEON_AUTH_ISSUER=http://localhost:8080/realms/napoleon
+NAPOLEON_AUTH_CLIENT_ID=napoleon-web
+NAPOLEON_DATABASE_URL=postgresql://napoleon:napoleon-dev@localhost:5433/napoleon
+```
+
+```sh
+pnpm install --frozen-lockfile
+pnpm dev
+```
+
+http://localhost:5173/ を開いて新規登録します。Keycloak起動完了前に開いた場合は再読み込みします。
+管理画面は http://localhost:8080/admin/ 、開発用管理者は `admin` / `admin-dev` です。
+開発設定ではメール認証は無効です。パスワード再設定メールにはSMTP設定が必要です。
+既存realmに対して起動時importは上書きされません。設定変更は管理画面等で反映します。
+
+## APIと保存内容
+
+- `GET /api/auth/config`: ブラウザ用の公開認証設定。秘密値は返しません。
+- `GET /api/me`: 初回にプレイヤーを作成し、IDとプレイヤー名を返します。
+- `PUT /api/me`: `{ "displayName": "名前" }` で1〜30文字のプレイヤー名を保存します。
+- Keycloakのissuerとsubの組でプレイヤーを識別します。メール・パスワードはアプリDBに保存しません。
+- 認証有効時はhealth/config以外のAPIに認証が必要です。ゲームは作成ユーザーだけが取得・操作できます。
+- プレイヤー情報はDB再起動後も残ります。ゲーム本体は従来通りメモリ上で、永続化・戦績保存は今回の対象外です。
+- 認証環境変数を全て省略した場合は従来の開発モードです。一部だけ指定すると起動を拒否します。
+
+## 本番環境
+
+開発用Composeはローカル検証用です。本番では次を設定してください。
+
+- Keycloakを本番の `start` モードでHTTPSの認証ドメインに配置し、issuerをそのrealm URLに合わせる。
+- DB・管理者の開発用パスワードを置き換え、DBの永続ボリュームとバックアップを設定する。
+- クライアントのValid redirect URIs、Web origins、Valid post logout redirect URIsに実際のアプリURLを登録する。
+- 公開クライアント、Standard flow、PKCE S256とAPI用audience mapperを維持する。
+- メール認証・パスワード再設定を使う場合はrealmにSMTPを設定する。
+- アプリのAPIは同一オリジンの `/api/` または `/napoleon/api/` からFastifyへプロキシする。
+- サーバーの3つの認証環境変数を全て設定する。ブラウザにDB接続情報は渡さない。
+
+実環境のドメイン、SMTPとデプロイ先は未設定です。この変更だけで公開環境は作成されません。

@@ -1,5 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { AccountGate } from "./AccountGate";
 import { App } from "./App";
 import { registerServiceWorker } from "./registerServiceWorker";
 
@@ -11,7 +12,7 @@ if (rootElement === null) {
 
 createRoot(rootElement).render(
   <StrictMode>
-    <App />
+    <AccountGate><App /></AccountGate>
   </StrictMode>
 );
 

@@ -1,0 +1,6 @@
+.account-screen { max-width: 28rem; margin: 12vh auto; padding: 2rem; color: #f4f4ee; background: #183c36; border-radius: 1rem; }
+.account-screen button, .account-bar button { padding: .5rem .85rem; margin: .25rem; cursor: pointer; }
+.account-bar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; padding: .4rem 1rem; color: #f4f4ee; background: #183c36; }
+.account-bar form { display: flex; flex-wrap: wrap; gap: .5rem; padding: .5rem 0; }
+.account-bar input { margin-left: .5rem; max-width: 12rem; }
+.account-bar summary { cursor: pointer; }

@@ -21,9 +21,12 @@
     "@napoleon/policy-onnx": "workspace:*",
     "@napoleon/protocol": "workspace:*",
     "@napoleon/training-data": "workspace:*",
-    "fastify": "^5.2.0"
+    "fastify": "^5.2.0",
+    "jose": "^6.2.12",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
+    "@types/pg": "^8.23.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"

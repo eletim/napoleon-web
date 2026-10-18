@@ -1,3 +1,4 @@
+import { authHeaders } from "./auth";
 import type {
   CreateGameRequest,
   CreateGameResponse,
@@ -84,9 +85,10 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
           ...init.headers
         };
 
+  const authorization = await authHeaders();
   const response = await fetch(path, {
     ...init,
-    headers
+    headers: Object.keys(authorization).length === 0 ? headers : { ...headers, ...authorization }
   });
 
   if (!response.ok) {
