@@ -7,6 +7,7 @@ export interface AuthConfig {
   issuer: string;
   clientId: string;
   databaseUrl: string;
+  jwksUrl?: string;
 }
 export interface AuthOptions {
   config?: AuthConfig | null;
@@ -20,8 +21,8 @@ declare module "fastify" {
 
 export function readAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig | null {
   const { NAPOLEON_AUTH_ISSUER: issuer, NAPOLEON_AUTH_CLIENT_ID: clientId,
-    NAPOLEON_DATABASE_URL: databaseUrl } = env;
-  if (!issuer && !clientId && !databaseUrl) {
+    NAPOLEON_DATABASE_URL: databaseUrl, NAPOLEON_AUTH_JWKS_URL: jwksUrl } = env;
+  if (!issuer && !clientId && !databaseUrl && !jwksUrl) {
     if (env.NODE_ENV === "production") throw new Error("Authentication configuration is required in production.");
     return null;
   }
@@ -36,7 +37,8 @@ export function readAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig
   if (url.protocol !== "https:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) {
     throw new Error("Use HTTPS for a non-local Keycloak issuer.");
   }
-  return { issuer, clientId, databaseUrl };
+  if (jwksUrl && !["https:", "http:"].includes(new URL(jwksUrl).protocol)) throw new Error("Invalid JWKS URL.");
+  return { issuer, clientId, databaseUrl, ...(jwksUrl ? { jwksUrl } : {}) };
 }
 
 export async function registerAuth(app: FastifyInstance, options: AuthOptions = {}): Promise<{ players: PlayerRepository; databaseUrl?: string } | null> {
@@ -58,7 +60,7 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions = 
   const players = options.players ?? await createPlayerRepository(config.databaseUrl);
   app.addHook("onClose", async () => { await players.close(); });
   const key = options.verificationKey ?? createRemoteJWKSet(
-    new URL(`${config.issuer}/protocol/openid-connect/certs`)
+    new URL(config.jwksUrl ?? `${config.issuer}/protocol/openid-connect/certs`)
   );
   app.addHook("onRequest", async (request, reply) => {
     const path = request.routeOptions.url ?? "";

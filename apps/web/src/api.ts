@@ -138,3 +138,11 @@ export const getMatchmaking = () => request<QueueState>(resolveAppPath("api/matc
 export const joinMatchmaking = (cpuId: string) => request<QueueState>(resolveAppPath("api/matchmaking"), { method: "POST", body: JSON.stringify({ cpuId }) });
 export const cancelMatchmaking = () => request<QueueState>(resolveAppPath("api/matchmaking"), { method: "DELETE" });
 export const startCpuMatch = (cpuId: string) => request<CreateGameResponse>(resolveAppPath("api/matchmaking/cpu"), { method: "POST", body: JSON.stringify({ cpuId }) });
+
+export interface MatchHistoryEntry {
+  matchId: string; completedAt: string; rank: number; before: number; after: number; delta: number;
+  participants: { displayName: string; kind: "human" | "cpu"; rank: number }[];
+}
+export const getMatchHistory = (offset = 0) => request<{ matches: MatchHistoryEntry[] }>(resolveAppPath(`api/matches/history?offset=${offset}`));
+export const leaveRatedMatch = (id: string) => request<CreateGameResponse>(gamePath(id, "/leave"), { method: "POST" });
+export const resumeRatedMatch = (id: string) => request<CreateGameResponse>(gamePath(id, "/resume"), { method: "POST" });

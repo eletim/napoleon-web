@@ -20,3 +20,7 @@ __pycache__/
 .ruff_cache/
 *.egg-info/
 python/build/
+
+.env.production
+infra/keycloak/production-realm.json
+backups/

@@ -4,10 +4,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CompetitionLobby } from "./CompetitionLobby";
 import * as api from "./api";
-vi.mock("./api",()=>({getCpuOpponents:vi.fn(),getMyRating:vi.fn(),getMatchmaking:vi.fn(),getGame:vi.fn(),joinMatchmaking:vi.fn(),cancelMatchmaking:vi.fn(),startCpuMatch:vi.fn()}));
+vi.mock("./api",()=>({getMatchHistory:vi.fn(),getCpuOpponents:vi.fn(),getMyRating:vi.fn(),getMatchmaking:vi.fn(),getGame:vi.fn(),joinMatchmaking:vi.fn(),cancelMatchmaking:vi.fn(),startCpuMatch:vi.fn()}));
 Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true});
 let root:Root;let container:HTMLDivElement;
-beforeEach(()=>{vi.useFakeTimers();vi.mocked(api.getCpuOpponents).mockResolvedValue({cpus:[{id:"cpu1",displayName:"CPU",rating:1600,games:8}]});
+beforeEach(()=>{vi.useFakeTimers();vi.mocked(api.getMatchHistory).mockResolvedValue({matches:[]});vi.mocked(api.getCpuOpponents).mockResolvedValue({cpus:[{id:"cpu1",displayName:"CPU",rating:1600,games:8}]});
   vi.mocked(api.getMyRating).mockResolvedValue({id:"me",displayName:"Me",rating:1450,games:4});
   vi.mocked(api.getMatchmaking).mockResolvedValue({status:"idle"});
   container=document.createElement("div");document.body.append(container);root=createRoot(container);
@@ -15,6 +15,11 @@ beforeEach(()=>{vi.useFakeTimers();vi.mocked(api.getCpuOpponents).mockResolvedVa
 afterEach(async()=>{await act(async()=>root.unmount());container.remove();vi.clearAllTimers();vi.useRealTimers();vi.resetAllMocks();});
 async function click(label:string){await act(async()=>{[...container.querySelectorAll("button")].find(b=>b.textContent===label)!.click();});}
 describe("rated match lobby",()=>{
+  it("shows prior ranks and rating changes without private hand data",async()=>{
+    vi.mocked(api.getMatchHistory).mockResolvedValue({matches:[{matchId:"rated-old",completedAt:"2026-10-18T00:00:00Z",rank:1,before:1500,after:1516,delta:16,participants:[{displayName:"CPU",kind:"cpu",rank:2}]}]});
+    await act(async()=>root.render(<CompetitionLobby onStart={vi.fn()}/>));
+    expect(container.textContent).toContain("1位");expect(container.textContent).toContain("1516");expect(container.textContent).toContain("CPU [CPU] 2位");
+  });
   it("displays ratings and starts the selected CPU match",async()=>{
     const start=vi.fn();const session={gameId:"rated-1"} as Awaited<ReturnType<typeof api.startCpuMatch>>;
     vi.mocked(api.startCpuMatch).mockResolvedValue(session);

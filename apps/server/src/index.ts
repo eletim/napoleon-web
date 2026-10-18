@@ -14,3 +14,9 @@ try {
   app.log.error(error);
   process.exit(1);
 }
+
+let closing = false;
+for (const signal of ["SIGTERM", "SIGINT"] as const) process.on(signal, () => {
+  if (closing) return; closing = true;
+  void app.close().catch((error) => { app.log.error(error); process.exitCode = 1; });
+});

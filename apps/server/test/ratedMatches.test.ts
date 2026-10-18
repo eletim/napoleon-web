@@ -1,4 +1,4 @@
-import { beforeAll, afterEach, describe, it, expect } from "vitest";
+import { beforeAll, afterEach, describe, it, expect, vi } from "vitest";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { RuleBasedAgent, type Agent } from "@napoleon/ai";
 import type { FastifyInstance } from "fastify";
@@ -28,9 +28,9 @@ const registry: AgentRegistry={ initializePhasePolicies:async()=>{},listAgents:(
 const preset={id:"com-rule-base" as const,displayName:"CPU",composition:{playing:"rule-based" as const,bidding:"rule-based" as const,nonPlaying:"rule-based" as const}};
 const presets:AiPresetRegistry={list:()=>[preset],resolve:()=>preset,update:()=>preset};
 const players:PlayerRepository={getOrCreate:async(i)=>({id:i.subject,displayName:i.username}),rename:async(i,n)=>({id:i.subject,displayName:n}),close:async()=>{}};
-async function setup(store:CompetitionStore=memoryCompetitionStore(), realCpu = false) {
+async function setup(store:CompetitionStore=memoryCompetitionStore(), realCpu = false, background = false) {
   const app=await buildApp({auth:{config:{issuer,clientId:"napoleon-web",databaseUrl:"unused"},players,verificationKey},
-    competitionStore:store,agentRegistry:realCpu ? { ...registry, createComposedAgent: () => new RuleBasedAgent() } : registry,aiPresetRegistry:presets,now:()=>clock});
+    competitionStore:store,agentRegistry:realCpu ? { ...registry, createComposedAgent: () => new RuleBasedAgent() } : registry,aiPresetRegistry:presets,now:background ? undefined : ()=>clock});
   apps.push(app);return app;
 }
 async function headers(sub="alice") {return {authorization:`Bearer ${await new SignJWT({typ:"Bearer",azp:"napoleon-web",realm_access:{roles:["user"]},preferred_username:sub})
@@ -40,6 +40,40 @@ async function mutate(app:FastifyInstance,session:CreateGameResponse,operation:s
     ...(operation==="actions"?{payload:{action:{type:"pass"}}}:{})});
 }
 describe("rated matchmaking and matches",()=>{
+  it("continues a restored expired match in the background without browser polling", async () => {
+    const store=memoryCompetitionStore();const first=await setup(store);const h=await headers();
+    const session=(await first.inject({method:"POST",url:"/api/matchmaking/cpu",headers:h})).json<CreateGameResponse>();
+    await first.close();apps.splice(apps.indexOf(first),1);
+    await setup(store,false,true);
+    await vi.waitFor(async () => {
+      const saved=await store.load(session.gameId) as {version:number;substituteSeats:string[]};
+      expect(saved.version).toBeGreaterThan(0);expect(saved.substituteSeats).toContain("player-0");
+    },{timeout:2000,interval:50});
+  });
+  it("substitutes a timed-out human, permits resume, and finishes an abandoned match with private history", async () => {
+    const app=await setup();const h=await headers();
+    let session=(await app.inject({method:"POST",url:"/api/matchmaking/cpu",headers:h})).json<CreateGameResponse>();
+    expect(session.competition!.deadlineAt).toBe(30000);
+    clock=30001;
+    session=(await app.inject({url:`/api/rated-matches/${session.gameId}`,headers:h})).json();
+    expect(session.competition!.substituteSeats).toContain(session.playerId);
+    expect((await mutate(app,session,"actions")).statusCode).toBe(409);
+    session=(await mutate(app,session,"resume")).json();expect(session.competition!.substituteSeats).not.toContain(session.playerId);
+    session=(await mutate(app,session,"leave")).json();expect(session.competition!.substituteSeats).toContain(session.playerId);
+    let steps=0;
+    while(!session.match?.completed && steps++<200) {
+      clock=(session.competition!.deadlineAt ?? clock)+1;
+      const result=await app.inject({url:`/api/rated-matches/${session.gameId}`,headers:h});
+      expect(result.statusCode).toBe(200);session=result.json();
+    }
+    expect(session.match?.completed).toBe(true);
+    const history=(await app.inject({url:"/api/matches/history",headers:h})).json().matches;
+    expect(history).toHaveLength(1);expect(history[0].matchId).toBe(session.gameId);
+    expect(history[0].participants).toHaveLength(5);expect(JSON.stringify(history)).not.toContain('"hand"');
+    expect((await app.inject({url:"/api/matches/history",headers:await headers("outsider")})).json().matches).toEqual([]);
+    expect((await app.inject({url:"/api/matches/history?offset=-1",headers:h})).statusCode).toBe(400);
+    expect((await app.inject({url:"/api/ratings/me",headers:h})).json().games).toBe(1);
+  });
   it("plays actual cards through five rounds with RuleBased CPU agents", async () => {
     const app=await setup(memoryCompetitionStore(),true);const h=await headers();
     let session=(await app.inject({method:"POST",url:"/api/matchmaking/cpu",headers:h})).json<CreateGameResponse>();

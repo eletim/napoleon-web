@@ -217,6 +217,9 @@ export interface PublicRatedParticipant {
   seatId: string; id: string; displayName: string; kind: "human" | "cpu"; rating: number;
 }
 export interface PublicCompetition {
+  deadlineAt?: number;
+  serverTime?: number;
+  substituteSeats?: readonly string[];
   version: number;
   participants: readonly PublicRatedParticipant[];
   ratingChanges?: readonly { seatId: string; participantId: string; rank: number; before: number; after: number; delta: number }[];

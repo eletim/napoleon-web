@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import type { CreateGameResponse } from "@napoleon/protocol";
 import { cancelMatchmaking, getCpuOpponents, getGame, getMatchmaking, getMyRating, joinMatchmaking,
-  startCpuMatch, type CpuEntry, type QueueState } from "./api";
+  startCpuMatch, getMatchHistory, type MatchHistoryEntry, type CpuEntry, type QueueState } from "./api";
 
 export function CompetitionLobby({ onStart }: { onStart: (session: CreateGameResponse) => void }) {
+  const [history, setHistory] = useState<MatchHistoryEntry[]>([]);
+  const [historyOffset, setHistoryOffset] = useState(0);
   const [cpus, setCpus] = useState<CpuEntry[]>([]);
   const [cpuId, setCpuId] = useState("");
   const [rating, setRating] = useState<number>();
@@ -30,6 +32,7 @@ export function CompetitionLobby({ onStart }: { onStart: (session: CreateGameRes
     Promise.all([getCpuOpponents(), getMyRating()]).then(([result, me]) => {
       if (active) { setCpus(result.cpus); setCpuId(result.cpus[0]?.id ?? ""); setRating(me.rating); }
     }).catch((error) => { if (active) setMessage(String(error.message)); });
+    void getMatchHistory().then((result) => { if (active) setHistory(result.matches); }).catch((error) => { if (active) setMessage(error.message); });
     void poll();
     return () => { active = false; clearTimeout(timer); };
   }, [onStart]);
@@ -51,6 +54,22 @@ export function CompetitionLobby({ onStart }: { onStart: (session: CreateGameRes
       <button disabled={busy || !cpuId} onClick={() => void run(async () => setQueue(await joinMatchmaking(cpuId)))}>マッチング開始</button>
       <button disabled={busy || !cpuId} onClick={() => void run(async () => onStart(await startCpuMatch(cpuId)))}>CPUとすぐ対戦</button>
     </div>}
+    <details className="match-history"><summary>対戦履歴</summary>
+      {history.length === 0 ? <p>まだ対戦履歴はありません。</p> : <table>
+        <thead><tr><th>終了日時</th><th>順位</th><th>レート</th><th>対戦相手</th></tr></thead>
+        <tbody>{history.map((entry) => <tr key={entry.matchId}><td>{new Date(entry.completedAt).toLocaleString()}</td>
+          <td>{entry.rank}位</td><td>{Math.round(entry.before)} → {Math.round(entry.after)}（{entry.delta >= 0 ? "+" : ""}{entry.delta.toFixed(1)}）</td>
+          <td>{entry.participants.map((p) => `${p.displayName}${p.kind === "cpu" ? " [CPU]" : ""} ${p.rank}位`).join(" / ")}</td></tr>)}</tbody>
+      </table>}
+      {history.length === 20 ? <button disabled={busy} onClick={() => void run(async () => {
+        const offset = historyOffset + 20; const result = await getMatchHistory(offset);
+        setHistory(result.matches); setHistoryOffset(offset);
+      })}>次の20件</button> : null}
+      {historyOffset > 0 ? <button disabled={busy} onClick={() => void run(async () => {
+        const offset = Math.max(0, historyOffset - 20); const result = await getMatchHistory(offset);
+        setHistory(result.matches); setHistoryOffset(offset);
+      })}>前の20件</button> : null}
+    </details>
     {message && <p role="alert">{message}</p>}
   </section>;
 }

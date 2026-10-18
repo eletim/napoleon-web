@@ -1,7 +1,9 @@
 import { Pool } from "pg";
 import { calculateRatingChanges, type RatingChange, type RatingEntry, type Standing } from "./ratings.js";
 
+export interface HistoryRecord { matchId: string; completedAt: string; snapshot: unknown; changes: RatingChange[]; }
 export interface CompetitionStore {
+  history(participantId: string, offset: number): Promise<HistoryRecord[]>;
   ensure(entry: Pick<RatingEntry, "id" | "kind" | "displayName">): Promise<RatingEntry>;
   save(id: string, snapshot: unknown, completed: boolean): Promise<void>;
   load(id: string): Promise<unknown | undefined>;
@@ -19,9 +21,17 @@ export async function createCompetitionStore(databaseUrl?: string): Promise<Comp
       CREATE TABLE IF NOT EXISTS rated_matches (
         id TEXT PRIMARY KEY, snapshot JSONB NOT NULL, completed BOOLEAN NOT NULL DEFAULT FALSE);
       CREATE TABLE IF NOT EXISTS rating_results (
-        match_id TEXT PRIMARY KEY REFERENCES rated_matches(id), changes JSONB NOT NULL);`);
+        match_id TEXT PRIMARY KEY REFERENCES rated_matches(id), changes JSONB NOT NULL, settled_at TIMESTAMPTZ NOT NULL DEFAULT now());
+      ALTER TABLE rating_results ADD COLUMN IF NOT EXISTS settled_at TIMESTAMPTZ NOT NULL DEFAULT now();`);
   } catch (error) { await pool.end(); throw error; }
   return {
+    async history(participantId, offset) {
+      const result = await pool.query(`SELECT m.id AS "matchId", r.settled_at AS "completedAt", m.snapshot, r.changes
+        FROM rating_results r JOIN rated_matches m ON m.id=r.match_id
+        WHERE m.snapshot->'participants' @> $1::jsonb ORDER BY r.settled_at DESC, m.id DESC LIMIT 20 OFFSET $2`,
+        [JSON.stringify([{ id: participantId, kind: "human" }]), offset]);
+      return result.rows.map((row) => ({ ...row, completedAt: row.completedAt.toISOString() }));
+    },
     async ensure(entry) {
       const result = await pool.query(`INSERT INTO rating_accounts (id, display_name, kind) VALUES ($1,$2,$3)
         ON CONFLICT (id) DO UPDATE SET display_name = EXCLUDED.display_name
@@ -63,7 +73,15 @@ export function memoryCompetitionStore(): CompetitionStore {
   const accounts = new Map<string, RatingEntry>();
   const snapshots = new Map<string, { value: unknown; completed: boolean }>();
   const results = new Map<string, RatingChange[]>();
+  const completedAt = new Map<string, string>();
   return {
+    async history(participantId, offset) {
+      return [...results].reverse().filter(([id]) => {
+        const snapshot = snapshots.get(id)?.value as { participants?: { id: string; kind: string }[] };
+        return snapshot?.participants?.some((p) => p.id === participantId && p.kind === "human");
+      }).slice(offset, offset + 20).map(([id, changes]) => ({ matchId: id, completedAt: completedAt.get(id)!,
+        snapshot: structuredClone(snapshots.get(id)!.value), changes: structuredClone(changes) }));
+    },
     async ensure(entry) {
       const account = accounts.get(entry.id) ?? { ...entry, rating: 1500, games: 0 };
       account.displayName = entry.displayName; accounts.set(entry.id, account); return { ...account };
@@ -75,6 +93,7 @@ export function memoryCompetitionStore(): CompetitionStore {
       if (results.has(id)) return results.get(id)!;
       const changes = calculateRatingChanges(standings, new Map([...accounts].map(([id, a]) => [id, a.rating])));
       for (const change of changes) { const account = accounts.get(change.participantId)!; account.rating = change.after; account.games++; }
+      completedAt.set(id, new Date().toISOString());
       results.set(id, changes); snapshots.set(id, { value: structuredClone({ ...(snapshot as object), ratingChanges: changes }), completed: true }); return changes;
     },
     async close() {}

@@ -332,3 +332,7 @@ CHROME_BIN=/path/to/chrome pnpm --filter @napoleon/web test:browser
 ## ユーザー管理
 
 Keycloakによる登録・ログインとプレイヤー情報の保存は [ユーザー管理ガイド](docs/user-management.md) を参照してください。
+
+## 本番配信
+
+Nginx・HTTPS・Keycloak・DBの起動と保存運用は [本番運用ガイド](docs/production.md) を参照してください。

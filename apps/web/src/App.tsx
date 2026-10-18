@@ -38,7 +38,7 @@ import {
   type AdjutantSelection,
   type AdjutantSuitOption
 } from "./adjutantSelection";
-import { advanceMatch, createGame, getGame, getAiPresets, nextTrick, sendAction, updateAiPreset } from "./api";
+import { advanceMatch, createGame, getGame, leaveRatedMatch, resumeRatedMatch, getAiPresets, nextTrick, sendAction, updateAiPreset } from "./api";
 import { suitSymbols } from "./cardSymbols";
 import { createMessage } from "./displayText";
 import { createTablePlayers } from "./tablePlayers";
@@ -97,6 +97,7 @@ function GameApp() {
   const { isAdmin, rated } = usePermissions();
   const [selectedMode, setMode] = useState<AppMode>("game");
   const mode = isAdmin ? selectedMode : "game";
+  const [clockNow, setClockNow] = useState(Date.now());
   const [session, setSession] = useState<Session | undefined>();
   const [message, setMessage] = useState("ゲームを開始してください。");
   const [isBusy, setIsBusy] = useState(false);
@@ -185,7 +186,13 @@ function GameApp() {
     selfPlayerId: session?.playerId,
     state: session?.state
   });
-  const isInteractionLocked = isBusy || trickAnimation.isAnimating;
+  const isSubstituted = !session?.match?.completed && (session?.competition?.substituteSeats?.includes(session.playerId) ?? false);
+  const isInteractionLocked = isBusy || trickAnimation.isAnimating || isSubstituted;
+  useEffect(() => {
+    if (!session?.competition?.deadlineAt || session.match?.completed) return;
+    const timer = setInterval(() => setClockNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [session?.competition?.deadlineAt, session?.match?.completed]);
   // The final trick's result only replaces the trick display once its
   // show-then-collect animation has actually finished (see the auto-advance
   // effect below), so the very last card played is never instantly hidden
@@ -589,6 +596,14 @@ function GameApp() {
 
           {session === undefined && rated ? <CompetitionLobby onStart={handleRatedStart} /> : null}
           {session?.competition ? <section className="competition-summary" aria-label="対戦レート">
+            {!session.match?.completed ? <>
+              <span role="status">{isSubstituted ? "CPU代打中（画面を閉じても進行します）" : "手番制限30秒"}
+                {session.competition.deadlineAt ? `・次の進行まで ${Math.max(0, Math.ceil((session.competition.deadlineAt - clockNow) / 1000))}秒` : ""}</span>
+              <button disabled={isBusy} onClick={() => void runRequest(async () => {
+                const result = isSubstituted ? await resumeRatedMatch(session.gameId) : await leaveRatedMatch(session.gameId);
+                setSession(result); setMessage(isSubstituted ? "自席に復帰しました。" : "CPUに代打を任せました。");
+              })}>{isSubstituted ? "自席に復帰" : "退出してCPUに任せる"}</button>
+            </> : null}
             {session.competition.participants.map((p) => {
               const result = session.competition?.ratingChanges?.find((c) => c.seatId === p.seatId);
               return <span key={p.seatId}>{p.displayName}{p.kind === "cpu" ? " [CPU]" : ""}：
