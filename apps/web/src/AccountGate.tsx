@@ -25,7 +25,7 @@ export function AccountGate({ children }: { children: ReactNode }) {
       const updatePermissions = () => {
         if (!active) return;
         const isAdmin = client.hasRealmRole("admin");
-        setPermissions({ isAdmin, canPlay: isAdmin || client.hasRealmRole("user") });
+        setPermissions({ isAdmin, rated: true, canPlay: isAdmin || client.hasRealmRole("user") });
       };
       updatePermissions();
       client.onAuthRefreshSuccess = updatePermissions;

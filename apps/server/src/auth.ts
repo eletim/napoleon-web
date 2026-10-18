@@ -36,7 +36,7 @@ export function readAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig
   return { issuer, clientId, databaseUrl };
 }
 
-export async function registerAuth(app: FastifyInstance, options: AuthOptions = {}): Promise<void> {
+export async function registerAuth(app: FastifyInstance, options: AuthOptions = {}): Promise<{ players: PlayerRepository; databaseUrl?: string } | null> {
   const config = options.config === undefined ? readAuthConfig() : options.config;
   app.decorateRequest("identity", null);
   app.decorateRequest("appRoles", null);
@@ -51,7 +51,7 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions = 
     return { enabled: true, url: config.issuer.slice(0, separator),
       realm: decodeURIComponent(config.issuer.slice(separator + 8)), clientId: config.clientId };
   });
-  if (config === null) return;
+  if (config === null) return null;
   const players = options.players ?? await createPlayerRepository(config.databaseUrl);
   app.addHook("onClose", async () => { await players.close(); });
   const key = options.verificationKey ?? createRemoteJWKSet(
@@ -107,4 +107,5 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions = 
     }
     return players.rename(request.identity!, name);
   });
+  return { players, databaseUrl: options.players ? undefined : config.databaseUrl };
 }

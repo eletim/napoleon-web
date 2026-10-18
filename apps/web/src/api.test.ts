@@ -8,6 +8,8 @@ import type {
 } from "@napoleon/protocol";
 import {
   advanceMatch,
+  getGame,
+  sendAction,
   createGame,
   getAgents,
   getAiPresets,
@@ -17,6 +19,17 @@ import {
 import { resolveAppPath } from "./appPath";
 
 describe("api client", () => {
+  it("routes rated games to their own API and sends the latest version on mutations", async () => {
+    const body = { gameId: "rated-version-test", playerId: "player-1", state: {}, competition: { version: 7, participants: [] } };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(body), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await getGame("rated-version-test");
+    await sendAction("rated-version-test", { type: "pass" });
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/rated-matches/rated-version-test", { headers: undefined });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/rated-matches/rated-version-test/actions", expect.objectContaining({
+      headers: { "Content-Type": "application/json", "If-Match": "7" }
+    }));
+  });
   afterEach(() => {
     vi.unstubAllGlobals();
   });
