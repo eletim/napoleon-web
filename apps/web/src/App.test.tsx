@@ -410,6 +410,29 @@ describe("automatic trick progression", () => {
     await act(async () => root.unmount());
     container.remove();
   });
+  it("keeps the fifth-round match results hidden until the last collection completes", async () => {
+    vi.useFakeTimers();
+    vi.mocked(getAiPresets).mockResolvedValue(aiPresetResponse());
+    const complete = completedSession();
+    vi.mocked(createGame).mockResolvedValue({ ...complete, state: {
+      ...trickCompleteState({ isGameOver: true, phase: "finished", trickNumber: 10 }),
+      result: complete.state.result
+    } });
+    const container = document.createElement("div"); document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => root.render(<App />));
+    await act(async () => {
+      [...container.querySelectorAll("button")].find(b => b.textContent?.trim() === "ゲーム開始")?.click();
+    });
+    expect(container.querySelector(".production-table-background")).not.toBeNull();
+    await advanceTimersInSteps(7000);
+    expect(container.querySelector(".production-table-background")).not.toBeNull();
+    await advanceTimersInSteps(2000);
+    expect(container.querySelector(".production-table-background")).toBeNull();
+    expect(nextTrick).not.toHaveBeenCalled();
+    await act(async () => root.unmount()); container.remove();
+  });
+
 });
 
 function playedCard(playerId: string, suit: PublicSuit, rank: PublicRank): PublicPlayedCard {

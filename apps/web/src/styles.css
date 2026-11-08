@@ -299,9 +299,6 @@ input:focus-visible {
   padding: 14px;
 }
 
-.mobile-landscape-guide {
-  display: none;
-}
 
 .table-grid {
   display: grid;
@@ -1034,36 +1031,12 @@ input:focus-visible {
   animation-delay: calc(var(--trick-result-hold-duration, 3000ms) - var(--trick-winner-pulse-duration, 480ms));
 }
 
-.production-table-surface-collecting .production-trick-card {
-  animation: played-card-collect var(--trick-collect-duration, 650ms) cubic-bezier(0.4, 0, 0.8, 0.2) forwards;
-}
-
-/* These offsets live in the table's own internal layout-unit space (see
-   tableDesignMockLayout), which the surrounding projected-board transform
-   already scales to fit any real viewport - so a "160px" here isn't a
-   viewport-specific pixel value, it scales the same way every other card
-   on the table does. */
-.production-table-surface-collecting-to-left .production-trick-card {
-  --played-card-collect-x: -170px;
-}
-
-.production-table-surface-collecting-to-top-left .production-trick-card {
-  --played-card-collect-x: -90px;
-  --played-card-collect-y: -150px;
-}
-
-.production-table-surface-collecting-to-top-right .production-trick-card {
-  --played-card-collect-x: 90px;
-  --played-card-collect-y: -150px;
-}
-
-.production-table-surface-collecting-to-right .production-trick-card {
-  --played-card-collect-x: 170px;
-}
-
-.production-table-surface-collecting-to-self .production-trick-card {
-  --played-card-collect-y: 160px;
-}
+/* Collection moves each projected card to the measured winning seat. */
+.production-table-surface-collecting .production-trick-card { animation: none; }
+.production-seat-details { display: flex; flex-direction: column; min-width: 0; gap: 3px; }
+.production-seat-details .mock-player-info-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(12px, 1.6vw, 20px); }
+.production-seat-declaration { color: var(--mock-bidding-action-color); background: #fff; border-radius: 5px; padding: 1px 8px; align-self: flex-start; font-size: 14px; font-weight: 800; line-height: 1.2; }
+@media (max-height: 520px) { .production-seat-declaration { font-size: 11px; } }
 
 .production-player-info-trick-winner {
   animation: trick-winner-seat-glow var(--trick-winner-pulse-duration, 480ms) ease-out;
@@ -3260,44 +3233,7 @@ input:focus-visible {
   }
 }
 
-@media (max-width: 560px) and (orientation: portrait) {
-  .app-shell-game-in-progress {
-    background: #2e6b52;
-    display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
-    height: 100dvh;
-    min-height: 0;
-    overflow: hidden;
-  }
 
-  .app-shell-game-in-progress .mobile-landscape-guide {
-    align-content: center;
-    align-self: stretch;
-    color: #ffffff;
-    display: grid;
-    gap: 10px;
-    justify-items: center;
-    min-height: 0;
-    padding: 24px;
-    text-align: center;
-  }
-
-  .app-shell-game-in-progress .mobile-landscape-guide strong {
-    font-size: 1.16rem;
-    line-height: 1.25;
-  }
-
-  .app-shell-game-in-progress .mobile-landscape-guide span {
-    color: rgb(255 255 255 / 78%);
-    font-size: 0.82rem;
-    line-height: 1.5;
-    max-width: 28ch;
-  }
-
-  .app-shell-game-in-progress .table {
-    display: none;
-  }
-}
 
 .match-advance-button {
   margin-top: 10px;
@@ -4710,9 +4646,6 @@ input:focus-visible {
     margin: 0;
   }
 
-  .app-shell-game-in-progress .mobile-landscape-guide {
-    display: none;
-  }
 
   .app-shell-game-active .table {
     display: grid;
@@ -5641,36 +5574,38 @@ input:focus-visible {
   }
 }
 
-@media (max-width: 560px) and (orientation: portrait) {
-  .app-shell-game-in-progress {
-    background: #2e6b52;
-    display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
-    height: 100dvh;
-    min-height: 0;
-    overflow: hidden;
-  }
 
-  .app-shell-game-in-progress .mobile-landscape-guide {
-    align-content: center;
-    align-self: stretch;
-    color: #ffffff;
-    display: grid;
-    gap: 10px;
-    justify-items: center;
-    min-height: 0;
-    padding: 24px;
-    text-align: center;
-  }
-
-  .app-shell-game-in-progress .table {
-    display: none;
-  }
-}
 
 .app-shell-game-active.app-shell-match-completed {
   height: auto;
   min-height: 100vh;
   min-height: 100dvh;
   overflow: visible;
+}
+
+.production-seat-points { color: #fde68a; font-size: 13px; font-weight: 700; line-height: 1.1; }
+
+@media (max-height: 520px) and (orientation: landscape) {
+  .production-player-info { padding: 4px 7px; }
+  .production-bidding-overlay,
+  .production-bidding-overlay-narrow {
+    display: grid; grid-template-columns: 1fr 1.5fr; grid-template-rows: 1fr 1fr;
+    padding: 6px; gap: 5px 8px;
+  }
+  .production-bidding-overlay .mock-bidding-highest { grid-column: 1; grid-row: 1; flex-direction: row; gap: 4px; }
+  .production-bidding-overlay .mock-bidding-label { font-size: 9px; white-space: normal; }
+  .production-bidding-overlay .mock-bidding-highest-value { min-width: 36px; width: auto; height: 30px; font-size: 18px; }
+  .production-bidding-overlay .mock-bidding-suit-selector { grid-column: 2; grid-row: 1; gap: 4px; }
+  .production-bidding-overlay .mock-bidding-number-selector { grid-column: 1; grid-row: 2; gap: 4px; }
+  .production-bidding-overlay .mock-bidding-actions { grid-column: 2; grid-row: 2; gap: 5px; }
+  .production-bidding-overlay .mock-bidding-suit-button,
+  .production-bidding-overlay .mock-bidding-step-button { width: 32px; height: 32px; font-size: 18px; }
+  .production-bidding-overlay .mock-bidding-number-value { font-size: 18px; }
+  .production-bidding-overlay .mock-bidding-declare-button,
+  .production-bidding-overlay .mock-bidding-pass-button { height: 32px; min-width: 0; font-size: 13px; }
+}
+
+@media (max-height: 520px) and (orientation: landscape) {
+  .production-contract-hud { top: 44vh; }
+  .production-table-tools { top: 56px; }
 }

@@ -1,4 +1,4 @@
-const CACHE_NAME = "napoleon-web-v1";
+const CACHE_NAME = "napoleon-web-v4";
 const IS_DEV_SERVICE_WORKER = new URL(self.location.href).searchParams.has("dev-sw");
 const SERVICE_WORKER_PATHNAME = new URL(self.location.href).pathname;
 const SCOPE_URL = new URL(self.registration.scope);
@@ -78,7 +78,10 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (request.mode === "navigate") {
+  // The shell, manifest and un-hashed development modules must not remain on
+  // a cached portrait layout after an update. Retain cached fallback offline.
+  if (request.mode === "navigate" || url.pathname.endsWith(".webmanifest") ||
+      url.pathname.startsWith(new URL("src/", SCOPE_URL).pathname)) {
     event.respondWith(networkFirst(request));
     return;
   }

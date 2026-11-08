@@ -185,22 +185,11 @@ describe("PlayerSeat", () => {
 
   it("defines a mobile landscape density pass without replacing the shared table structure", () => {
     const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
-    const appSource = readFileSync(fileURLToPath(new URL("./App.tsx", import.meta.url)), "utf8");
-    const portraitBlock = getMediaBlock(
-      styles,
-      "@media (max-width: 560px) and (orientation: portrait)"
-    );
     const landscapeBlock = getLastMediaBlock(
       styles,
       "@media (max-width: 960px) and (max-height: 560px) and (orientation: landscape)"
     );
 
-    expect(appSource).toContain("mobile-landscape-guide");
-    expect(appSource).toContain("横向きでプレイしてください");
-    expect(portraitBlock).toContain(".app-shell-game-in-progress .mobile-landscape-guide");
-    expect(portraitBlock).toContain("display: grid;");
-    expect(portraitBlock).toContain(".app-shell-game-in-progress .table");
-    expect(portraitBlock).toContain("display: none;");
     expect(styles).toContain(
       'grid-template-areas:\n    ". top-left top-right ."\n    "left center center right"\n    "action action action action"\n    "self self self self";'
     );

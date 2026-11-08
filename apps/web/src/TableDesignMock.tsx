@@ -1533,6 +1533,17 @@ export function createProjectedBoardFit(
   _selfHandCardCount = normalSelfHandCardCount
 ): ProjectedBoardFit {
   const projectedTableBox = createProjectedTableBoundingBox(layout);
+  // Upright opponent cards extend above the table polygon. Fit their outer
+  // bounds too, otherwise the back row is cropped even in landscape.
+  const visualBox = boundingBox([
+    ...projectTablePolygon(layout.tableSurface, layout.camera),
+    ...opponentSeatOrder.flatMap(seat => createOpponentHandGeometry({
+      ...layout,
+      opponentHand: { ...layout.opponentHand,
+        cardCounts: { ...layout.opponentHand.cardCounts, [seat]: layout.opponentHand.maxCardCount } }
+    }, seat).cards
+      .flatMap(card => projectVerticalCard(card, layout.camera)))
+  ]);
   const targetTop = viewport.height * layout.projectedFit.topInsetRatio;
   // The normal 5x2 footprint keeps the board fixed while exchange rows overlap inside that region.
   const stableHandCardCount = normalSelfHandCardCount;
@@ -1549,10 +1560,14 @@ export function createProjectedBoardFit(
     viewport.height * layout.projectedFit.tableHeightRatio,
     availableTableHeight
   );
-  const scale = targetTableHeight / projectedTableBox.height;
+  const scale = Math.min(
+    targetTableHeight / projectedTableBox.height,
+    availableTableHeight / (projectedTableBox.bottom - visualBox.top),
+    Math.max(1, viewport.width - 24) / visualBox.width
+  );
   const translate = {
     x: toLayoutPrecision(viewport.width / 2 - projectedTableBox.x * scale),
-    y: toLayoutPrecision(targetTop - projectedTableBox.top * scale)
+    y: toLayoutPrecision(targetTop - visualBox.top * scale)
   };
   const transformedTableBox = transformBoundingBox(projectedTableBox, scale, translate);
 
@@ -1560,7 +1575,7 @@ export function createProjectedBoardFit(
     counterScale: Math.max(1, projectedTextMinimumScale / scale),
     projectedTableBox,
     scale,
-    tableHeightRatio: targetTableHeight / viewport.height,
+    tableHeightRatio: projectedTableBox.height * scale / viewport.height,
     transformedTableBox,
     translate,
     viewport
@@ -2274,7 +2289,8 @@ export function createBiddingBubbleLayouts(
       fit.transformedTableBox,
       [...staticAvoidBoxes, ...placedBubbleBoxes],
       viewport,
-      layout.bidding.bubble
+      layout.bidding.bubble,
+      roleBoardBox
     );
 
     placedBubbleBoxes.push(boundingBoxFromCenter(bubble));
@@ -2293,7 +2309,8 @@ function chooseBiddingBubbleBox(
   tableBox: BoundingBox,
   avoidBoxes: readonly BoundingBox[],
   viewport: ViewportSize,
-  config: TableDesignMockLayout["bidding"]["bubble"]
+  config: TableDesignMockLayout["bidding"]["bubble"],
+  roleBoardBox: BoundingBox
 ): Box {
   const compactScale = viewport.height <= 520 && viewport.width > viewport.height ? 0.58 : 1;
   const size = {
@@ -2371,7 +2388,11 @@ function chooseBiddingBubbleBox(
     return viewportCandidate;
   }
 
-  return [...candidates].sort((a, b) => {
+  // The denser fitted table may leave no fully free bubble location in the
+  // design preview. Keep the central role board readable in that fallback.
+  const outsideRoleBoard = candidates.filter(candidate =>
+    !boxesOverlap(boundingBoxFromCenter(candidate), roleBoardBox));
+  return (outsideRoleBoard.length > 0 ? outsideRoleBoard : [...candidates]).sort((a, b) => {
     const overlapA = totalOverlapArea(boundingBoxFromCenter(a), avoidBoxes);
     const overlapB = totalOverlapArea(boundingBoxFromCenter(b), avoidBoxes);
 

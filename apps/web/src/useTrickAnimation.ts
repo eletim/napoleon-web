@@ -10,11 +10,13 @@ import {
 } from "./presentationTiming";
 
 interface UseTrickAnimationOptions {
+  roundKey?: string;
   selfPlayerId: string | undefined;
   state: PublicGameState | undefined;
 }
 
 interface TrickAnimationState {
+  isCollected: boolean;
   collectingWinnerId: string | undefined;
   displayedTrick: readonly PublicPlayedCard[];
   isAnimating: boolean;
@@ -40,9 +42,15 @@ interface TrickAnimationState {
 }
 
 export function useTrickAnimation({
+  roundKey = "",
   selfPlayerId,
   state
 }: UseTrickAnimationOptions): TrickAnimationState {
+  const [collectedKey, setCollectedKey] = useState<string>();
+  const collectionTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const cancelCollectionRef = useRef<(() => void) | undefined>(undefined);
+  const generationRef = useRef(0);
+  const roundRef = useRef(roundKey);
   const prefersReducedMotion = usePrefersReducedMotion();
   const [displayedTrick, setDisplayedTrick] = useState<readonly PublicPlayedCard[]>([]);
   const [isPlayingSequence, setIsPlayingSequence] = useState(false);
@@ -61,8 +69,19 @@ export function useTrickAnimation({
   }, [displayedTrick]);
 
   useEffect(() => {
+    if (roundRef.current !== roundKey) {
+      generationRef.current += 1;
+      cancelCollectionRef.current?.();
+      roundRef.current = roundKey;
+      displayedTrickRef.current = [];
+      displayedTrickNumberRef.current = undefined;
+      animatedEntryKeysRef.current.clear();
+      setCollectingWinnerId(undefined);
+      collectionInProgressRef.current = false;
+      setCollectedKey(undefined);
+    }
     const targetTrick = state?.currentTrick ?? [];
-    const targetKey = createTrickKey(state);
+    const targetKey = `${roundKey}:${createTrickKey(state)}`;
 
     if (targetKey === targetKeyRef.current) {
       return;
@@ -163,11 +182,14 @@ export function useTrickAnimation({
       }, revealAt);
       timersRef.current.push(revealTimer);
     });
-  }, [prefersReducedMotion, selfPlayerId, state]);
+  }, [prefersReducedMotion, roundKey, selfPlayerId, state]);
 
   useEffect(
     () => () => {
       clearTimers(timersRef.current);
+      targetKeyRef.current = "";
+      generationRef.current += 1;
+      cancelCollectionRef.current?.();
     },
     []
   );
@@ -191,7 +213,8 @@ export function useTrickAnimation({
   }, [displayedTrick.length, state]);
 
   async function playCollectionBefore<T>(work: () => Promise<T>): Promise<T | undefined> {
-    if (collectionInProgressRef.current) {
+    const key = `${roundKey}:${createTrickKey(state)}`;
+    if (collectionInProgressRef.current || collectedKey === key) {
       return undefined;
     }
 
@@ -199,18 +222,31 @@ export function useTrickAnimation({
       return work();
     }
 
+    const generation = generationRef.current;
     collectionInProgressRef.current = true;
     setCollectingWinnerId(completedWinnerId);
 
     try {
       if (!prefersReducedMotion) {
-        await delay(TRICK_COLLECT_DURATION_MS);
+        const completed = await new Promise<boolean>((resolve) => {
+          cancelCollectionRef.current = () => {
+            clearTimeout(collectionTimerRef.current);
+            resolve(false);
+          };
+          collectionTimerRef.current = setTimeout(() => resolve(true), TRICK_COLLECT_DURATION_MS);
+        });
+        if (!completed || generation !== generationRef.current) return undefined;
       }
 
+      setCollectedKey(key);
+      setDisplayedTrick([]);
+      displayedTrickRef.current = [];
       return await work();
     } finally {
-      collectionInProgressRef.current = false;
-      setCollectingWinnerId(undefined);
+      if (generation === generationRef.current) {
+        collectionInProgressRef.current = false;
+        setCollectingWinnerId(undefined);
+      }
     }
   }
 
@@ -220,6 +256,7 @@ export function useTrickAnimation({
     displayedTrickNumberRef.current !== state.trickNumber;
 
   return {
+    isCollected: collectedKey === `${roundKey}:${createTrickKey(state)}`,
     collectingWinnerId,
     displayedTrick: hasRenderedNewTrickBeforeReset ? [] : displayedTrick,
     isAnimating: isPlayingSequence || isResultEmphasisActive || collectingWinnerId !== undefined,
@@ -288,10 +325,4 @@ function clearTimers(timers: ReturnType<typeof setTimeout>[]): void {
       clearTimeout(timer);
     }
   }
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
 }

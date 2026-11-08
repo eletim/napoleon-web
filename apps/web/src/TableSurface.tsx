@@ -25,7 +25,6 @@ import { determineCurrentWinningPlayer } from "@napoleon/game-core";
 import { CardmeisterPlayingCard, useCardmeisterScript } from "./CardmeisterPlayingCard";
 import { cardDesignSuitSymbols } from "./CardDesignCard";
 import {
-  createBiddingBubbleLayouts,
   createBiddingOverlayGeometry,
   createCompactBiddingContentMetrics,
   createCurrentTrickCardPlaneForViewport,
@@ -79,6 +78,7 @@ interface TableSurfaceProps {
    * already resolved the whole trick. Falls back to `state.currentPlayerId`.
    */
   activePlayerId?: string;
+  isDealing?: boolean;
   actionPanel: ReactNode;
   canExchange: boolean;
   canPass?: boolean;
@@ -130,6 +130,7 @@ const biddingSuitOptions = ["spades", "hearts", "diamonds", "clubs"] as const sa
 
 export function TableSurface({
   activePlayerId,
+  isDealing = false,
   actionPanel,
   canExchange,
   canPass = false,
@@ -216,6 +217,34 @@ export function TableSurface({
     []
   );
 
+  // Deal each seat in turn from the center of the table; animate the outer
+  // element so its face and projected orientation stay together.
+  useLayoutEffect(() => {
+    const surface = surfaceRef.current;
+    if (!isDealing || !surface) return;
+    const bounds = surface.getBoundingClientRect();
+    const animations: Animation[] = [];
+    const hands = [
+      ...opponentSeatOrder.map(seat => Array.from(surface.querySelectorAll<HTMLElement>(
+        `.mock-projected-opponent-hand-${seat} .mock-projected-playing-card`))),
+      Array.from(surface.querySelectorAll<HTMLElement>(".production-self-hand-card"))
+    ];
+    hands.forEach((cards, seatIndex) => cards.forEach((card, index) => {
+      if (!card.animate) return;
+      const rect = card.getBoundingClientRect();
+      const parentScale = card.classList.contains("mock-projected-playing-card")
+        ? createProjectedBoardFit(tableDesignMockLayout, viewportSize).scale : 1;
+      const transform = getComputedStyle(card).transform;
+      const dx = (bounds.left + bounds.width / 2 - rect.left - rect.width / 2) / parentScale;
+      const dy = (bounds.top + bounds.height * .4 - rect.top - rect.height / 2) / parentScale;
+      animations.push(card.animate([
+        { transform: `translate(${dx}px, ${dy}px) ${transform === "none" ? "" : transform}`, opacity: 0 },
+        { transform, opacity: 1 }
+      ], { duration: 420, delay: (index * 5 + seatIndex) * 22, fill: "backwards", easing: "ease-out" }));
+    }));
+    return () => animations.forEach(animation => animation.cancel());
+  }, [isDealing, viewportSize.width, viewportSize.height]);
+
   const className = [
     "production-table-surface",
     state?.phase === "bidding" ? "production-table-surface-bidding" : "production-table-surface-playing",
@@ -238,7 +267,7 @@ export function TableSurface({
         adapters={adapters}
         currentTrickByPlayerId={playedCardsByPlayerId}
         getFlightSourceRect={getFlightSourceRect}
-        isCollecting={collectingSeat !== undefined}
+        collectingSeat={collectingSeat}
         isEntryAnimated={isEntryAnimated}
         match={match}
         registerOpponentHandContainer={registerOpponentHandContainer}
@@ -248,6 +277,7 @@ export function TableSurface({
       />
       <PlayerInfoLayer
         adapters={adapters}
+        isBidding={state?.phase === "bidding"}
         currentPlayerId={activePlayerId ?? state?.currentPlayerId}
         resultWinnerId={resultWinnerId}
         viewportSize={viewportSize}
@@ -266,7 +296,6 @@ export function TableSurface({
             selfPlayerId={selfPlayerId}
             viewportSize={viewportSize}
           />
-          <BiddingBubbleLayer adapters={adapters} viewportSize={viewportSize} />
         </>
       ) : null}
       <SelfHandLayer
@@ -344,7 +373,7 @@ function ProjectedProductionBoard({
   adapters,
   currentTrickByPlayerId,
   getFlightSourceRect,
-  isCollecting,
+  collectingSeat,
   isEntryAnimated,
   match,
   registerOpponentHandContainer,
@@ -355,7 +384,7 @@ function ProjectedProductionBoard({
   adapters: readonly TablePlayerAdapter[];
   currentTrickByPlayerId: ReadonlyMap<string, PublicPlayedCard>;
   getFlightSourceRect: (seat: TableSeatId, played: PublicPlayedCard) => DOMRect | undefined;
-  isCollecting: boolean;
+  collectingSeat: TableSeatId | undefined;
   isEntryAnimated: (playerId: string, cardId: string) => boolean;
   match: PublicMatchState | undefined;
   registerOpponentHandContainer: (seat: Exclude<TableSeatId, "self">, element: HTMLElement | null) => void;
@@ -441,7 +470,7 @@ function ProjectedProductionBoard({
           return (
             <ProjectedCurrentTrickCard
               getSourceRect={getFlightSourceRect}
-              isCollecting={isCollecting}
+              collectingSeat={collectingSeat}
               isEntryAnimated={isEntryAnimated}
               isWinning={played !== undefined && played.playerId === winningPlayerId}
               key={`production-trick-card-${seat}`}
@@ -747,7 +776,7 @@ function ProductionMatchRound({ match }: { match: PublicMatchState | undefined }
 
 function ProjectedCurrentTrickCard({
   getSourceRect,
-  isCollecting,
+  collectingSeat,
   isEntryAnimated,
   isWinning,
   played,
@@ -755,7 +784,7 @@ function ProjectedCurrentTrickCard({
   viewportSize
 }: {
   getSourceRect: (seat: TableSeatId, played: PublicPlayedCard) => DOMRect | undefined;
-  isCollecting: boolean;
+  collectingSeat: TableSeatId | undefined;
   isEntryAnimated: (playerId: string, cardId: string) => boolean;
   isWinning: boolean;
   played: PublicPlayedCard | undefined;
@@ -834,6 +863,23 @@ function ProjectedCurrentTrickCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [played?.playerId, played?.card.id]);
 
+  useLayoutEffect(() => {
+    const card = rootRef.current;
+    if (!card || collectingSeat === undefined || !card.animate || prefersReducedMotion) return;
+    const surface = card.closest(".production-table-surface");
+    const target = surface?.querySelector(`.mock-player-info-${collectingSeat}`)?.getBoundingClientRect();
+    if (!target) return;
+    const source = card.getBoundingClientRect();
+    const scale = createProjectedBoardFit(layout, viewportSize).scale;
+    const dx = (target.left + target.width / 2 - source.left - source.width / 2) / scale;
+    const dy = (target.top + target.height / 2 - source.top - source.height / 2) / scale;
+    const animation = card.animate([
+      { transform: baseTransform, opacity: 1 },
+      { transform: `translate(${dx}px, ${dy}px) ${baseTransform} translate(${size.width * .425}px, ${size.height * .425}px) scale(.15)`, opacity: 0 }
+    ], { duration: TRICK_COLLECT_DURATION_MS, fill: "forwards", easing: "cubic-bezier(.4,0,.8,.2)" });
+    return () => animation.cancel();
+  }, [collectingSeat, prefersReducedMotion]);
+
   if (played === undefined) {
     return null;
   }
@@ -846,7 +892,7 @@ function ProjectedCurrentTrickCard({
         "production-trick-card",
         `production-trick-card-from-${seat}`,
         isWinning ? "production-trick-card-winning" : "",
-        isCollecting ? "production-trick-card-collecting" : ""
+        collectingSeat !== undefined ? "production-trick-card-collecting" : ""
       ]
         .filter(Boolean)
         .join(" ")}
@@ -946,19 +992,44 @@ function ProjectedOpponentHand({
   );
 }
 
+function createSeatInfoLayouts(
+  layout: typeof tableDesignMockLayout,
+  viewport: ViewportSize,
+  projected: boolean,
+  handCount: number
+) {
+  const compact = viewport.height <= 520 && viewport.width > viewport.height;
+  const width = Math.min(compact ? 126 : 180, viewport.width * .27);
+  const height = compact ? 42 : 60;
+  return createPlayerInfoLayouts(layout, viewport, projected, handCount).map(info => {
+    if (info.seatId === "self") return info;
+    const upper = info.seatId.startsWith("top-");
+    const left = info.seatId === "left" || info.seatId === "top-left";
+    return {
+      ...info, width, height, avatarSize: compact ? 22 : 30, gap: compact ? 5 : 8,
+      x: upper && !(compact && viewport.width < 680)
+        ? viewport.width * (left ? (compact ? .23 : .28) : (compact ? .77 : .72))
+        : left ? width / 2 + 12 : viewport.width - width / 2 - 12,
+      y: upper ? height / 2 + (compact ? 8 : 14) : viewport.height * (compact ? .37 : .46)
+    };
+  });
+}
+
 function PlayerInfoLayer({
   adapters,
+  isBidding,
   currentPlayerId,
   resultWinnerId,
   viewportSize
 }: {
   adapters: readonly TablePlayerAdapter[];
+  isBidding: boolean;
   currentPlayerId: string | undefined;
   resultWinnerId?: string;
   viewportSize: ViewportSize;
 }) {
   const selfHandCardCount = adapters.find((adapter) => adapter.isSelf)?.selfHand.length ?? 0;
-  const infos = createPlayerInfoLayouts(
+  const infos = createSeatInfoLayouts(
     tableDesignMockLayout,
     viewportSize,
     true,
@@ -991,41 +1062,21 @@ function PlayerInfoLayer({
               <span className="mock-player-info-avatar-head" />
               <span className="mock-player-info-avatar-body" />
             </span>
-            <span className="mock-player-info-label">{player?.label ?? info.label}</span>
+            <span className="production-seat-details">
+              <span className="mock-player-info-label">{player?.label ?? info.label}</span>
+              {isBidding ? <output
+                className="production-seat-declaration"
+                aria-label={`${player?.label ?? info.label} 最新宣言 ${formatBiddingDeclaration(player?.biddingDeclaration)}`}
+                style={biddingActionColorStyle(player?.biddingDeclaration?.type === "bid" ? player.biddingDeclaration.suit : undefined)}
+              >{formatBiddingDeclaration(player?.biddingDeclaration)}</output> : <output
+                className="production-seat-points"
+                aria-label={`${player?.label ?? info.label}の獲得得点札 ${player?.capturedPointCards.length ?? 0}枚`}
+              >★ {player?.capturedPointCards.length ?? 0}</output>}
+            </span>
           </div>
         );
       })}
     </>
-  );
-}
-
-function BiddingBubbleLayer({
-  adapters,
-  viewportSize
-}: {
-  adapters: readonly TablePlayerAdapter[];
-  viewportSize: ViewportSize;
-}) {
-  const bubbles = createBiddingBubbleLayouts(tableDesignMockLayout, viewportSize);
-
-  return (
-    <div aria-label="各プレイヤーの最新競り宣言" className="mock-bidding-bubble-layer">
-      {bubbles.map((bubble) => {
-        const player = adapters.find((entry) => entry.seat === bubble.seatId);
-        const declaration = player?.isSelf === true || player !== undefined ? player?.biddingDeclaration : undefined;
-
-        return (
-          <output
-            aria-label={`${player?.label ?? bubble.label} 最新宣言 ${formatBiddingDeclaration(declaration)}`}
-            className={`mock-bidding-bubble mock-bidding-bubble-${bubble.seatId}`}
-            key={bubble.seatId}
-            style={biddingBubbleStyle(bubble, declaration)}
-          >
-            {formatBiddingDeclaration(declaration)}
-          </output>
-        );
-      })}
-    </div>
   );
 }
 
@@ -1051,7 +1102,14 @@ function ProductionBiddingOverlay({
   viewportSize: ViewportSize;
 }) {
   const [selection, setSelection] = useState<BidSelection | null>(() => normalizeBidSelection(legalBidActions, null));
-  const geometry = createBiddingOverlayGeometry(tableDesignMockLayout, viewportSize);
+  const compact = viewportSize.height <= 520 && viewportSize.width > viewportSize.height;
+  const hand = createSelfHandViewportLayout(tableDesignMockLayout, 10, viewportSize);
+  const geometry = compact ? {
+    width: viewportSize.width * .60,
+    height: 100,
+    x: viewportSize.width * .64,
+    y: hand.top - 56
+  } : createBiddingOverlayGeometry(tableDesignMockLayout, viewportSize);
   const contentMetrics = createCompactBiddingContentMetrics(geometry);
   const isSelfTurn = selfPlayerId !== undefined && currentPlayerId === selfPlayerId;
   const canOperate = isSelfTurn && !isBusy;
@@ -1430,21 +1488,6 @@ function formatHighestBid(bid: PublicBiddingState["highestBid"]): string {
   }
 
   return `${cardDesignSuitSymbols[bid.suit]}${bid.targetPointCards}`;
-}
-
-function biddingBubbleStyle(
-  bubble: { height: number; width: number; x: number; y: number },
-  declaration: TablePlayer["biddingDeclaration"] | undefined
-): CSSProperties {
-  const suit = declaration?.type === "bid" ? declaration.suit : undefined;
-
-  return {
-    ...biddingActionColorStyle(suit),
-    "--mock-bidding-bubble-height": `${bubble.height}px`,
-    "--mock-bidding-bubble-width": `${bubble.width}px`,
-    "--mock-x": `${bubble.x}px`,
-    "--mock-y": `${bubble.y}px`
-  } as CSSProperties;
 }
 
 function biddingActionColorStyle(suit: PublicSuit | undefined): CSSProperties {

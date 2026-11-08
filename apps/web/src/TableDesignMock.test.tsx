@@ -269,7 +269,7 @@ describe("TableDesignMock", () => {
         expect(overlay.x).toBeCloseTo(viewport.width / 2);
       }
       for (const bubble of bubbles) {
-        expect(boxesOverlap(boxFromCenter(bubble), roleBoardBox)).toBe(false);
+        expect(boxesOverlap(boxFromCenter(bubble), roleBoardBox), JSON.stringify({viewport,bubble,roleBoardBox})).toBe(false);
       }
       expect(overlayBox.left).toBeGreaterThanOrEqual(0);
       expect(overlayBox.right).toBeLessThanOrEqual(viewport.width);
@@ -592,7 +592,7 @@ describe("TableDesignMock", () => {
 
     expect(rawBox.height).toBeGreaterThan(0);
     expect(fullHd.transformedTableBox.height).toBeCloseTo(1080 * fullHd.tableHeightRatio);
-    expect(fullHd.transformedTableBox.top).toBeCloseTo(1080 * 0.015);
+    expect(fullHd.transformedTableBox.top).toBeGreaterThan(1080 * 0.015);
     expect(fullHd.transformedTableBox.x).toBeCloseTo(960);
     expect(fullHd.transformedTableBox.width).toBeLessThan(1920);
 
@@ -603,8 +603,26 @@ describe("TableDesignMock", () => {
 
     expect(qhd.scale).toBeGreaterThan(fullHd.scale);
     expect(qhd.transformedTableBox.height).toBeCloseTo(1440 * qhd.tableHeightRatio);
-    expect(qhd.transformedTableBox.top).toBeCloseTo(1440 * 0.015);
+    expect(qhd.transformedTableBox.top).toBeGreaterThan(1440 * 0.015);
     expect(qhd.transformedTableBox.x).toBeCloseTo(1280);
+  });
+
+  it("keeps all opponent card backs inside the viewport, including the upper corners", () => {
+    for (const viewport of [{ width: 904, height: 407 }, { width: 568, height: 320 }, { width: 1440, height: 1000 }]) {
+      const fit = createProjectedBoardFit(tableDesignMockLayout, viewport);
+      for (const seat of ["left", "top-left", "top-right", "right"] as const) {
+        const hand = createOpponentHandGeometry({ ...tableDesignMockLayout,
+          opponentHand: { ...tableDesignMockLayout.opponentHand,
+            cardCounts: { "top-left": 10, "top-right": 10, left: 10, right: 10 } }
+        }, seat);
+        for (const card of hand.cards) for (const point of projectVerticalCard(card, tableDesignMockLayout.camera)) {
+          const x = point.x * fit.scale + fit.translate.x;
+          const y = point.y * fit.scale + fit.translate.y;
+          expect(x).toBeGreaterThanOrEqual(0); expect(x).toBeLessThanOrEqual(viewport.width);
+          expect(y).toBeGreaterThanOrEqual(0); expect(y).toBeLessThanOrEqual(viewport.height);
+        }
+      }
+    }
   });
 
   it("keeps the projected board fixed when the last self-hand card is played", () => {

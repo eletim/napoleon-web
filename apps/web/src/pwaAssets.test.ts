@@ -11,6 +11,7 @@ interface WebAppManifest {
   start_url?: string;
   scope?: string;
   display?: string;
+  orientation?: string;
   theme_color?: string;
   background_color?: string;
   icons?: Array<{
@@ -38,6 +39,7 @@ describe("PWA assets", () => {
       start_url: ".",
       scope: ".",
       display: "standalone",
+      orientation: "landscape",
       theme_color: "#2e6b52",
       background_color: "#e7ebf0"
     });
