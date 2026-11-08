@@ -38,6 +38,7 @@ import { advanceMatch, createGame, getAiPresets, nextTrick, sendAction, updateAi
 import { suitSymbols } from "./cardSymbols";
 import { createMessage } from "./displayText";
 import { createTablePlayers } from "./tablePlayers";
+import { useTablePresentation } from "./useTablePresentation";
 import { useTrickAnimation } from "./useTrickAnimation";
 import "./styles.css";
 
@@ -136,11 +137,6 @@ function GameApp() {
     session?.state.phase === "choosing-adjutant" &&
     session.state.adjutantChoice?.napoleonPlayerId === session.playerId;
 
-  const tablePlayers = useMemo(() => createTablePlayers(session?.state), [session?.state]);
-  const aiSeats = useMemo(
-    () => tablePlayers.filter((player) => !player.isSelf),
-    [tablePlayers]
-  );
   const adjutantShortcutOptions = useMemo(
     () => createAdjutantShortcutOptions(session?.state.specialCards),
     [session?.state.specialCards]
@@ -155,10 +151,6 @@ function GameApp() {
     const presetId = seatPresetSelections[playerId] ?? defaultPresetId;
     return presets.find((preset) => preset.id === presetId) ?? presets[0];
   };
-  const hasUnavailablePresetSelection = aiSeats.some((seat) => {
-    const preset = resolveSeatPreset(seat.id);
-    return preset === undefined || !isPresetCompositionAvailable(preset.composition, policyRegistry);
-  });
   const hasActionPrompt =
     session !== undefined &&
     (session.state.currentPlayerId === session.playerId ||
@@ -171,11 +163,23 @@ function GameApp() {
     hasActionPrompt ||
     session.state.latestEvent?.type === "buried-cards-resolved" ||
     hasRequestError;
+  const roundKey = `${session?.gameId}:${session?.match?.currentRound ?? 1}`;
   const trickAnimation = useTrickAnimation({
+    roundKey,
     selfPlayerId: session?.playerId,
     state: session?.state
   });
-  const isInteractionLocked = isBusy || trickAnimation.isAnimating;
+  const presentation = useTablePresentation(session?.state, session?.match, roundKey, trickAnimation.isCollected);
+  const tablePlayers = useMemo(() => createTablePlayers(presentation.state), [presentation.state]);
+  const aiSeats = useMemo(
+    () => tablePlayers.filter((player) => !player.isSelf),
+    [tablePlayers]
+  );
+  const hasUnavailablePresetSelection = aiSeats.some((seat) => {
+    const preset = resolveSeatPreset(seat.id);
+    return preset === undefined || !isPresetCompositionAvailable(preset.composition, policyRegistry);
+  });
+  const isInteractionLocked = isBusy || presentation.isDealing || trickAnimation.isAnimating;
   // The final trick's result only replaces the trick display once its
   // show-then-collect animation has actually finished (see the auto-advance
   // effect below), so the very last card played is never instantly hidden
@@ -396,7 +400,7 @@ function GameApp() {
       return;
     }
 
-    const trickKey = `${session.gameId}:${state.trickNumber}:${state.isGameOver}`;
+    const trickKey = `${roundKey}:${state.trickNumber}:${state.isGameOver}`;
     if (autoAdvanceTrickKeyRef.current === trickKey) {
       return;
     }
@@ -465,8 +469,11 @@ function GameApp() {
   // show-then-collect animation: isGameOver flips true as soon as the last
   // card is played, well before that animation (now several seconds) has
   // actually finished, and this view must not shrink out from under it.
-  const isGameInProgress = isStartedGame && (!session.state.isGameOver || isFinalTrickPendingReveal);
-  const completedMatch = hasCompletedMatchResult(session?.match) ? session.match : undefined;
+  const isGameInProgress = isStartedGame && (
+    !session.state.isGameOver || isFinalTrickPendingReveal ||
+    (session.match !== undefined && !session.match.completed)
+  );
+  const completedMatch = !isFinalTrickPendingReveal && hasCompletedMatchResult(session?.match) ? session.match : undefined;
   const canAdvanceMatch =
     session?.state.result !== null &&
     session?.state.result !== undefined &&
@@ -569,17 +576,13 @@ function GameApp() {
             />
           ) : (
             <>
-              <section className="mobile-landscape-guide" aria-label="横向きプレイ案内">
-                <strong>横向きでプレイしてください</strong>
-                <span>スマートフォンを横にすると、5人卓と手札を見やすく表示します。</span>
-              </section>
-
               <section
                 className={canAdvanceMatch ? "table table-result-advance" : "table"}
                 aria-label="ゲームテーブル"
                 onClick={canAdvanceMatch ? handleResultBackgroundClick : undefined}
               >
             <TableSurface
+              isDealing={presentation.isDealing}
               activePlayerId={trickAnimation.presentationCurrentPlayerId}
               actionPanel={
                 hasTableActionPanel ? (
@@ -752,7 +755,7 @@ function GameApp() {
               isResultEmphasisActive={trickAnimation.isResultEmphasisActive}
               legalBidActions={legalBidActions}
               legalCardIds={legalCardIds}
-              match={session?.match}
+              match={presentation.match}
               onBid={(action) => void handleSendAction(action)}
               onPass={() => void handleSendAction({ type: "pass" })}
               onToggleWinningCardHighlight={() =>
@@ -763,7 +766,7 @@ function GameApp() {
               resultWinnerId={trickAnimation.resultWinnerId}
               selectedDiscardCardIds={selectedDiscardCardIds}
               selfPlayerId={session?.playerId}
-              state={session?.state}
+              state={presentation.state}
               trickNumber={session?.state.trickNumber}
               trumpSuit={session?.state.trumpSuit}
             />

@@ -1,0 +1,18 @@
+html.mobile-viewport-host,
+.mobile-viewport-host body,
+.mobile-viewport-host #root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #1d1d1d;
+}
+.mobile-landscape-viewport {
+  display: block;
+  position: fixed;
+  top: 0;
+  left: 0;
+  border: 0;
+  transform-origin: 0 0;
+  color-scheme: light;
+}

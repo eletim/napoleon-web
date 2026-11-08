@@ -225,7 +225,7 @@ describe("TableSurface", () => {
     expect(html).toContain(`--mock-bidding-action-color:${fourColorSuitColors.diamonds}`);
   });
 
-  it("renders bidding bubbles from latest bidding history using shared suit colors", () => {
+  it("keeps each latest declaration inside its named seat using shared suit colors", () => {
     const html = renderTable(
       createState({
         biddingHistory: [
@@ -245,7 +245,7 @@ describe("TableSurface", () => {
     );
 
     expect(html).toContain("production-table-surface-bidding");
-    expect(countOccurrences(html, "mock-bidding-bubble mock-bidding-bubble-")).toBe(5);
+    expect(countOccurrences(html, 'class="production-seat-declaration"')).toBe(5);
     expect(html).toContain("左側AI 最新宣言 ♠14");
     expect(html).toContain("奥左AI 最新宣言 PASS");
     expect(html).toContain("右側AI 最新宣言 ♥15");
